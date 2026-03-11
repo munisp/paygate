@@ -64,9 +64,26 @@ export default function FXDashboard() {
   const [tab, setTab] = useState<"rates" | "converter" | "analytics" | "settings">("rates");
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Simulate rate fluctuations
+  // Live FX rates from DB
+  const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? 60_000 : false });
+  const fetchAndStoreMutation = trpc.fx.fetchAndStore.useMutation({
+    onSuccess: (d) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
+    onError: () => toast.error("Failed to fetch live rates"),
+  });
+
+  // Merge live DB rates into the rates map
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (liveRates && liveRates.length > 0) {
+      const updated = { ...BASE_RATES };
+      liveRates.forEach(r => { updated[r.targetCurrency] = parseFloat(r.rate); });
+      setRates(updated);
+      setLastUpdated(new Date(liveRates[0].fetchedAt).toLocaleTimeString());
+    }
+  }, [liveRates]);
+
+  // Simulate rate fluctuations only when no live data
+  useEffect(() => {
+    if (!autoRefresh || (liveRates && liveRates.length > 0)) return;
     const interval = setInterval(() => {
       setRates(prev => {
         const updated = { ...prev };
@@ -78,7 +95,7 @@ export default function FXDashboard() {
       setLastUpdated(new Date().toLocaleTimeString());
     }, 5000);
     return () => clearInterval(interval);
-  }, [autoRefresh]);
+  }, [autoRefresh, liveRates]);
 
   const currentRate = getRate(fromCurrency, toCurrency);
   const convertedAmount = (parseFloat(amount || "0") * currentRate).toFixed(2);
@@ -110,6 +127,10 @@ export default function FXDashboard() {
             <RefreshCw className={`w-3.5 h-3.5 ${autoRefresh ? "animate-spin" : ""}`} style={{ animationDuration: "3s" }} />
             {autoRefresh ? "Live" : "Paused"}
           </button>
+          <Button size="sm" variant="outline" onClick={() => fetchAndStoreMutation.mutate()} disabled={fetchAndStoreMutation.isPending}>
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${fetchAndStoreMutation.isPending ? 'animate-spin' : ''}`} />
+            {fetchAndStoreMutation.isPending ? 'Fetching...' : 'Fetch Live Rates'}
+          </Button>
         </div>
       </div>
 

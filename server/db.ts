@@ -347,6 +347,11 @@ export async function listFraudAlerts(merchantId: string, opts: { limit?: number
   ]);
   return { rows, total: tot[0]?.count ?? 0 };
 }
+export async function createFraudAlert(data: InsertFraudAlert) {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  const [row] = await db.insert(fraudAlerts).values(data).returning();
+  return row;
+}
 export async function updateFraudAlert(id: string, merchantId: string, data: Partial<InsertFraudAlert>) {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
   await db.update(fraudAlerts).set({ ...data, updatedAt: new Date() }).where(and(eq(fraudAlerts.id, id), eq(fraudAlerts.merchantId, merchantId)));
@@ -464,4 +469,53 @@ export async function updateWebhookDelivery(id: string, data: Partial<WebhookDel
   const db = await getDb(); if (!db) return null;
   const [row] = await db.update(webhookDeliveries).set({ ...data }).where(eq(webhookDeliveries.id, id)).returning();
   return row;
+}
+
+// ─── FX Rates ─────────────────────────────────────────────────────────────────
+import { type FxRate, type InsertFxRate, fxRates } from "../drizzle/schema";
+
+export async function upsertFxRates(rates: InsertFxRate[]) {
+  const db = await getDb(); if (!db || rates.length === 0) return;
+  await db.insert(fxRates).values(rates)
+    .onConflictDoNothing(); // insert fresh rows; old ones remain for history
+}
+
+export async function getLatestFxRates(base = "USD") {
+  const db = await getDb(); if (!db) return [];
+  // Get the most recent fetchedAt timestamp for this base
+  const [latest] = await db
+    .select({ fetchedAt: fxRates.fetchedAt })
+    .from(fxRates)
+    .where(eq(fxRates.baseCurrency, base))
+    .orderBy(desc(fxRates.fetchedAt))
+    .limit(1);
+  if (!latest) return [];
+  return db.select().from(fxRates)
+    .where(and(eq(fxRates.baseCurrency, base), eq(fxRates.fetchedAt, latest.fetchedAt)));
+}
+
+export async function getFxRateHistory(base: string, target: string, limit = 48) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(fxRates)
+    .where(and(eq(fxRates.baseCurrency, base), eq(fxRates.targetCurrency, target)))
+    .orderBy(desc(fxRates.fetchedAt))
+    .limit(limit);
+}
+
+// ─── Transaction Export ────────────────────────────────────────────────────────
+export async function getTransactionsForExport(
+  merchantId: string,
+  from?: Date,
+  to?: Date,
+  status?: string,
+) {
+  const db = await getDb(); if (!db) return [];
+  const conds: any[] = [eq(transactions.merchantId, merchantId)];
+  if (from) conds.push(gte(transactions.createdAt, from));
+  if (to) conds.push(lte(transactions.createdAt, to));
+  if (status) conds.push(eq(transactions.status, status as any));
+  return db.select().from(transactions)
+    .where(and(...conds))
+    .orderBy(desc(transactions.createdAt))
+    .limit(10000); // cap at 10k rows per export
 }

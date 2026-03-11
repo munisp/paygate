@@ -4,7 +4,8 @@ import {
   LayoutDashboard, ArrowLeftRight, Users, CreditCard, BarChart3,
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu, X,
-  Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon, ArrowLeftRight as FXIcon
+  Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon, ArrowLeftRight as FXIcon,
+  QrCode, Smartphone
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,8 @@ const navItems = [
   { icon: Globe, label: "FX & Rates", path: "/fx" },
   { icon: Users, label: "Team & Roles", path: "/team" },
   { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
+  { icon: QrCode, label: "QR Payments", path: "/qr-payments" },
+  { icon: Smartphone, label: "Consumer App", path: "/consumer" },
 ];
 
 const devItems = [

@@ -384,3 +384,18 @@ export const mobileMoneyRecon = pgTable("mobile_money_recon", {
 ]);
 export type MobileMoneyReconRecord = typeof mobileMoneyRecon.$inferSelect;
 export type InsertMobileMoneyReconRecord = typeof mobileMoneyRecon.$inferInsert;
+
+// ─── FX Rates ─────────────────────────────────────────────────────────────────
+export const fxRates = pgTable("fx_rates", {
+  id: serial("id").primaryKey(),
+  baseCurrency: text("base_currency").notNull().default("NGN"),
+  targetCurrency: text("target_currency").notNull(),
+  rate: text("rate").notNull(), // stored as string to avoid float precision issues
+  source: text("source").notNull().default("exchangerate-api"),
+  fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+}, (t) => [
+  index("fx_rates_base_target_idx").on(t.baseCurrency, t.targetCurrency),
+  index("fx_rates_fetched_idx").on(t.fetchedAt),
+]);
+export type FxRate = typeof fxRates.$inferSelect;
+export type InsertFxRate = typeof fxRates.$inferInsert;

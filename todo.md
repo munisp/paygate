@@ -90,3 +90,30 @@
 - [x] ComplianceKYC.tsx — static KYC status
 - [x] Checkout.tsx — static checkout flow demo
 - [x] DisputeWorkflow.tsx — static workflow steps
+
+## Merchant Portal — Wave 3
+- [x] Real-time owner notifications on fraud alert + KYC status change
+- [x] FX rate fetcher: fx_rates table + scheduled tRPC + FXDashboard live data
+- [x] Transaction CSV export (transactions.export + download handler)
+
+## Archive PWA Integration
+- [x] WebAuthn biometric auth in portal login/settings
+- [x] QR payment generation page in portal
+- [x] UniversalSearch in portal header
+- [x] SecurityDashboard page in portal
+- [x] Service worker offline support
+- [x] PaymentRequestButton (Apple/Google Pay) in checkout
+
+## Consumer PWA (separate app)
+- [x] Scaffold consumer PWA Vite project
+- [x] Consumer wallet dashboard
+- [x] P2P transfer page
+- [x] QR payments page
+- [x] Bill pay page
+- [x] BNPL checkout page
+- [x] Consumer auth (login/signup/onboarding)
+- [x] Wire consumer tRPC backend procedures
+
+## Developer Portal
+- [x] SDK inventory page (JS/Node/Python/PHP/Android/iOS)
+- [x] Developer portal page with API docs and sandbox

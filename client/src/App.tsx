@@ -25,10 +25,19 @@ import TeamRoles from "./pages/TeamRoles";
 import MobileMoneyRecon from "./pages/MobileMoneyRecon";
 import ComplianceKYC from "./pages/ComplianceKYC";
 import DisputeWorkflow from "./pages/DisputeWorkflow";
+import QRPayments from "./pages/QRPayments";
+
+// Consumer PWA pages
+import ConsumerLayout from "./pages/consumer/ConsumerLayout";
+import ConsumerWallet from "./pages/consumer/ConsumerWallet";
+import MakePayment from "./pages/consumer/MakePayment";
+import BillPay from "./pages/consumer/BillPay";
+import ConsumerProfile from "./pages/consumer/ConsumerProfile";
 
 function Router() {
   const [location] = useLocation();
   const isAuthPage = location === "/" || location === "/login" || location === "/onboarding";
+  const isConsumerPage = location.startsWith("/consumer");
 
   if (isAuthPage) {
     return (
@@ -37,6 +46,21 @@ function Router() {
         <Route path="/login" component={Login} />
         <Route path="/onboarding" component={Onboarding} />
       </Switch>
+    );
+  }
+
+  if (isConsumerPage) {
+    return (
+      <ConsumerLayout>
+        <Switch>
+          <Route path="/consumer" component={ConsumerWallet} />
+          <Route path="/consumer/send" component={MakePayment} />
+          <Route path="/consumer/qr" component={QRPayments} />
+          <Route path="/consumer/bills" component={BillPay} />
+          <Route path="/consumer/profile" component={ConsumerProfile} />
+          <Route component={ConsumerWallet} />
+        </Switch>
+      </ConsumerLayout>
     );
   }
 
@@ -62,6 +86,7 @@ function Router() {
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />
+        <Route path="/qr-payments" component={QRPayments} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

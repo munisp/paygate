@@ -21,7 +21,33 @@ export default function Transactions() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [exporting, setExporting] = useState(false);
   const limit = 20;
+
+  const utils = trpc.useUtils();
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const result = await utils.export.transactions.fetch({
+        status: statusFilter,
+      });
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `transactions-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.count.toLocaleString()} transactions`);
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const { data, isLoading, refetch } = trpc.transactions.list.useQuery(
     { limit, offset: page * limit, search: search || undefined, status: statusFilter as any },
@@ -43,8 +69,9 @@ export default function Transactions() {
           <Button variant="outline" size="sm" onClick={() => { refetch(); toast.info("Refreshed"); }}>
             <RefreshCw className="w-4 h-4 mr-1.5" />Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast.info("Export coming soon")}>
-            <Download className="w-4 h-4 mr-1.5" />Export
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+            <Download className={`w-4 h-4 mr-1.5 ${exporting ? 'animate-spin' : ''}`} />
+            {exporting ? 'Exporting...' : 'Export CSV'}
           </Button>
         </div>
       </div>

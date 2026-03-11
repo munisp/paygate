@@ -12,12 +12,15 @@ import {
   listWebhookDeliveries,
   revokeApiKey, updateDispute, updateMerchant, updatePayout, updatePaymentLink,
   updateVirtualCard, upsertCustomer, getUserByOpenId, getVirtualCardById,
-  listFraudAlerts, updateFraudAlert, getFraudStats,
+  listFraudAlerts, createFraudAlert, updateFraudAlert, getFraudStats,
   listKycSubmissions, updateKycSubmission, getKycStats,
   listBnplLoans, createBnplLoan, getBnplStats,
   listMobileMoneyRecon, getMmReconStats,
+  upsertFxRates, getLatestFxRates, getFxRateHistory,
+  getTransactionsForExport,
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { notifyOwner } from "./_core/notification";
 import { systemRouter } from "./_core/systemRouter";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -692,7 +695,42 @@ const fraudRiskRouter = router({
         update.resolvedBy = input.resolvedBy ?? ctx.user.openId;
       }
       await updateFraudAlert(input.id, merchant.id, update);
+      // Notify owner when a new fraud alert is flagged or escalated
+      if (input.status === 'investigating') {
+        await notifyOwner({
+          title: `Fraud Alert Escalated`,
+          content: `Alert ${input.id} has been escalated to investigating status by ${ctx.user.openId}.`,
+        }).catch(() => {}); // non-blocking
+      }
       return { success: true };
+    }),
+  createAlert: protectedProcedure
+    .input(z.object({
+      alertType: z.enum(['velocity_breach','card_testing','unusual_location','account_takeover','chargeback_pattern','identity_mismatch','device_fingerprint','ip_blacklist']),
+      riskScore: z.number().min(0).max(100).default(50),
+      description: z.string().optional(),
+      transactionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const alert = await createFraudAlert({
+        id: nanoid('fa_'),
+        merchantId: merchant.id,
+        alertType: input.alertType,
+        riskScore: input.riskScore,
+        description: input.description,
+        transactionId: input.transactionId,
+        status: 'open',
+      });
+      // Notify owner of new high-risk fraud alert
+      if (input.riskScore >= 75) {
+        await notifyOwner({
+          title: `🚨 High-Risk Fraud Alert (score: ${input.riskScore})`,
+          content: `New ${input.alertType} fraud alert created with risk score ${input.riskScore}${input.description ? ': ' + input.description : ''}.`,
+        }).catch(() => {});
+      }
+      return alert;
     }),
 });
 
@@ -723,6 +761,15 @@ const complianceKycRouter = router({
         update.reviewedBy = ctx.user.openId;
       }
       await updateKycSubmission(input.id, merchant.id, update);
+      // Notify owner when KYC status changes to approved or rejected
+      if (input.status === 'approved' || input.status === 'rejected') {
+        await notifyOwner({
+          title: `KYC Submission ${input.status.charAt(0).toUpperCase() + input.status.slice(1)}`,
+          content: `KYC submission ${input.id} has been ${input.status}${
+            input.rejectionReason ? `: ${input.rejectionReason}` : ''
+          }.`,
+        }).catch(() => {});
+      }
       return { success: true };
     }),
 });
@@ -800,6 +847,65 @@ const webhookDeliveriesRouter = router({
     }),
 });
 
+// ─── FX Rates Router ─────────────────────────────────────────────────────────
+const fxRouter = router({
+  getRates: protectedProcedure
+    .input(z.object({ base: z.string().default("USD") }))
+    .query(async ({ input }) => {
+      return getLatestFxRates(input.base);
+    }),
+  getHistory: protectedProcedure
+    .input(z.object({ base: z.string(), target: z.string(), limit: z.number().min(1).max(200).default(48) }))
+    .query(async ({ input }) => {
+      return getFxRateHistory(input.base, input.target, input.limit);
+    }),
+  fetchAndStore: protectedProcedure
+    .mutation(async () => {
+      // Fetch from ExchangeRate-API free tier (no key required for basic endpoint)
+      const res = await fetch("https://open.er-api.com/v6/latest/USD");
+      if (!res.ok) throw new Error("FX rate fetch failed");
+      const data = await res.json() as { rates: Record<string, number>; time_last_update_utc: string };
+      const fetchedAt = new Date();
+      const rows = Object.entries(data.rates)
+        .filter(([cur]) => ["NGN","GHS","KES","ZAR","EUR","GBP","CAD","AUD","JPY","CNY","INR","BRL","MXN","AED","SAR"].includes(cur))
+        .map(([targetCurrency, rate]) => ({
+          baseCurrency: "USD",
+          targetCurrency,
+          rate: String(rate),
+          source: "open.er-api.com",
+          fetchedAt,
+        }));
+      await upsertFxRates(rows);
+      return { count: rows.length, fetchedAt };
+    }),
+});
+
+// ─── Transaction Export Router ────────────────────────────────────────────────
+const exportRouter = router({
+  transactions: protectedProcedure
+    .input(z.object({
+      from: z.date().optional(),
+      to: z.date().optional(),
+      status: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rows = await getTransactionsForExport(merchant.id, input.from, input.to, input.status);
+      // Build CSV string server-side
+      const header = "id,reference,amount,currency,status,channel,customerEmail,createdAt\n";
+      const csv = header + rows.map(r =>
+        [
+          r.id, r.reference, (r.amount / 100).toFixed(2), r.currency,
+          r.status, r.channel ?? "",
+          r.customerEmail ?? "",
+          r.createdAt.toISOString(),
+        ].join(",")
+      ).join("\n");
+      return { csv, count: rows.length };
+    }),
+});
+
 // ─── Root Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -820,6 +926,8 @@ export const appRouter = router({
   settings: settingsRouter,
   analytics: analyticsRouter,
   middleware: middlewareRouter,
+  fx: fxRouter,
+  export: exportRouter,
   fraudRisk: fraudRiskRouter,
   complianceKyc: complianceKycRouter,
   bnpl: bnplRouter,
