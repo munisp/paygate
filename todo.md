@@ -44,3 +44,20 @@
 - [x] Implement JWT auth flow (login → token → storage)
 - [x] Wire transactions screen to live API
 - [x] Wire dashboard screen to live API
+
+## Demo Data Seed
+- [x] Write seed.mjs script with realistic merchants, customers, transactions, payouts, disputes, API keys, webhooks
+- [x] Run seed against local PostgreSQL
+- [x] Verify all dashboard pages render with data
+
+## Production Secrets
+- [x] Request DATABASE_URL (PostgreSQL production connection string)
+- [x] Request MIDDLEWARE_BRIDGE_URL (Go sidecar URL)
+- [x] Request MIDDLEWARE_INTERNAL_KEY (shared secret for bridge auth)
+
+## Expanded Test Suite
+- [x] transactions.list — pagination, filtering by status/date
+- [x] payouts.create — validates amount, currency, bank details
+- [x] onboarding.createMerchant — creates merchant + sets onboarding step
+- [x] customers.list — returns paginated customer list
+- [x] apiKeys.create / revoke — full lifecycle test
