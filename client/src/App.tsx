@@ -16,16 +16,20 @@ import Webhooks from "./pages/Webhooks";
 import Settings from "./pages/Settings";
 import Payouts from "./pages/Payouts";
 import Disputes from "./pages/Disputes";
+import Onboarding from "./pages/Onboarding";
+import PaymentLinks from "./pages/PaymentLinks";
+import FraudRisk from "./pages/FraudRisk";
 
 function Router() {
   const [location] = useLocation();
-  const isAuthPage = location === "/" || location === "/login";
+  const isAuthPage = location === "/" || location === "/login" || location === "/onboarding";
 
   if (isAuthPage) {
     return (
       <Switch>
         <Route path="/" component={Login} />
         <Route path="/login" component={Login} />
+        <Route path="/onboarding" component={Onboarding} />
       </Switch>
     );
   }
@@ -41,6 +45,8 @@ function Router() {
         <Route path="/checkout" component={Checkout} />
         <Route path="/payouts" component={Payouts} />
         <Route path="/disputes" component={Disputes} />
+        <Route path="/payment-links" component={PaymentLinks} />
+        <Route path="/fraud-risk" component={FraudRisk} />
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />

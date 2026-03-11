@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ArrowLeftRight, Users, CreditCard, BarChart3,
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu, X,
-  Zap, Globe, Shield
+  Zap, Globe, Shield, Link2, Brain
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ const navItems = [
   { icon: AlertTriangle, label: "Disputes", path: "/disputes", badge: "3" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
   { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
+  { icon: Link2, label: "Payment Links", path: "/payment-links" },
+  { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
 ];
 
 const devItems = [
@@ -84,6 +86,8 @@ export default function Layout({ children }: LayoutProps) {
                         className={`text-xs px-1.5 py-0 ${
                           item.badge === "Live"
                             ? "bg-emerald-500/20 text-emerald-400 border-0"
+                            : item.badge === "AI"
+                            ? "bg-violet-500/20 text-violet-400 border-0"
                             : "bg-red-500/20 text-red-400 border-0"
                         }`}
                       >
