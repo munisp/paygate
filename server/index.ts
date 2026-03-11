@@ -10,11 +10,11 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Serve static files from dist/public in production
+  // Serve the PayGate PWA static files from client/public
   const staticPath =
     process.env.NODE_ENV === "production"
       ? path.resolve(__dirname, "public")
-      : path.resolve(__dirname, "..", "dist", "public");
+      : path.resolve(__dirname, "..", "client", "public");
 
   app.use(express.static(staticPath));
 
@@ -26,7 +26,7 @@ async function startServer() {
   const port = process.env.PORT || 3000;
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    console.log(`PayGate Merchant Portal running on http://localhost:${port}/`);
   });
 }
 
