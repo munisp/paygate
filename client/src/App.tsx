@@ -23,6 +23,8 @@ import BNPL from "./pages/BNPL";
 import FXDashboard from "./pages/FXDashboard";
 import TeamRoles from "./pages/TeamRoles";
 import MobileMoneyRecon from "./pages/MobileMoneyRecon";
+import ComplianceKYC from "./pages/ComplianceKYC";
+import DisputeWorkflow from "./pages/DisputeWorkflow";
 
 function Router() {
   const [location] = useLocation();
@@ -49,12 +51,14 @@ function Router() {
         <Route path="/checkout" component={Checkout} />
         <Route path="/payouts" component={Payouts} />
         <Route path="/disputes" component={Disputes} />
+        <Route path="/disputes/:id" component={DisputeWorkflow} />
         <Route path="/payment-links" component={PaymentLinks} />
         <Route path="/fraud-risk" component={FraudRisk} />
         <Route path="/bnpl" component={BNPL} />
         <Route path="/fx" component={FXDashboard} />
         <Route path="/team" component={TeamRoles} />
         <Route path="/mobile-money" component={MobileMoneyRecon} />
+        <Route path="/compliance" component={ComplianceKYC} />
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />

@@ -1,19 +1,26 @@
 <!doctype html>
 <html lang="en">
-
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>PayGate Merchant Portal</title>    
-    <!-- THIS IS THE START OF A COMMENT BLOCK, BLOCK TO BE DELETED: Google Fonts here, example:
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>PayGate Merchant Portal</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#4F46E5" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="PayGate" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96x96.png" />
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    THIS IS THE END OF A COMMENT BLOCK, BLOCK TO BE DELETED -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
-
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
@@ -22,5 +29,4 @@
       src="%VITE_ANALYTICS_ENDPOINT%/umami"
       data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
   </body>
-
 </html>
