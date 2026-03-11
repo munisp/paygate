@@ -8,6 +8,13 @@
       "when": 1773262446973,
       "tag": "0000_white_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773265510168,
+      "tag": "0001_mute_tattoo",
+      "breakpoints": true
     }
   ]
 }

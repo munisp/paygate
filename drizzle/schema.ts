@@ -256,3 +256,29 @@ export const teamMembers = pgTable("team_members", {
 
 export type TeamMember = typeof teamMembers.$inferSelect;
 export type InsertTeamMember = typeof teamMembers.$inferInsert;
+
+// ─── Webhook Deliveries ───────────────────────────────────────────────────────
+
+export const webhookDeliveryStatusEnum = pgEnum("webhook_delivery_status", ["pending", "success", "failed", "retrying"]);
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: text("id").primaryKey(),
+  webhookId: text("webhook_id").notNull().references(() => webhooks.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").notNull(),
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  latencyMs: integer("latency_ms"),
+  status: webhookDeliveryStatusEnum("status").default("pending").notNull(),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at"),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("webhook_deliveries_webhook_idx").on(t.webhookId),
+  index("webhook_deliveries_merchant_idx").on(t.merchantId),
+]);
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type InsertWebhookDelivery = typeof webhookDeliveries.$inferInsert;
+

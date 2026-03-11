@@ -1,103 +1,119 @@
 import { useState } from "react";
-import { AlertTriangle, MessageSquare, Upload, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { RefreshCw, AlertTriangle, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
-const DISPUTES = Array.from({length:12},(_,i)=>({
-  id:`DSP-${String(i+1).padStart(4,"0")}`,
-  txnId:`TXN-${String(i+100).padStart(5,"0")}`,
-  customer:["Adaeze Okonkwo","Kwame Asante","Fatima Al-Rashid","Sipho Dlamini"][i%4],
-  amount:Math.floor(Math.random()*200000)+10000,
-  reason:["Unauthorized transaction","Item not received","Duplicate charge","Service not rendered"][i%4],
-  status:i%5===0?"won":i%4===0?"lost":i%3===0?"under_review":"pending",
-  deadline:new Date(Date.now()+(i+1)*86400000*3).toLocaleDateString(),
-  opened:new Date(Date.now()-i*86400000).toLocaleDateString(),
-}));
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    open:             "bg-red-50 text-red-700 border-red-200",
+    under_review:     "bg-amber-50 text-amber-700 border-amber-200",
+    resolved_merchant:"bg-emerald-50 text-emerald-700 border-emerald-200",
+    resolved_customer:"bg-blue-50 text-blue-700 border-blue-200",
+    closed:           "bg-muted text-muted-foreground border-border",
+  };
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.open}`}>{status.replace(/_/g, " ")}</span>;
+}
 
-const statusConfig:Record<string,{cls:string;icon:any;label:string}> = {
-  won:{cls:"status-success",icon:CheckCircle2,label:"Won"},
-  lost:{cls:"status-failed",icon:XCircle,label:"Lost"},
-  under_review:{cls:"status-pending",icon:Clock,label:"Under Review"},
-  pending:{cls:"bg-blue-50 text-blue-700 border border-blue-200",icon:AlertTriangle,label:"Pending"},
-};
+export default function Disputes() {
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [response, setResponse] = useState("");
+  const utils = trpc.useUtils();
 
-export default function Disputes(){
-  const [active,setActive]=useState<string|null>(null);
+  const { data, isLoading, refetch } = trpc.disputes.list.useQuery(
+    { limit: 20, offset: 0, status: statusFilter },
+    { staleTime: 30_000 }
+  );
+  const respondMutation = trpc.disputes.respond.useMutation({
+    onSuccess: () => {
+      toast.success("Response submitted");
+      setRespondingId(null);
+      setResponse("");
+      utils.disputes.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
-  return(
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+
+  return (
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{fontFamily:"Space Grotesk,sans-serif"}}>Disputes & Chargebacks</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Manage and respond to payment disputes</p>
+          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Disputes</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{total} total disputes</p>
         </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-1.5" />Refresh</Button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          {label:"Total",value:DISPUTES.length,cls:"text-foreground"},
-          {label:"Pending Response",value:DISPUTES.filter(d=>d.status==="pending").length,cls:"text-blue-600"},
-          {label:"Under Review",value:DISPUTES.filter(d=>d.status==="under_review").length,cls:"text-amber-600"},
-          {label:"Win Rate",value:"67%",cls:"text-emerald-600"},
-        ].map(s=>(
-          <div key={s.label} className="stat-card text-center">
-            <p className={`text-2xl font-bold ${s.cls}`} style={{fontFamily:"Space Grotesk,sans-serif"}}>{s.value}</p>
-            <p className="text-sm text-muted-foreground mt-1">{s.label}</p>
-          </div>
+      <div className="flex gap-2 flex-wrap">
+        {["", "open", "under_review", "resolved_merchant", "resolved_customer", "closed"].map((s) => (
+          <button key={s} onClick={() => setStatusFilter(s || undefined)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${statusFilter === (s || undefined) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
+            {s ? s.replace(/_/g, " ") : "All"}
+          </button>
         ))}
       </div>
 
-      <div className="space-y-3">
-        {DISPUTES.map(d=>{
-          const cfg=statusConfig[d.status]||statusConfig.pending;
-          const isOpen=active===d.id;
-          return(
-            <div key={d.id} className="bg-card rounded-xl border border-border overflow-hidden">
-              <div className="flex items-center gap-4 p-5 cursor-pointer hover:bg-muted/30 transition-colors" onClick={()=>setActive(isOpen?null:d.id)}>
-                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-red-500"/>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm">{d.customer}</span>
-                    <span className="text-xs text-muted-foreground font-mono">{d.txnId}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{d.reason}</p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="font-semibold amount text-sm">₦{d.amount.toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground">Deadline: {d.deadline}</p>
-                </div>
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.cls}`}>
-                  <cfg.icon className="w-3 h-3"/>{cfg.label}
-                </span>
-              </div>
-              {isOpen&&(
-                <div className="border-t border-border p-5 bg-muted/20 space-y-4">
-                  <p className="text-sm text-muted-foreground">Dispute ID: <span className="font-mono text-foreground">{d.id}</span> · Opened: {d.opened}</p>
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Submit Evidence</p>
-                    <div className="border-2 border-dashed border-border rounded-xl p-6 text-center cursor-pointer hover:border-primary/40 transition-colors" onClick={()=>toast.info("File upload dialog would open here")}>
-                      <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2"/>
-                      <p className="text-sm text-muted-foreground">Click to upload receipts, invoices, or communication logs</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Response Message</p>
-                    <textarea rows={3} placeholder="Describe why this dispute should be resolved in your favor..." className="w-full px-3 py-2 text-sm bg-background rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring resize-none"/>
-                  </div>
-                  <div className="flex gap-3">
-                    <Button size="sm" onClick={()=>{toast.success("Dispute response submitted");setActive(null);}}>
-                      <MessageSquare className="w-4 h-4 mr-2"/>Submit Response
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={()=>setActive(null)}>Cancel</Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 border-b border-border">
+            <tr>
+              {["Reference", "Amount", "Status", "Reason", "Due Date", "Actions"].map(h => (
+                <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {isLoading ? Array(6).fill(0).map((_, i) => (
+              <tr key={i}><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td></tr>
+            )) : rows.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                <AlertTriangle className="w-8 h-8 mx-auto mb-3 opacity-40" />
+                No disputes found
+              </td></tr>
+            ) : rows.map((d) => (
+              <>
+                <tr key={d.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{d.reference}</td>
+                  <td className="px-4 py-3 font-mono font-semibold">{d.currency} {Number(d.amount).toLocaleString()}</td>
+                  <td className="px-4 py-3"><StatusBadge status={d.status} /></td>
+                  <td className="px-4 py-3 text-muted-foreground truncate max-w-[180px]">{d.reason ?? "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{d.dueDate ? new Date(d.dueDate).toLocaleDateString() : "—"}</td>
+                  <td className="px-4 py-3">
+                    {(d.status === "open" || d.status === "under_review") && (
+                      <button onClick={() => setRespondingId(respondingId === d.id ? null : d.id)}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+                        <MessageSquare className="w-3 h-3" />Respond
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {respondingId === d.id && (
+                  <tr key={`${d.id}-form`} className="bg-muted/20">
+                    <td colSpan={6} className="px-4 py-4">
+                      <div className="space-y-3">
+                        <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={3}
+                          placeholder="Provide your response (minimum 10 characters)..."
+                          className="w-full px-3 py-2 text-sm bg-card rounded-lg border border-border focus:ring-2 focus:ring-primary outline-none resize-none" />
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => respondMutation.mutate({ id: d.id, merchantResponse: response })}
+                            disabled={response.length < 10 || respondMutation.isPending}>
+                            {respondMutation.isPending ? "Submitting..." : "Submit Response"}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { setRespondingId(null); setResponse(""); }}>Cancel</Button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

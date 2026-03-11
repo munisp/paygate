@@ -1,136 +1,105 @@
 import { useState } from "react";
-import { Key, Copy, Eye, EyeOff, RefreshCw, Plus, Trash2, Shield, AlertTriangle } from "lucide-react";
+import { Key, Copy, Eye, EyeOff, Plus, Trash2, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-
-const KEYS = [
-  { id: "key_1", name: "Production Secret Key", type: "secret", env: "live", key: "sk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", created: "Jan 15, 2026", lastUsed: "2 min ago", requests: 142847 },
-  { id: "key_2", name: "Production Public Key", type: "public", env: "live", key: "pk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", created: "Jan 15, 2026", lastUsed: "5 min ago", requests: 89234 },
-  { id: "key_3", name: "Test Secret Key", type: "secret", env: "test", key: "sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", created: "Jan 10, 2026", lastUsed: "1 hr ago", requests: 3421 },
-  { id: "key_4", name: "Test Public Key", type: "public", env: "test", key: "pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", created: "Jan 10, 2026", lastUsed: "1 hr ago", requests: 2891 },
-];
+import { trpc } from "@/lib/trpc";
 
 export default function APIKeys() {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [env, setEnv] = useState<"live" | "test">("live");
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const utils = trpc.useUtils();
 
-  const toggleReveal = (id: string) => {
-    if (!revealed[id]) {
-      toast.warning("Key revealed — keep this secret!");
-    }
-    setRevealed((p) => ({ ...p, [id]: !p[id] }));
-  };
+  const { data, isLoading } = trpc.apiKeys.list.useQuery(undefined, { staleTime: 60_000 });
+  const createKey = trpc.apiKeys.create.useMutation({
+    onSuccess: () => { toast.success("API key created"); setShowCreate(false); setNewName(""); utils.apiKeys.list.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const revokeKey = trpc.apiKeys.revoke.useMutation({
+    onSuccess: () => { toast.success("API key revoked"); utils.apiKeys.list.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
-  const copyKey = (key: string) => {
-    navigator.clipboard.writeText(key);
-    toast.success("API key copied to clipboard");
-  };
+  const keys = data ?? [];
 
-  const filtered = KEYS.filter((k) => k.env === env);
+  const copyKey = (k: string) => { navigator.clipboard.writeText(k); toast.success("Copied to clipboard"); };
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>API Keys</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Manage your API credentials and access tokens</p>
+          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>API Keys</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Manage your API credentials</p>
         </div>
-        <Button size="sm" onClick={() => toast.success("New API key generated!")}>
-          <Plus className="w-4 h-4 mr-2" />
-          Generate New Key
-        </Button>
+        <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4 mr-1.5" />Create Key</Button>
       </div>
 
-      {/* Security Warning */}
-      <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
-        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-semibold text-amber-800">Keep your secret keys secure</p>
-          <p className="text-xs text-amber-700 mt-0.5">Never expose secret keys in client-side code, public repositories, or browser-accessible files. Rotate keys immediately if compromised.</p>
-        </div>
+      <div className="flex bg-muted rounded-lg p-1 w-fit gap-1">
+        {(["live", "test"] as const).map((e) => (
+          <button key={e} onClick={() => setEnv(e)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all capitalize ${env === e ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+            {e}
+          </button>
+        ))}
       </div>
 
-      {/* Environment Toggle */}
-      <div className="flex items-center gap-3">
-        <div className="flex bg-muted rounded-lg p-1 gap-1">
-          {(["live", "test"] as const).map((e) => (
-            <button
-              key={e}
-              onClick={() => setEnv(e)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md capitalize transition-all ${env === e ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              {e === "live" ? "🟢 Live" : "🧪 Test"}
-            </button>
-          ))}
+      {showCreate && (
+        <div className="bg-card rounded-xl border border-border p-5">
+          <h3 className="font-semibold mb-3">Create API Key</h3>
+          <div className="flex gap-3">
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Key name (e.g. Production Backend)"
+              className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+            <Button onClick={() => createKey.mutate({ name: newName, environment: env })} disabled={!newName || createKey.isPending}>
+              {createKey.isPending ? "Creating..." : "Create"}
+            </Button>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+          </div>
         </div>
-        {env === "live" && <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs">Live environment — real transactions</Badge>}
-        {env === "test" && <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-xs">Test environment — no real charges</Badge>}
-      </div>
+      )}
 
-      {/* Keys */}
-      <div className="space-y-4">
-        {filtered.map((key) => (
-          <div key={key.id} className="bg-card rounded-xl border border-border p-5">
-            <div className="flex items-start justify-between mb-4">
+      <div className="space-y-3">
+        {isLoading ? Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />) :
+        keys.length === 0 ? (
+          <div className="bg-card rounded-xl border border-border p-12 text-center text-muted-foreground">
+            <Key className="w-8 h-8 mx-auto mb-3 opacity-40" />
+            <p>No {env} API keys yet</p>
+          </div>
+        ) : keys.map((k) => (
+          <div key={k.id} className="bg-card rounded-xl border border-border p-5">
+            <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl ${key.type === "secret" ? "bg-red-50" : "bg-blue-50"}`}>
-                  {key.type === "secret" ? <Shield className={`w-5 h-5 text-red-600`} /> : <Key className="w-5 h-5 text-blue-600" />}
-                </div>
+                <div className="p-2 rounded-lg bg-primary/10"><Key className="w-4 h-4 text-primary" /></div>
                 <div>
-                  <p className="font-semibold text-foreground">{key.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Created {key.created} · Last used {key.lastUsed} · {key.requests.toLocaleString()} requests
-                  </p>
+                  <p className="font-medium text-sm">{k.name}</p>
+                  <p className="text-xs text-muted-foreground">Created {new Date(k.createdAt).toLocaleDateString()} · {k.lastUsedAt ? `Last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : "Never used"}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className={`text-xs ${key.type === "secret" ? "bg-red-50 text-red-700 border border-red-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
-                  {key.type}
-                </Badge>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-2 px-3 py-2.5 bg-muted rounded-lg border border-border font-mono text-sm overflow-hidden">
-                <span className="truncate text-foreground">
-                  {revealed[key.id] ? key.key : key.key.replace(/x/g, "•").slice(0, 40) + "..."}
-                </span>
-              </div>
-              <button onClick={() => toggleReveal(key.id)} className="p-2.5 rounded-lg border border-border hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0">
-                {revealed[key.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-              <button onClick={() => copyKey(key.key)} className="p-2.5 rounded-lg border border-border hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0">
-                <Copy className="w-4 h-4" />
-              </button>
-              <button onClick={() => toast.success(`${key.name} rotated successfully`)} className="p-2.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 transition-colors text-amber-600 flex-shrink-0">
-                <RefreshCw className="w-4 h-4" />
-              </button>
-              {key.type === "secret" && (
-                <button onClick={() => toast.error("Key revoked")} className="p-2.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 transition-colors text-red-600 flex-shrink-0">
+              <div className="flex gap-2">
+                <button onClick={() => setRevealed(r => ({ ...r, [k.id]: !r[k.id] }))} className="p-1.5 rounded hover:bg-muted transition-colors">
+                  {revealed[k.id] ? <EyeOff className="w-4 h-4 text-muted-foreground" /> : <Eye className="w-4 h-4 text-muted-foreground" />}
+                </button>
+                <button onClick={() => copyKey(k.keyHash)} className="p-1.5 rounded hover:bg-muted transition-colors">
+                  <Copy className="w-4 h-4 text-muted-foreground" />
+                </button>
+                <button onClick={() => revokeKey.mutate({ id: k.id })} className="p-1.5 rounded hover:bg-red-50 text-red-500 transition-colors">
                   <Trash2 className="w-4 h-4" />
                 </button>
-              )}
+              </div>
+            </div>
+            <div className="font-mono text-xs bg-muted rounded-lg px-3 py-2 text-muted-foreground">
+              {revealed[k.id] ? k.keyHash : `${k.keyHash.slice(0, 12)}${"•".repeat(32)}`}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Usage Stats */}
-      <div className="bg-card rounded-xl border border-border p-6">
-        <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>API Usage This Month</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: "Total Requests", value: "232,081", cls: "text-foreground" },
-            { label: "Success Rate", value: "99.94%", cls: "text-emerald-600" },
-            { label: "Avg Latency", value: "42ms", cls: "text-indigo-600" },
-            { label: "Rate Limit Hits", value: "12", cls: "text-amber-600" },
-          ].map((s) => (
-            <div key={s.label} className="text-center p-4 rounded-xl bg-muted/50">
-              <p className={`text-xl font-bold amount ${s.cls}`} style={{ fontFamily: "Space Grotesk, sans-serif" }}>{s.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
-            </div>
-          ))}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+        <Shield className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-medium text-amber-800">Keep your secret keys secure</p>
+          <p className="text-xs text-amber-700 mt-0.5">Never expose secret keys in client-side code or public repositories. Rotate keys immediately if compromised.</p>
         </div>
       </div>
     </div>

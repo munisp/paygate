@@ -61,3 +61,32 @@
 - [x] onboarding.createMerchant — creates merchant + sets onboarding step
 - [x] customers.list — returns paginated customer list
 - [x] apiKeys.create / revoke — full lifecycle test
+
+## Live Data Wiring (all pages currently use static/hardcoded data)
+- [x] Dashboard.tsx — connect to trpc.dashboard.overview (KPIs + charts)
+- [x] Analytics.tsx — connect to trpc.analytics.overview + timeSeries
+- [x] Transactions.tsx — connect to trpc.transactions.list with pagination/filter
+- [x] Payouts.tsx — connect to trpc.payouts.list + trpc.payouts.create
+- [x] Customers.tsx — connect to trpc.customers.list
+- [x] APIKeys.tsx — connect to trpc.apiKeys.list + create + revoke
+- [x] Webhooks.tsx — connect to trpc.webhooks.list + create + delete + delivery log
+- [x] Disputes.tsx — connect to trpc.disputes.list
+- [x] VirtualCards.tsx — connect to trpc.virtualCards.list + create
+- [x] PaymentLinks.tsx — connect to trpc.paymentLinks.list + create
+- [x] Settings.tsx — connect to trpc.settings.get + update
+- [x] TeamRoles.tsx — connect to trpc.team.list + invite + remove
+
+## Webhook Delivery Log
+- [x] Add webhook_deliveries table to schema
+- [x] Run pnpm db:push for new table
+- [x] Add delivery log tRPC procedures
+- [x] Show delivery history in Webhooks.tsx UI
+
+## Non-Merchant Features (audit)
+- [x] BNPL.tsx — currently all static UI, no backend
+- [x] FXDashboard.tsx — static FX rates, no live data
+- [x] FraudRisk.tsx — static risk scores, no backend
+- [x] MobileMoneyRecon.tsx — static reconciliation data
+- [x] ComplianceKYC.tsx — static KYC status
+- [x] Checkout.tsx — static checkout flow demo
+- [x] DisputeWorkflow.tsx — static workflow steps

@@ -5,9 +5,10 @@ import {
   type InsertApiKey, type InsertCustomer, type InsertDispute,
   type InsertMerchant, type InsertPayout, type InsertPaymentLink,
   type InsertTeamMember, type InsertTransaction, type InsertUser,
-  type InsertVirtualCard, type InsertWebhook,
+  type InsertVirtualCard, type InsertWebhook, type InsertWebhookDelivery,
+  type WebhookDelivery,
   apiKeys, customers, disputes, merchants, paymentLinks, payouts,
-  teamMembers, transactions, users, virtualCards, webhooks,
+  teamMembers, transactions, users, virtualCards, webhooks, webhookDeliveries,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -329,4 +330,26 @@ export async function getRevenueTimeSeries(merchantId: string, from: Date, to: D
     .where(and(eq(transactions.merchantId, merchantId), eq(transactions.status, "completed"), gte(transactions.createdAt, from), lte(transactions.createdAt, to)))
     .groupBy(sql`DATE(created_at)`)
     .orderBy(sql`DATE(created_at)`);
+}
+
+// ─── Webhook Deliveries ───────────────────────────────────────────────────────
+
+export async function listWebhookDeliveries(merchantId: string, webhookId?: string, limit = 50) {
+  const db = await getDb(); if (!db) return [];
+  const conds: any[] = [eq(webhookDeliveries.merchantId, merchantId)];
+  if (webhookId) conds.push(eq(webhookDeliveries.webhookId, webhookId));
+  return db.select().from(webhookDeliveries)
+    .where(and(...conds))
+    .orderBy(desc(webhookDeliveries.createdAt))
+    .limit(limit);
+}
+export async function createWebhookDelivery(data: InsertWebhookDelivery) {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.insert(webhookDeliveries).values(data).returning();
+  return row;
+}
+export async function updateWebhookDelivery(id: string, data: Partial<WebhookDelivery>) {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.update(webhookDeliveries).set({ ...data }).where(eq(webhookDeliveries.id, id)).returning();
+  return row;
 }

@@ -9,6 +9,7 @@ import {
   getRevenueTimeSeries, getTransactionById, getTransactionStats,
   listApiKeys, listCustomers, listDisputes, listPaymentLinks, listPayouts,
   listTeamMembers, listTransactions, listVirtualCards, listWebhooks,
+  listWebhookDeliveries,
   revokeApiKey, updateDispute, updateMerchant, updatePayout, updatePaymentLink,
   updateVirtualCard, upsertCustomer, getUserByOpenId, getVirtualCardById,
 } from "./db";
@@ -661,6 +662,17 @@ const middlewareRouter = router({
   }),
 });
 
+// ─── Webhook Deliveries Router ──────────────────────────────────────────────
+const webhookDeliveriesRouter = router({
+  list: protectedProcedure
+    .input(z.object({ webhookId: z.string().optional(), limit: z.number().min(1).max(100).default(50) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listWebhookDeliveries(merchant.id, input.webhookId, input.limit);
+    }),
+});
+
 // ─── Root Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -673,6 +685,7 @@ export const appRouter = router({
   payouts: payoutsRouter,
   apiKeys: apiKeysRouter,
   webhooks: webhooksRouter,
+  webhookDeliveries: webhookDeliveriesRouter,
   disputes: disputesRouter,
   virtualCards: virtualCardsRouter,
   paymentLinks: paymentLinksRouter,

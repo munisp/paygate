@@ -1,100 +1,127 @@
 import { useState } from "react";
-import { ArrowUpRight, Plus, Download, Clock, CheckCircle2, XCircle, Building2 } from "lucide-react";
+import { ArrowUpRight, Plus, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
-const PAYOUTS = Array.from({length:20},(_,i)=>({
-  id:`PO-${String(i+1).padStart(4,"0")}`,
-  bank:["Access Bank","GTBank","Zenith Bank","First Bank","UBA"][i%5],
-  account:`0${Math.floor(Math.random()*9000000000+1000000000)}`,
-  amount:Math.floor(Math.random()*5000000)+100000,
-  status:i%6===0?"failed":i%4===0?"pending":"success",
-  date:new Date(Date.now()-i*86400000*2).toLocaleDateString(),
-  narration:"Settlement for transactions",
-}));
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    pending:   "bg-amber-50 text-amber-700 border-amber-200",
+    processing:"bg-blue-50 text-blue-700 border-blue-200",
+    failed:    "bg-red-50 text-red-700 border-red-200",
+  };
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.pending}`}>{status}</span>;
+}
 
-export default function Payouts(){
-  const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState({bank:"",account:"",amount:"",narration:""});
+export default function Payouts() {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
+  const utils = trpc.useUtils();
 
-  const handleSubmit=(e:React.FormEvent)=>{
+  const { data, isLoading, refetch } = trpc.payouts.list.useQuery({ limit: 20, offset: 0 }, { staleTime: 30_000 });
+  const createPayout = trpc.payouts.create.useMutation({
+    onSuccess: () => {
+      toast.success("Payout initiated successfully");
+      setShowForm(false);
+      setForm({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
+      utils.payouts.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success(`Payout of ₦${Number(form.amount).toLocaleString()} initiated to ${form.bank}`);
-    setShowForm(false);
-    setForm({bank:"",account:"",amount:"",narration:""});
+    if (!form.bankCode || !form.accountNumber || !form.amount) return toast.error("Fill all required fields");
+    createPayout.mutate({
+      bankCode: form.bankCode,
+      accountNumber: form.accountNumber,
+      amount: parseFloat(form.amount),
+      narration: form.narration || "Payout",
+      currency: form.currency,
+    });
   };
 
-  return(
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+  return (
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{fontFamily:"Space Grotesk,sans-serif"}}>Payouts</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Transfer funds to your bank accounts</p>
+          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Payouts</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{total} total payouts</p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" size="sm" onClick={()=>toast.success("Exported")}><Download className="w-4 h-4 mr-2"/>Export</Button>
-          <Button size="sm" onClick={()=>setShowForm(true)}><Plus className="w-4 h-4 mr-2"/>New Payout</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-1.5" />Refresh</Button>
+          <Button size="sm" onClick={() => setShowForm(true)}><Plus className="w-4 h-4 mr-1.5" />New Payout</Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[{label:"Total Paid Out",value:"₦48.2M",cls:"text-foreground"},{label:"Successful",value:PAYOUTS.filter(p=>p.status==="success").length,cls:"text-emerald-600"},{label:"Pending",value:PAYOUTS.filter(p=>p.status==="pending").length,cls:"text-amber-600"},{label:"Failed",value:PAYOUTS.filter(p=>p.status==="failed").length,cls:"text-red-600"}].map(s=>(
-          <div key={s.label} className="stat-card text-center">
-            <p className={`text-2xl font-bold ${s.cls}`} style={{fontFamily:"Space Grotesk,sans-serif"}}>{s.value}</p>
-            <p className="text-sm text-muted-foreground mt-1">{s.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {showForm&&(
+      {showForm && (
         <div className="bg-card rounded-xl border border-border p-6">
-          <h3 className="font-semibold mb-4" style={{fontFamily:"Space Grotesk,sans-serif"}}>Initiate Payout</h3>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="text-sm font-medium">Bank Name</label>
-              <select value={form.bank} onChange={e=>setForm(p=>({...p,bank:e.target.value}))} required className="w-full mt-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring">
-                <option value="">Select bank</option>
-                {["Access Bank","GTBank","Zenith Bank","First Bank","UBA"].map(b=><option key={b}>{b}</option>)}
+          <h3 className="font-semibold mb-4">Initiate Payout</h3>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank Code *</label>
+              <input value={form.bankCode} onChange={(e) => setForm(f => ({ ...f, bankCode: e.target.value }))}
+                placeholder="e.g. 044" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Number *</label>
+              <input value={form.accountNumber} onChange={(e) => setForm(f => ({ ...f, accountNumber: e.target.value }))}
+                placeholder="10-digit account number" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Amount *</label>
+              <input type="number" value={form.amount} onChange={(e) => setForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="Amount" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Currency</label>
+              <select value={form.currency} onChange={(e) => setForm(f => ({ ...f, currency: e.target.value }))}
+                className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
+                {["NGN","GHS","KES","ZAR","USD"].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            <div><label className="text-sm font-medium">Account Number</label>
-              <input value={form.account} onChange={e=>setForm(p=>({...p,account:e.target.value}))} required placeholder="0000000000" className="w-full mt-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring font-mono"/>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Narration</label>
+              <input value={form.narration} onChange={(e) => setForm(f => ({ ...f, narration: e.target.value }))}
+                placeholder="Payment description" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
-            <div><label className="text-sm font-medium">Amount (NGN)</label>
-              <input value={form.amount} onChange={e=>setForm(p=>({...p,amount:e.target.value}))} required type="number" placeholder="100000" className="w-full mt-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring"/>
-            </div>
-            <div><label className="text-sm font-medium">Narration</label>
-              <input value={form.narration} onChange={e=>setForm(p=>({...p,narration:e.target.value}))} placeholder="Settlement payment" className="w-full mt-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring"/>
-            </div>
-            <div className="md:col-span-2 flex gap-3">
-              <Button type="submit">Initiate Payout</Button>
-              <Button type="button" variant="outline" onClick={()=>setShowForm(false)}>Cancel</Button>
+            <div className="sm:col-span-2 flex gap-3">
+              <Button type="submit" disabled={createPayout.isPending}>
+                {createPayout.isPending ? "Processing..." : "Initiate Payout"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
             </div>
           </form>
         </div>
       )}
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <table className="w-full">
-          <thead><tr className="border-b border-border bg-muted/30">
-            {["ID","Bank","Account","Amount","Status","Date","Narration"].map(h=>(
-              <th key={h} className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">{h}</th>
-            ))}
-          </tr></thead>
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 border-b border-border">
+            <tr>
+              {["ID", "Account", "Amount", "Status", "Narration", "Date"].map(h => (
+                <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody className="divide-y divide-border">
-            {PAYOUTS.map(p=>(
+            {isLoading ? Array(6).fill(0).map((_, i) => (
+              <tr key={i}><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td></tr>
+            )) : rows.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No payouts yet</td></tr>
+            ) : rows.map((p) => (
               <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 text-sm font-mono text-primary">{p.id}</td>
-                <td className="px-4 py-3"><div className="flex items-center gap-2"><Building2 className="w-4 h-4 text-muted-foreground"/><span className="text-sm">{p.bank}</span></div></td>
-                <td className="px-4 py-3 text-sm font-mono text-muted-foreground">{p.account}</td>
-                <td className="px-4 py-3 text-sm font-semibold amount">₦{p.amount.toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${p.status==="success"?"status-success":p.status==="pending"?"status-pending":"status-failed"}`}>
-                    {p.status==="success"?<CheckCircle2 className="w-3 h-3"/>:p.status==="pending"?<Clock className="w-3 h-3"/>:<XCircle className="w-3 h-3"/>}
-                    {p.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs text-muted-foreground">{p.date}</td>
-                <td className="px-4 py-3 text-xs text-muted-foreground">{p.narration}</td>
+                <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}...</td>
+                <td className="px-4 py-3">{p.bankCode} · {p.accountNumber}</td>
+                <td className="px-4 py-3 font-mono font-semibold">{p.currency} {Number(p.amount).toLocaleString()}</td>
+                <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">{p.narration ?? "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
               </tr>
             ))}
           </tbody>
