@@ -21,6 +21,8 @@ import PaymentLinks from "./pages/PaymentLinks";
 import FraudRisk from "./pages/FraudRisk";
 import BNPL from "./pages/BNPL";
 import FXDashboard from "./pages/FXDashboard";
+import TeamRoles from "./pages/TeamRoles";
+import MobileMoneyRecon from "./pages/MobileMoneyRecon";
 
 function Router() {
   const [location] = useLocation();
@@ -51,6 +53,8 @@ function Router() {
         <Route path="/fraud-risk" component={FraudRisk} />
         <Route path="/bnpl" component={BNPL} />
         <Route path="/fx" component={FXDashboard} />
+        <Route path="/team" component={TeamRoles} />
+        <Route path="/mobile-money" component={MobileMoneyRecon} />
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />

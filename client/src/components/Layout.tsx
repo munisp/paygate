@@ -25,6 +25,8 @@ const navItems = [
   { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
   { icon: BNPLIcon, label: "BNPL", path: "/bnpl" },
   { icon: Globe, label: "FX & Rates", path: "/fx" },
+  { icon: Users, label: "Team & Roles", path: "/team" },
+  { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
 ];
 
 const devItems = [

@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import RevenueForecast from "@/components/RevenueForecast";
 
 // --- Mock Data ---
 const revenueData = [
@@ -331,6 +332,45 @@ export default function Dashboard() {
           <button className="w-full mt-4 py-2 text-sm text-primary font-medium hover:bg-primary/5 rounded-lg transition-colors">
             View all transactions →
           </button>
+        </div>
+      </div>
+
+      {/* Revenue Forecast + Quick Stats */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2">
+          <RevenueForecast />
+        </div>
+        <div className="space-y-4">
+          <div className="bg-card rounded-xl border border-border p-5">
+            <h3 className="font-semibold text-sm mb-4" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Top Payment Channels</h3>
+            <div className="space-y-3">
+              {channelData.map(c => (
+                <div key={c.name}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">{c.name}</span>
+                    <span className="font-semibold">{c.value}%</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${c.value}%`, background: c.color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-card rounded-xl border border-border p-5">
+            <h3 className="font-semibold text-sm mb-4" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Settlement Status</h3>
+            <div className="space-y-3">
+              {[{ label: 'Pending Settlement', amount: '₦4.2M', cls: 'text-amber-600', dot: 'bg-amber-400' }, { label: 'In Transit', amount: '₦1.8M', cls: 'text-blue-600', dot: 'bg-blue-400' }, { label: 'Settled Today', amount: '₦9.6M', cls: 'text-emerald-600', dot: 'bg-emerald-400' }].map(s => (
+                <div key={s.label} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${s.dot}`} />
+                    <span className="text-xs text-muted-foreground">{s.label}</span>
+                  </div>
+                  <span className={`text-xs font-bold font-mono ${s.cls}`}>{s.amount}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
