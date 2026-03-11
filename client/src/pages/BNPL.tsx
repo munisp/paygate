@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { trpc } from "@/lib/trpc";
 import {
   CreditCard, TrendingUp, Users, DollarSign, Clock, CheckCircle2,
   XCircle, AlertTriangle, ChevronDown, ChevronRight, Plus, Settings2,
@@ -65,7 +66,7 @@ const STATUS_STYLES = {
 function fmt(n: number) { return (n / 1000000).toFixed(1) + "M"; }
 
 export default function BNPL() {
-  const [tab, setTab] = useState<"overview" | "loans" | "plans">("overview");
+  const [tab, setTab] = useState<"overview" | "loans" | "plans" | "db_loans">("overview");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "overdue" | "completed">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -121,9 +122,9 @@ export default function BNPL() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted p-1 rounded-xl w-fit">
-        {(["overview", "loans", "plans"] as const).map(t => (
+        {(["overview", "loans", "plans", "db_loans"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${tab === t ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-            {t === "overview" ? "Overview" : t === "loans" ? "Active Loans" : "Instalment Plans"}
+            {t === "overview" ? "Overview" : t === "loans" ? "Active Loans" : t === "plans" ? "Instalment Plans" : "DB Loans"}
           </button>
         ))}
       </div>
@@ -364,6 +365,54 @@ export default function BNPL() {
           </div>
         </div>
       )}
+
+      {/* DB Loans Tab */}
+      {tab === "db_loans" && (
+        <div className="space-y-4">
+          <BnplDbPanel />
+        </div>
+      )}
     </div>
   );
+}
+
+function BnplDbPanel() {
+  const { data, isLoading } = trpc.bnpl.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: stats } = trpc.bnpl.stats.useQuery(undefined, { staleTime: 60_000 });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Total Loans", value: stats?.total ?? "—" },
+          { label: "Active", value: stats?.active ?? "—" },
+          { label: "Total Disbursed", value: stats?.totalVolume ? `₦${Number(stats.totalVolume).toLocaleString()}` : "—" },
+          { label: "Defaulted", value: stats?.defaulted ?? "—" },
+        ].map(s => (
+          <div key={s.label} className="bg-card rounded-xl border border-border p-4">
+            <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+            <p className="text-2xl font-bold text-foreground">{String(s.value)}</p>
+          </div>
+        ))}
+      </div>
+      {isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> :
+      (data?.rows ?? []).map(loan => (
+        <div key={loan.id} className="bg-card rounded-xl border border-border p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">{loan.customerName ?? loan.customerEmail ?? loan.id}</p>
+              <p className="text-xs text-muted-foreground">{loan.currency} {Number(loan.principalAmount).toLocaleString()} · {loan.installments} installments · {new Date(loan.createdAt).toLocaleDateString()}</p>
+            </div>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+              loan.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+              loan.status === 'defaulted' ? 'bg-red-100 text-red-700' :
+              loan.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+              'bg-muted text-muted-foreground'
+            }`}>{loan.status}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
 }

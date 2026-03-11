@@ -1,11 +1,12 @@
 import { useState, ReactNode } from "react";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { Shield, CheckCircle, AlertTriangle, Clock, FileText, Upload, Eye, Download, RefreshCw, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "sonner";
 
 const statusColor: Record<string, string> = {
   verified: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -277,6 +278,64 @@ export default function ComplianceKYC() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Live KYC Data from PostgreSQL */}
+      <div className="mt-6 bg-card rounded-xl border border-border p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-4">Live KYC Submissions (Database)</h3>
+        <KycLivePanel />
+      </div>
     </div>
   );
+}
+
+function KycLivePanel() {
+  const { data, isLoading } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: stats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 60_000 });
+  const updateStatus = trpc.complianceKyc.updateStatus.useMutation({ onSuccess: () => toast.success("KYC status updated") });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Total", value: stats?.total ?? "—" },
+          { label: "Pending", value: stats?.pending ?? "—" },
+          { label: "Approved", value: stats?.approved ?? "—" },
+          { label: "Rejected", value: stats?.rejected ?? "—" },
+        ].map(s => (
+          <div key={s.label} className="bg-muted/40 rounded-lg p-3">
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+            <p className="text-xl font-bold text-foreground">{String(s.value)}</p>
+          </div>
+        ))}
+      </div>
+      {isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> :
+      (data?.rows ?? []).map(kyc => (
+        <div key={kyc.id} className="flex items-center justify-between gap-4 p-3 rounded-lg border border-border">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">{kyc.id}</p>
+            <p className="text-xs text-muted-foreground">{kyc.docType} · {kyc.docType.replace("_", " ")} · {new Date(kyc.createdAt).toLocaleDateString()}</p>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+            kyc.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+            kyc.status === 'rejected' ? 'bg-red-100 text-red-700' :
+            kyc.status === 'under_review' ? 'bg-amber-100 text-amber-700' :
+            'bg-muted text-muted-foreground'
+          }`}>{kyc.status.replace("_", " ")}</span>
+          {kyc.status === 'pending' && (
+            <button onClick={() => updateStatus.mutate({ id: kyc.id, status: 'under_review' })}
+              className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground" disabled={updateStatus.isPending}>Review</button>
+          )}
+          {kyc.status === 'under_review' && (
+            <div className="flex gap-1">
+              <button onClick={() => updateStatus.mutate({ id: kyc.id, status: 'approved' })}
+                className="text-xs px-2 py-1 rounded bg-emerald-600 text-white" disabled={updateStatus.isPending}>Approve</button>
+              <button onClick={() => updateStatus.mutate({ id: kyc.id, status: 'rejected' })}
+                className="text-xs px-2 py-1 rounded bg-red-600 text-white" disabled={updateStatus.isPending}>Reject</button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
 }

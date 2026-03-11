@@ -12,6 +12,10 @@ import {
   listWebhookDeliveries,
   revokeApiKey, updateDispute, updateMerchant, updatePayout, updatePaymentLink,
   updateVirtualCard, upsertCustomer, getUserByOpenId, getVirtualCardById,
+  listFraudAlerts, updateFraudAlert, getFraudStats,
+  listKycSubmissions, updateKycSubmission, getKycStats,
+  listBnplLoans, createBnplLoan, getBnplStats,
+  listMobileMoneyRecon, getMmReconStats,
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { systemRouter } from "./_core/systemRouter";
@@ -662,6 +666,129 @@ const middlewareRouter = router({
   }),
 });
 
+// ─── Fraud Risk Router ──────────────────────────────────────────────────────
+const fraudRiskRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listFraudAlerts(merchant.id, input);
+    }),
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getFraudStats(merchant.id);
+    }),
+  updateAlert: protectedProcedure
+    .input(z.object({ id: z.string(), status: z.enum(['open','investigating','resolved','false_positive']), resolvedBy: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const update: any = { status: input.status };
+      if (input.status === 'resolved' || input.status === 'false_positive') {
+        update.resolvedAt = new Date();
+        update.resolvedBy = input.resolvedBy ?? ctx.user.openId;
+      }
+      await updateFraudAlert(input.id, merchant.id, update);
+      return { success: true };
+    }),
+});
+
+// ─── Compliance KYC Router ───────────────────────────────────────────────────
+const complianceKycRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listKycSubmissions(merchant.id, input);
+    }),
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getKycStats(merchant.id);
+    }),
+  updateStatus: protectedProcedure
+    .input(z.object({ id: z.string(), status: z.enum(['pending','under_review','approved','rejected','expired']), rejectionReason: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const update: any = { status: input.status };
+      if (input.rejectionReason) update.rejectionReason = input.rejectionReason;
+      if (input.status === 'approved' || input.status === 'rejected') {
+        update.reviewedAt = new Date();
+        update.reviewedBy = ctx.user.openId;
+      }
+      await updateKycSubmission(input.id, merchant.id, update);
+      return { success: true };
+    }),
+});
+
+// ─── BNPL Router ─────────────────────────────────────────────────────────────
+const bnplRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listBnplLoans(merchant.id, input);
+    }),
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getBnplStats(merchant.id);
+    }),
+  create: protectedProcedure
+    .input(z.object({
+      transactionId: z.string().optional(),
+      customerId: z.string().optional(),
+      principalAmount: z.number().positive(),
+      currency: z.string().default('NGN'),
+      installments: z.number().min(2).max(24),
+      interestRate: z.number().default(150),
+      customerEmail: z.string().email().optional(),
+      customerName: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const id = 'bnpl_' + crypto.randomBytes(8).toString('hex');
+      const installmentAmount = Math.floor(input.principalAmount / input.installments);
+      const nextPaymentAt = new Date(Date.now() + 30 * 86400000);
+      return createBnplLoan({
+        id, merchantId: merchant.id, principalAmount: input.principalAmount,
+        currency: input.currency, installments: input.installments,
+        installmentAmount, interestRate: input.interestRate,
+        transactionId: input.transactionId ?? null,
+        customerId: input.customerId ?? null,
+        customerEmail: input.customerEmail ?? null,
+        customerName: input.customerName ?? null,
+        nextPaymentAt, status: 'pending',
+      });
+    }),
+});
+
+// ─── Mobile Money Recon Router ───────────────────────────────────────────────
+const mobileMoneyReconRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.string().optional(), provider: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listMobileMoneyRecon(merchant.id, input);
+    }),
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getMmReconStats(merchant.id);
+    }),
+});
+
 // ─── Webhook Deliveries Router ──────────────────────────────────────────────
 const webhookDeliveriesRouter = router({
   list: protectedProcedure
@@ -693,6 +820,10 @@ export const appRouter = router({
   settings: settingsRouter,
   analytics: analyticsRouter,
   middleware: middlewareRouter,
+  fraudRisk: fraudRiskRouter,
+  complianceKyc: complianceKycRouter,
+  bnpl: bnplRouter,
+  mobileMoneyRecon: mobileMoneyReconRouter,
 });
 
 export type AppRouter = typeof appRouter;

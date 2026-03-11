@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
 import {
   TrendingUp, TrendingDown, RefreshCw, Globe, DollarSign,
   ArrowLeftRight, Settings2, CheckCircle2, AlertTriangle,

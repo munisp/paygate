@@ -282,3 +282,105 @@ export const webhookDeliveries = pgTable("webhook_deliveries", {
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type InsertWebhookDelivery = typeof webhookDeliveries.$inferInsert;
 
+
+// ─── Fraud Alerts ─────────────────────────────────────────────────────────────
+export const fraudAlertTypeEnum = pgEnum("fraud_alert_type", [
+  "velocity_breach", "card_testing", "unusual_location", "account_takeover",
+  "chargeback_pattern", "identity_mismatch", "device_fingerprint", "ip_blacklist",
+]);
+export const fraudAlertStatusEnum = pgEnum("fraud_alert_status", ["open", "investigating", "resolved", "false_positive"]);
+
+export const fraudAlerts = pgTable("fraud_alerts", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  transactionId: text("transaction_id").references(() => transactions.id),
+  customerId: text("customer_id").references(() => customers.id),
+  alertType: fraudAlertTypeEnum("alert_type").notNull(),
+  riskScore: integer("risk_score").notNull().default(0), // 0-100
+  status: fraudAlertStatusEnum("status").default("open").notNull(),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: text("resolved_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("fraud_alerts_merchant_idx").on(t.merchantId),
+  index("fraud_alerts_status_idx").on(t.status),
+]);
+export type FraudAlert = typeof fraudAlerts.$inferSelect;
+export type InsertFraudAlert = typeof fraudAlerts.$inferInsert;
+
+// ─── KYC Submissions ──────────────────────────────────────────────────────────
+export const kycStatusEnum = pgEnum("kyc_status", ["not_started", "pending", "under_review", "approved", "rejected", "expired"]);
+export const kycDocTypeEnum = pgEnum("kyc_doc_type", ["passport", "national_id", "drivers_license", "utility_bill", "bank_statement", "cac_certificate"]);
+
+export const kycSubmissions = pgTable("kyc_submissions", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  customerId: text("customer_id").references(() => customers.id),
+  docType: kycDocTypeEnum("doc_type").notNull(),
+  status: kycStatusEnum("status").default("pending").notNull(),
+  documentUrl: text("document_url"),
+  selfieUrl: text("selfie_url"),
+  rejectionReason: text("rejection_reason"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("kyc_merchant_idx").on(t.merchantId),
+  index("kyc_status_idx").on(t.status),
+]);
+export type KycSubmission = typeof kycSubmissions.$inferSelect;
+export type InsertKycSubmission = typeof kycSubmissions.$inferInsert;
+
+// ─── BNPL Loans ───────────────────────────────────────────────────────────────
+export const bnplStatusEnum = pgEnum("bnpl_status", ["pending", "active", "completed", "defaulted", "cancelled"]);
+
+export const bnplLoans = pgTable("bnpl_loans", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  transactionId: text("transaction_id").references(() => transactions.id),
+  customerId: text("customer_id").references(() => customers.id),
+  principalAmount: bigint("principal_amount", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  installments: integer("installments").notNull().default(3),
+  installmentAmount: bigint("installment_amount", { mode: "number" }).notNull(),
+  interestRate: integer("interest_rate").notNull().default(0), // basis points
+  status: bnplStatusEnum("status").default("pending").notNull(),
+  nextPaymentAt: timestamp("next_payment_at"),
+  completedAt: timestamp("completed_at"),
+  defaultedAt: timestamp("defaulted_at"),
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bnpl_merchant_idx").on(t.merchantId),
+  index("bnpl_status_idx").on(t.status),
+]);
+export type BnplLoan = typeof bnplLoans.$inferSelect;
+export type InsertBnplLoan = typeof bnplLoans.$inferInsert;
+
+// ─── Mobile Money Reconciliation ──────────────────────────────────────────────
+export const mmReconStatusEnum = pgEnum("mm_recon_status", ["matched", "unmatched", "disputed", "pending"]);
+
+export const mobileMoneyRecon = pgTable("mobile_money_recon", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  transactionId: text("transaction_id").references(() => transactions.id),
+  provider: text("provider").notNull(), // MTN, Airtel, Glo, etc.
+  providerRef: text("provider_ref").notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: mmReconStatusEnum("status").default("pending").notNull(),
+  reconciledAt: timestamp("reconciled_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("mm_recon_merchant_idx").on(t.merchantId),
+  index("mm_recon_status_idx").on(t.status),
+]);
+export type MobileMoneyReconRecord = typeof mobileMoneyRecon.$inferSelect;
+export type InsertMobileMoneyReconRecord = typeof mobileMoneyRecon.$inferInsert;

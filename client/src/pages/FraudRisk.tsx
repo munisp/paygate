@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { trpc } from "@/lib/trpc";
 import {
   Shield, AlertTriangle, XCircle, CheckCircle2, Eye, Ban,
   TrendingUp, Activity, Brain, Zap, RefreshCw, Filter,
@@ -77,7 +78,10 @@ function ScoreBar({ score, risk }: { score: number; risk: typeof RISK_LEVELS[num
 export default function FraudRisk() {
   const [transactions, setTransactions] = useState(INITIAL_TXS);
   const [rules, setRules] = useState(RULES);
-  const [tab, setTab] = useState<"feed" | "rules" | "models" | "insights">("feed");
+  const [tab, setTab] = useState<"feed" | "rules" | "models" | "insights" | "db_alerts">("feed");
+  const { data: dbAlerts } = trpc.fraudRisk.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
+  const { data: fraudStats } = trpc.fraudRisk.stats.useQuery(undefined, { staleTime: 60_000 });
+  const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({ onSuccess: () => toast.success("Alert updated") });
   const [filter, setFilter] = useState<"all" | typeof RISK_LEVELS[number]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(true);
@@ -152,9 +156,9 @@ export default function FraudRisk() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted p-1 rounded-xl w-fit">
-        {(["feed", "rules", "models", "insights"] as const).map(t => (
+        {(["feed", "rules", "models", "insights", "db_alerts"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${tab === t ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-            {t === "feed" ? "Live Feed" : t === "rules" ? "Rules Engine" : t === "models" ? "ML Models" : "Insights"}
+            {t === "feed" ? "Live Feed" : t === "rules" ? "Rules Engine" : t === "models" ? "ML Models" : t === "db_alerts" ? `DB Alerts ${dbAlerts?.total ? `(${dbAlerts.total})` : ""}` : "Insights"}
           </button>
         ))}
       </div>
@@ -495,6 +499,65 @@ export default function FraudRisk() {
             <div className="flex justify-between text-xs text-muted-foreground mt-2">
               <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:59</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* DB Alerts Tab — live data from PostgreSQL */}
+      {tab === "db_alerts" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: "Total", value: fraudStats?.total ?? "—" },
+              { label: "Open", value: fraudStats?.open ?? "—" },
+              { label: "Investigating", value: fraudStats?.investigating ?? "—" },
+              { label: "Avg Risk Score", value: fraudStats?.avgRiskScore ? Math.round(Number(fraudStats.avgRiskScore)) : "—" },
+            ].map(s => (
+              <div key={s.label} className="bg-card rounded-xl border border-border p-4">
+                <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+                <p className="text-2xl font-bold text-foreground">{String(s.value)}</p>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2">
+            {(dbAlerts?.rows ?? []).length === 0 ? (
+              <div className="bg-card rounded-xl border border-border p-12 text-center">
+                <CheckCircle2 className="w-8 h-8 mx-auto mb-3 text-emerald-500 opacity-60" />
+                <p className="text-muted-foreground">No database alerts found</p>
+              </div>
+            ) : (dbAlerts?.rows ?? []).map((alert) => (
+              <div key={alert.id} className="bg-card rounded-xl border border-border p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+                        alert.status === 'open' ? 'bg-red-100 text-red-700' :
+                        alert.status === 'investigating' ? 'bg-amber-100 text-amber-700' :
+                        alert.status === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-muted text-muted-foreground'
+                      }`}>{alert.status.replace('_', ' ')}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        alert.riskScore >= 75 ? 'bg-red-100 text-red-700' :
+                        alert.riskScore >= 50 ? 'bg-amber-100 text-amber-700' :
+                        'bg-emerald-100 text-emerald-700'
+                      }`}>Score: {alert.riskScore}</span>
+                      <span className="text-xs font-medium text-foreground">{alert.alertType.replace('_', ' ')}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{alert.description}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{new Date(alert.createdAt).toLocaleString()}</p>
+                  </div>
+                  {alert.status === 'open' && (
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline" onClick={() => updateDbAlert.mutate({ id: alert.id, status: 'investigating' })} disabled={updateDbAlert.isPending}>Investigate</Button>
+                      <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => updateDbAlert.mutate({ id: alert.id, status: 'false_positive' })} disabled={updateDbAlert.isPending}>False Positive</Button>
+                    </div>
+                  )}
+                  {alert.status === 'investigating' && (
+                    <Button size="sm" onClick={() => updateDbAlert.mutate({ id: alert.id, status: 'resolved' })} disabled={updateDbAlert.isPending}>Resolve</Button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

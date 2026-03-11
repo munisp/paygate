@@ -15,6 +15,13 @@
       "when": 1773265510168,
       "tag": "0001_mute_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773266213042,
+      "tag": "0002_wide_sebastian_shaw",
+      "breakpoints": true
     }
   ]
 }

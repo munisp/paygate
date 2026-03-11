@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
 import {
   CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw,
   Download, Search, Filter, ChevronDown, Zap, TrendingUp,
@@ -317,7 +318,52 @@ export default function MobileMoneyRecon() {
             <p className="text-sm">No transactions match your filters</p>
           </div>
         )}
+
+      {/* Live DB Recon Records */}
+      <div className="mt-6">
+        <MmReconDbPanel />
+      </div>
       </div>
     </div>
   );
+}
+
+function MmReconDbPanel() {
+  const { data, isLoading } = trpc.mobileMoneyRecon.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: stats } = trpc.mobileMoneyRecon.stats.useQuery(undefined, { staleTime: 60_000 });
+
+  return (
+    <div className="bg-card rounded-xl border border-border p-5 space-y-4">
+      <h3 className="text-sm font-semibold text-foreground">Live Reconciliation Records (Database)</h3>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Total", value: stats?.total ?? "—" },
+          { label: "Matched", value: stats?.matched ?? "—" },
+          { label: "Unmatched", value: stats?.unmatched ?? "—" },
+          { label: "Disputed", value: stats?.unmatched ?? "—" },
+        ].map(s => (
+          <div key={s.label} className="bg-muted/40 rounded-lg p-3">
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+            <p className="text-xl font-bold text-foreground">{String(s.value)}</p>
+          </div>
+        ))}
+      </div>
+      {isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> :
+      (data?.rows ?? []).map(rec => (
+        <div key={rec.id} className="flex items-center justify-between gap-4 p-3 rounded-lg border border-border">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">{rec.provider} · {rec.currency} {Number(rec.amount).toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground font-mono">{rec.providerRef} · {new Date(rec.createdAt).toLocaleDateString()}</p>
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+            rec.status === 'matched' ? 'bg-emerald-100 text-emerald-700' :
+            rec.status === 'unmatched' ? 'bg-amber-100 text-amber-700' :
+            rec.status === 'disputed' ? 'bg-red-100 text-red-700' :
+            'bg-muted text-muted-foreground'
+          }`}>{rec.status}</span>
+        </div>
+      ))}
+    </div>
+  );
+
 }

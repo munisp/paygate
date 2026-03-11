@@ -6,9 +6,11 @@ import {
   type InsertMerchant, type InsertPayout, type InsertPaymentLink,
   type InsertTeamMember, type InsertTransaction, type InsertUser,
   type InsertVirtualCard, type InsertWebhook, type InsertWebhookDelivery,
-  type WebhookDelivery,
+  type WebhookDelivery, type InsertFraudAlert, type InsertKycSubmission,
+  type InsertBnplLoan, type InsertMobileMoneyReconRecord,
   apiKeys, customers, disputes, merchants, paymentLinks, payouts,
   teamMembers, transactions, users, virtualCards, webhooks, webhookDeliveries,
+  fraudAlerts, kycSubmissions, bnplLoans, mobileMoneyRecon,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -330,6 +332,116 @@ export async function getRevenueTimeSeries(merchantId: string, from: Date, to: D
     .where(and(eq(transactions.merchantId, merchantId), eq(transactions.status, "completed"), gte(transactions.createdAt, from), lte(transactions.createdAt, to)))
     .groupBy(sql`DATE(created_at)`)
     .orderBy(sql`DATE(created_at)`);
+}
+
+// ─── Fraud Alerts ──────────────────────────────────────────────────────────────
+
+export async function listFraudAlerts(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
+  const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  const conds: any[] = [eq(fraudAlerts.merchantId, merchantId)];
+  if (opts.status) conds.push(eq(fraudAlerts.status, opts.status as any));
+  const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  const [rows, tot] = await Promise.all([
+    db.select().from(fraudAlerts).where(w).orderBy(desc(fraudAlerts.createdAt)).limit(lim).offset(off),
+    db.select({ count: count() }).from(fraudAlerts).where(w),
+  ]);
+  return { rows, total: tot[0]?.count ?? 0 };
+}
+export async function updateFraudAlert(id: string, merchantId: string, data: Partial<InsertFraudAlert>) {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  await db.update(fraudAlerts).set({ ...data, updatedAt: new Date() }).where(and(eq(fraudAlerts.id, id), eq(fraudAlerts.merchantId, merchantId)));
+}
+export async function getFraudStats(merchantId: string) {
+  const db = await getDb(); if (!db) return null;
+  const r = await db.select({
+    total: count(),
+    open: sql<number>`SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END)`,
+    investigating: sql<number>`SUM(CASE WHEN status = 'investigating' THEN 1 ELSE 0 END)`,
+    avgRiskScore: sql<number>`AVG(risk_score)`,
+  }).from(fraudAlerts).where(eq(fraudAlerts.merchantId, merchantId));
+  return r[0] ?? null;
+}
+
+// ─── KYC Submissions ──────────────────────────────────────────────────────────────
+
+export async function listKycSubmissions(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
+  const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  const conds: any[] = [eq(kycSubmissions.merchantId, merchantId)];
+  if (opts.status) conds.push(eq(kycSubmissions.status, opts.status as any));
+  const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  const [rows, tot] = await Promise.all([
+    db.select().from(kycSubmissions).where(w).orderBy(desc(kycSubmissions.createdAt)).limit(lim).offset(off),
+    db.select({ count: count() }).from(kycSubmissions).where(w),
+  ]);
+  return { rows, total: tot[0]?.count ?? 0 };
+}
+export async function updateKycSubmission(id: string, merchantId: string, data: Partial<InsertKycSubmission>) {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  await db.update(kycSubmissions).set({ ...data, updatedAt: new Date() }).where(and(eq(kycSubmissions.id, id), eq(kycSubmissions.merchantId, merchantId)));
+}
+export async function getKycStats(merchantId: string) {
+  const db = await getDb(); if (!db) return null;
+  const r = await db.select({
+    total: count(),
+    approved: sql<number>`SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END)`,
+    pending: sql<number>`SUM(CASE WHEN status IN ('pending','under_review') THEN 1 ELSE 0 END)`,
+    rejected: sql<number>`SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END)`,
+  }).from(kycSubmissions).where(eq(kycSubmissions.merchantId, merchantId));
+  return r[0] ?? null;
+}
+
+// ─── BNPL Loans ──────────────────────────────────────────────────────────────
+
+export async function listBnplLoans(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
+  const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  const conds: any[] = [eq(bnplLoans.merchantId, merchantId)];
+  if (opts.status) conds.push(eq(bnplLoans.status, opts.status as any));
+  const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  const [rows, tot] = await Promise.all([
+    db.select().from(bnplLoans).where(w).orderBy(desc(bnplLoans.createdAt)).limit(lim).offset(off),
+    db.select({ count: count() }).from(bnplLoans).where(w),
+  ]);
+  return { rows, total: tot[0]?.count ?? 0 };
+}
+export async function createBnplLoan(data: InsertBnplLoan) {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  const [r] = await db.insert(bnplLoans).values(data).returning();
+  return r;
+}
+export async function getBnplStats(merchantId: string) {
+  const db = await getDb(); if (!db) return null;
+  const r = await db.select({
+    total: count(),
+    active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
+    totalVolume: sum(bnplLoans.principalAmount),
+    defaulted: sql<number>`SUM(CASE WHEN status = 'defaulted' THEN 1 ELSE 0 END)`,
+  }).from(bnplLoans).where(eq(bnplLoans.merchantId, merchantId));
+  return r[0] ?? null;
+}
+
+// ─── Mobile Money Recon ──────────────────────────────────────────────────────────────
+
+export async function listMobileMoneyRecon(merchantId: string, opts: { limit?: number; offset?: number; status?: string; provider?: string }) {
+  const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  const conds: any[] = [eq(mobileMoneyRecon.merchantId, merchantId)];
+  if (opts.status) conds.push(eq(mobileMoneyRecon.status, opts.status as any));
+  if (opts.provider) conds.push(eq(mobileMoneyRecon.provider, opts.provider));
+  const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  const [rows, tot] = await Promise.all([
+    db.select().from(mobileMoneyRecon).where(w).orderBy(desc(mobileMoneyRecon.createdAt)).limit(lim).offset(off),
+    db.select({ count: count() }).from(mobileMoneyRecon).where(w),
+  ]);
+  return { rows, total: tot[0]?.count ?? 0 };
+}
+export async function getMmReconStats(merchantId: string) {
+  const db = await getDb(); if (!db) return null;
+  const r = await db.select({
+    total: count(),
+    matched: sql<number>`SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END)`,
+    unmatched: sql<number>`SUM(CASE WHEN status = 'unmatched' THEN 1 ELSE 0 END)`,
+    totalVolume: sum(mobileMoneyRecon.amount),
+  }).from(mobileMoneyRecon).where(eq(mobileMoneyRecon.merchantId, merchantId));
+  return r[0] ?? null;
 }
 
 // ─── Webhook Deliveries ───────────────────────────────────────────────────────
