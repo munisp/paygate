@@ -4,12 +4,13 @@ import {
   LayoutDashboard, ArrowLeftRight, Users, CreditCard, BarChart3,
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu, X,
-  Zap, Globe, Shield, Link2, Brain
+  Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon, ArrowLeftRight as FXIcon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
+import NotificationPanel from "./NotificationPanel";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -22,6 +23,8 @@ const navItems = [
   { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
   { icon: Link2, label: "Payment Links", path: "/payment-links" },
   { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
+  { icon: BNPLIcon, label: "BNPL", path: "/bnpl" },
+  { icon: Globe, label: "FX & Rates", path: "/fx" },
 ];
 
 const devItems = [
@@ -38,6 +41,8 @@ export default function Layout({ children }: LayoutProps) {
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const UNREAD_COUNT = 4;
 
   const handleLogout = () => {
     toast.success("Logged out successfully");
@@ -216,9 +221,11 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             {/* Notifications */}
-            <button className="relative p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+            <button onClick={() => setNotifOpen(true)} className="relative p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
               <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
+              {UNREAD_COUNT > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{UNREAD_COUNT}</span>
+              )}
             </button>
 
             {/* Globe / Region */}
@@ -233,6 +240,9 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Notification Panel */}
+      <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
     </div>
   );
 }

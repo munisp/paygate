@@ -19,6 +19,8 @@ import Disputes from "./pages/Disputes";
 import Onboarding from "./pages/Onboarding";
 import PaymentLinks from "./pages/PaymentLinks";
 import FraudRisk from "./pages/FraudRisk";
+import BNPL from "./pages/BNPL";
+import FXDashboard from "./pages/FXDashboard";
 
 function Router() {
   const [location] = useLocation();
@@ -47,6 +49,8 @@ function Router() {
         <Route path="/disputes" component={Disputes} />
         <Route path="/payment-links" component={PaymentLinks} />
         <Route path="/fraud-risk" component={FraudRisk} />
+        <Route path="/bnpl" component={BNPL} />
+        <Route path="/fx" component={FXDashboard} />
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />
