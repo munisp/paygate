@@ -12,4 +12,8 @@ export const ENV = {
   // operations so the UI remains fully functional without the bridge running.
   middlewareBridgeUrl: process.env.MIDDLEWARE_BRIDGE_URL ?? "",
   middlewareInternalKey: process.env.MIDDLEWARE_INTERNAL_KEY ?? "",
+  // Stripe — payment processing
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  stripePublishableKey: process.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "",
 };

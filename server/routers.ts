@@ -28,6 +28,9 @@ import {
   // Settlements
   createSettlement, getSettlementById, updateSettlement, listSettlements,
   listSlaBreachedSettlements, markSettlementSlaBreached, markSettlementSlaAlertSent,
+  // Notifications
+  createMerchantNotification, listMerchantNotifications, countUnreadNotifications,
+  markNotificationRead, markAllNotificationsRead,
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
@@ -2405,6 +2408,104 @@ const settlementsRouter = router({
     }),
 });
 
+// ─── Notifications Router ──────────────────────────────────────────────────────────
+
+const notificationsRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(50),
+      unreadOnly: z.boolean().default(false),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listMerchantNotifications(merchant.id, input);
+    }),
+  unreadCount: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const count = await countUnreadNotifications(merchant.id);
+    return { count };
+  }),
+  markRead: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      await markNotificationRead(input.id, merchant.id);
+      return { success: true };
+    }),
+  markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    await markAllNotificationsRead(merchant.id);
+    return { success: true };
+  }),
+});
+
+// ─── Stripe Router ──────────────────────────────────────────────────────────
+
+const stripeRouter = router({
+  isConfigured: publicProcedure.query(() => {
+    const { isStripeConfigured } = require('./stripe');
+    return { configured: isStripeConfigured() as boolean };
+  }),
+  createPaymentIntent: protectedProcedure
+    .input(z.object({
+      amountKobo: z.number().int().positive(),
+      currency: z.string().min(3).max(3).default('ngn'),
+      description: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { createPaymentIntent } = await import('./stripe');
+      return createPaymentIntent({
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        description: input.description,
+        merchantId: merchant.id,
+      });
+    }),
+  createCheckoutSession: protectedProcedure
+    .input(z.object({
+      lineItems: z.array(z.object({
+        name: z.string().min(1).max(200),
+        description: z.string().max(500).optional(),
+        amountKobo: z.number().int().positive(),
+        currency: z.string().min(3).max(3).default('ngn'),
+        quantity: z.number().int().positive().default(1),
+      })).min(1),
+      customerEmail: z.string().email().optional(),
+      successUrl: z.string().url(),
+      cancelUrl: z.string().url(),
+      paymentLinkId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { createCheckoutSession } = await import('./stripe');
+      return createCheckoutSession({
+        lineItems: input.lineItems,
+        merchantId: merchant.id,
+        customerEmail: input.customerEmail,
+        successUrl: input.successUrl,
+        cancelUrl: input.cancelUrl,
+        paymentLinkId: input.paymentLinkId,
+      });
+    }),
+  listPayments: protectedProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(20),
+      startingAfter: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      await resolveUser(ctx.user.openId);
+      const { listCheckoutSessions } = await import('./stripe');
+      return listCheckoutSessions({ limit: input.limit, startingAfter: input.startingAfter });
+    }),
+});
+
 // ─── Root Router ─────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2435,6 +2536,8 @@ export const appRouter = router({
   crossBorder: crossBorderRouter,
   nip: nipRouter,
   settlements: settlementsRouter,
+  stripe: stripeRouter,
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

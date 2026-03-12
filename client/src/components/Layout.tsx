@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import NotificationPanel from "./NotificationPanel";
+import NotificationPanel, { useNotificationCount } from "./NotificationPanel";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -85,6 +85,8 @@ export default function Layout({ children }: LayoutProps) {
   const visibleAlerts = (fraudData?.alerts ?? []).filter(
     (a: any) => !dismissedAlerts.has(a.id)
   );
+
+  const inAppUnread = useNotificationCount();
 
   // ─── Onboarding Status ───────────────────────────────────────────────────
   const { data: onboardingData } = trpc.onboarding.getStatus.useQuery(undefined, {
@@ -334,9 +336,9 @@ export default function Layout({ children }: LayoutProps) {
               className="relative p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             >
               <Bell className="w-5 h-5" />
-              {visibleAlerts.length > 0 && (
+              {(inAppUnread + visibleAlerts.length) > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {visibleAlerts.length}
+                  {inAppUnread + visibleAlerts.length}
                 </span>
               )}
             </button>

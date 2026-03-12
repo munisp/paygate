@@ -765,3 +765,24 @@ export const nipResolutionErrors = pgTable("nip_resolution_errors", {
 export type NipResolutionError = typeof nipResolutionErrors.$inferSelect;
 export type InsertNipResolutionError = typeof nipResolutionErrors.$inferInsert;
 
+
+// ─── In-App Notifications ─────────────────────────────────────────────────────
+// Stores merchant-facing real-time notifications (disputes, payouts, KYC, etc.)
+// Delivered via SSE at /api/notifications/stream and polled via tRPC.
+export const merchantNotifications = pgTable("merchant_notifications", {
+  id: serial("id").primaryKey(),
+  merchantId: varchar("merchant_id", { length: 64 }).notNull(),
+  type: varchar("type", { length: 64 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  entityId: varchar("entity_id", { length: 64 }),
+  entityType: varchar("entity_type", { length: 32 }),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("notif_merchant_idx").on(t.merchantId),
+  index("notif_merchant_read_idx").on(t.merchantId, t.isRead),
+  index("notif_created_idx").on(t.createdAt),
+]);
+export type MerchantNotification = typeof merchantNotifications.$inferSelect;
+export type InsertMerchantNotification = typeof merchantNotifications.$inferInsert;

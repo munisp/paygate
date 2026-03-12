@@ -378,3 +378,25 @@
 - [x] Admin portal: featureFlags router already exists as separate router (server/routers/featureFlags.ts)
 - [x] Run all 540 tests (411 merchant + 57 consumer + 72 admin): ALL PASS; 0 TypeScript errors
 - [x] Generate comprehensive archive v16 (see ARCHIVE_v16.tar.gz)
+
+## Wave 17 — Stripe, Real-time Notifications, Production DB Tooling
+
+- [x] Stripe: add stripe npm package to merchant portal
+- [x] Stripe: STRIPE_SECRET_KEY, VITE_STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET auto-injected
+- [x] Stripe: stripe.ts server helper (createPaymentIntent, createCheckoutSession, constructWebhookEvent, isStripeConfigured)
+- [x] Stripe: tRPC stripe router (isConfigured, createPaymentIntent, createCheckoutSession, listPayments)
+- [x] Stripe: Checkout.tsx wired to trpc.paymentLinks.list (Stripe checkout sessions via payment links)
+- [x] Stripe: PaymentLinks.tsx already wired to trpc.paymentLinks (create/deactivate)
+- [x] Stripe: /api/stripe/webhook endpoint with signature verification + test event detection
+- [x] Real-time notifications: merchant_notifications table created in PostgreSQL
+- [x] Real-time notifications: DB helpers (createMerchantNotification, listMerchantNotifications, markNotificationRead, markAllNotificationsRead, countUnreadNotifications)
+- [x] Real-time notifications: tRPC notificationsRouter (list, unreadCount, markRead, markAllRead)
+- [x] Real-time notifications: SSE endpoint /api/notifications/stream already in server/_core/index.ts
+- [x] Real-time notifications: useNotificationCount() hook in NotificationPanel.tsx polls every 30s
+- [x] Real-time notifications: Layout.tsx bell badge shows inAppUnread + fraudAlerts combined count
+- [x] Real-time notifications: platformNotifications.ts triggers on dispute/payout/KYC/fraud/transfer events
+- [x] Production DB: scripts/seed-production-admin.mjs — idempotent admin seeder with platform config defaults
+- [x] Production DB: pnpm db:push handles migrations; PRODUCTION_RUNBOOK.md documents the full flow
+- [x] PRODUCTION_RUNBOOK.md: complete go-live guide (DB migration, Stripe live keys, admin seed, health checks, rollback)
+- [x] All 540 tests pass: 411 merchant + 57 consumer + 72 admin
+- [x] TypeScript clean across all portals (0 errors)

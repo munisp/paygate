@@ -825,3 +825,78 @@ export async function markNipErrorResolved(merchantId: string, bankCode: string,
       )
     );
 }
+
+// ─── Merchant Notifications ────────────────────────────────────────────────────
+export async function createMerchantNotification(data: {
+  merchantId: string;
+  type: string;
+  title: string;
+  body: string;
+  entityId?: string;
+  entityType?: string;
+}): Promise<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; createdAt: Date } | null> {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.execute(sql`
+    INSERT INTO merchant_notifications (merchant_id, type, title, body, entity_id, entity_type, is_read, created_at)
+    VALUES (${data.merchantId}, ${data.type}, ${data.title}, ${data.body}, ${data.entityId ?? null}, ${data.entityType ?? null}, false, NOW())
+    RETURNING id, merchant_id, type, title, body, entity_id, entity_type, is_read, created_at
+  `) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    merchantId: row.merchant_id,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    entityId: row.entity_id,
+    entityType: row.entity_type,
+    isRead: row.is_read,
+    createdAt: row.created_at,
+  };
+}
+
+export async function listMerchantNotifications(merchantId: string, options?: { limit?: number; unreadOnly?: boolean }): Promise<Array<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; createdAt: Date }>> {
+  const db = await getDb(); if (!db) return [];
+  const limit = options?.limit ?? 50;
+  const unreadFilter = options?.unreadOnly ? sql` AND is_read = false` : sql``;
+  const rows = await db.execute(sql`
+    SELECT id, merchant_id, type, title, body, entity_id, entity_type, is_read, created_at
+    FROM merchant_notifications
+    WHERE merchant_id = ${merchantId}${unreadFilter}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `) as unknown as any[];
+  return rows.map((r: any) => ({
+    id: r.id,
+    merchantId: r.merchant_id,
+    type: r.type,
+    title: r.title,
+    body: r.body,
+    entityId: r.entity_id,
+    entityType: r.entity_type,
+    isRead: r.is_read,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function countUnreadNotifications(merchantId: string): Promise<number> {
+  const db = await getDb(); if (!db) return 0;
+  const rows = await db.execute(sql`
+    SELECT COUNT(*) as cnt FROM merchant_notifications WHERE merchant_id = ${merchantId} AND is_read = false
+  `) as unknown as any[];
+  return Number(rows[0]?.cnt ?? 0);
+}
+
+export async function markNotificationRead(id: number, merchantId: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.execute(sql`
+    UPDATE merchant_notifications SET is_read = true WHERE id = ${id} AND merchant_id = ${merchantId}
+  `);
+}
+
+export async function markAllNotificationsRead(merchantId: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.execute(sql`
+    UPDATE merchant_notifications SET is_read = true WHERE merchant_id = ${merchantId} AND is_read = false
+  `);
+}

@@ -13,6 +13,7 @@ import { storagePut } from "../storage";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { startSlaEscalationScheduler } from "../slaEscalation";
+import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -73,6 +74,72 @@ async function startServer() {
   app.use(globalLimiter);
   app.use("/api/oauth", authLimiter);
 
+  // ─── Stripe Webhook (MUST be before express.json() to preserve raw body) ──
+  app.post(
+    "/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    async (req: any, res: any) => {
+      const sig = req.headers["stripe-signature"] as string;
+      if (!sig) return res.status(400).json({ error: "Missing stripe-signature header" });
+
+      try {
+        const event = constructWebhookEvent(req.body, sig);
+
+        // Test events — return verification response immediately
+        if (event.id.startsWith("evt_test_")) {
+          console.log("[Stripe Webhook] Test event detected:", event.type);
+          return res.json({ verified: true });
+        }
+
+        console.log(`[Stripe Webhook] Processing event: ${event.type} (${event.id})`);
+
+        // Handle events
+        switch (event.type) {
+          case "payment_intent.succeeded": {
+            const pi = event.data.object as any;
+            console.log(`[Stripe] Payment succeeded: ${pi.id} — ${pi.amount} ${pi.currency}`);
+            // Broadcast to SSE clients if merchant is connected
+            const merchantId = pi.metadata?.merchant_id;
+            if (merchantId) {
+              (app as any)._sseBroadcast?.(merchantId, "payment_succeeded", {
+                paymentIntentId: pi.id,
+                amount: pi.amount,
+                currency: pi.currency,
+              });
+            }
+            break;
+          }
+          case "checkout.session.completed": {
+            const session = event.data.object as any;
+            console.log(`[Stripe] Checkout completed: ${session.id} — ${session.amount_total} ${session.currency}`);
+            const merchantId = session.metadata?.merchant_id;
+            if (merchantId) {
+              (app as any)._sseBroadcast?.(merchantId, "checkout_completed", {
+                sessionId: session.id,
+                amountTotal: session.amount_total,
+                currency: session.currency,
+                customerEmail: session.customer_email,
+              });
+            }
+            break;
+          }
+          case "payment_intent.payment_failed": {
+            const pi = event.data.object as any;
+            console.log(`[Stripe] Payment failed: ${pi.id}`);
+            break;
+          }
+          default:
+            console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+        }
+
+        res.json({ received: true });
+      } catch (err: any) {
+        console.error("[Stripe Webhook] Error:", err.message);
+        res.status(400).json({ error: `Webhook error: ${err.message}` });
+      }
+    }
+  );
+
   // ─── Body Parsers ──────────────────────────────────────────────────────────
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -85,7 +152,6 @@ async function startServer() {
     storage: multer.memoryStorage(),
     limits: { fileSize: 16 * 1024 * 1024 }, // 16 MB
     fileFilter: (_req, file, cb) => {
-      // Allow only safe document/image MIME types
       const allowed = [
         "image/jpeg", "image/png", "image/webp", "image/gif",
         "application/pdf",
@@ -110,14 +176,12 @@ async function startServer() {
       const { url } = await storagePut(key, req.file.buffer, req.file.mimetype);
       res.json({ url, key, name: req.file.originalname, size: req.file.size });
     } catch (e: any) {
-      // Mask internal error details in production
       const msg = process.env.NODE_ENV === "development" ? (e.message ?? "Upload failed") : "Upload failed";
       res.status(500).json({ error: msg });
     }
   });
 
   // ─── SSE: Live Transaction Stream ──────────────────────────────────────────
-  // In-memory client registry: merchantId -> Set<Response>
   const sseClients = new Map<string, Set<any>>();
 
   // Expose broadcaster so tRPC mutations can push events
@@ -130,8 +194,12 @@ async function startServer() {
     }
   };
 
+  // Health check endpoint
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: Date.now(), service: "paygate-merchant" });
+  });
+
   app.get("/api/events/transactions", async (req: any, res: any) => {
-    // Authenticate via session cookie (same as tRPC context)
     try {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
@@ -148,11 +216,9 @@ async function startServer() {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
-      // Register client
       if (!sseClients.has(merchantId)) sseClients.set(merchantId, new Set());
       sseClients.get(merchantId)!.add(res);
 
-      // Send heartbeat every 25s to keep connection alive
       const heartbeat = setInterval(() => {
         try { res.write(`: heartbeat\n\n`); } catch { clearInterval(heartbeat); }
       }, 25_000);
@@ -166,6 +232,51 @@ async function startServer() {
     }
   });
 
+  // ─── SSE: Notifications Stream ─────────────────────────────────────────────
+  const notifClients = new Map<string, Set<any>>();
+
+  (app as any)._notifBroadcast = (merchantId: string, notification: unknown) => {
+    const clients = notifClients.get(merchantId);
+    if (!clients || clients.size === 0) return;
+    const payload = `event: notification\ndata: ${JSON.stringify(notification)}\n\n`;
+    for (const res of Array.from(clients)) {
+      try { res.write(payload); } catch { clients.delete(res); }
+    }
+  };
+
+  app.get("/api/notifications/stream", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const { getUserByOpenId, getMerchantByOwnerId } = await import("../db");
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const merchant = await getMerchantByOwnerId(user.id);
+      if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+      const merchantId = merchant.id;
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      if (!notifClients.has(merchantId)) notifClients.set(merchantId, new Set());
+      notifClients.get(merchantId)!.add(res);
+
+      const heartbeat = setInterval(() => {
+        try { res.write(`: heartbeat\n\n`); } catch { clearInterval(heartbeat); }
+      }, 25_000);
+
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        notifClients.get(merchantId)?.delete(res);
+      });
+    } catch {
+      res.status(500).json({ error: "Notification SSE setup failed" });
+    }
+  });
+
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",
@@ -173,7 +284,6 @@ async function startServer() {
       router: appRouter,
       createContext,
       onError: ({ error, path }) => {
-        // Log full error server-side but never expose stack traces to clients
         if (error.code === "INTERNAL_SERVER_ERROR") {
           console.error(`[tRPC Error] ${path}:`, error);
         }
@@ -181,10 +291,9 @@ async function startServer() {
     })
   );
 
-  // ─── Sub-Portal Static Files (served BEFORE Vite to avoid interception) ────
+  // ─── Sub-Portal Static Files ────────────────────────────────────────────────
   const publicDir = path.resolve(process.cwd(), "client/public");
 
-  // Consumer PWA — served at /consumer/*
   app.use("/consumer", express.static(path.join(publicDir, "consumer"), {
     setHeaders: (res, filePath) => {
       if (filePath.endsWith(".js")) res.setHeader("Content-Type", "application/javascript");
@@ -194,7 +303,6 @@ async function startServer() {
   app.get("/consumer", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
   app.get("/consumer/*", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
 
-  // Admin Portal — served at /admin-portal/*
   app.use("/admin-portal", express.static(path.join(publicDir, "admin-portal"), {
     setHeaders: (res, filePath) => {
       if (filePath.endsWith(".js")) res.setHeader("Content-Type", "application/javascript");
@@ -220,10 +328,15 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    if (isStripeConfigured()) {
+      console.log("[Stripe] Configured — webhook endpoint: /api/stripe/webhook");
+    } else {
+      console.log("[Stripe] Not configured — set STRIPE_SECRET_KEY to enable payments");
+    }
   });
 }
 
-// ─── Background Schedulers ──────────────────────────────────────────────────────────────
+// ─── Background Schedulers ─────────────────────────────────────────────────────
 startSlaEscalationScheduler();
 
 startServer().catch(console.error);
