@@ -42,6 +42,8 @@ export default function Webhooks() {
     onError: (e) => toast.error(e.message),
   });
   const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
+  const [testEventTypes, setTestEventTypes] = useState<Record<string, string>>({});
+  const [showEventPicker, setShowEventPicker] = useState<string | null>(null);
   const sendTest = trpc.webhooks.sendTest.useMutation({
     onSuccess: (result) => {
       setTestingWebhookId(null);
@@ -137,15 +139,41 @@ export default function Webhooks() {
                   </div>
                 </div>
                 <div className="flex gap-2 items-center">
-                  <button
-                    onClick={() => { setTestingWebhookId(wh.id); sendTest.mutate({ id: wh.id, eventType: "payment.completed" }); }}
-                    disabled={testingWebhookId === wh.id}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
-                    title="Send test event"
-                  >
-                    {testingWebhookId === wh.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
-                    Test
-                  </button>
+                  <div className="relative">
+                    <div className="flex items-center rounded overflow-hidden border border-primary/30">
+                      <button
+                        onClick={() => { const et = testEventTypes[wh.id] ?? "payment.completed"; setTestingWebhookId(wh.id); sendTest.mutate({ id: wh.id, eventType: et }); setShowEventPicker(null); }}
+                        disabled={testingWebhookId === wh.id}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+                        title="Send test event"
+                      >
+                        {testingWebhookId === wh.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
+                        Test
+                      </button>
+                      <button
+                        className="px-1.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 transition-colors border-l border-primary/20"
+                        onClick={(e) => { e.stopPropagation(); setShowEventPicker(showEventPicker === wh.id ? null : wh.id); }}
+                        title="Choose event type"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {showEventPicker === wh.id && (
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-48">
+                        <p className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Event type</p>
+                        {ALL_EVENTS.map(evt => (
+                          <button key={evt} className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors flex items-center justify-between ${
+                            (testEventTypes[wh.id] ?? "payment.completed") === evt ? "text-primary font-medium" : "text-foreground"
+                          }`}
+                            onClick={() => { setTestEventTypes(prev => ({ ...prev, [wh.id]: evt })); setShowEventPicker(null); }}
+                          >
+                            {evt}
+                            {(testEventTypes[wh.id] ?? "payment.completed") === evt && <Check className="w-3 h-3" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button onClick={() => { navigator.clipboard.writeText(wh.secret); toast.success("Secret copied"); }}
                     className="p-1.5 rounded hover:bg-muted transition-colors" title="Copy secret">
                     <Copy className="w-4 h-4 text-muted-foreground" />
