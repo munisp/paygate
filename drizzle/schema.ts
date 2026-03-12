@@ -109,6 +109,7 @@ export const users = pgTable("users", {
   name: text("name"),
   email: text("email"),
   loginMethod: text("login_method"),
+  passwordHash: text("password_hash"),
   role: userRoleEnum("role").default("user").notNull(),
   // Multi-tenancy: which tenant this user belongs to (null = platform-level admin)
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "set null" }),

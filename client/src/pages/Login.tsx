@@ -1,23 +1,40 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Zap, ArrowRight, Shield, Globe } from "lucide-react";
+import { Zap, ArrowRight, Shield, Globe, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
-import { getLoginUrl } from "@/const";
 
 export default function Login() {
   const [, navigate] = useLocation();
-  const { data: me, isLoading } = trpc.auth.me.useQuery();
+  const [email, setEmail] = useState("merchant@acme.ng");
+  const [password, setPassword] = useState("merchant123");
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: me, isLoading: meLoading } = trpc.auth.me.useQuery();
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {
-    if (!isLoading && me) {
+    if (!meLoading && me) {
       navigate("/dashboard");
     }
-  }, [me, isLoading, navigate]);
+  }, [me, meLoading, navigate]);
 
-  const handleLogin = () => {
-    window.location.href = getLoginUrl();
+  const loginMutation = trpc.auth.login.useMutation({
+    onSuccess: () => {
+      navigate("/dashboard");
+    },
+    onError: (err) => {
+      setError(err.message ?? "Login failed. Please try again.");
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    loginMutation.mutate({ email, password });
   };
 
   return (
@@ -96,7 +113,7 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right panel - login */}
+      {/* Right panel - login form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md space-y-8">
           {/* Mobile logo */}
@@ -116,33 +133,70 @@ export default function Login() {
             </p>
           </div>
 
-          {isLoading ? (
+          {meLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="space-y-4">
-              <Button
-                onClick={handleLogin}
-                className="w-full py-3 text-sm font-semibold"
-              >
-                <div className="flex items-center gap-2">
-                  Sign in with Manus
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Secure single sign-on via Manus OAuth
-              </p>
-            </div>
-          )}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
 
-          <p className="text-center text-sm text-muted-foreground">
-            Don't have an account?{" "}
-            <button onClick={handleLogin} className="text-primary font-medium hover:underline">
-              Create merchant account
-            </button>
-          </p>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="merchant@acme.ng"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loginMutation.isPending}
+              >
+                {loginMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  <>
+                    Sign in
+                    <ArrowRight className="ml-2 w-4 h-4" />
+                  </>
+                )}
+              </Button>
+
+              {/* Demo credentials hint */}
+              <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                <p className="text-xs text-muted-foreground font-medium mb-1">Demo credentials (pre-filled)</p>
+                <p className="text-xs text-foreground/70">Email: <span className="font-mono text-primary">merchant@acme.ng</span></p>
+                <p className="text-xs text-foreground/70">Password: <span className="font-mono text-primary">merchant123</span></p>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>

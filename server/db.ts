@@ -13,6 +13,8 @@ import {
   fraudAlerts, kycSubmissions, bnplLoans, mobileMoneyRecon,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import * as schema from "../drizzle/schema";
+export { schema };
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
 // The Manus platform injects a MySQL/TiDB DATABASE_URL. Since this project uses

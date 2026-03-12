@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Webhook, CheckCircle2, XCircle, Copy, Trash2, ChevronDown, ChevronRight, Clock, AlertCircle, Pencil, Check, X } from "lucide-react";
+import { Plus, Webhook, CheckCircle2, XCircle, Copy, Trash2, ChevronDown, ChevronRight, Clock, AlertCircle, Pencil, Check, X, FlaskConical, Loader2 } from "lucide-react";
 
 const ALL_EVENTS = [
   "payment.completed", "payment.failed", "payment.pending",
@@ -40,6 +40,19 @@ export default function Webhooks() {
   const deleteWebhook = trpc.webhooks.delete.useMutation({
     onSuccess: () => { toast.success("Webhook deleted"); utils.webhooks.list.invalidate(); },
     onError: (e) => toast.error(e.message),
+  });
+  const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
+  const sendTest = trpc.webhooks.sendTest.useMutation({
+    onSuccess: (result) => {
+      setTestingWebhookId(null);
+      if (result.success) {
+        toast.success(`Test delivered — HTTP ${result.responseStatus} in ${result.latencyMs}ms`);
+      } else {
+        toast.error(`Test failed — ${result.errorMessage ?? `HTTP ${result.responseStatus}`}`);
+      }
+      utils.webhookDeliveries.list.invalidate();
+    },
+    onError: (e) => { setTestingWebhookId(null); toast.error(e.message); },
   });
   const updateEventTypes = trpc.webhooks.updateEventTypes.useMutation({
     onSuccess: () => {
@@ -123,7 +136,16 @@ export default function Webhooks() {
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={() => { setTestingWebhookId(wh.id); sendTest.mutate({ id: wh.id, eventType: "payment.completed" }); }}
+                    disabled={testingWebhookId === wh.id}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+                    title="Send test event"
+                  >
+                    {testingWebhookId === wh.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
+                    Test
+                  </button>
                   <button onClick={() => { navigator.clipboard.writeText(wh.secret); toast.success("Secret copied"); }}
                     className="p-1.5 rounded hover:bg-muted transition-colors" title="Copy secret">
                     <Copy className="w-4 h-4 text-muted-foreground" />

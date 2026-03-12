@@ -100,6 +100,35 @@ const authRouter = router({
     return { ...user, merchant };
   }),
 
+  // Email/password login — bypasses Manus OAuth for demo/dev use
+  login: publicProcedure
+    .input(z.object({ email: z.string().email(), password: z.string().min(6) }))
+    .mutation(async ({ input, ctx }) => {
+      const { getDb, schema } = await import("./db");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [user] = await db.select().from(schema.users)
+        .where(eq(schema.users.email, input.email)).limit(1);
+      if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+      const jwtSecret = process.env.JWT_SECRET ?? "";
+      const expectedHash = crypto.createHash("sha256").update(input.password + jwtSecret).digest("hex");
+      if (user.passwordHash !== expectedHash) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+      }
+      const { sdk } = await import("./_core/sdk");
+      const { COOKIE_NAME, ONE_YEAR_MS } = await import("../shared/const");
+      const { getSessionCookieOptions } = await import("./_core/cookies");
+      const token = await sdk.signSession({
+        openId: user.openId,
+        appId: process.env.VITE_APP_ID ?? "paygate",
+        name: user.name ?? user.email ?? "Merchant",
+      }, { expiresInMs: ONE_YEAR_MS });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS / 1000 });
+      return { success: true, user: { id: user.id, email: user.email, name: user.name } };
+    }),
+
   logout: protectedProcedure.mutation(async ({ ctx }) => {
     const { COOKIE_NAME } = await import("../shared/const");
     const { getSessionCookieOptions } = await import("./_core/cookies");
@@ -686,6 +715,91 @@ const webhooksRouter = router({
       if (!wh || wh.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       await updateWebhook(input.id, merchant.id, { events: input.events });
       return { success: true };
+    }),
+
+  // Send a test webhook event to verify the endpoint is reachable
+  sendTest: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      eventType: z.string().default("payment.completed"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const wh = await getWebhookById(input.id);
+      if (!wh || wh.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const testPayload = {
+        event: input.eventType,
+        test: true,
+        id: "evt_test_" + crypto.randomBytes(6).toString("hex"),
+        timestamp: new Date().toISOString(),
+        data: {
+          id: "txn_test_" + crypto.randomBytes(6).toString("hex"),
+          amount: 150000,
+          currency: "NGN",
+          status: "completed",
+          reference: "TEST_" + Date.now(),
+          customer: { email: "test@example.com", name: "Test Customer" },
+          merchant: { id: merchant.id, name: merchant.businessName },
+        },
+      };
+
+      const body = JSON.stringify(testPayload);
+      const signature = crypto
+        .createHmac("sha256", wh.secret)
+        .update(body)
+        .digest("hex");
+
+      const startedAt = Date.now();
+      let responseStatus = 0;
+      let responseBody = "";
+      let deliveryStatus: "success" | "failed" = "failed";
+      let errorMessage: string | undefined;
+
+      try {
+        const resp = await fetch(wh.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-PayGate-Signature": `sha256=${signature}`,
+            "X-PayGate-Event": input.eventType,
+            "X-PayGate-Test": "1",
+          },
+          body,
+          signal: AbortSignal.timeout(10000),
+        });
+        responseStatus = resp.status;
+        responseBody = await resp.text().catch(() => "");
+        deliveryStatus = resp.ok ? "success" : "failed";
+      } catch (err: any) {
+        errorMessage = err?.message ?? "Request failed";
+        responseBody = errorMessage ?? "";
+      }
+
+      const latencyMs = Date.now() - startedAt;
+
+      await createWebhookDelivery({
+        id: nanoid("wdl_"),
+        webhookId: wh.id,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        eventType: input.eventType,
+        payload: testPayload,
+        responseStatus,
+        status: deliveryStatus,
+        responseBody: responseBody.slice(0, 2000),
+        latencyMs,
+        attemptCount: 1,
+      });
+
+      return {
+        success: deliveryStatus === "success",
+        responseStatus,
+        responseBody: responseBody.slice(0, 500),
+        latencyMs,
+        errorMessage,
+      };
     }),
 });
 
