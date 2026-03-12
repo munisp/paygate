@@ -9,7 +9,8 @@ export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 export const merchantStatusEnum = pgEnum("merchant_status", ["pending", "active", "suspended", "closed"]);
 export const txStatusEnum = pgEnum("tx_status", ["pending", "processing", "completed", "failed", "reversed"]);
 export const txChannelEnum = pgEnum("tx_channel", ["card", "bank_transfer", "mobile_money", "ussd", "qr", "bnpl"]);
-export const payoutStatusEnum = pgEnum("payout_status", ["pending", "processing", "completed", "failed", "cancelled"]);
+export const payoutStatusEnum = pgEnum("payout_status", ["pending_approval", "pending", "processing", "completed", "failed", "cancelled", "rejected"]);
+export const settlementFreqEnum = pgEnum("settlement_freq", ["daily", "weekly", "monthly"]);
 export const disputeStatusEnum = pgEnum("dispute_status", ["open", "under_review", "resolved_merchant", "resolved_customer", "closed"]);
 export const cardStatusEnum = pgEnum("card_status", ["active", "frozen", "terminated"]);
 export const cardBrandEnum = pgEnum("card_brand", ["visa", "mastercard"]);
@@ -54,10 +55,18 @@ export const merchants = pgTable("merchants", {
   notifyOnFraudAlert: boolean("notify_on_fraud_alert").default(true).notNull(),
   notifyOnPayout: boolean("notify_on_payout").default(true).notNull(),
   notifyOnDispute: boolean("notify_on_dispute").default(true).notNull(),
+  // Payout approval threshold: payouts above this amount require explicit approval
+  payoutApprovalThreshold: bigint("payout_approval_threshold", { mode: "number" }).default(500000).notNull(),
+  payoutApprovalEnabled: boolean("payout_approval_enabled").default(false).notNull(),
+  // Settlement schedule
+  settlementFrequency: settlementFreqEnum("settlement_frequency").default("daily").notNull(),
+  settlementMinAmount: bigint("settlement_min_amount", { mode: "number" }).default(10000).notNull(),
+  settlementBankCode: text("settlement_bank_code"),
+  settlementAccountNumber: text("settlement_account_number"),
+  settlementAccountName: text("settlement_account_name"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [index("merchants_owner_idx").on(t.ownerId)]);
-
 export type Merchant = typeof merchants.$inferSelect;
 export type InsertMerchant = typeof merchants.$inferInsert;
 

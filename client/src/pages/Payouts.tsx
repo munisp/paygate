@@ -1,18 +1,23 @@
 import { useState, useRef } from "react";
-import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText } from "lucide-react";
+import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    pending:   "bg-amber-50 text-amber-700 border-amber-200",
-    processing:"bg-blue-50 text-blue-700 border-blue-200",
-    failed:    "bg-red-50 text-red-700 border-red-200",
+    completed:        "bg-emerald-50 text-emerald-700 border-emerald-200",
+    pending:          "bg-amber-50 text-amber-700 border-amber-200",
+    pending_approval: "bg-purple-50 text-purple-700 border-purple-200",
+    processing:       "bg-blue-50 text-blue-700 border-blue-200",
+    failed:           "bg-red-50 text-red-700 border-red-200",
+    rejected:         "bg-red-50 text-red-700 border-red-200",
+    cancelled:        "bg-gray-50 text-gray-600 border-gray-200",
   };
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.pending}`}>{status}</span>;
+  const label = status === "pending_approval" ? "awaiting approval" : status;
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.pending}`}>{label}</span>;
 }
 
 type BulkRow = { amount: number; currency: string; bankCode?: string; accountNumber?: string; accountName?: string; narration?: string };
@@ -49,6 +54,7 @@ function downloadTemplate() {
 export default function Payouts() {
   const [showForm, setShowForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showApprovalSettings, setShowApprovalSettings] = useState(false);
   const [form, setForm] = useState({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
@@ -83,8 +89,27 @@ export default function Payouts() {
     onError: (e) => toast.error(e.message),
   });
 
+  const approveMutation = trpc.payouts.approve.useMutation({
+    onSuccess: () => { toast.success("Payout approved and queued for processing"); utils.payouts.list.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const rejectMutation = trpc.payouts.reject.useMutation({
+    onSuccess: () => { toast.success("Payout rejected"); utils.payouts.list.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateApprovalSettings = trpc.payouts.updateApprovalSettings.useMutation({
+    onSuccess: () => { toast.success("Approval settings saved"); utils.payouts.list.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const settingsQuery = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
+  const merchant = settingsQuery.data?.merchant;
+  const approvalEnabled = merchant?.payoutApprovalEnabled ?? false;
+  const approvalThreshold = merchant?.payoutApprovalThreshold ?? 500000;
+  const [thresholdInput, setThresholdInput] = useState("");
+
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
+  const pendingApprovalRows = rows.filter(r => r.status === "pending_approval");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,14 +153,109 @@ export default function Payouts() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-1.5" />Refresh</Button>
-          <Button variant="outline" size="sm" onClick={() => { setShowBulk(b => !b); setShowForm(false); }}>
+          <Button variant="outline" size="sm" onClick={() => { setShowApprovalSettings(s => !s); setShowForm(false); setShowBulk(false); }}>
+            <Settings2 className="w-4 h-4 mr-1.5" />Approval
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { setShowBulk(b => !b); setShowForm(false); setShowApprovalSettings(false); }}>
             <Upload className="w-4 h-4 mr-1.5" />Bulk Upload
           </Button>
-          <Button size="sm" onClick={() => { setShowForm(f => !f); setShowBulk(false); }}>
+          <Button size="sm" onClick={() => { setShowForm(f => !f); setShowBulk(false); setShowApprovalSettings(false); }}>
             <Plus className="w-4 h-4 mr-1.5" />New Payout
           </Button>
         </div>
       </div>
+
+      {/* Approval Settings Panel */}
+      {showApprovalSettings && (
+        <div className="bg-card rounded-xl border border-border p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldAlert className="w-5 h-5 text-primary" />
+            <h3 className="font-semibold">Payout Approval Workflow</h3>
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Require approval for large payouts</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Payouts above the threshold will be held for manual review before processing</p>
+              </div>
+              <Switch
+                checked={approvalEnabled}
+                onCheckedChange={(v) => updateApprovalSettings.mutate({ payoutApprovalEnabled: v, payoutApprovalThreshold: approvalThreshold })}
+                disabled={updateApprovalSettings.isPending}
+              />
+            </div>
+            {approvalEnabled && (
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Approval Threshold (NGN)</label>
+                  <input
+                    type="number"
+                    value={thresholdInput || approvalThreshold}
+                    onChange={(e) => setThresholdInput(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                    placeholder="500000"
+                    min={100}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const t = parseFloat(thresholdInput);
+                    if (isNaN(t) || t < 100) return toast.error("Threshold must be at least 100");
+                    updateApprovalSettings.mutate({ payoutApprovalEnabled: true, payoutApprovalThreshold: t });
+                    setThresholdInput("");
+                  }}
+                  disabled={updateApprovalSettings.isPending}
+                >
+                  Save Threshold
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Approval Queue */}
+      {pendingApprovalRows.length > 0 && (
+        <div className="bg-card rounded-xl border border-purple-200 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 bg-purple-50/50 border-b border-purple-100">
+            <Clock className="w-4 h-4 text-purple-600" />
+            <span className="text-sm font-semibold text-purple-800">Awaiting Approval ({pendingApprovalRows.length})</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 border-b border-border">
+              <tr>
+                {["ID", "Account", "Amount", "Narration", "Date", "Actions"].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {pendingApprovalRows.map((p) => (
+                <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}...</td>
+                  <td className="px-4 py-3">{p.bankCode ?? "—"} · {p.accountNumber ?? "—"}</td>
+                  <td className="px-4 py-3 font-mono font-semibold">{p.currency} {Number(p.amount).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-muted-foreground truncate max-w-[180px]">{p.narration ?? "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 h-7 px-2 text-xs"
+                        onClick={() => approveMutation.mutate({ id: p.id })} disabled={approveMutation.isPending}>
+                        <CheckCircle className="w-3 h-3 mr-1" />Approve
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 h-7 px-2 text-xs"
+                        onClick={() => rejectMutation.mutate({ id: p.id })} disabled={rejectMutation.isPending}>
+                        <XCircle className="w-3 h-3 mr-1" />Reject
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Single Payout Form */}
       {showForm && (

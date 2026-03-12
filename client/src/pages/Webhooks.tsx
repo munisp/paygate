@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Webhook, CheckCircle2, XCircle, Copy, Trash2, ChevronDown, ChevronRight, Clock, AlertCircle } from "lucide-react";
+import { Plus, Webhook, CheckCircle2, XCircle, Copy, Trash2, ChevronDown, ChevronRight, Clock, AlertCircle, Pencil, Check, X } from "lucide-react";
 
 const ALL_EVENTS = [
   "payment.completed", "payment.failed", "payment.pending",
@@ -23,6 +23,8 @@ export default function Webhooks() {
   const [url, setUrl] = useState("");
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [expandedWebhook, setExpandedWebhook] = useState<string | null>(null);
+  const [editingEventsId, setEditingEventsId] = useState<string | null>(null);
+  const [editingEvents, setEditingEvents] = useState<string[]>([]);
   const utils = trpc.useUtils();
 
   const { data, isLoading } = trpc.webhooks.list.useQuery(undefined, { staleTime: 30_000 });
@@ -39,10 +41,20 @@ export default function Webhooks() {
     onSuccess: () => { toast.success("Webhook deleted"); utils.webhooks.list.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  const updateEventTypes = trpc.webhooks.updateEventTypes.useMutation({
+    onSuccess: () => {
+      toast.success("Event subscriptions updated");
+      setEditingEventsId(null);
+      utils.webhooks.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const webhooks = data ?? [];
   const toggleEvent = (e: string) =>
     setSelectedEvents(prev => prev.includes(e) ? prev.filter(x => x !== e) : [...prev, e]);
+  const toggleEditEvent = (e: string) =>
+    setEditingEvents(prev => prev.includes(e) ? prev.filter(x => x !== e) : [...prev, e]);
 
   const toggleExpand = (id: string) =>
     setExpandedWebhook(prev => prev === id ? null : id);
@@ -122,11 +134,51 @@ export default function Webhooks() {
                   </button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {(wh.events as string[]).map((ev) => (
-                  <span key={ev} className="px-2 py-0.5 rounded-full text-xs font-mono bg-primary/10 text-primary">{ev}</span>
-                ))}
+
+              {/* Event subscriptions — view or edit */}
+              <div className="mb-3">
+                {editingEventsId === wh.id ? (
+                  <div className="space-y-3 bg-muted/40 rounded-lg p-3">
+                    <p className="text-xs font-medium text-muted-foreground">Select events to subscribe:</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {ALL_EVENTS.map((ev) => (
+                        <label key={ev} className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox"
+                            checked={editingEvents.includes(ev)}
+                            onChange={() => toggleEditEvent(ev)}
+                            className="rounded border-border text-primary" />
+                          <span className="text-xs text-muted-foreground font-mono">{ev}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" className="h-7 px-3 text-xs"
+                        onClick={() => {
+                          if (editingEvents.length === 0) return toast.error("Select at least one event");
+                          updateEventTypes.mutate({ id: wh.id, events: editingEvents });
+                        }}
+                        disabled={updateEventTypes.isPending}>
+                        <Check className="w-3 h-3 mr-1" />{updateEventTypes.isPending ? "Saving…" : "Save"}
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 px-3 text-xs" onClick={() => setEditingEventsId(null)}>
+                        <X className="w-3 h-3 mr-1" />Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    {(wh.events as string[]).map((ev) => (
+                      <span key={ev} className="px-2 py-0.5 rounded-full text-xs font-mono bg-primary/10 text-primary">{ev}</span>
+                    ))}
+                    <button
+                      onClick={() => { setEditingEventsId(wh.id); setEditingEvents(wh.events as string[]); }}
+                      className="p-1 rounded hover:bg-muted transition-colors ml-1" title="Edit event subscriptions">
+                      <Pencil className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  </div>
+                )}
               </div>
+
               <button
                 onClick={() => toggleExpand(wh.id)}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"

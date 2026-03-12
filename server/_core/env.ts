@@ -7,4 +7,9 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Go middleware bridge — used for payout approval workflow orchestration.
+  // When empty (local dev / sandbox), the portal falls back to direct DB
+  // operations so the UI remains fully functional without the bridge running.
+  middlewareBridgeUrl: process.env.MIDDLEWARE_BRIDGE_URL ?? "",
+  middlewareInternalKey: process.env.MIDDLEWARE_INTERNAL_KEY ?? "",
 };

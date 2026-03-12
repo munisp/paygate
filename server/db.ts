@@ -212,6 +212,11 @@ export async function deleteWebhook(id: string, merchantId: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
   await db.delete(webhooks).where(and(eq(webhooks.id, id), eq(webhooks.merchantId, merchantId)));
 }
+export async function updateWebhook(id: string, merchantId: string, data: Partial<InsertWebhook>) {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  await db.update(webhooks).set({ ...data, updatedAt: new Date() }).where(and(eq(webhooks.id, id), eq(webhooks.merchantId, merchantId)));
+  return getWebhookById(id);
+}
 
 // ─── Disputes ─────────────────────────────────────────────────────────────────
 

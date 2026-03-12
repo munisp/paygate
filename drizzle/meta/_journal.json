@@ -50,6 +50,13 @@
       "when": 1773288564990,
       "tag": "0006_pink_boomerang",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1773306617986,
+      "tag": "0007_freezing_meggan",
+      "breakpoints": true
     }
   ]
 }

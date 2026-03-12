@@ -1,9 +1,15 @@
 import { useState, useEffect } from "react";
-import { Save, Building2, Globe, Bell, Shield } from "lucide-react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+
+const FREQUENCY_OPTIONS = [
+  { value: "daily",   label: "Daily",   desc: "Settled every business day" },
+  { value: "weekly",  label: "Weekly",  desc: "Settled every Monday" },
+  { value: "monthly", label: "Monthly", desc: "Settled on the 1st of each month" },
+] as const;
 
 export default function Settings() {
   const [form, setForm] = useState({ businessName: "", email: "", phone: "", webhookUrl: "" });
@@ -12,8 +18,17 @@ export default function Settings() {
     notifyOnPayout: true,
     notifyOnDispute: true,
   });
+  const [settlementForm, setSettlementForm] = useState({
+    settlementFrequency: "daily" as "daily" | "weekly" | "monthly",
+    settlementMinAmount: 10000,
+    settlementBankCode: "",
+    settlementAccountNumber: "",
+    settlementAccountName: "",
+  });
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
+  const { data: settlementData, isLoading: settlementLoading } = trpc.settings.getSettlementSchedule.useQuery(undefined, { staleTime: 60_000 });
+
   const updateMerchant = trpc.settings.updateMerchant.useMutation({
     onSuccess: () => { toast.success("Settings saved"); utils.settings.get.invalidate(); },
     onError: (e) => toast.error(e.message),
@@ -22,6 +37,11 @@ export default function Settings() {
     onSuccess: () => { toast.success("Notification preferences saved"); utils.settings.get.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  const updateSettlement = trpc.settings.updateSettlementSchedule.useMutation({
+    onSuccess: () => { toast.success("Settlement schedule saved"); utils.settings.getSettlementSchedule.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
   useEffect(() => {
     if (data?.merchant) {
       setForm({
@@ -38,6 +58,18 @@ export default function Settings() {
     }
   }, [data]);
 
+  useEffect(() => {
+    if (settlementData) {
+      setSettlementForm({
+        settlementFrequency: (settlementData.settlementFrequency as any) ?? "daily",
+        settlementMinAmount: settlementData.settlementMinAmount ?? 10000,
+        settlementBankCode: settlementData.settlementBankCode ?? "",
+        settlementAccountNumber: settlementData.settlementAccountNumber ?? "",
+        settlementAccountName: settlementData.settlementAccountName ?? "",
+      });
+    }
+  }, [settlementData]);
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     updateMerchant.mutate({
@@ -45,6 +77,17 @@ export default function Settings() {
       email: form.email || undefined,
       phone: form.phone || undefined,
       webhookUrl: form.webhookUrl || null,
+    });
+  };
+
+  const handleSaveSettlement = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateSettlement.mutate({
+      settlementFrequency: settlementForm.settlementFrequency,
+      settlementMinAmount: settlementForm.settlementMinAmount,
+      settlementBankCode: settlementForm.settlementBankCode || null,
+      settlementAccountNumber: settlementForm.settlementAccountNumber || null,
+      settlementAccountName: settlementForm.settlementAccountName || null,
     });
   };
 
@@ -158,6 +201,101 @@ export default function Settings() {
           </Button>
         </form>
       )}
+
+      {/* Settlement Schedule — separate form */}
+      <form onSubmit={handleSaveSettlement} className="space-y-0">
+        <div className="bg-card rounded-xl border border-border p-6 space-y-5">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="w-4 h-4 text-primary" />
+            <h3 className="font-semibold">Settlement Schedule</h3>
+          </div>
+          <p className="text-xs text-muted-foreground -mt-2">Configure how and when your collected funds are settled to your bank account.</p>
+
+          {settlementLoading ? (
+            <div className="space-y-3">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}</div>
+          ) : (
+            <>
+              {/* Frequency selector */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-2 block">Settlement Frequency</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {FREQUENCY_OPTIONS.map(({ value, label, desc }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSettlementForm(f => ({ ...f, settlementFrequency: value }))}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        settlementForm.settlementFrequency === value
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Minimum settlement amount */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Minimum Settlement Amount (NGN)</label>
+                <input
+                  type="number"
+                  value={settlementForm.settlementMinAmount}
+                  onChange={(e) => setSettlementForm(f => ({ ...f, settlementMinAmount: parseFloat(e.target.value) || 0 }))}
+                  min={100}
+                  className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                  placeholder="10000"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Settlements below this amount will roll over to the next cycle</p>
+              </div>
+
+              {/* Bank account details */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Banknote className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Settlement Bank Account</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank Code</label>
+                    <input
+                      value={settlementForm.settlementBankCode}
+                      onChange={(e) => setSettlementForm(f => ({ ...f, settlementBankCode: e.target.value }))}
+                      placeholder="e.g. 044 (Access Bank)"
+                      className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Number</label>
+                    <input
+                      value={settlementForm.settlementAccountNumber}
+                      onChange={(e) => setSettlementForm(f => ({ ...f, settlementAccountNumber: e.target.value }))}
+                      placeholder="10-digit account number"
+                      className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Name</label>
+                    <input
+                      value={settlementForm.settlementAccountName}
+                      onChange={(e) => setSettlementForm(f => ({ ...f, settlementAccountName: e.target.value }))}
+                      placeholder="Beneficiary account name"
+                      className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button type="submit" disabled={updateSettlement.isPending}>
+                <Save className="w-4 h-4 mr-1.5" />
+                {updateSettlement.isPending ? "Saving..." : "Save Settlement Settings"}
+              </Button>
+            </>
+          )}
+        </div>
+      </form>
     </div>
   );
 }

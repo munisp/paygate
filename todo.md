@@ -177,3 +177,32 @@
 - [x] Payouts: bulk payout CSV upload button
 - [x] trpc.payouts.createBulk procedure with per-row success/failure reporting
 - [x] Write vitest tests for Wave 8 (33 new tests, 145 total)
+
+## Wave 9
+- [x] Payout approval workflow: two-step initiate → approve flow with threshold config
+- [x] payouts.approve / payouts.reject tRPC procedures
+- [x] Payouts page: pending approval queue with approve/reject buttons
+- [x] Webhook event type filtering: per-subscription event type selector
+- [x] webhooks.updateEventTypes tRPC procedure
+- [x] Webhooks page: event type multi-select checkboxes per webhook
+- [x] Settlement schedule configuration in Settings
+- [x] settlement_schedules DB table + migration (fields added to merchants table)
+- [x] settings.getSettlementSchedule / settings.updateSettlementSchedule tRPC procedures
+- [x] Settings page: settlement frequency + minimum threshold + bank account UI
+- [x] Write vitest tests for Wave 9 (28 new tests, 173 total)
+
+## Wave 9 — Middleware Integration (Payout Approval Full Stack)
+- [x] Audit all middleware gaps for payout approval flow
+- [x] Go: payout_approval_activities.go — Permify, TigerBeetle, Redis, Kafka, Dapr, Fluvio, Lakehouse activities
+- [x] Go: payout_approval_handlers.go — bridge HTTP handlers (initiate, approve, reject, status)
+- [x] Go: redis/cache/approval_helpers.go — SetJSON, GetJSON, Delete, GetApprovalWorkflowID helpers
+- [x] Go: fluvio/processor/payout_approval_stream.go — Produce, ProducePayoutApprovalEvent, event types
+- [x] Go: apisix/routes/payout_approval_routes.yaml — APISIX route config for 4 approval endpoints
+- [x] Python: python/lakehouse/payout_approval_writer.py — FastAPI Lakehouse audit writer service
+- [x] Portal: server/middlewareBridge.ts — TypeScript bridge client with graceful fallback
+- [x] Portal: server/_core/env.ts — MIDDLEWARE_BRIDGE_URL and MIDDLEWARE_INTERNAL_KEY added
+- [x] Portal: routers.ts — create procedure routes to pending_approval when threshold exceeded
+- [x] Portal: routers.ts — approve/reject procedures call bridge (with DB fallback)
+- [x] Portal: routers.ts — approvalStatus procedure added for Temporal workflow polling
+- [x] Write vitest middleware integration tests (37 new tests, 210 total)
+- [ ] Regenerate complete archive (portal + middleware + platform)

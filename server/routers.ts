@@ -9,7 +9,7 @@ import {
   getRevenueTimeSeries, getTransactionById, getTransactionStats,
   listApiKeys, listCustomers, listDisputes, listPaymentLinks, listPayouts,
   listTeamMembers, listTransactions, listVirtualCards, listWebhooks,
-  listWebhookDeliveries,
+  listWebhookDeliveries, getWebhookById, updateWebhook,
   revokeApiKey, updateDispute, updateMerchant, updatePayout, updatePaymentLink,
   updateVirtualCard, upsertCustomer, getUserByOpenId, getVirtualCardById,
   listFraudAlerts, createFraudAlert, updateFraudAlert, getFraudStats,
@@ -25,6 +25,13 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
+import {
+  isBridgeAvailable,
+  initiatePayoutApproval,
+  approvePayoutViaMiddleware,
+  rejectPayoutViaMiddleware,
+  getPayoutApprovalStatus,
+} from "./middlewareBridge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -340,10 +347,21 @@ const payoutsRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const feeAmount = Math.round(input.amount * 0.005);
-      return createPayout({
-        id: nanoid("pyo_"),
+      const payoutId = nanoid("pyo_");
+      const reference = nanoid("PYO_");
+
+      // Determine if this payout requires approval (above threshold)
+      const requiresApproval =
+        merchant.payoutApprovalEnabled &&
+        merchant.payoutApprovalThreshold != null &&
+        input.amount >= merchant.payoutApprovalThreshold;
+
+      const status = requiresApproval ? "pending_approval" : "pending";
+
+      const payout = await createPayout({
+        id: payoutId,
         merchantId: merchant.id,
-        reference: nanoid("PYO_"),
+        reference,
         amount: input.amount,
         currency: input.currency,
         bankCode: input.bankCode,
@@ -351,8 +369,37 @@ const payoutsRouter = router({
         accountName: input.accountName,
         narration: input.narration,
         feeAmount,
-        status: "pending",
+        status,
       });
+
+      // If approval required and bridge is available, start Temporal workflow.
+      // The workflow handles TigerBeetle reservation, Kafka, Dapr, Fluvio, Lakehouse.
+      // Falls back gracefully when bridge is not configured (dev/sandbox).
+      if (requiresApproval && isBridgeAvailable()) {
+        try {
+          const workflowResp = await initiatePayoutApproval({
+            payoutId,
+            merchantId: merchant.id,
+            amount: input.amount,
+            currency: input.currency,
+            bankCode: input.bankCode ?? "",
+            accountNumber: input.accountNumber ?? "",
+            accountName: input.accountName ?? "",
+            narration: input.narration,
+            reference,
+            initiatorId: ctx.user.openId,
+          });
+          // Store the Temporal workflow ID on the payout record for status polling
+          await updatePayout(payoutId, { failureReason: `workflow:${workflowResp.workflowId}` });
+        } catch (bridgeErr) {
+          // Non-fatal: payout is already in pending_approval state in DB.
+          // The portal UI will show the approval queue; the bridge can be
+          // retried manually or via a reconciliation job.
+          console.error("[bridge] initiatePayoutApproval failed (non-fatal):", bridgeErr);
+        }
+      }
+
+      return payout;
     }),
 
   createBulk: protectedProcedure
@@ -395,6 +442,102 @@ const payoutsRouter = router({
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
       return { total: input.rows.length, succeeded, failed, results };
+    }),
+
+  approve: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      reason: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const payout = await getPayoutById(input.id);
+      if (!payout || payout.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+      if (payout.status !== "pending_approval") throw new TRPCError({ code: "BAD_REQUEST", message: "Payout is not awaiting approval" });
+
+      // If bridge is available, send Temporal signal which triggers:
+      //   TigerBeetle CommitPayout → bank transfer → Kafka payout.approved
+      //   → Dapr pub/sub → Fluvio SSE stream → Lakehouse audit record
+      if (isBridgeAvailable()) {
+        try {
+          await approvePayoutViaMiddleware(input.id, {
+            approverId: ctx.user.openId,
+            reason: input.reason,
+          });
+          // Bridge handles the status update via Temporal workflow completion
+          return { success: true, via: "bridge" };
+        } catch (bridgeErr) {
+          console.error("[bridge] approvePayoutViaMiddleware failed, falling back to DB:", bridgeErr);
+          // Fall through to direct DB update
+        }
+      }
+
+      // Fallback: direct DB update (dev/sandbox or bridge unavailable)
+      await updatePayout(input.id, { status: "pending", processedAt: new Date() });
+      return { success: true, via: "db" };
+    }),
+
+  reject: protectedProcedure
+    .input(z.object({ id: z.string(), reason: z.string().min(1).max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const payout = await getPayoutById(input.id);
+      if (!payout || payout.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+      if (payout.status !== "pending_approval") throw new TRPCError({ code: "BAD_REQUEST", message: "Payout is not awaiting approval" });
+
+      // If bridge is available, send Temporal signal which triggers:
+      //   TigerBeetle VoidPayout (releases reserved funds) → Kafka payout.rejected
+      //   → Dapr pub/sub → Fluvio SSE stream → Lakehouse audit record
+      if (isBridgeAvailable()) {
+        try {
+          await rejectPayoutViaMiddleware(input.id, {
+            approverId: ctx.user.openId,
+            reason: input.reason,
+          });
+          return { success: true, via: "bridge" };
+        } catch (bridgeErr) {
+          console.error("[bridge] rejectPayoutViaMiddleware failed, falling back to DB:", bridgeErr);
+        }
+      }
+
+      // Fallback: direct DB update
+      await updatePayout(input.id, { status: "rejected", failureReason: input.reason ?? "Rejected by merchant" });
+      return { success: true, via: "db" };
+    }),
+
+  // Returns the Temporal workflow status for a payout pending approval.
+  // Polls the Go bridge when available; falls back to DB status otherwise.
+  approvalStatus: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const payout = await getPayoutById(input.id);
+      if (!payout || payout.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+
+      if (isBridgeAvailable() && payout.status === "pending_approval") {
+        try {
+          const bridgeStatus = await getPayoutApprovalStatus(input.id);
+          return { payoutId: input.id, status: payout.status, workflowStatus: bridgeStatus.status, via: "bridge" };
+        } catch {
+          // Fall through
+        }
+      }
+
+      return { payoutId: input.id, status: payout.status, workflowStatus: null, via: "db" };
+    }),
+
+  updateApprovalSettings: protectedProcedure
+    .input(z.object({
+      payoutApprovalEnabled: z.boolean(),
+      payoutApprovalThreshold: z.number().min(100).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return updateMerchant(merchant.id, input);
     }),
 });
 
@@ -475,6 +618,20 @@ const webhooksRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await deleteWebhook(input.id, merchant.id);
+      return { success: true };
+    }),
+
+  updateEventTypes: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      events: z.array(z.string()).min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const wh = await getWebhookById(input.id);
+      if (!wh || wh.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+      await updateWebhook(input.id, merchant.id, { events: input.events });
       return { success: true };
     }),
 });
@@ -679,6 +836,33 @@ const settingsRouter = router({
       notifyOnFraudAlert: z.boolean().optional(),
       notifyOnPayout: z.boolean().optional(),
       notifyOnDispute: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return updateMerchant(merchant.id, input);
+    }),
+
+  getSettlementSchedule: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await getMerchantByOwnerId(user.id);
+    if (!merchant) return null;
+    return {
+      settlementFrequency: merchant.settlementFrequency ?? "daily",
+      settlementMinAmount: merchant.settlementMinAmount ?? 10000,
+      settlementBankCode: merchant.settlementBankCode ?? null,
+      settlementAccountNumber: merchant.settlementAccountNumber ?? null,
+      settlementAccountName: merchant.settlementAccountName ?? null,
+    };
+  }),
+
+  updateSettlementSchedule: protectedProcedure
+    .input(z.object({
+      settlementFrequency: z.enum(["daily", "weekly", "monthly"]).optional(),
+      settlementMinAmount: z.number().min(100).optional(),
+      settlementBankCode: z.string().optional().nullable(),
+      settlementAccountNumber: z.string().optional().nullable(),
+      settlementAccountName: z.string().optional().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
