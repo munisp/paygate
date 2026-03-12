@@ -43,6 +43,13 @@
       "when": 1773284027234,
       "tag": "0005_outstanding_mister_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1773288564990,
+      "tag": "0006_pink_boomerang",
+      "breakpoints": true
     }
   ]
 }

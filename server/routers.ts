@@ -354,6 +354,48 @@ const payoutsRouter = router({
         status: "pending",
       });
     }),
+
+  createBulk: protectedProcedure
+    .input(z.object({
+      rows: z.array(z.object({
+        amount: z.number().min(100),
+        currency: z.string().length(3).default("NGN"),
+        bankCode: z.string().optional(),
+        accountNumber: z.string().optional(),
+        accountName: z.string().optional(),
+        narration: z.string().optional(),
+      })).min(1).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const results: Array<{ index: number; success: boolean; id?: string; error?: string }> = [];
+      for (let i = 0; i < input.rows.length; i++) {
+        const row = input.rows[i];
+        try {
+          const feeAmount = Math.round(row.amount * 0.005);
+          const payout = await createPayout({
+            id: nanoid("pyo_"),
+            merchantId: merchant.id,
+            reference: nanoid("PYO_"),
+            amount: row.amount,
+            currency: row.currency,
+            bankCode: row.bankCode,
+            accountNumber: row.accountNumber,
+            accountName: row.accountName,
+            narration: row.narration,
+            feeAmount,
+            status: "pending",
+          });
+          results.push({ index: i, success: true, id: payout?.id });
+        } catch (e: any) {
+          results.push({ index: i, success: false, error: e.message ?? "Unknown error" });
+        }
+      }
+      const succeeded = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      return { total: input.rows.length, succeeded, failed, results };
+    }),
 });
 
 // ─── API Keys Router ──────────────────────────────────────────────────────────
@@ -625,6 +667,18 @@ const settingsRouter = router({
       email: z.string().email().optional(),
       phone: z.string().optional(),
       webhookUrl: z.string().url().optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return updateMerchant(merchant.id, input);
+    }),
+
+  updateNotificationPrefs: protectedProcedure
+    .input(z.object({
+      notifyOnFraudAlert: z.boolean().optional(),
+      notifyOnPayout: z.boolean().optional(),
+      notifyOnDispute: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);

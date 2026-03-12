@@ -1,12 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, DollarSign, ArrowLeftRight, Users, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Zap, Globe, Shield } from "lucide-react";
+import { TrendingUp, DollarSign, ArrowLeftRight, Users, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Zap, Globe, Shield, Radio } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import RevenueForecast from "@/components/RevenueForecast";
+import { useTransactionStream, type StreamTransaction } from "@/hooks/useTransactionStream";
 
 function fmt(n: number | null | undefined) {
   if (!n) return "\u20a60";
@@ -59,7 +60,26 @@ export default function Dashboard() {
   const overview = data?.overview;
   const timeSeries = data?.timeSeries ?? [];
   const merchant = data?.merchant;
-  const recentTxns = txData?.rows ?? [];
+
+  // Live transaction stream via SSE
+  const [liveQueue, setLiveQueue] = useState<StreamTransaction[]>([]);
+  const [isLive, setIsLive] = useState(false);
+  const liveRef = useRef(false);
+
+  const handleLiveTx = useCallback((tx: StreamTransaction) => {
+    if (!liveRef.current) { liveRef.current = true; setIsLive(true); }
+    setLiveQueue(prev => [tx, ...prev].slice(0, 8));
+    toast.info(`New transaction: ${tx.reference}`, { duration: 3000 });
+    // Also invalidate the list query so Transactions page stays fresh
+    utils.transactions.list.invalidate();
+  }, [utils]);
+
+  useTransactionStream({ onTransaction: handleLiveTx });
+
+  // Merge live queue with server-fetched rows (live rows take precedence)
+  const serverTxns = txData?.rows ?? [];
+  const liveIds = new Set(liveQueue.map(t => t.id));
+  const recentTxns = [...liveQueue, ...serverTxns.filter((t: any) => !liveIds.has(t.id))].slice(0, 8);
 
   const channelBreakdown = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -224,8 +244,11 @@ export default function Dashboard() {
               <p className="text-sm text-muted-foreground">Latest activity from your account</p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs text-emerald-600 font-medium">Live</span>
+              <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+              <span className={`text-xs font-medium flex items-center gap-1 ${isLive ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                <Radio className="w-3 h-3" />
+                {isLive ? 'Live stream' : 'Connecting…'}
+              </span>
             </div>
           </div>
           {isLoading ? (

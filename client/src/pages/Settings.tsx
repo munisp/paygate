@@ -7,14 +7,21 @@ import { trpc } from "@/lib/trpc";
 
 export default function Settings() {
   const [form, setForm] = useState({ businessName: "", email: "", phone: "", webhookUrl: "" });
+  const [notifPrefs, setNotifPrefs] = useState({
+    notifyOnFraudAlert: true,
+    notifyOnPayout: true,
+    notifyOnDispute: true,
+  });
   const utils = trpc.useUtils();
-
   const { data, isLoading } = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
   const updateMerchant = trpc.settings.updateMerchant.useMutation({
     onSuccess: () => { toast.success("Settings saved"); utils.settings.get.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
-
+  const updateNotifPrefs = trpc.settings.updateNotificationPrefs.useMutation({
+    onSuccess: () => { toast.success("Notification preferences saved"); utils.settings.get.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
   useEffect(() => {
     if (data?.merchant) {
       setForm({
@@ -22,6 +29,11 @@ export default function Settings() {
         email: data.merchant.email ?? "",
         phone: data.merchant.phone ?? "",
         webhookUrl: data.merchant.webhookUrl ?? "",
+      });
+      setNotifPrefs({
+        notifyOnFraudAlert: (data.merchant as any).notifyOnFraudAlert ?? true,
+        notifyOnPayout: (data.merchant as any).notifyOnPayout ?? true,
+        notifyOnDispute: (data.merchant as any).notifyOnDispute ?? true,
       });
     }
   }, [data]);
@@ -87,6 +99,41 @@ export default function Settings() {
                 placeholder="https://your-server.com/webhooks" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
               <p className="text-xs text-muted-foreground mt-1">Events will be sent to this URL unless overridden per webhook endpoint</p>
             </div>
+          </div>
+
+          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Bell className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold">Notification Preferences</h3>
+            </div>
+            <p className="text-xs text-muted-foreground">Choose which events trigger in-app notifications for your account.</p>
+            {([
+              { key: "notifyOnFraudAlert" as const, label: "Fraud Alerts", desc: "Notify when a high-severity fraud alert is detected" },
+              { key: "notifyOnPayout" as const, label: "Payout Events", desc: "Notify when a payout is initiated or completed" },
+              { key: "notifyOnDispute" as const, label: "Dispute Updates", desc: "Notify when a dispute is opened or resolved" },
+            ]).map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                <div>
+                  <p className="text-sm font-medium">{label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = { ...notifPrefs, [key]: !notifPrefs[key] };
+                    setNotifPrefs(updated);
+                    updateNotifPrefs.mutate(updated);
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                    notifPrefs[key] ? 'bg-primary' : 'bg-muted-foreground/30'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    notifPrefs[key] ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+            ))}
           </div>
 
           <div className="bg-card rounded-xl border border-border p-6">

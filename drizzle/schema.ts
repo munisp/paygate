@@ -51,6 +51,9 @@ export const merchants = pgTable("merchants", {
   onboardingStep: integer("onboarding_step").default(0).notNull(),
   webhookUrl: text("webhook_url"),
   logoUrl: text("logo_url"),
+  notifyOnFraudAlert: boolean("notify_on_fraud_alert").default(true).notNull(),
+  notifyOnPayout: boolean("notify_on_payout").default(true).notNull(),
+  notifyOnDispute: boolean("notify_on_dispute").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [index("merchants_owner_idx").on(t.ownerId)]);

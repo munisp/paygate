@@ -114,6 +114,56 @@ async function startServer() {
     }
   });
 
+  // ─── SSE: Live Transaction Stream ──────────────────────────────────────────
+  // In-memory client registry: merchantId -> Set<Response>
+  const sseClients = new Map<string, Set<any>>();
+
+  // Expose broadcaster so tRPC mutations can push events
+  (app as any)._sseBroadcast = (merchantId: string, event: string, data: unknown) => {
+    const clients = sseClients.get(merchantId);
+    if (!clients || clients.size === 0) return;
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const res of Array.from(clients)) {
+      try { res.write(payload); } catch { clients.delete(res); }
+    }
+  };
+
+  app.get("/api/events/transactions", async (req: any, res: any) => {
+    // Authenticate via session cookie (same as tRPC context)
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const { getUserByOpenId, getMerchantByOwnerId } = await import("../db");
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const merchant = await getMerchantByOwnerId(user.id);
+      if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+      const merchantId = merchant.id;
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      // Register client
+      if (!sseClients.has(merchantId)) sseClients.set(merchantId, new Set());
+      sseClients.get(merchantId)!.add(res);
+
+      // Send heartbeat every 25s to keep connection alive
+      const heartbeat = setInterval(() => {
+        try { res.write(`: heartbeat\n\n`); } catch { clearInterval(heartbeat); }
+      }, 25_000);
+
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        sseClients.get(merchantId)?.delete(res);
+      });
+    } catch {
+      res.status(500).json({ error: "SSE setup failed" });
+    }
+  });
+
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",

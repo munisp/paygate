@@ -168,3 +168,12 @@
 - [x] gRPC: PaymentService, FraudService, FXService, WalletService proto + Go server + client helper
 - [x] Idempotency: idempotency_requests table, withIdempotency middleware, wired on createTest/sendMoney/initiate
 - [x] Write vitest tests for Wave 7 (28 new tests, 112 total)
+
+## Wave 8
+- [x] Live transaction stream: SSE endpoint /api/events/transactions
+- [x] Dashboard: real-time Recent Transactions table via SSE
+- [x] Settings: notification preferences (notifyOnFraudAlert, notifyOnPayout, notifyOnDispute)
+- [x] trpc.settings.update extended with notification preference fields
+- [x] Payouts: bulk payout CSV upload button
+- [x] trpc.payouts.createBulk procedure with per-row success/failure reporting
+- [x] Write vitest tests for Wave 8 (33 new tests, 145 total)
