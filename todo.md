@@ -330,3 +330,16 @@
 - [x] Admin portal: 30s polling for live SLA breach feed (refetchInterval)
 - [x] Admin portal: register /settlement-sla route and sidebar link
 - [x] Write vitest tests for retry logic and error logging (19 new tests, 324 total merchant + 25 admin = 349 total)
+
+## Wave 14 — SLA Breach Webhooks, NIP Analytics, Auto-Escalation
+
+- [x] SLA breach webhook dispatch (webhookDispatch.ts) using existing webhooks table
+- [x] Integrate dispatchSlaBreachWebhook into checkSla procedure
+- [x] NIP error analytics tRPC procedure (trpc.monitoring.nipErrorAnalytics in admin portal)
+- [x] NIP error analytics bar chart in admin portal Monitoring page (daily trend + bank breakdown)
+- [x] SLA escalation scheduler (slaEscalation.ts) with 15-min interval, 4h threshold
+- [x] Wire scheduler into server/_core/index.ts startup
+- [x] Add severity, resolvedAt, notes columns to settlements table (migration pushed)
+- [x] Write 15 vitest tests for escalation scheduler (339 merchant + 25 admin = 364 total)
+
+

@@ -677,6 +677,10 @@ export const settlements = pgTable("settlements", {
   workflowId: text("workflow_id"),
   bridgeRef: text("bridge_ref"),
   failureReason: text("failure_reason"),
+  // SLA severity escalation
+  severity: text("severity").default("normal"),  // normal | high | critical
+  resolvedAt: timestamp("resolved_at"),
+  notes: text("notes"),
   // Timestamps
   initiatedAt: timestamp("initiated_at").defaultNow().notNull(),
   processedAt: timestamp("processed_at"),
@@ -759,3 +763,4 @@ export const nipResolutionErrors = pgTable("nip_resolution_errors", {
 ]);
 export type NipResolutionError = typeof nipResolutionErrors.$inferSelect;
 export type InsertNipResolutionError = typeof nipResolutionErrors.$inferInsert;
+

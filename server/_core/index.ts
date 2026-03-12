@@ -11,6 +11,7 @@ import multer from "multer";
 import { storagePut } from "../storage";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { startSlaEscalationScheduler } from "../slaEscalation";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -197,5 +198,8 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
   });
 }
+
+// ─── Background Schedulers ──────────────────────────────────────────────────────────────
+startSlaEscalationScheduler();
 
 startServer().catch(console.error);

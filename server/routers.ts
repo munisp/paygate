@@ -31,6 +31,7 @@ import {
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
+import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
 import {
@@ -2047,6 +2048,50 @@ const nipRouter = router({
         .map(([bankCode, count]) => ({ bankCode, count }));
       return { total, unresolved, resolved, topFailingBanks };
     }),
+
+  // Error analytics: error counts by bank code for the last N days
+  errorAnalytics: protectedProcedure
+    .input(z.object({
+      days: z.number().min(1).max(90).default(7),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const tenantId = merchant.tenantId ?? "ten_default";
+      const since = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000);
+      // listNipResolutionErrors takes (merchantId, opts) — fetch up to 1000 recent errors
+      const result = await listNipResolutionErrors(merchant.id, { limit: 1000 });
+      // Filter client-side by date window
+      const allRows = result.rows.filter((r) => r.createdAt >= since);
+      // Aggregate by bank code
+      const byBank: Record<string, { total: number; resolved: number; unresolved: number }> = {};
+      for (const r of allRows) {
+        if (!byBank[r.bankCode]) byBank[r.bankCode] = { total: 0, resolved: 0, unresolved: 0 };
+        byBank[r.bankCode].total++;
+        if (r.resolvedAt) byBank[r.bankCode].resolved++;
+        else byBank[r.bankCode].unresolved++;
+      }
+      // Aggregate by day (ISO date string)
+      const byDay: Record<string, number> = {};
+      for (const r of allRows) {
+        const day = r.createdAt.toISOString().slice(0, 10);
+        byDay[day] = (byDay[day] ?? 0) + 1;
+      }
+      // Build chart series sorted by date
+      const dailySeries = Object.entries(byDay)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, count]) => ({ date, count }));
+      // Build bank breakdown sorted by total desc
+      const bankBreakdown = Object.entries(byBank)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([bankCode, stats]) => ({ bankCode, ...stats }));
+      return {
+        days: input.days,
+        totalErrors: allRows.length,
+        dailySeries,
+        bankBreakdown,
+      };
+    }),
 });
 
 // ─── Settlements Router ─────────────────────────────────────────────────────────────
@@ -2148,10 +2193,29 @@ const settlementsRouter = router({
         await markSettlementSlaBreached(s.id);
         // Only send alert once per settlement
         if (!s.slaAlertSentAt) {
+          // 1. Notify platform owner
           await notifyOwner({
             title: `⚠️ Settlement SLA Breach: ${s.reference}`,
             content: `Settlement ${s.reference} for merchant ${merchant.businessName} (${s.currency} ${(s.amount / 100).toFixed(2)}) has breached the CBN NIP 2-hour SLA. Initiated at: ${s.initiatedAt?.toISOString()}. Deadline was: ${s.slaDeadlineAt?.toISOString()}.`,
           });
+          // 2. Dispatch signed webhook to merchant-configured endpoints
+          try {
+            await dispatchSlaBreachWebhook({
+              event: "settlement.sla_breach",
+              id: s.id,
+              tenantId: tenantId,
+              merchantId: merchant.id,
+              reference: s.reference,
+              amount: s.amount,
+              currency: s.currency,
+              initiatedAt: s.initiatedAt?.toISOString() ?? new Date().toISOString(),
+              slaDeadlineAt: s.slaDeadlineAt?.toISOString() ?? new Date().toISOString(),
+              breachedAt: new Date().toISOString(),
+              severity: "high",
+            });
+          } catch (webhookErr) {
+            console.error("[settlements.checkSla] Webhook dispatch failed (non-fatal):", webhookErr);
+          }
           await markSettlementSlaAlertSent(s.id);
           alertsSent++;
         }

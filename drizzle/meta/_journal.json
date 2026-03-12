@@ -71,6 +71,13 @@
       "when": 1773315850318,
       "tag": "0009_whole_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1773317868420,
+      "tag": "0010_curious_molecule_man",
+      "breakpoints": true
     }
   ]
 }
