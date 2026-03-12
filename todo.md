@@ -205,4 +205,21 @@
 - [x] Portal: routers.ts — approve/reject procedures call bridge (with DB fallback)
 - [x] Portal: routers.ts — approvalStatus procedure added for Temporal workflow polling
 - [x] Write vitest middleware integration tests (37 new tests, 210 total)
+- [x] Regenerate complete archive (portal + middleware + platform) — paygate_FULL_v9.tar.gz, 554 MB, 117,149 files
+
+## Wave 10 — Full Middleware Integration (All Domains) + Three Suggested Features
+- [x] Audit all service domains for middleware gaps (transactions, disputes, fraud, KYC, BNPL, FX, wallets, virtual cards, payment links, settlements, mobile money, webhooks)
+- [x] Go: domain_handlers.go — bridge HTTP handlers for all 12 service domains with Permify authz, Kafka, Dapr, Redis, Fluvio, TigerBeetle
+- [x] Go: topics.go — added Kafka topics for virtual cards, payment links, wallets, settlements, KYC, role sync, email notifications
+- [x] Go: keycloak_role_sync_handler.go — handleSyncRoles, handleSyncAllRoles, handleGetUserRoles (gin context, Permify WriteRelationship, Redis cache, Kafka publish)
+- [x] Go: apisix/routes/domain_routes.yaml — APISIX routes for all new domain endpoints
+- [x] Python: python/lakehouse/domain_audit_writers.py — Lakehouse audit writers for all 12 service domains
+- [x] Python: python/fraud/fraud_scoring_service.py — GNN-based fraud ML scoring service with Kafka consumer
+- [x] Portal: middlewareBridge.ts — complete rewrite with typed interfaces for all 12 domains (graceful fallback)
+- [x] Portal: routers.ts — bridge calls added to transactions refund, virtual cards issue/freeze, payment links create/toggle, disputes respond, fraud acknowledge, KYC updateStatus, BNPL create, wallet sendMoney/topUp/P2P
+- [x] Portal: WorkflowObservability.tsx — Temporal workflow observability dashboard page (/workflows)
+- [x] Portal: KeycloakRoleSync.tsx — Keycloak → Permify role sync admin page (/role-sync)
+- [x] Portal: App.tsx — /workflows and /role-sync routes registered
+- [x] Portal: Layout.tsx — Workflows (Ops badge) and Role Sync added to dev sidebar section
+- [x] Write vitest Wave 10 tests (28 new tests, 238 total)
 - [ ] Regenerate complete archive (portal + middleware + platform)

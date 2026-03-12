@@ -36,6 +36,8 @@ import ConsumerProfile from "./pages/consumer/ConsumerProfile";
 import ConsumerHistory from "./pages/consumer/History";
 import CrossBorder from "./pages/CrossBorder";
 import DeveloperPortal from "./pages/DeveloperPortal";
+import WorkflowObservability from "./pages/WorkflowObservability";
+import KeycloakRoleSync from "./pages/KeycloakRoleSync";
 
 function Router() {
   const [location] = useLocation();
@@ -93,6 +95,8 @@ function Router() {
         <Route path="/qr-payments" component={QRPayments} />
         <Route path="/cross-border" component={CrossBorder} />
         <Route path="/developer" component={DeveloperPortal} />
+        <Route path="/workflows" component={WorkflowObservability} />
+        <Route path="/role-sync" component={KeycloakRoleSync} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

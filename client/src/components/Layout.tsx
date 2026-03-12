@@ -5,7 +5,8 @@ import {
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu,
   Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon,
-  QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon
+  QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
+  GitBranch
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,8 @@ const devItems = [
   { icon: Key, label: "API Keys", path: "/api-keys" },
   { icon: Webhook, label: "Webhooks", path: "/webhooks" },
   { icon: Code2, label: "Developer", path: "/developer" },
+  { icon: GitBranch, label: "Workflows", path: "/workflows", badge: "Ops" },
+  { icon: Shield, label: "Role Sync", path: "/role-sync" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 

@@ -31,6 +31,33 @@ import {
   approvePayoutViaMiddleware,
   rejectPayoutViaMiddleware,
   getPayoutApprovalStatus,
+  recordTransactionViaMiddleware,
+  refundTransactionViaMiddleware,
+  submitDisputeViaMiddleware,
+  resolveDisputeViaMiddleware,
+  scoreFraudViaMiddleware,
+  acknowledgeFraudAlertViaMiddleware,
+  startKYCWorkflowViaMiddleware,
+  updateKYCStatusViaMiddleware,
+  createBNPLLoanViaMiddleware,
+  processBNPLInstalmentViaMiddleware,
+  recordFXConversionViaMiddleware,
+  debitWalletViaMiddleware,
+  creditWalletViaMiddleware,
+  p2pTransferViaMiddleware,
+  deliverWebhookViaMiddleware,
+  retryWebhookViaMiddleware,
+  issueVirtualCardViaMiddleware,
+  freezeVirtualCardViaMiddleware,
+  createPaymentLinkViaMiddleware,
+  deactivatePaymentLinkViaMiddleware,
+  triggerSettlementViaMiddleware,
+  reconcileMoMoViaMiddleware,
+  syncRolesToPermifyViaMiddleware,
+  getWorkflowStatusViaMiddleware,
+  listActiveWorkflowsViaMiddleware,
+  forceTerminateWorkflowViaMiddleware,
+  sendPayoutApprovalEmailViaMiddleware,
 } from "./middlewareBridge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -229,6 +256,16 @@ const transactionsRouter = router({
       if (refundAmount > tx.amount) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Refund amount exceeds original transaction amount' });
       // Mark as reversed (full) or create a separate reversal record (partial)
       const updated = await updateTransaction(tx.id, { status: 'reversed', metadata: { ...((tx.metadata as any) ?? {}), refundAmount, refundReason: input.reason ?? 'merchant_initiated', refundedAt: new Date().toISOString(), refundedBy: ctx.user.openId } });
+      // Bridge: publish refund event to Kafka + TigerBeetle void
+      if (isBridgeAvailable()) {
+        refundTransactionViaMiddleware({
+          transactionId: tx.id,
+          merchantId: merchant.id,
+          amount: refundAmount,
+          reason: input.reason ?? 'merchant_initiated',
+          initiatorId: ctx.user.openId,
+        }).catch(e => console.error('[bridge] refundTransaction failed (non-fatal):', e));
+      }
       // Fire webhook event for all active webhooks on this merchant
       const webhooks = await listWebhooks(merchant.id);
       const payload = JSON.stringify({ event: 'transaction.refunded', data: { transactionId: tx.id, merchantId: merchant.id, refundAmount, currency: tx.currency, reason: input.reason ?? 'merchant_initiated' }, timestamp: new Date().toISOString() });
@@ -390,7 +427,7 @@ const payoutsRouter = router({
             initiatorId: ctx.user.openId,
           });
           // Store the Temporal workflow ID on the payout record for status polling
-          await updatePayout(payoutId, { failureReason: `workflow:${workflowResp.workflowId}` });
+          if (workflowResp) await updatePayout(payoutId, { failureReason: `workflow:${workflowResp.workflowId}` });
         } catch (bridgeErr) {
           // Non-fatal: payout is already in pending_approval state in DB.
           // The portal UI will show the approval queue; the bridge can be
@@ -520,7 +557,7 @@ const payoutsRouter = router({
       if (isBridgeAvailable() && payout.status === "pending_approval") {
         try {
           const bridgeStatus = await getPayoutApprovalStatus(input.id);
-          return { payoutId: input.id, status: payout.status, workflowStatus: bridgeStatus.status, via: "bridge" };
+          return { payoutId: input.id, status: payout.status, workflowStatus: bridgeStatus?.status ?? null, via: "bridge" };
         } catch {
           // Fall through
         }
@@ -677,6 +714,18 @@ const disputesRouter = router({
         evidence: input.evidence,
         status: "under_review",
       });
+      // Bridge: submit dispute response via Temporal + Kafka + Permify + Lakehouse
+      if (isBridgeAvailable()) {
+        submitDisputeViaMiddleware({
+          disputeId: input.id,
+          merchantId: merchant.id,
+          transactionId: (dispute as any).transactionId ?? '',
+          reason: input.merchantResponse,
+          amount: (dispute as any).amount ?? 0,
+          currency: (dispute as any).currency ?? 'NGN',
+          submitterId: ctx.user.openId,
+        }).catch(e => console.error('[bridge] submitDispute failed (non-fatal):', e));
+      }
       return { success: true };
     }),
 });
@@ -702,8 +751,9 @@ const virtualCardsRouter = router({
       const merchant = await requireMerchant(user.id);
       const last4 = Math.floor(1000 + Math.random() * 9000).toString();
       const expYear = new Date().getFullYear() + 3;
-      return createVirtualCard({
-        id: nanoid("vcard_"),
+      const cardId = nanoid("vcard_");
+      const card = await createVirtualCard({
+        id: cardId,
         merchantId: merchant.id,
         maskedPan: `4111 **** **** ${last4}`,
         brand: input.brand,
@@ -713,6 +763,18 @@ const virtualCardsRouter = router({
         spendLimit: input.spendLimit,
         label: input.label,
       });
+      // Bridge: issue virtual card via Kafka + Permify + Lakehouse
+      if (isBridgeAvailable()) {
+        issueVirtualCardViaMiddleware({
+          cardId,
+          merchantId: merchant.id,
+          currency: input.currency,
+          spendingLimit: input.spendLimit ?? 0,
+          label: input.label ?? '',
+          issuerId: ctx.user.openId,
+        }).catch(e => console.error('[bridge] issueVirtualCard failed (non-fatal):', e));
+      }
+      return card;
     }),
 
   toggleFreeze: protectedProcedure
@@ -722,7 +784,17 @@ const virtualCardsRouter = router({
       const merchant = await requireMerchant(user.id);
       const card = await getVirtualCardById(input.id);
       if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
-      await updateVirtualCard(input.id, { status: card.status === "frozen" ? "active" : "frozen" });
+      const newStatus = card.status === "frozen" ? "active" : "frozen";
+      await updateVirtualCard(input.id, { status: newStatus });
+      // Bridge: freeze/unfreeze via Kafka + Permify + Lakehouse
+      if (isBridgeAvailable()) {
+        freezeVirtualCardViaMiddleware({
+          cardId: input.id,
+          merchantId: merchant.id,
+          freeze: newStatus === "frozen",
+          operatorId: ctx.user.openId,
+        }).catch(e => console.error('[bridge] freezeVirtualCard failed (non-fatal):', e));
+      }
       return { success: true };
     }),
 });
@@ -749,12 +821,25 @@ const paymentLinksRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const slug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + crypto.randomBytes(4).toString("hex");
-      return createPaymentLink({
-        id: nanoid("pl_"),
+      const linkId = nanoid("pl_");
+      const link = await createPaymentLink({
+        id: linkId,
         merchantId: merchant.id,
         slug,
         ...input,
       });
+      // Bridge: register payment link via Kafka + Permify + Lakehouse
+      if (isBridgeAvailable()) {
+        createPaymentLinkViaMiddleware({
+          linkId,
+          merchantId: merchant.id,
+          amount: input.amount ?? 0,
+          currency: input.currency,
+          description: input.description ?? input.title,
+          creatorId: ctx.user.openId,
+        }).catch(e => console.error('[bridge] createPaymentLink failed (non-fatal):', e));
+      }
+      return link;
     }),
 
   toggle: protectedProcedure
@@ -764,7 +849,16 @@ const paymentLinksRouter = router({
       const merchant = await requireMerchant(user.id);
       const link = await getPaymentLinkById(input.id);
       if (!link || link.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
-      await updatePaymentLink(input.id, { isActive: !link.isActive });
+      const newActive = !link.isActive;
+      await updatePaymentLink(input.id, { isActive: newActive });
+      // Bridge: deactivate via Kafka + Lakehouse if deactivating
+      if (!newActive && isBridgeAvailable()) {
+        deactivatePaymentLinkViaMiddleware({
+          linkId: input.id,
+          merchantId: merchant.id,
+          operatorId: ctx.user.openId,
+        }).catch(e => console.error('[bridge] deactivatePaymentLink failed (non-fatal):', e));
+      }
       return { success: true };
     }),
 });
@@ -982,6 +1076,34 @@ const middlewareRouter = router({
         });
       }),
   }),
+  keycloak: router({
+    // Sync a single user's Keycloak roles to Permify
+    syncRoles: protectedProcedure
+      .input(z.object({ userId: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await bridgeFetch("/v1/auth/sync-roles", "POST", {
+          user_id: input.userId,
+        });
+        if (!result) return { synced: 0, roles: [], fallback: true };
+        return result as { synced: number; roles: string[] };
+      }),
+    // Bulk sync all users' Keycloak roles to Permify
+    syncAllRoles: protectedProcedure
+      .input(z.object({}).optional())
+      .mutation(async () => {
+        const result = await bridgeFetch("/v1/auth/sync-all-roles", "POST", {});
+        if (!result) return { users: 0, total: 0, fallback: true };
+        return result as { users: number; total: number };
+      }),
+    // Get Permify roles for a user
+    getUserRoles: protectedProcedure
+      .input(z.object({ userId: z.string() }))
+      .query(async ({ input }) => {
+        const result = await bridgeFetch(`/v1/auth/user-roles/${input.userId}`, "GET");
+        if (!result) return { roles: [], fallback: true };
+        return result as { roles: string[] };
+      }),
+  }),
 });
 
 // ─── Fraud Risk Router ──────────────────────────────────────────────────────
@@ -1064,6 +1186,15 @@ const fraudRiskRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await updateFraudAlert(input.id, merchant.id, { status: 'investigating' });
+      // Bridge: acknowledge fraud alert via Kafka + Permify + Lakehouse
+      if (isBridgeAvailable()) {
+        acknowledgeFraudAlertViaMiddleware({
+          alertId: input.id,
+          merchantId: merchant.id,
+          acknowledgerId: ctx.user.openId,
+          action: 'escalate',
+        }).catch(e => console.error('[bridge] acknowledgeFraudAlert failed (non-fatal):', e));
+      }
       return { success: true };
     }),
 });
@@ -1112,6 +1243,19 @@ const complianceKycRouter = router({
         update.reviewedBy = ctx.user.openId;
       }
       await updateKycSubmission(input.id, merchant.id, update);
+      // Bridge: update KYC status via Temporal + Kafka + Permify + Lakehouse
+      if (isBridgeAvailable()) {
+        // Only call bridge for statuses the bridge supports
+        if (input.status === 'approved' || input.status === 'rejected' || input.status === 'under_review') {
+          updateKYCStatusViaMiddleware({
+            submissionId: input.id,
+            merchantId: merchant.id,
+            status: input.status,
+            reviewerId: ctx.user.openId,
+            rejectionReason: input.rejectionReason,
+          }).catch(e => console.error('[bridge] updateKYCStatus failed (non-fatal):', e));
+        }
+      }
       // Notify owner when KYC status changes to approved or rejected
       if (input.status === 'approved' || input.status === 'rejected') {
         await notifyOwner({
@@ -1157,7 +1301,7 @@ const bnplRouter = router({
       const id = 'bnpl_' + crypto.randomBytes(8).toString('hex');
       const installmentAmount = Math.floor(input.principalAmount / input.installments);
       const nextPaymentAt = new Date(Date.now() + 30 * 86400000);
-      return createBnplLoan({
+      const loan = await createBnplLoan({
         id, merchantId: merchant.id, principalAmount: input.principalAmount,
         currency: input.currency, installments: input.installments,
         installmentAmount, interestRate: input.interestRate,
@@ -1167,6 +1311,21 @@ const bnplRouter = router({
         customerName: input.customerName ?? null,
         nextPaymentAt, status: 'pending',
       });
+      // Bridge: create BNPL loan via Temporal + TigerBeetle + Kafka + Lakehouse
+      if (isBridgeAvailable()) {
+        createBNPLLoanViaMiddleware({
+          loanId: id,
+          merchantId: merchant.id,
+          customerId: input.customerId ?? ctx.user.openId,
+          principalAmount: input.principalAmount,
+          currency: input.currency,
+          installments: input.installments,
+          installmentAmount,
+          interestRate: input.interestRate,
+          transactionId: input.transactionId,
+        }).catch(e => console.error('[bridge] createBNPLLoan failed (non-fatal):', e));
+      }
+      return loan;
     }),
 });
 
@@ -1377,6 +1536,19 @@ const walletRouter = router({
           counterpartyId: input.recipientId,
           status: "completed",
         });
+        // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse
+        if (isBridgeAvailable()) {
+          p2pTransferViaMiddleware({
+            transferId: ref,
+            senderWalletId: String(senderWallet.id),
+            receiverWalletId: input.recipientId,
+            senderUserId: ctx.user.openId,
+            receiverUserId: input.recipientId,
+            amount: Number(input.amount),
+            currency: input.currency,
+            narration: input.note ?? '',
+          }).catch(e => console.error('[bridge] p2pTransfer failed (non-fatal):', e));
+        }
         return { success: true, reference: ref, transaction: tx };
       };
       if (input.idempotencyKey) {
@@ -1410,6 +1582,17 @@ const walletRouter = router({
         channel: input.channel,
         status: "completed",
       });
+      // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse
+      if (isBridgeAvailable()) {
+        creditWalletViaMiddleware({
+          walletId: String(wallet.id),
+          userId: ctx.user.openId,
+          amount: Number(input.amount),
+          currency: input.currency,
+          reference: ref,
+          description: `Top-up via ${input.channel}`,
+        }).catch(e => console.error('[bridge] creditWallet failed (non-fatal):', e));
+      }
       return { success: true, reference: ref, newBalance, transaction: tx };
     }),
 });
