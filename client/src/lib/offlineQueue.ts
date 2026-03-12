@@ -179,6 +179,58 @@ class OfflineQueue {
     return { succeeded, failed };
   }
 
+  /**
+   * Batch flush — sends all pending items to the Go sync relay in ONE request.
+   * This is the 2G-optimised path: instead of N individual tRPC calls, it sends
+   * a single POST to /api/mobile/sync which the Go relay deduplicates and replays.
+   * Falls back to flush() if the sync relay returns 503 (not deployed yet).
+   */
+  async batchFlush(): Promise<{ succeeded: number; failed: number; usedRelay: boolean }> {
+    if (this.flushing || !navigator.onLine) return { succeeded: 0, failed: 0, usedRelay: false };
+    const pending = await this.getPending();
+    if (pending.length === 0) return { succeeded: 0, failed: 0, usedRelay: false };
+
+    // Try the Go sync relay first (single batch request)
+    try {
+      const payload = {
+        operations: pending.map(e => ({
+          id: e.id,
+          operation: e.procedure,
+          payload: e.input,
+          idempotency_key: e.id,
+          created_at: new Date(e.createdAt).toISOString(),
+        })),
+        device_id: `web-${navigator.userAgent.slice(0, 32)}`,
+        merchant_id: 0, // resolved server-side from session
+      };
+      const res = await fetch('/api/mobile/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        const db = await this.getDb();
+        // Mark all as succeeded
+        for (const entry of pending) await idbDelete(db, entry.id);
+        this.notifyListeners();
+        return { succeeded: result.processed ?? pending.length, failed: result.failed ?? 0, usedRelay: true };
+      }
+      // 503 = relay not deployed, fall through to individual flush
+      if (res.status !== 503) {
+        throw new Error(`Sync relay returned ${res.status}`);
+      }
+    } catch (err: any) {
+      console.warn('[OfflineQueue] Batch sync relay unavailable, falling back to individual replay:', err?.message);
+    }
+
+    // Fallback: individual tRPC calls
+    const result = await this.flush();
+    return { ...result, usedRelay: false };
+  }
+
   /** Remove a specific entry (e.g., user dismisses it). */
   async discard(id: string): Promise<void> {
     const db = await this.getDb();

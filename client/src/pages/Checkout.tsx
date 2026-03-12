@@ -291,7 +291,7 @@ export default function Checkout() {
     email: 'customer@example.com',
     amount: 5000000, // Amount in kobo
     currency: 'NGN',
-    ref: 'unique_ref_' + Math.random(),
+    ref: 'pg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9),
     onSuccess: function(response) {
       console.log('Payment successful:', response);
     },

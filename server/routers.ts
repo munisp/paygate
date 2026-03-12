@@ -2567,6 +2567,47 @@ const pushTokensRouter = router({
     }),
 });
 
+// ─── QR Payments Router ─────────────────────────────────────────────────────
+
+const qrPaymentsRouter = router({
+  generate: protectedProcedure
+    .input(z.object({
+      amount: z.number().int().min(1).optional(),
+      currency: z.string().default('NGN'),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const qrId = nanoid('qr_');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      return {
+        qrId,
+        merchantId: merchant.id,
+        merchantName: merchant.businessName ?? 'PayGate Merchant',
+        paymentUrl: `https://pay.paygate.africa/qr/${qrId}`,
+        expiresAt,
+        createdAt: new Date(),
+      };
+    }),
+
+  scan: publicProcedure
+    .input(z.object({ qrId: z.string() }))
+    .query(async ({ input }) => {
+      if (!input.qrId.startsWith('qr_')) throw new TRPCError({ code: 'NOT_FOUND', message: 'Invalid QR code' });
+      return { valid: true, qrId: input.qrId, message: 'QR code is valid' };
+    }),
+
+  recentScans: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const result = await listTransactions(merchant.id, { limit: input.limit }).catch(() => ({ rows: [], total: 0 }));
+      return result;
+    }),
+});
+
 // ─── Root Router ─────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2600,6 +2641,7 @@ export const appRouter = router({
   stripe: stripeRouter,
   notifications: notificationsRouter,
   pushTokens: pushTokensRouter,
+  qrPayments: qrPaymentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

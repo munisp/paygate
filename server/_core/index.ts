@@ -642,6 +642,152 @@ async function startServer() {
     }
   });
 
+  // ─── Internal USSD Service Endpoints ──────────────────────────────────────
+  // Called by the Python USSD service (server-to-server) via X-Internal-Key header
+
+  const verifyInternalKey = (req: any, res: any, next: any) => {
+    const key = req.headers["x-internal-key"];
+    if (!key || key !== process.env.MIDDLEWARE_INTERNAL_KEY) {
+      return res.status(401).json({ error: "Invalid internal key" });
+    }
+    next();
+  };
+
+  app.get("/api/internal/ussd/balance", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const { phone } = req.query;
+      if (!phone) return res.status(400).json({ error: "phone required" });
+      const { getDb } = await import("../db");
+      const { wallets, merchants } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable" });
+      const result = await db
+        .select({ balance: wallets.balance, ledgerBalance: wallets.ledgerBalance })
+        .from(wallets)
+        .innerJoin(merchants, eq(merchants.id, wallets.merchantId))
+        .where(eq(merchants.phone, phone as string))
+        .limit(1);
+      if (!result.length) return res.status(404).json({ error: "Account not found" });
+      return res.json({ balance: result[0].balance, ledger_balance: result[0].ledgerBalance });
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/internal/ussd/transfer", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const { from_phone, to_phone, amount, pin, idempotency_key } = req.body;
+      if (!from_phone || !to_phone || !amount || !pin || !idempotency_key)
+        return res.status(400).json({ error: "Missing required fields" });
+      const { getDb } = await import("../db");
+      const { merchants, wallets, transactions } = await import("../../drizzle/schema");
+      const { eq, sql } = await import("drizzle-orm");
+      const bcrypt = await import("bcryptjs");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable", success: false });
+      const [sender] = await db.select().from(merchants).where(eq(merchants.phone, from_phone)).limit(1);
+      if (!sender) return res.status(404).json({ error: "Sender not found", success: false });
+      const pinValid = sender.ussdPin ? await bcrypt.compare(pin, sender.ussdPin) : false;
+      if (!pinValid) return res.status(401).json({ error: "Invalid PIN", success: false });
+      const [existing] = await db.select().from(transactions).where(eq(transactions.reference, idempotency_key)).limit(1);
+      if (existing) return res.json({ success: true, reference: idempotency_key, duplicate: true });
+      const [senderWallet] = await db.select().from(wallets).where(eq(wallets.merchantId, sender.id)).limit(1);
+      if (!senderWallet || senderWallet.balance < amount)
+        return res.status(400).json({ error: "Insufficient funds", success: false });
+      const [recipient] = await db.select().from(merchants).where(eq(merchants.phone, to_phone)).limit(1);
+      if (!recipient) return res.status(404).json({ error: "Recipient not found", success: false });
+      await db.update(wallets).set({ balance: sql`balance - ${amount}` }).where(eq(wallets.merchantId, sender.id));
+      await db.update(wallets).set({ balance: sql`balance + ${amount}` }).where(eq(wallets.merchantId, recipient.id));
+      return res.json({ success: true, reference: idempotency_key });
+    } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
+  });
+
+  app.post("/api/internal/ussd/pay-merchant", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const { from_phone, merchant_code, amount, pin, idempotency_key } = req.body;
+      if (!from_phone || !merchant_code || !amount || !pin || !idempotency_key)
+        return res.status(400).json({ error: "Missing required fields" });
+      const { getDb } = await import("../db");
+      const { merchants, wallets, transactions } = await import("../../drizzle/schema");
+      const { eq, sql } = await import("drizzle-orm");
+      const bcrypt = await import("bcryptjs");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable", success: false });
+      const [sender] = await db.select().from(merchants).where(eq(merchants.phone, from_phone)).limit(1);
+      if (!sender) return res.status(404).json({ error: "Sender not found", success: false });
+      const pinValid = sender.ussdPin ? await bcrypt.compare(pin, sender.ussdPin) : false;
+      if (!pinValid) return res.status(401).json({ error: "Invalid PIN", success: false });
+      const [merchantRecipient] = await db.select().from(merchants).where(eq(merchants.merchantCode, merchant_code)).limit(1);
+      if (!merchantRecipient) return res.status(404).json({ error: "Merchant not found", success: false });
+      const [senderWallet] = await db.select().from(wallets).where(eq(wallets.merchantId, sender.id)).limit(1);
+      if (!senderWallet || senderWallet.balance < amount)
+        return res.status(400).json({ error: "Insufficient funds", success: false });
+      const [existing] = await db.select().from(transactions).where(eq(transactions.reference, idempotency_key)).limit(1);
+      if (existing) return res.json({ success: true, reference: idempotency_key, duplicate: true });
+      await db.update(wallets).set({ balance: sql`balance - ${amount}` }).where(eq(wallets.merchantId, sender.id));
+      await db.update(wallets).set({ balance: sql`balance + ${amount}` }).where(eq(wallets.merchantId, merchantRecipient.id));
+      return res.json({ success: true, reference: idempotency_key });
+    } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
+  });
+
+  app.get("/api/internal/ussd/tx-status", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const { phone, reference } = req.query;
+      if (!phone || !reference) return res.status(400).json({ error: "phone and reference required" });
+      const { getDb } = await import("../db");
+      const { transactions, merchants } = await import("../../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable" });
+      const [merchant] = await db.select().from(merchants).where(eq(merchants.phone, phone as string)).limit(1);
+      if (!merchant) return res.status(404).json({ error: "Account not found" });
+      const [tx] = await db.select().from(transactions)
+        .where(and(eq(transactions.reference, reference as string), eq(transactions.merchantId, merchant.id)))
+        .limit(1);
+      if (!tx) return res.status(404).json({ error: "Transaction not found" });
+      return res.json({ status: tx.status, amount: tx.amount, reference: tx.reference, created_at: tx.createdAt });
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/internal/ussd/mini-statement", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const { phone, limit = "5" } = req.query;
+      if (!phone) return res.status(400).json({ error: "phone required" });
+      const { getDb } = await import("../db");
+      const { transactions, merchants } = await import("../../drizzle/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable" });
+      const [merchant] = await db.select().from(merchants).where(eq(merchants.phone, phone as string)).limit(1);
+      if (!merchant) return res.status(404).json({ error: "Account not found" });
+      const txs = await db.select().from(transactions)
+        .where(eq(transactions.merchantId, merchant.id))
+        .orderBy(desc(transactions.createdAt))
+        .limit(parseInt(limit as string, 10));
+      return res.json({ transactions: txs.map(t => ({ channel: t.channel, amount: t.amount, reference: t.reference, status: t.status, created_at: t.createdAt })) });
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/internal/ussd/change-pin", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const { phone, old_pin, new_pin } = req.body;
+      if (!phone || !old_pin || !new_pin) return res.status(400).json({ error: "Missing required fields" });
+      if (new_pin.length < 4) return res.status(400).json({ error: "PIN must be at least 4 digits" });
+      const { getDb } = await import("../db");
+      const { merchants } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const bcrypt = await import("bcryptjs");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable", success: false });
+      const [merchant] = await db.select().from(merchants).where(eq(merchants.phone, phone)).limit(1);
+      if (!merchant) return res.status(404).json({ error: "Account not found", success: false });
+      const pinValid = merchant.ussdPin ? await bcrypt.compare(old_pin, merchant.ussdPin) : false;
+      if (!pinValid) return res.status(401).json({ error: "Invalid current PIN", success: false });
+      const newHash = await bcrypt.hash(new_pin, 10);
+      await db.update(merchants).set({ ussdPin: newHash }).where(eq(merchants.phone, phone));
+      return res.json({ success: true });
+    } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
+  });
+
   // Health check endpoint
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now(), service: "paygate-merchant" });
@@ -784,7 +930,35 @@ async function startServer() {
   });
 }
 
-// ─── Background Schedulers ─────────────────────────────────────────────────────
+// ─── Env Validation ─────────────────────────────────────────────────────
+function validateEnv() {
+  const required: [string, string][] = [
+    ["DATABASE_URL", "PostgreSQL connection string"],
+    ["JWT_SECRET", "Session cookie signing secret"],
+  ];
+  const missing = required.filter(([key]) => !process.env[key]);
+  if (missing.length > 0) {
+    console.error("[Startup] Missing required environment variables:");
+    missing.forEach(([key, desc]) => console.error(`  - ${key}: ${desc}`));
+    if (process.env.NODE_ENV === "production") {
+      process.exit(1);
+    } else {
+      console.warn("[Startup] Continuing in development mode with missing env vars");
+    }
+  }
+  const optional: [string, string][] = [
+    ["STRIPE_SECRET_KEY", "Stripe payments"],
+    ["MIDDLEWARE_BRIDGE_URL", "Go middleware bridge (payout approvals)"],
+  ];
+  optional.forEach(([key, feature]) => {
+    if (!process.env[key]) {
+      console.warn(`[Startup] ${key} not set — ${feature} will be disabled`);
+    }
+  });
+}
+
+// ─── Background Schedulers ─────────────────────────────────────────────
+validateEnv();
 startSlaEscalationScheduler();
 
 startServer().catch(console.error);

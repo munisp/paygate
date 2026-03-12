@@ -1,6 +1,5 @@
 /**
- * QR Payments Page
- * Adapted from PayGate PWA archive — uses qrcode.react + jsqr for camera scanning.
+ * QR Payments Page — wired to tRPC qrPayments router
  */
 import { useState, useRef, useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
@@ -12,204 +11,183 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { QrCode, Scan, Download, Share2, DollarSign, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { QrCode, Scan, Download, Share2, Clock, CheckCircle, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import {
-  generateQRPaymentData,
-  qrDataToString,
-  parseQRCode,
-  getRecentQRScans,
-  saveQRScan,
-  QRPaymentData,
-  QRScanRecord,
-} from "@/services/qr-payment.service";
+import { trpc } from "@/lib/trpc";
 
 export default function QRPayments() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [qrData, setQRData] = useState("");
+  const [qrPaymentUrl, setQrPaymentUrl] = useState("");
+  const [qrMeta, setQrMeta] = useState<{ qrId: string; merchantName: string; expiresAt: Date } | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [recentScans, setRecentScans] = useState<QRScanRecord[]>(getRecentQRScans());
   const [scanError, setScanError] = useState("");
-  const [scannedPayment, setScannedPayment] = useState<QRPaymentData | null>(null);
+  const [scannedUrl, setScannedUrl] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number>(0);
 
-  useEffect(() => {
-    return () => {
-      stopScanning();
-    };
-  }, []);
+  const generateMutation = trpc.qrPayments.generate.useMutation({
+    onSuccess: (data) => {
+      setQrPaymentUrl(data.paymentUrl);
+      setQrMeta({ qrId: data.qrId, merchantName: data.merchantName, expiresAt: data.expiresAt });
+      toast.success("QR code generated — valid for 1 hour");
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
-  const generateQR = () => {
+  const { data: recentData, isLoading: recentLoading, refetch: refetchRecent } =
+    trpc.qrPayments.recentScans.useQuery({ limit: 20 }, { refetchInterval: 30_000 });
+
+  useEffect(() => { return () => { stopScanning(); }; }, []);
+
+  const handleGenerate = () => {
     if (!amount && !description) {
       toast.error("Enter an amount or description to generate a QR code");
       return;
     }
-    const paymentData = generateQRPaymentData(
-      amount ? parseFloat(amount) : undefined,
-      description || undefined
-    );
-    setQRData(qrDataToString(paymentData));
-    toast.success("QR code generated");
+    generateMutation.mutate({
+      amount: amount ? Math.round(parseFloat(amount) * 100) : undefined,
+      currency: "NGN",
+      description: description || undefined,
+    });
   };
 
   const downloadQR = () => {
     const svg = document.querySelector("#qr-code-svg") as SVGElement;
     if (!svg) return;
-    const blob = new Blob([svg.outerHTML], { type: "image/svg+xml" });
+    const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `paygate-qr-${Date.now()}.svg`;
+    a.download = `paygate-qr-${qrMeta?.qrId ?? "code"}.svg`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("QR code downloaded");
   };
 
   const shareQR = async () => {
+    if (!qrPaymentUrl) return;
     if (navigator.share) {
-      await navigator.share({ title: "PayGate QR Payment", text: qrData });
+      await navigator.share({ title: "PayGate QR Payment", url: qrPaymentUrl });
     } else {
-      await navigator.clipboard.writeText(qrData);
-      toast.success("QR data copied to clipboard");
+      navigator.clipboard.writeText(qrPaymentUrl);
+      toast.success("Payment URL copied to clipboard");
     }
   };
 
   const startScanning = async () => {
-    setScanError("");
-    setScannedPayment(null);
+    setScanError(""); setScannedUrl("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setScanning(true);
-        animFrameRef.current = requestAnimationFrame(scanQRCode);
-      }
-    } catch {
-      setScanError("Camera access denied. Please allow camera access to scan QR codes.");
-    }
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      setScanning(true);
+      scanFrame();
+    } catch { setScanError("Camera access denied. Please allow camera permissions."); }
   };
 
   const stopScanning = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    cancelAnimationFrame(animFrameRef.current);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
     setScanning(false);
   };
 
-  const scanQRCode = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (video.readyState === video.HAVE_ENOUGH_DATA && ctx) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code) {
-        const parsed = parseQRCode(code.data);
-        if (parsed) {
-          stopScanning();
-          setScannedPayment(parsed);
-          saveQRScan(parsed);
-          setRecentScans(getRecentQRScans());
-          toast.success("QR code scanned successfully");
-          return;
-        }
-      }
+  const scanFrame = () => {
+    const video = videoRef.current; const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      animFrameRef.current = requestAnimationFrame(scanFrame); return;
     }
-    animFrameRef.current = requestAnimationFrame(scanQRCode);
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    if (code) { stopScanning(); setScannedUrl(code.data); toast.success("QR code scanned"); }
+    else { animFrameRef.current = requestAnimationFrame(scanFrame); }
   };
 
+  const recentRows = (recentData as any)?.rows ?? [];
+
   return (
-    <div className="p-6 space-y-6 max-w-3xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-          QR Payments
-        </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Generate payment QR codes or scan to receive payments</p>
+    <div className="p-6 space-y-6 max-w-[1200px] mx-auto">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>QR Payments</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Generate QR codes for instant payments and scan incoming QR codes</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetchRecent()}>
+          <RefreshCw className="w-4 h-4 mr-2" />Refresh
+        </Button>
       </div>
 
       <Tabs defaultValue="generate">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="generate" className="gap-2"><QrCode className="w-4 h-4" />Generate QR</TabsTrigger>
-          <TabsTrigger value="scan" className="gap-2"><Scan className="w-4 h-4" />Scan QR</TabsTrigger>
+        <TabsList>
+          <TabsTrigger value="generate"><QrCode className="w-4 h-4 mr-2" />Generate QR</TabsTrigger>
+          <TabsTrigger value="scan"><Scan className="w-4 h-4 mr-2" />Scan QR</TabsTrigger>
+          <TabsTrigger value="history"><Clock className="w-4 h-4 mr-2" />Recent Scans</TabsTrigger>
         </TabsList>
 
-        {/* GENERATE TAB */}
-        <TabsContent value="generate" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Create Payment QR Code</CardTitle>
-              <CardDescription>Generate a QR code for customers to scan and pay</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label>Amount (USD)</Label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Description</Label>
-                  <Input
-                    placeholder="Payment for…"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
-                </div>
-              </div>
-              <Button onClick={generateQR} className="w-full gap-2">
-                <QrCode className="w-4 h-4" />Generate QR Code
-              </Button>
-            </CardContent>
-          </Card>
-
-          {qrData && (
+        <TabsContent value="generate" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
-              <CardContent className="pt-6 flex flex-col items-center gap-4">
-                <div className="p-4 bg-white rounded-xl shadow-sm border">
-                  <QRCodeSVG id="qr-code-svg" value={qrData} size={200} level="H" />
+              <CardHeader>
+                <CardTitle>Create Payment QR</CardTitle>
+                <CardDescription>Generate a QR code for your customers to scan and pay</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="qr-amount">Amount (NGN) — optional</Label>
+                  <Input id="qr-amount" type="number" placeholder="e.g. 5000" value={amount}
+                    onChange={(e) => setAmount(e.target.value)} className="mt-1" />
                 </div>
-                <div className="text-center">
-                  {amount && <p className="text-2xl font-bold text-foreground">${parseFloat(amount).toFixed(2)}</p>}
-                  {description && <p className="text-sm text-muted-foreground">{description}</p>}
+                <div>
+                  <Label htmlFor="qr-desc">Description — optional</Label>
+                  <Input id="qr-desc" placeholder="e.g. Invoice #1234" value={description}
+                    onChange={(e) => setDescription(e.target.value)} className="mt-1" />
                 </div>
-                <div className="flex gap-2 w-full">
-                  <Button variant="outline" className="flex-1 gap-2" onClick={downloadQR}>
-                    <Download className="w-4 h-4" />Download
-                  </Button>
-                  <Button variant="outline" className="flex-1 gap-2" onClick={shareQR}>
-                    <Share2 className="w-4 h-4" />Share
-                  </Button>
-                </div>
+                <Button className="w-full" onClick={handleGenerate} disabled={generateMutation.isPending}>
+                  {generateMutation.isPending
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating…</>
+                    : <><QrCode className="w-4 h-4 mr-2" />Generate QR Code</>}
+                </Button>
               </CardContent>
             </Card>
-          )}
+
+            {qrPaymentUrl && qrMeta && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Your QR Code</CardTitle>
+                  <CardDescription>
+                    Valid until {new Date(qrMeta.expiresAt).toLocaleTimeString()} · {qrMeta.qrId.slice(0, 16)}…
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col items-center gap-4">
+                  <div className="p-4 bg-white rounded-2xl border border-border shadow-sm">
+                    <QRCodeSVG id="qr-code-svg" value={qrPaymentUrl} size={200} level="H" includeMargin />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center font-mono break-all max-w-[240px]">{qrPaymentUrl}</p>
+                  <div className="flex gap-2 w-full">
+                    <Button variant="outline" className="flex-1" onClick={downloadQR}>
+                      <Download className="w-4 h-4 mr-2" />Download
+                    </Button>
+                    <Button variant="outline" className="flex-1" onClick={shareQR}>
+                      <Share2 className="w-4 h-4 mr-2" />Share
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </TabsContent>
 
-        {/* SCAN TAB */}
-        <TabsContent value="scan" className="space-y-4 mt-4">
+        <TabsContent value="scan" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Scan Payment QR Code</CardTitle>
-              <CardDescription>Use your camera to scan a PayGate QR code</CardDescription>
+              <CardTitle>Scan QR Code</CardTitle>
+              <CardDescription>Use your camera to scan a customer's QR code</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {scanError && (
@@ -218,86 +196,74 @@ export default function QRPayments() {
                   <AlertDescription>{scanError}</AlertDescription>
                 </Alert>
               )}
-
-              {!scanning && !scannedPayment && (
-                <Button onClick={startScanning} className="w-full gap-2">
-                  <Scan className="w-4 h-4" />Start Camera Scan
-                </Button>
+              {scannedUrl && (
+                <Alert>
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  <AlertDescription>
+                    <span className="font-medium">Scanned:</span>{" "}
+                    <a href={scannedUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline break-all">{scannedUrl}</a>
+                  </AlertDescription>
+                </Alert>
               )}
-
-              {scanning && (
-                <div className="space-y-3">
-                  <div className="relative rounded-xl overflow-hidden bg-black aspect-video">
-                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-48 h-48 border-2 border-white rounded-lg opacity-60" />
-                    </div>
-                    <canvas ref={canvasRef} className="hidden" />
+              <div className="relative rounded-xl overflow-hidden bg-black aspect-video max-w-sm mx-auto">
+                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+                <canvas ref={canvasRef} className="hidden" />
+                {!scanning && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                    <Scan className="w-12 h-12 text-white opacity-60" />
                   </div>
-                  <Button variant="outline" onClick={stopScanning} className="w-full">Stop Scanning</Button>
+                )}
+              </div>
+              <div className="flex justify-center">
+                {scanning
+                  ? <Button variant="destructive" onClick={stopScanning}>Stop Scanning</Button>
+                  : <Button onClick={startScanning}><Scan className="w-4 h-4 mr-2" />Start Camera</Button>}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent QR Transactions</CardTitle>
+              <CardDescription>Payments received via QR code</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {recentLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
-              )}
-
-              {scannedPayment && (
+              ) : recentRows.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  <QrCode className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No QR payments yet. Generate a QR code and share it with customers.</p>
+                </div>
+              ) : (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-emerald-600 font-medium">
-                    <CheckCircle className="w-5 h-5" />QR Code Scanned Successfully
-                  </div>
-                  <Card className="bg-muted/40">
-                    <CardContent className="pt-4 space-y-2">
-                      {scannedPayment.amount && (
-                        <div className="flex justify-between">
-                          <span className="text-sm text-muted-foreground">Amount</span>
-                          <span className="font-semibold">${scannedPayment.amount.toFixed(2)} {scannedPayment.currency}</span>
+                  {recentRows.map((tx: any) => (
+                    <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <QrCode className="w-4 h-4 text-primary" />
                         </div>
-                      )}
-                      {scannedPayment.description && (
-                        <div className="flex justify-between">
-                          <span className="text-sm text-muted-foreground">Description</span>
-                          <span className="text-sm">{scannedPayment.description}</span>
+                        <div>
+                          <p className="text-sm font-medium">{tx.customerName ?? tx.customerEmail ?? "Customer"}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(tx.createdAt).toLocaleString()}</p>
                         </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Reference</span>
-                        <span className="text-xs font-mono text-muted-foreground">{scannedPayment.id}</span>
                       </div>
-                    </CardContent>
-                  </Card>
-                  <div className="flex gap-2">
-                    <Button className="flex-1">Process Payment</Button>
-                    <Button variant="outline" onClick={() => { setScannedPayment(null); startScanning(); }}>
-                      Scan Again
-                    </Button>
-                  </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-sm">{tx.currency} {Number(tx.amount).toLocaleString()}</p>
+                        <Badge variant="secondary" className={`text-xs ${tx.status === "completed" ? "status-success" : "bg-muted text-muted-foreground border-0"}`}>
+                          {tx.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
           </Card>
-
-          {recentScans.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Clock className="w-4 h-4" />Recent Scans
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {recentScans.slice(0, 5).map((scan) => (
-                  <div key={scan.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {scan.data.amount ? `$${scan.data.amount.toFixed(2)}` : "No amount"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {scan.data.description || "No description"} · {new Date(scan.scannedAt).toLocaleTimeString()}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-xs">Scanned</Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
       </Tabs>
     </div>

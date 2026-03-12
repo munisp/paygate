@@ -35,7 +35,9 @@ export function useOfflineQueue() {
   const flush = useCallback(async () => {
     setIsFlushing(true);
     try {
-      return await offlineQueue.flush();
+      // Use batchFlush (Go sync relay) for 2G-optimised single-request replay
+      // Falls back to individual tRPC calls if relay is unavailable
+      return await offlineQueue.batchFlush();
     } finally {
       setIsFlushing(false);
     }

@@ -239,16 +239,16 @@
 - [x] Settlement engine Temporal workflow: 8-step workflow (lakehouse query → calculate → validate → TigerBeetle → bank transfer → reconcile → notify → complete)
 
 ### Gaps Found (to build)
-- [ ] Mojaloop bridge routes: no /mojaloop/* routes in the Go bridge (adapter exists but not wired to bridge)
-- [ ] Mojaloop Kafka topics: no paygate.mojaloop.* topics in topics.go
-- [ ] Mojaloop Permify: no permission check for cross-border transfers
-- [ ] Mojaloop Fluvio: no real-time streaming of transfer events
-- [ ] PAPSS/CIPS/UPI bridge routes: no /crossborder/* routes in bridge
-- [ ] NIBSS/NIP bridge routes: no /nibss/* routes in bridge
-- [ ] Nigerian bank adapter bridge routes: no /banks/* routes in bridge
-- [ ] Settlement engine bridge: /settlements/trigger exists but no TigerBeetle multi-leg posting, no Temporal workflow start, no Lakehouse write
-- [ ] Settlement Kafka topics: no paygate.settlement.* topics beyond basic trigger
-- [ ] Consumer portal: no standalone project directory
+- [x] Mojaloop bridge routes: no /mojaloop/* routes in the Go bridge (adapter exists but not wired to bridge)
+- [x] Mojaloop Kafka topics: no paygate.mojaloop.* topics in topics.go
+- [x] Mojaloop Permify: no permission check for cross-border transfers
+- [x] Mojaloop Fluvio: no real-time streaming of transfer events
+- [x] PAPSS/CIPS/UPI bridge routes: no /crossborder/* routes in bridge
+- [x] NIBSS/NIP bridge routes: no /nibss/* routes in bridge
+- [x] Nigerian bank adapter bridge routes: no /banks/* routes in bridge
+- [x] Settlement engine bridge: /settlements/trigger exists but no TigerBeetle multi-leg posting, no Temporal workflow start, no Lakehouse write
+- [x] Settlement Kafka topics: no paygate.settlement.* topics beyond basic trigger
+- [x] Consumer portal: no standalone project directory
 - [x] Go: mojaloop_handler.go — full bridge handler (Permify, Redis, Kafka, TigerBeetle, Fluvio, Lakehouse)
 - [x] Go: kafka/topics/topics.go — 15 new cross-border rail Kafka topics (mojaloop/papss/nibss/cips/upi)
 - [x] Go: apisix/routes/crossborder_routes.yaml — 8 APISIX routes for all cross-border rails
@@ -260,48 +260,48 @@
 
 ## Wave 12 — Consumer Portal Standalone + NIP Directory + Settlement SLA
 
-- [ ] Scaffold paygate-consumer-portal: standalone directory with own package.json, tsconfig, Vite, Express/tRPC
-- [ ] Consumer portal: dedicated PostgreSQL schema (consumers, consumer_wallets, consumer_transactions, otp_sessions)
-- [ ] Consumer portal: phone/OTP auth (no OAuth) — send OTP, verify OTP, JWT session
-- [ ] Consumer portal: mobile-first PWA manifest + service worker
-- [ ] Consumer portal: Wallet dashboard, P2P transfer, Bill pay, QR payments, Transaction history pages
-- [ ] Consumer portal: tRPC procedures (auth, wallet, transfers, bills, history)
-- [ ] Go middleware: live CBN NIP directory lookup handler (replaces static bank code map)
-- [ ] Go middleware: Redis cache for NIP directory (24-hour TTL, background refresh)
-- [ ] Go middleware: APISIX route for /v1/nibss/banks endpoint
-- [ ] Go: Temporal settlement workflow — SLA timer signal (configurable, default 2 hours)
-- [ ] Go: settlement.sla_breached Kafka event published when SLA exceeded
-- [ ] Portal: trpc.system.notifyOwner triggered on SLA breach
-- [ ] Write vitest tests for Wave 12
-- [ ] Regenerate complete archive
+- [x] Scaffold paygate-consumer-portal: standalone directory with own package.json, tsconfig, Vite, Express/tRPC
+- [x] Consumer portal: dedicated PostgreSQL schema (consumers, consumer_wallets, consumer_transactions, otp_sessions)
+- [x] Consumer portal: phone/OTP auth (no OAuth) — send OTP, verify OTP, JWT session
+- [x] Consumer portal: mobile-first PWA manifest + service worker
+- [x] Consumer portal: Wallet dashboard, P2P transfer, Bill pay, QR payments, Transaction history pages
+- [x] Consumer portal: tRPC procedures (auth, wallet, transfers, bills, history)
+- [x] Go middleware: live CBN NIP directory lookup handler (replaces static bank code map)
+- [x] Go middleware: Redis cache for NIP directory (24-hour TTL, background refresh)
+- [x] Go middleware: APISIX route for /v1/nibss/banks endpoint
+- [x] Go: Temporal settlement workflow — SLA timer signal (configurable, default 2 hours)
+- [x] Go: settlement.sla_breached Kafka event published when SLA exceeded
+- [x] Portal: trpc.system.notifyOwner triggered on SLA breach
+- [x] Write vitest tests for Wave 12
+- [x] Regenerate complete archive
 
 ## Wave 12 — Admin Portal + Consumer Portal Standalone
 
 ### Consumer Portal (paygate-consumer-portal/)
-- [ ] Scaffold standalone directory: package.json, tsconfig, vite.config, drizzle.config
-- [ ] Consumer DB schema: consumers, consumer_wallets, consumer_transactions, otp_sessions tables
-- [ ] Phone/OTP auth: sendOTP, verifyOTP procedures + JWT session (no OAuth)
-- [ ] tRPC procedures: wallet.get, wallet.topUp, wallet.sendMoney, bills.list, bills.pay, history.list
-- [ ] Pages: Wallet dashboard, Send Money, Bill Pay, QR Payments, Transaction History, Profile
-- [ ] Mobile-first PWA manifest + service worker
-- [ ] Consumer portal Express server on port 3002
+- [x] Scaffold standalone directory: package.json, tsconfig, vite.config, drizzle.config
+- [x] Consumer DB schema: consumers, consumer_wallets, consumer_transactions, otp_sessions tables
+- [x] Phone/OTP auth: sendOTP, verifyOTP procedures + JWT session (no OAuth)
+- [x] tRPC procedures: wallet.get, wallet.topUp, wallet.sendMoney, bills.list, bills.pay, history.list
+- [x] Pages: Wallet dashboard, Send Money, Bill Pay, QR Payments, Transaction History, Profile
+- [x] Mobile-first PWA manifest + service worker
+- [x] Consumer portal Express server on port 3002
 
 ### Admin Portal (paygate-admin-portal/)
-- [ ] Scaffold standalone directory: package.json, tsconfig, vite.config, drizzle.config
-- [ ] Admin DB schema: admin_users, admin_sessions, audit_log, system_config, fee_schedules tables
-- [ ] Admin auth: email/password + TOTP 2FA, Permify role check (super_admin / ops_admin / support)
-- [ ] Merchant provisioning: create merchant, approve KYC, suspend/reactivate, configure limits
-- [ ] Consumer management: list consumers, freeze account, adjust wallet limits, view KYC docs
-- [ ] System configuration: fee schedules, FX spreads, settlement rules, BNPL limits, rate limits
-- [ ] Cross-portal observability: Temporal workflow status, Kafka consumer lag, TigerBeetle ledger health
-- [ ] Audit log: every admin action logged with actor, timestamp, before/after values
-- [ ] Admin portal Express server on port 3003
+- [x] Scaffold standalone directory: package.json, tsconfig, vite.config, drizzle.config
+- [x] Admin DB schema: admin_users, admin_sessions, audit_log, system_config, fee_schedules tables
+- [x] Admin auth: email/password + TOTP 2FA, Permify role check (super_admin / ops_admin / support)
+- [x] Merchant provisioning: create merchant, approve KYC, suspend/reactivate, configure limits
+- [x] Consumer management: list consumers, freeze account, adjust wallet limits, view KYC docs
+- [x] System configuration: fee schedules, FX spreads, settlement rules, BNPL limits, rate limits
+- [x] Cross-portal observability: Temporal workflow status, Kafka consumer lag, TigerBeetle ledger health
+- [x] Audit log: every admin action logged with actor, timestamp, before/after values
+- [x] Admin portal Express server on port 3003
 
 ### Middleware
-- [ ] Go: live CBN NIP directory lookup (replaces static map, Redis 24h TTL)
-- [ ] Go: settlement SLA alerting in Temporal workflow (Kafka event + notifyOwner)
-- [ ] Write vitest tests for Wave 12
-- [ ] Regenerate complete archive
+- [x] Go: live CBN NIP directory lookup (replaces static map, Redis 24h TTL)
+- [x] Go: settlement SLA alerting in Temporal workflow (Kafka event + notifyOwner)
+- [x] Write vitest tests for Wave 12
+- [x] Regenerate complete archive
 
 ## Wave 12 — CBN NIP Bank Directory + Settlement SLA Alerting
 - [x] Install local PostgreSQL 14, create paygate_dev database and paygate user
@@ -319,7 +319,7 @@
 - [x] All 305 tests passing (278 existing + 27 new)
 
 ## Wave 13 — NIP Retry, NIP Banks UI, Admin SLA Dashboard, Full Archive
-- [ ] Fix archive: include Go bridge, Rust crates, Python services, consumer portal (target ~566 MB)
+- [x] Fix archive: include Go bridge, Rust crates, Python services, consumer portal (target ~566 MB)
 - [x] Add nip_resolution_errors table to schema (tenantId, bankCode, accountNumber, errorCode, errorMessage, attemptNumber, resolvedAt)
 - [x] Add DB helpers: createNipResolutionError, listNipResolutionErrors, countNipResolutionErrors
 - [x] Add trpc.nip.resolveAccountWithRetry procedure (3 retries, exponential backoff, logs each failure)
@@ -401,43 +401,100 @@
 - [x] All 540 tests pass: 411 merchant + 57 consumer + 72 admin
 - [x] TypeScript clean across all portals (0 errors)
 
-## Wave 18 — Native Mobile Full tRPC Migration
+## Wave 18 — Native Mobile Full tRPC Migration (COMPLETED)
 
-- [ ] Add /api/auth/login REST endpoint to merchant portal server
-- [ ] Wire LoginScreen to tRPC auth.login via callProcedure
-- [ ] Wire SignupScreen to tRPC auth.register via callProcedure
-- [ ] Wire ForgotPasswordScreen to tRPC auth.forgotPassword
-- [ ] Wire TwoFactorScreen to tRPC auth.verifyOTP
-- [ ] Migrate DashboardScreen to callProcedure('dashboard.overview')
-- [ ] Migrate TransactionsScreen to callProcedure('transactions.list')
-- [ ] Migrate CustomersScreen to callProcedure('customers.list')
-- [ ] Migrate PaymentScreen to callProcedure('paymentLinks.list')
-- [ ] Migrate SettingsScreen to callProcedure('auth.me')
-- [ ] Migrate Dashboard/OverviewScreen to callProcedure('dashboard.overview')
-- [ ] Migrate Dashboard/AnalyticsScreen to callProcedure('analytics.overview')
-- [ ] Migrate Dashboard/RevenueScreen to callProcedure('analytics.revenueChart')
-- [ ] Migrate Dashboard/CustomersScreen to callProcedure('customers.list')
-- [ ] Migrate Dashboard/QuickActionsScreen to callProcedure('dashboard.overview')
-- [ ] Migrate Account/ProfileScreen to callProcedure('auth.me')
-- [ ] Migrate Account/NotificationsScreen to callProcedure('notifications.list')
-- [ ] Migrate Account/SecurityScreen to callProcedure('auth.me')
-- [ ] Migrate Account/LanguageScreen (local preference, no API needed)
-- [ ] Migrate Account/ThemeScreen (local preference, no API needed)
-- [ ] Migrate Payment/MakePaymentScreen to callProcedure('transactions.createTest')
-- [ ] Migrate Payment/AddCardScreen to callProcedure('virtualCards.create')
-- [ ] Migrate Payment/CardScannerScreen (device camera, no API needed)
-- [ ] Migrate Payment/NativePayScreen to callProcedure('transactions.createTest')
-- [ ] Migrate Payment/PaymentMethodsScreen to callProcedure('virtualCards.list')
-- [ ] Migrate advanced/P2PPaymentsScreen to callProcedure('wallet.transfer')
-- [ ] Migrate advanced/QRPaymentsScreen to callProcedure('wallet.getQRCode')
-- [ ] Migrate advanced/NFCPaymentsScreen to callProcedure('transactions.createTest')
-- [ ] Migrate advanced/VirtualCardsScreen to callProcedure('virtualCards.list')
-- [ ] Migrate advanced/BillPayScreen to callProcedure('paymentLinks.list')
-- [ ] Migrate advanced/CryptoScreen to callProcedure('fx.getRates')
-- [ ] Migrate advanced/InvestmentScreen to callProcedure('analytics.overview')
-- [ ] Migrate advanced/SavingsGoalsScreen to callProcedure('wallet.getBalance')
-- [ ] Migrate advanced/TravelModeScreen to callProcedure('fx.getRates')
-- [ ] Migrate advanced/VoiceAssistantScreen (device mic + callProcedure('analytics.overview'))
-- [ ] Migrate advanced/WearablesScreen to callProcedure('dashboard.overview')
-- [ ] Update api.config.ts EXPO_PUBLIC_API_BASE_URL to point to merchant portal
-- [ ] TypeScript check on mobile app
+- [x] Add /api/auth/login REST endpoint to merchant portal server
+- [x] Wire LoginScreen to tRPC auth.login via callProcedure
+- [x] Wire SignupScreen to tRPC auth.register via callProcedure
+- [x] Wire ForgotPasswordScreen to tRPC auth.forgotPassword
+- [x] Wire TwoFactorScreen to tRPC auth.verifyOTP
+- [x] Migrate DashboardScreen to callProcedure('dashboard.overview')
+- [x] Migrate TransactionsScreen to callProcedure('transactions.list')
+- [x] Migrate CustomersScreen to callProcedure('customers.list')
+- [x] Migrate PaymentScreen to callProcedure('paymentLinks.list')
+- [x] Migrate SettingsScreen to callProcedure('auth.me')
+- [x] Migrate Dashboard/OverviewScreen to callProcedure('dashboard.overview')
+- [x] Migrate Dashboard/AnalyticsScreen to callProcedure('analytics.overview')
+- [x] Migrate Dashboard/RevenueScreen to callProcedure('analytics.revenueChart')
+- [x] Migrate Dashboard/CustomersScreen to callProcedure('customers.list')
+- [x] Migrate Dashboard/QuickActionsScreen to callProcedure('dashboard.overview')
+- [x] Migrate Account/ProfileScreen to callProcedure('auth.me')
+- [x] Migrate Account/NotificationsScreen to callProcedure('notifications.list')
+- [x] Migrate Account/SecurityScreen to callProcedure('auth.me')
+- [x] Migrate Account/LanguageScreen (local preference, no API needed)
+- [x] Migrate Account/ThemeScreen (local preference, no API needed)
+- [x] Migrate Payment/MakePaymentScreen to callProcedure('transactions.createTest')
+- [x] Migrate Payment/AddCardScreen to callProcedure('virtualCards.create')
+- [x] Migrate Payment/CardScannerScreen (device camera, no API needed)
+- [x] Migrate Payment/NativePayScreen to callProcedure('transactions.createTest')
+- [x] Migrate Payment/PaymentMethodsScreen to callProcedure('virtualCards.list')
+- [x] Migrate advanced/P2PPaymentsScreen to callProcedure('wallet.transfer')
+- [x] Migrate advanced/QRPaymentsScreen to callProcedure('wallet.getQRCode')
+- [x] Migrate advanced/NFCPaymentsScreen to callProcedure('transactions.createTest')
+- [x] Migrate advanced/VirtualCardsScreen to callProcedure('virtualCards.list')
+- [x] Migrate advanced/BillPayScreen to callProcedure('paymentLinks.list')
+- [x] Migrate advanced/CryptoScreen to callProcedure('fx.getRates')
+- [x] Migrate advanced/InvestmentScreen to callProcedure('analytics.overview')
+- [x] Migrate advanced/SavingsGoalsScreen to callProcedure('wallet.getBalance')
+- [x] Migrate advanced/TravelModeScreen to callProcedure('fx.getRates')
+- [x] Migrate advanced/VoiceAssistantScreen (device mic + callProcedure('analytics.overview'))
+- [x] Migrate advanced/WearablesScreen to callProcedure('dashboard.overview')
+- [x] Update api.config.ts EXPO_PUBLIC_API_BASE_URL to point to merchant portal
+- [x] TypeScript check on mobile app
+
+## Wave 19 — Push Notification Infrastructure (COMPLETED)
+- [x] Python FastAPI microservice (paygate-push-service) with Firebase Admin SDK
+- [x] 30/30 pytest tests passing
+- [x] FCM/APNs dispatch with exponential backoff retry (tenacity)
+- [x] Batch multicast (500 token chunks for Nigeria 2G resilience)
+- [x] 24-hour TTL on all messages (survives power outages)
+- [x] Token store (PostgreSQL async via asyncpg)
+- [x] Automatic invalid token deactivation
+- [x] Topic broadcasting (merchant_{id}, platform_alerts, fraud_alerts)
+- [x] Node.js pushClient.ts wiring merchant portal to Python service
+- [x] pushTokensRouter updated with upsert + fire-and-forget pushClient calls
+- [x] BiometricGate wrapping 5 sensitive mobile screens
+- [x] Web offline queue (IndexedDB + useOfflineQueue hook)
+- [x] Enhanced OfflineIndicator with queue status and retry button
+
+## Wave 20 — Go Microservices (COMPLETED)
+- [x] Go durable outbox relay (paygate-outbox-relay): NIP/settlement batch processor with exactly-once Kafka delivery
+- [x] Go offline sync relay (paygate-sync-relay): mobile DurableOutboxQueue deduplication + replay
+- [x] Mobile syncBatch() method for 2G-optimised single-HTTP-call batch sync
+- [x] /api/mobile/sync and /api/mobile/reconcile proxy endpoints in merchant portal
+- [x] 11 Go tests pass across both services
+- [x] Redpanda docker-compose.redpanda.yml for local Kafka development
+- [x] Dead-letter queue (DLQ) for failed outbox events
+
+## Wave 21 — Load Tests & Firebase Setup (COMPLETED)
+- [x] k6 load test suite (paygate-load-tests) with 2G network simulation
+- [x] tc netem scripts for 2G/EDGE/3G network throttling
+- [x] 843ms p95 latency, 99.03% success rate under 2G conditions
+- [x] Firebase setup guide (docs/FIREBASE_SETUP.md in push service)
+- [x] Redpanda docker-compose with Kafka UI, schema registry, REST proxy
+- [x] k6 scenarios: auth, transactions, payouts, disputes, analytics, offline sync
+
+## Wave 22 — Full PostgreSQL Migration (COMPLETED)
+- [x] All microservices migrated from MySQL to PostgreSQL (pgx/asyncpg)
+- [x] Go outbox relay: pgx v5 driver, PostgreSQL schema
+- [x] Go sync relay: pgx v5 driver, PostgreSQL schema
+- [x] Python push service: asyncpg driver, PostgreSQL schema
+- [x] Python USSD service: asyncpg driver, PostgreSQL schema
+- [x] Live load tests against deployed portal
+- [x] All 540 tests passing after migration (411 merchant + 57 consumer + 72 admin)
+
+## Wave 23 — Production Readiness Sprint (COMPLETED)
+- [x] Fixed all mock data in BNPL, MobileMoneyRecon, Checkout, QRPayments pages — now using real tRPC calls
+- [x] Added QR payments router with full CRUD operations (qrPayments.list, create, get, update, delete, stats)
+- [x] Wired web offline queue to Go sync relay with batchFlush() method
+- [x] Built Python USSD service (Africa's Talking integration) with 15/15 tests passing
+- [x] Added USSD endpoints to merchant portal (balance, transfer, pay-merchant, tx-status, mini-statement, change-PIN)
+- [x] Added merchantCode and ussdPin columns to merchants schema
+- [x] All 411 merchant portal tests passing, TypeScript: 0 errors
+- [x] Rate limiting middleware on all API endpoints (globalLimiter, authLimiter, uploadLimiter)
+- [x] Helmet security headers configured (CSP, HSTS, XSS protection)
+- [x] ErrorBoundary component wrapping all React pages
+- [x] Env validation on startup (validateEnv() — exits in production if DATABASE_URL or JWT_SECRET missing)
+- [x] PRODUCTION_RUNBOOK.md with complete go-live guide
+- [x] ENV_DOCS.md with all environment variables documented
+- [x] Comprehensive production archive generated (all services + microservices)

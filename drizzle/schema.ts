@@ -150,6 +150,9 @@ export const merchants = pgTable("merchants", {
   settlementBankCode: text("settlement_bank_code"),
   settlementAccountNumber: text("settlement_account_number"),
   settlementAccountName: text("settlement_account_name"),
+  // USSD support
+  merchantCode: text("merchant_code").unique(),  // Short code for USSD pay-merchant (e.g. PG-1234)
+  ussdPin: text("ussd_pin"),                      // bcrypt hash of 4-digit USSD PIN
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
