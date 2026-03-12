@@ -194,6 +194,391 @@ async function startServer() {
     }
   };
 
+  // ─── Mobile REST Bridge (/api/mobile/*) ─────────────────────────────────────
+  // These REST endpoints wrap tRPC procedures so the React Native app can call
+  // them without a tRPC client. All endpoints return JSON and accept JSON bodies.
+
+  // POST /api/mobile/auth/login — email+password login, returns session token
+  app.post("/api/mobile/auth/login", authLimiter, async (req: any, res: any) => {
+    try {
+      const { email, password } = req.body ?? {};
+      if (!email || !password) return res.status(400).json({ error: "email and password required" });
+      const { getDb, schema } = await import("../db");
+      const { eq } = await import("drizzle-orm");
+      const crypto = await import("crypto");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable" });
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+      if (!user) return res.status(401).json({ error: "Invalid email or password" });
+      const jwtSecret = process.env.JWT_SECRET ?? "";
+      const expectedHash = crypto.default.createHash("sha256").update(password + jwtSecret).digest("hex");
+      if (user.passwordHash !== expectedHash) return res.status(401).json({ error: "Invalid email or password" });
+      const { sdk } = await import("./sdk");
+      const { ONE_YEAR_MS } = await import("../../shared/const");
+      const token = await sdk.signSession({
+        openId: user.openId,
+        appId: process.env.VITE_APP_ID ?? "paygate",
+        name: user.name ?? user.email ?? "Merchant",
+      }, { expiresInMs: ONE_YEAR_MS });
+      const { getMerchantByOwnerId } = await import("../db");
+      const merchant = await getMerchantByOwnerId(user.id);
+      return res.json({
+        token,
+        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        merchant: merchant ? { id: merchant.id, businessName: merchant.businessName, isLive: merchant.isLive } : null,
+      });
+    } catch (e: any) {
+      const msg = process.env.NODE_ENV === "development" ? (e.message ?? "Login failed") : "Login failed";
+      return res.status(500).json({ error: msg });
+    }
+  });
+
+  // GET /api/mobile/auth/me — returns current user from Bearer token
+  app.get("/api/mobile/auth/me", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const { getUserByOpenId, getMerchantByOwnerId } = await import("../db");
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const merchant = await getMerchantByOwnerId(user.id);
+      return res.json({ ...user, merchant });
+    } catch (e: any) {
+      return res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // POST /api/mobile/auth/logout — clears session
+  app.post("/api/mobile/auth/logout", async (req: any, res: any) => {
+    try {
+      const { COOKIE_NAME } = await import("../../shared/const");
+      const { getSessionCookieOptions } = await import("./cookies");
+      const cookieOptions = getSessionCookieOptions(req);
+      res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return res.json({ success: true });
+    } catch {
+      return res.json({ success: true });
+    }
+  });
+
+  // GET /api/mobile/dashboard — merchant dashboard overview
+  app.get("/api/mobile/dashboard", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const now = new Date();
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const data = await caller.dashboard.overview({ from, to: now });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/transactions — paginated transaction list
+  app.get("/api/mobile/transactions", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const status = req.query.status as string | undefined;
+      const data = await caller.transactions.list({ limit, offset, ...(status ? { status } : {}) });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/customers — paginated customer list
+  app.get("/api/mobile/customers", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const search = req.query.search as string | undefined;
+      const data = await caller.customers.list({ limit, offset, ...(search ? { search } : {}) });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/payment-links — list payment links
+  app.get("/api/mobile/payment-links", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.paymentLinks.list();
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/analytics — analytics overview
+  app.get("/api/mobile/analytics", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const now = new Date();
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const data = await caller.analytics.overview({ from, to: now });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/notifications — list in-app notifications
+  app.get("/api/mobile/notifications", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.notifications.list({ limit: 50, unreadOnly: false });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/virtual-cards — list virtual cards
+  app.get("/api/mobile/virtual-cards", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.virtualCards.list();
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/fx-rates — FX rates for crypto/travel/cross-border screens
+  app.get("/api/mobile/fx-rates", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.fx.getRates({ base: (req.query.base as string) || "USD" });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // POST /api/mobile/transactions/create — create a test transaction (P2P, NFC, Voice, Wearables)
+  app.post("/api/mobile/transactions/create", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { amount, currency, description, customerEmail, customerName } = req.body ?? {};
+      const data = await caller.transactions.createTest({ amount: amount ?? 1000, currency: currency ?? "NGN", description, customerEmail, customerName });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // POST /api/mobile/virtual-cards/create — create a virtual card
+  app.post("/api/mobile/virtual-cards/create", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { currency, spendLimit, label } = req.body ?? {};
+      const data = await caller.virtualCards.create({ currency: currency ?? "USD", spendLimit, label });
+      return res.json(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Failed" });
+    }
+  });
+
+  // GET /api/mobile/payouts — list payouts
+  app.get("/api/mobile/payouts", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const limit = parseInt((req.query.limit as string) || "50");
+      const data = await caller.payouts.list({ limit });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/payouts/create — request a payout
+  app.post("/api/mobile/payouts/create", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { amount, currency } = req.body ?? {};
+      const data = await caller.payouts.create({ amount: amount ?? 1000, currency: currency ?? "USD" });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // GET /api/mobile/disputes — list disputes
+  app.get("/api/mobile/disputes", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.disputes.list({ limit: 50 });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // GET /api/mobile/api-keys — list API keys
+  app.get("/api/mobile/api-keys", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.apiKeys.list();
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/api-keys/create — create an API key
+  app.post("/api/mobile/api-keys/create", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { name, isLive } = req.body ?? {};
+      const data = await caller.apiKeys.create({ name: name ?? "Mobile Key", environment: isLive ? "live" : "test" });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // DELETE /api/mobile/api-keys/:id — revoke an API key
+  app.delete("/api/mobile/api-keys/:id", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.apiKeys.revoke({ id: req.params.id });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // GET /api/mobile/webhooks — list webhooks
+  app.get("/api/mobile/webhooks", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.webhooks.list();
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/webhooks/create — create a webhook
+  app.post("/api/mobile/webhooks/create", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { url, events } = req.body ?? {};
+      const data = await caller.webhooks.create({ url, events: events ?? [] });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // DELETE /api/mobile/webhooks/:id — delete a webhook
+  app.delete("/api/mobile/webhooks/:id", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.webhooks.delete({ id: req.params.id });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // GET /api/mobile/team — list team members
+  app.get("/api/mobile/team", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.team.list();
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/team/invite — invite a team member
+  app.post("/api/mobile/team/invite", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { email, role } = req.body ?? {};
+      const data = await caller.team.invite({ email, role: role ?? "member" });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // DELETE /api/mobile/team/:id — remove a team member
+  app.delete("/api/mobile/team/:id", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.team.remove({ id: req.params.id });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // GET /api/mobile/settings — get merchant settings
+  app.get("/api/mobile/settings", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.settings.get();
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // PATCH /api/mobile/settings — update merchant settings
+  app.patch("/api/mobile/settings", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.settings.updateMerchant(req.body ?? {});
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/transactions/refund — refund a transaction
+  app.post("/api/mobile/transactions/refund", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const { transactionId, reason, amount } = req.body ?? {};
+      const data = await caller.transactions.refund({ id: transactionId, reason, amount });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/notifications/mark-read — mark notification as read
+  app.post("/api/mobile/notifications/mark-read", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.notifications.markRead({ id: Number(req.body?.id) });
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/notifications/mark-all-read — mark all notifications as read
+  app.post("/api/mobile/notifications/mark-all-read", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.notifications.markAllRead();
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
   // Health check endpoint
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now(), service: "paygate-merchant" });

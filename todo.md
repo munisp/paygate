@@ -400,3 +400,44 @@
 - [x] PRODUCTION_RUNBOOK.md: complete go-live guide (DB migration, Stripe live keys, admin seed, health checks, rollback)
 - [x] All 540 tests pass: 411 merchant + 57 consumer + 72 admin
 - [x] TypeScript clean across all portals (0 errors)
+
+## Wave 18 — Native Mobile Full tRPC Migration
+
+- [ ] Add /api/auth/login REST endpoint to merchant portal server
+- [ ] Wire LoginScreen to tRPC auth.login via callProcedure
+- [ ] Wire SignupScreen to tRPC auth.register via callProcedure
+- [ ] Wire ForgotPasswordScreen to tRPC auth.forgotPassword
+- [ ] Wire TwoFactorScreen to tRPC auth.verifyOTP
+- [ ] Migrate DashboardScreen to callProcedure('dashboard.overview')
+- [ ] Migrate TransactionsScreen to callProcedure('transactions.list')
+- [ ] Migrate CustomersScreen to callProcedure('customers.list')
+- [ ] Migrate PaymentScreen to callProcedure('paymentLinks.list')
+- [ ] Migrate SettingsScreen to callProcedure('auth.me')
+- [ ] Migrate Dashboard/OverviewScreen to callProcedure('dashboard.overview')
+- [ ] Migrate Dashboard/AnalyticsScreen to callProcedure('analytics.overview')
+- [ ] Migrate Dashboard/RevenueScreen to callProcedure('analytics.revenueChart')
+- [ ] Migrate Dashboard/CustomersScreen to callProcedure('customers.list')
+- [ ] Migrate Dashboard/QuickActionsScreen to callProcedure('dashboard.overview')
+- [ ] Migrate Account/ProfileScreen to callProcedure('auth.me')
+- [ ] Migrate Account/NotificationsScreen to callProcedure('notifications.list')
+- [ ] Migrate Account/SecurityScreen to callProcedure('auth.me')
+- [ ] Migrate Account/LanguageScreen (local preference, no API needed)
+- [ ] Migrate Account/ThemeScreen (local preference, no API needed)
+- [ ] Migrate Payment/MakePaymentScreen to callProcedure('transactions.createTest')
+- [ ] Migrate Payment/AddCardScreen to callProcedure('virtualCards.create')
+- [ ] Migrate Payment/CardScannerScreen (device camera, no API needed)
+- [ ] Migrate Payment/NativePayScreen to callProcedure('transactions.createTest')
+- [ ] Migrate Payment/PaymentMethodsScreen to callProcedure('virtualCards.list')
+- [ ] Migrate advanced/P2PPaymentsScreen to callProcedure('wallet.transfer')
+- [ ] Migrate advanced/QRPaymentsScreen to callProcedure('wallet.getQRCode')
+- [ ] Migrate advanced/NFCPaymentsScreen to callProcedure('transactions.createTest')
+- [ ] Migrate advanced/VirtualCardsScreen to callProcedure('virtualCards.list')
+- [ ] Migrate advanced/BillPayScreen to callProcedure('paymentLinks.list')
+- [ ] Migrate advanced/CryptoScreen to callProcedure('fx.getRates')
+- [ ] Migrate advanced/InvestmentScreen to callProcedure('analytics.overview')
+- [ ] Migrate advanced/SavingsGoalsScreen to callProcedure('wallet.getBalance')
+- [ ] Migrate advanced/TravelModeScreen to callProcedure('fx.getRates')
+- [ ] Migrate advanced/VoiceAssistantScreen (device mic + callProcedure('analytics.overview'))
+- [ ] Migrate advanced/WearablesScreen to callProcedure('dashboard.overview')
+- [ ] Update api.config.ts EXPO_PUBLIC_API_BASE_URL to point to merchant portal
+- [ ] TypeScript check on mobile app
