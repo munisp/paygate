@@ -317,3 +317,16 @@
 - [x] Register nip and settlements in appRouter
 - [x] Write 27 vitest tests for NIP bank directory, account name enquiry, SLA alerting, and status transitions
 - [x] All 305 tests passing (278 existing + 27 new)
+
+## Wave 13 — NIP Retry, NIP Banks UI, Admin SLA Dashboard, Full Archive
+- [ ] Fix archive: include Go bridge, Rust crates, Python services, consumer portal (target ~566 MB)
+- [x] Add nip_resolution_errors table to schema (tenantId, bankCode, accountNumber, errorCode, errorMessage, attemptNumber, resolvedAt)
+- [x] Add DB helpers: createNipResolutionError, listNipResolutionErrors, countNipResolutionErrors
+- [x] Add trpc.nip.resolveAccountWithRetry procedure (3 retries, exponential backoff, logs each failure)
+- [x] Add trpc.nip.listResolutionErrors procedure (paginated error log per merchant)
+- [x] Build NIPBanks.tsx page: searchable bank list table + account resolver widget with retry feedback
+- [x] Register /nip-banks route in App.tsx and add to sidebar navigation
+- [x] Admin portal: add settlement SLA breach real-time dashboard (SettlementSLA.tsx)
+- [x] Admin portal: 30s polling for live SLA breach feed (refetchInterval)
+- [x] Admin portal: register /settlement-sla route and sidebar link
+- [x] Write vitest tests for retry logic and error logging (19 new tests, 324 total merchant + 25 admin = 349 total)

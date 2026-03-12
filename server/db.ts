@@ -768,3 +768,58 @@ export async function markSettlementSlaAlertSent(id: string): Promise<void> {
   const db = await getDb(); if (!db) return;
   await db.update(settlements).set({ slaAlertSentAt: new Date(), updatedAt: new Date() }).where(eq(settlements.id, id));
 }
+
+// ─── NIP Resolution Error Log ─────────────────────────────────────────────────
+import {
+  type NipResolutionError, type InsertNipResolutionError,
+  nipResolutionErrors,
+} from "../drizzle/schema";
+
+export async function createNipResolutionError(data: InsertNipResolutionError): Promise<NipResolutionError | null> {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.insert(nipResolutionErrors).values(data).returning();
+  return row ?? null;
+}
+
+export async function listNipResolutionErrors(
+  merchantId: string,
+  opts: { limit?: number; offset?: number; bankCode?: string; accountNumber?: string } = {}
+): Promise<{ rows: NipResolutionError[]; total: number }> {
+  const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  const conds: any[] = [eq(nipResolutionErrors.merchantId, merchantId)];
+  if (opts.bankCode) conds.push(eq(nipResolutionErrors.bankCode, opts.bankCode));
+  if (opts.accountNumber) conds.push(eq(nipResolutionErrors.accountNumber, opts.accountNumber));
+  const w = and(...conds);
+  const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  const [rows, tot] = await Promise.all([
+    db.select().from(nipResolutionErrors).where(w).orderBy(desc(nipResolutionErrors.createdAt)).limit(lim).offset(off),
+    db.select({ count: count() }).from(nipResolutionErrors).where(w),
+  ]);
+  return { rows, total: Number(tot[0]?.count ?? 0) };
+}
+
+export async function countNipResolutionErrors(merchantId: string, bankCode: string, accountNumber: string): Promise<number> {
+  const db = await getDb(); if (!db) return 0;
+  const [row] = await db.select({ count: count() }).from(nipResolutionErrors).where(
+    and(
+      eq(nipResolutionErrors.merchantId, merchantId),
+      eq(nipResolutionErrors.bankCode, bankCode),
+      eq(nipResolutionErrors.accountNumber, accountNumber),
+    )
+  );
+  return Number(row?.count ?? 0);
+}
+
+export async function markNipErrorResolved(merchantId: string, bankCode: string, accountNumber: string, accountName: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.update(nipResolutionErrors)
+    .set({ resolvedAt: new Date(), resolvedAccountName: accountName })
+    .where(
+      and(
+        eq(nipResolutionErrors.merchantId, merchantId),
+        eq(nipResolutionErrors.bankCode, bankCode),
+        eq(nipResolutionErrors.accountNumber, accountNumber),
+        sql`resolved_at IS NULL`,
+      )
+    );
+}

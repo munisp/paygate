@@ -38,6 +38,7 @@ import CrossBorder from "./pages/CrossBorder";
 import DeveloperPortal from "./pages/DeveloperPortal";
 import WorkflowObservability from "./pages/WorkflowObservability";
 import KeycloakRoleSync from "./pages/KeycloakRoleSync";
+import NIPBanks from "./pages/NIPBanks";
 
 function Router() {
   const [location] = useLocation();
@@ -97,6 +98,7 @@ function Router() {
         <Route path="/developer" component={DeveloperPortal} />
         <Route path="/workflows" component={WorkflowObservability} />
         <Route path="/role-sync" component={KeycloakRoleSync} />
+        <Route path="/nip-banks" component={NIPBanks} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

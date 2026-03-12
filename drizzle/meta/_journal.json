@@ -64,6 +64,13 @@
       "when": 1773314661653,
       "tag": "0008_bumpy_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773315850318,
+      "tag": "0009_whole_kid_colt",
+      "breakpoints": true
     }
   ]
 }

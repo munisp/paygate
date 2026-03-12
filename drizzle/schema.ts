@@ -1,5 +1,5 @@
 import {
-  pgTable, pgEnum, serial, text, integer, bigint,
+  pgTable, pgEnum, serial, text, integer, bigint, varchar,
   boolean, timestamp, jsonb, unique, index, uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -735,3 +735,27 @@ export const nipAccountCache = pgTable("nip_account_cache", {
 ]);
 export type NipAccountCache = typeof nipAccountCache.$inferSelect;
 export type InsertNipAccountCache = typeof nipAccountCache.$inferInsert;
+
+// ─── NIP Resolution Error Log ─────────────────────────────────────────────────
+// Tracks every failed account name enquiry attempt for audit and retry analysis.
+export const nipResolutionErrors = pgTable("nip_resolution_errors", {
+  id: serial("id").primaryKey(),
+  tenantId: varchar("tenant_id", { length: 64 }).notNull(),
+  merchantId: varchar("merchant_id", { length: 64 }).notNull(),
+  bankCode: varchar("bank_code", { length: 10 }).notNull(),
+  accountNumber: varchar("account_number", { length: 10 }).notNull(),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  errorCode: varchar("error_code", { length: 50 }),
+  errorMessage: text("error_message"),
+  errorSource: varchar("error_source", { length: 50 }).default("nibss"), // nibss | bridge | timeout | validation
+  resolvedAt: timestamp("resolved_at"),       // set when a later retry succeeds
+  resolvedAccountName: text("resolved_account_name"), // populated on successful retry
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("nip_errors_tenant_idx").on(t.tenantId),
+  index("nip_errors_merchant_idx").on(t.merchantId),
+  index("nip_errors_bank_account_idx").on(t.bankCode, t.accountNumber),
+  index("nip_errors_created_idx").on(t.createdAt),
+]);
+export type NipResolutionError = typeof nipResolutionErrors.$inferSelect;
+export type InsertNipResolutionError = typeof nipResolutionErrors.$inferInsert;

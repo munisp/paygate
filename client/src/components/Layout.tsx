@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu,
   Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon,
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
-  GitBranch
+  GitBranch, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,7 @@ const devItems = [
   { icon: Code2, label: "Developer", path: "/developer" },
   { icon: GitBranch, label: "Workflows", path: "/workflows", badge: "Ops" },
   { icon: Shield, label: "Role Sync", path: "/role-sync" },
+  { icon: Building2, label: "NIP Banks", path: "/nip-banks", badge: "CBN" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 

@@ -23,6 +23,8 @@ import {
   // NIP bank directory
   listNipBanks, getNipBankByCode, upsertNipBanks,
   getCachedNipAccount, cacheNipAccount,
+  // NIP resolution error log
+  createNipResolutionError, listNipResolutionErrors, countNipResolutionErrors, markNipErrorResolved,
   // Settlements
   createSettlement, getSettlementById, updateSettlement, listSettlements,
   listSlaBreachedSettlements, markSettlementSlaBreached, markSettlementSlaAlertSent,
@@ -1913,6 +1915,137 @@ const nipRouter = router({
       });
 
       return { accountName, bankCode: input.bankCode, accountNumber: input.accountNumber, fromCache: false };
+    }),
+
+  // Resolve account with automatic retry (up to 3 attempts, exponential backoff).
+  // Each failed attempt is logged to nip_resolution_errors for audit.
+  resolveAccountWithRetry: protectedProcedure
+    .input(z.object({
+      bankCode: z.string().min(3).max(10),
+      accountNumber: z.string().length(10),
+      maxAttempts: z.number().min(1).max(5).default(3),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const tenantId = merchant.tenantId ?? "ten_default";
+
+      // Check cache first — no retry needed if already cached
+      const cached = await getCachedNipAccount(tenantId, input.bankCode, input.accountNumber);
+      if (cached) {
+        return { accountName: cached.accountName, bankCode: input.bankCode, accountNumber: input.accountNumber, fromCache: true, attempts: 0, errors: [] };
+      }
+
+      const errors: Array<{ attempt: number; errorCode: string; errorMessage: string }> = [];
+      let accountName: string | null = null;
+      const maxAttempts = input.maxAttempts;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // Exponential backoff: 0ms, 500ms, 1500ms for attempts 1, 2, 3
+        if (attempt > 1) {
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt - 2) * 500));
+        }
+
+        try {
+          // Attempt NIBSS name enquiry
+          const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
+          // Simulate occasional failures: last digit 9 fails on attempt 1, succeeds on attempt 2
+          const lastDigit = parseInt(input.accountNumber.slice(-1), 10);
+          const shouldFail = (lastDigit === 9 && attempt === 1);
+
+          if (shouldFail) {
+            throw new Error("NIBSS_TIMEOUT: Name enquiry service temporarily unavailable");
+          }
+
+          accountName = names[lastDigit % names.length];
+
+          // Cache successful result
+          await cacheNipAccount({
+            id: `nip_cache_${nanoid()}`,
+            tenantId,
+            bankCode: input.bankCode,
+            accountNumber: input.accountNumber,
+            accountName,
+            sessionId: `SIM_${Date.now()}`,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            createdAt: new Date(),
+          });
+
+          // Mark any previous errors as resolved
+          if (errors.length > 0) {
+            await markNipErrorResolved(merchant.id, input.bankCode, input.accountNumber, accountName);
+          }
+
+          break; // Success — exit retry loop
+        } catch (err: any) {
+          const errorCode = err.message?.split(":")[0] ?? "UNKNOWN_ERROR";
+          const errorMessage = err.message ?? "Unknown error";
+          errors.push({ attempt, errorCode, errorMessage });
+
+          // Log error to DB
+          await createNipResolutionError({
+            tenantId,
+            merchantId: merchant.id,
+            bankCode: input.bankCode,
+            accountNumber: input.accountNumber,
+            attemptNumber: attempt,
+            errorCode,
+            errorMessage,
+            errorSource: "nibss",
+            createdAt: new Date(),
+          });
+
+          if (attempt === maxAttempts) {
+            // All retries exhausted
+            throw new TRPCError({
+              code: "SERVICE_UNAVAILABLE",
+              message: `NIP account resolution failed after ${maxAttempts} attempts. Last error: ${errorMessage}`,
+            });
+          }
+        }
+      }
+
+      return {
+        accountName: accountName!,
+        bankCode: input.bankCode,
+        accountNumber: input.accountNumber,
+        fromCache: false,
+        attempts: errors.length + 1,
+        errors,
+      };
+    }),
+
+  // List NIP resolution errors for this merchant (paginated)
+  listResolutionErrors: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(20),
+      offset: z.number().min(0).default(0),
+      bankCode: z.string().optional(),
+      accountNumber: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listNipResolutionErrors(merchant.id, input);
+    }),
+
+  // Summary stats for error log
+  errorStats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { rows, total } = await listNipResolutionErrors(merchant.id, { limit: 1000 });
+      const unresolved = rows.filter(r => !r.resolvedAt).length;
+      const resolved = rows.filter(r => r.resolvedAt).length;
+      const byBank: Record<string, number> = {};
+      for (const r of rows) {
+        byBank[r.bankCode] = (byBank[r.bankCode] ?? 0) + 1;
+      }
+      const topFailingBanks = Object.entries(byBank)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([bankCode, count]) => ({ bankCode, count }));
+      return { total, unresolved, resolved, topFailingBanks };
     }),
 });
 
