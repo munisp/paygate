@@ -222,4 +222,38 @@
 - [x] Portal: App.tsx — /workflows and /role-sync routes registered
 - [x] Portal: Layout.tsx — Workflows (Ops badge) and Role Sync added to dev sidebar section
 - [x] Write vitest Wave 10 tests (28 new tests, 238 total)
-- [ ] Regenerate complete archive (portal + middleware + platform)
+- [x] Regenerate complete archive (portal + middleware + platform) — paygate_FULL_v10.tar.gz, 554 MB, 117,158 files
+
+## Wave 11 — Mojaloop/Rails/Settlement Full Middleware Integration
+
+### Audit Findings
+- [x] Mojaloop Go adapter: production-ready (JWS RS256 signing, circuit breaker, ILP, party lookup, quote, transfer, callback correlation)
+- [x] Mojaloop TigerBeetle saga: exists in platform (INITIATED→LEDGER_RESERVED→MOJALOOP_SENT→LEDGER_POSTED/VOIDED states)
+- [x] Mojaloop Temporal Python workflow: exists in platform (with TigerBeetle, Kafka, Redis, Lakehouse activities)
+- [x] BRICS Pay Rust signer: production-ready (RSA-PSS-SHA256, ECDSA P-256, HMAC-SHA256, DCMS envelope, EMVCo QR)
+- [x] PAPSS/CIPS/UPI/PIX: crossborder_rails.py defines rail routing, currency mapping, country→rail mapping
+- [x] NIBSS/NIP: nip_nibss_handler.py has full state machine (14 states, all NIP response codes, NIP/NEFT/RTGS/DirectDebit channels)
+- [x] Nigerian banks: nigerian_banks.py covers all Tier 1/2 banks + digital banks (Kuda, Opay, PalmPay, Moniepoint)
+- [x] TigerBeetle Go client: 8 account codes, 7 transfer codes, 3-node HA cluster config
+- [x] TigerBeetle Python settlement: full double-entry (6-step settlement flow, multi-currency, idempotent)
+- [x] Settlement engine Temporal workflow: 8-step workflow (lakehouse query → calculate → validate → TigerBeetle → bank transfer → reconcile → notify → complete)
+
+### Gaps Found (to build)
+- [ ] Mojaloop bridge routes: no /mojaloop/* routes in the Go bridge (adapter exists but not wired to bridge)
+- [ ] Mojaloop Kafka topics: no paygate.mojaloop.* topics in topics.go
+- [ ] Mojaloop Permify: no permission check for cross-border transfers
+- [ ] Mojaloop Fluvio: no real-time streaming of transfer events
+- [ ] PAPSS/CIPS/UPI bridge routes: no /crossborder/* routes in bridge
+- [ ] NIBSS/NIP bridge routes: no /nibss/* routes in bridge
+- [ ] Nigerian bank adapter bridge routes: no /banks/* routes in bridge
+- [ ] Settlement engine bridge: /settlements/trigger exists but no TigerBeetle multi-leg posting, no Temporal workflow start, no Lakehouse write
+- [ ] Settlement Kafka topics: no paygate.settlement.* topics beyond basic trigger
+- [ ] Consumer portal: no standalone project directory
+- [x] Go: mojaloop_handler.go — full bridge handler (Permify, Redis, Kafka, TigerBeetle, Fluvio, Lakehouse)
+- [x] Go: kafka/topics/topics.go — 15 new cross-border rail Kafka topics (mojaloop/papss/nibss/cips/upi)
+- [x] Go: apisix/routes/crossborder_routes.yaml — 8 APISIX routes for all cross-border rails
+- [x] Go: temporal/workflows/settlement_workflow.go — Temporal settlement workflow (lock→fetch→ledger→settle→audit→publish)
+- [x] Go: temporal/activities/settlement_activities.go — Settlement activities (TigerBeetle, Redis, Kafka, Lakehouse, DB)
+- [x] Python: python/lakehouse/crossborder_audit_writer.py — FastAPI Kafka consumer + Parquet/S3 writer for all 5 rails
+- [x] Go: wiring/paygate_middleware_bridge.go — Mojaloop adapter field + cross-border route groups registered
+- [x] Write vitest tests for Wave 11 (40 new tests, 278 total)
