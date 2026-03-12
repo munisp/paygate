@@ -15,14 +15,25 @@ import {
 import { ENV } from "./_core/env";
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
+// The Manus platform injects a MySQL/TiDB DATABASE_URL. Since this project uses
+// PostgreSQL (pg-core), we fall back to the locally installed PostgreSQL when
+// the system URL is not a postgres:// URL.
+function resolveDbUrl(): string | undefined {
+  const url = process.env.DATABASE_URL ?? "";
+  if (url.startsWith("postgresql://") || url.startsWith("postgres://")) return url;
+  // System URL is MySQL — use local PG or explicit override
+  return process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
+}
 
 let _pool: Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
 
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (!_db) {
+    const dbUrl = resolveDbUrl();
+    if (!dbUrl) return null;
     try {
-      _pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
+      _pool = new Pool({ connectionString: dbUrl, max: 10 });
       _db = drizzle(_pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
@@ -546,7 +557,7 @@ export async function getOrCreateWallet(userId: string, merchantId?: string | nu
   const existing = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
   if (existing.length > 0) return existing[0];
   const [created] = await db.insert(wallets).values({
-    userId, merchantId: merchantId ?? null, currency: "NGN",
+    userId, merchantId: merchantId ?? null, tenantId: "ten_default", currency: "NGN",
     balance: "0", ledgerBalance: "0", status: "active", tier: "basic",
     dailyLimit: "50000", monthlyLimit: "500000",
   }).returning();
@@ -647,4 +658,113 @@ export async function getCorridorVolume(daysSince = 7): Promise<
     transferCount: Number(r.transferCount),
     totalSourceAmount: parseFloat(r.totalSourceAmount as string),
   }));
+}
+
+// ─── NIP Bank Directory ────────────────────────────────────────────────────────
+import {
+  type InsertNipBank, type NipBank, type InsertNipAccountCache,
+  type InsertSettlement, type Settlement,
+  nipBanks, nipAccountCache, settlements,
+} from "../drizzle/schema";
+import { ilike } from "drizzle-orm";
+
+export async function listNipBanks(opts: { search?: string; active?: boolean } = {}): Promise<NipBank[]> {
+  const db = await getDb(); if (!db) return [];
+  const conds: any[] = [];
+  if (opts.active !== false) conds.push(eq(nipBanks.isActive, 1));
+  if (opts.search) conds.push(ilike(nipBanks.bankName, `%${opts.search}%`));
+  const w = conds.length > 0 ? and(...conds) : undefined;
+  return db.select().from(nipBanks).where(w).orderBy(nipBanks.bankName);
+}
+
+export async function getNipBankByCode(bankCode: string): Promise<NipBank | null> {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(nipBanks).where(eq(nipBanks.bankCode, bankCode)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertNipBanks(banks: InsertNipBank[]): Promise<void> {
+  const db = await getDb(); if (!db || banks.length === 0) return;
+  await db.insert(nipBanks).values(banks).onConflictDoUpdate({
+    target: nipBanks.bankCode,
+    set: { bankName: sql`excluded.bank_name`, shortName: sql`excluded.short_name`, isActive: sql`excluded.is_active`, lastSyncedAt: new Date(), updatedAt: new Date() },
+  });
+}
+
+// ─── NIP Account Enquiry Cache ────────────────────────────────────────────────
+export async function getCachedNipAccount(tenantId: string, bankCode: string, accountNumber: string) {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(nipAccountCache).where(
+    and(
+      eq(nipAccountCache.tenantId, tenantId),
+      eq(nipAccountCache.bankCode, bankCode),
+      eq(nipAccountCache.accountNumber, accountNumber),
+      gte(nipAccountCache.expiresAt, new Date()),
+    )
+  ).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function cacheNipAccount(data: InsertNipAccountCache): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.insert(nipAccountCache).values(data).onConflictDoUpdate({
+    target: [nipAccountCache.tenantId, nipAccountCache.bankCode, nipAccountCache.accountNumber],
+    set: { accountName: data.accountName, sessionId: data.sessionId, expiresAt: data.expiresAt },
+  });
+}
+
+// ─── Settlements ──────────────────────────────────────────────────────────────
+export async function createSettlement(data: InsertSettlement): Promise<Settlement | null> {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.insert(settlements).values(data).returning();
+  return row ?? null;
+}
+
+export async function getSettlementById(id: string): Promise<Settlement | null> {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(settlements).where(eq(settlements.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateSettlement(id: string, data: Partial<InsertSettlement>): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.update(settlements).set({ ...data, updatedAt: new Date() }).where(eq(settlements.id, id));
+}
+
+export async function listSettlements(merchantId: string, opts: { limit?: number; offset?: number; status?: string } = {}): Promise<{ rows: Settlement[]; total: number }> {
+  const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  const conds: any[] = [eq(settlements.merchantId, merchantId)];
+  if (opts.status) conds.push(eq(settlements.status, opts.status as any));
+  const w = and(...conds);
+  const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  const [rows, tot] = await Promise.all([
+    db.select().from(settlements).where(w).orderBy(desc(settlements.createdAt)).limit(lim).offset(off),
+    db.select({ count: count() }).from(settlements).where(w),
+  ]);
+  return { rows, total: Number(tot[0]?.count ?? 0) };
+}
+
+export async function listSlaBreachedSettlements(tenantId?: string): Promise<Settlement[]> {
+  const db = await getDb(); if (!db) return [];
+  const now = new Date();
+  const conds: any[] = [
+    eq(settlements.status, "pending" as any),
+    lte(settlements.slaDeadlineAt, now),
+  ];
+  if (tenantId) conds.push(eq(settlements.tenantId, tenantId));
+  return db.select().from(settlements).where(and(...conds)).orderBy(settlements.slaDeadlineAt);
+}
+
+export async function markSettlementSlaBreached(id: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.update(settlements).set({
+    status: "sla_breached" as any,
+    slaBreachedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(settlements.id, id));
+}
+
+export async function markSettlementSlaAlertSent(id: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.update(settlements).set({ slaAlertSentAt: new Date(), updatedAt: new Date() }).where(eq(settlements.id, id));
 }

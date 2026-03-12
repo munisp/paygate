@@ -10,6 +10,8 @@ const t = initTRPC.context<TrpcContext>().create({
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
+// ─── requireUser ──────────────────────────────────────────────────────────────
+
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
 
@@ -27,6 +29,8 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+// ─── adminProcedure ───────────────────────────────────────────────────────────
+
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
@@ -39,6 +43,35 @@ export const adminProcedure = t.procedure.use(
       ctx: {
         ...ctx,
         user: ctx.user,
+      },
+    });
+  }),
+);
+
+// ─── tenantProcedure ──────────────────────────────────────────────────────────
+// Resolves the tenant for the authenticated user's merchant.
+// Injects ctx.tenantId into the procedure context.
+// Falls back to the default platform tenant if the merchant has no tenantId set.
+
+export const DEFAULT_TENANT_ID = "ten_default";
+
+export const tenantProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+
+    // Resolve tenantId from the user's own tenantId field (set during provisioning)
+    // or fall back to the default platform tenant.
+    const tenantId: string = (ctx.user as any).tenantId ?? DEFAULT_TENANT_ID;
+
+    return next({
+      ctx: {
+        ...ctx,
+        user: ctx.user,
+        tenantId,
       },
     });
   }),

@@ -119,6 +119,7 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<T
     await dbConn.insert(idempotencyRequests).values({
       id: key,
       merchantId,
+      tenantId: "ten_default",
       operation,
       requestHash,
       responseStatus,
@@ -134,6 +135,7 @@ export async function withIdempotency<T>(opts: IdempotencyOptions<T>): Promise<T
   await dbConn.insert(idempotencyRequests).values({
     id: key,
     merchantId,
+    tenantId: "ten_default",
     operation,
     requestHash,
     responseStatus,

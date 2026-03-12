@@ -257,3 +257,63 @@
 - [x] Python: python/lakehouse/crossborder_audit_writer.py — FastAPI Kafka consumer + Parquet/S3 writer for all 5 rails
 - [x] Go: wiring/paygate_middleware_bridge.go — Mojaloop adapter field + cross-border route groups registered
 - [x] Write vitest tests for Wave 11 (40 new tests, 278 total)
+
+## Wave 12 — Consumer Portal Standalone + NIP Directory + Settlement SLA
+
+- [ ] Scaffold paygate-consumer-portal: standalone directory with own package.json, tsconfig, Vite, Express/tRPC
+- [ ] Consumer portal: dedicated PostgreSQL schema (consumers, consumer_wallets, consumer_transactions, otp_sessions)
+- [ ] Consumer portal: phone/OTP auth (no OAuth) — send OTP, verify OTP, JWT session
+- [ ] Consumer portal: mobile-first PWA manifest + service worker
+- [ ] Consumer portal: Wallet dashboard, P2P transfer, Bill pay, QR payments, Transaction history pages
+- [ ] Consumer portal: tRPC procedures (auth, wallet, transfers, bills, history)
+- [ ] Go middleware: live CBN NIP directory lookup handler (replaces static bank code map)
+- [ ] Go middleware: Redis cache for NIP directory (24-hour TTL, background refresh)
+- [ ] Go middleware: APISIX route for /v1/nibss/banks endpoint
+- [ ] Go: Temporal settlement workflow — SLA timer signal (configurable, default 2 hours)
+- [ ] Go: settlement.sla_breached Kafka event published when SLA exceeded
+- [ ] Portal: trpc.system.notifyOwner triggered on SLA breach
+- [ ] Write vitest tests for Wave 12
+- [ ] Regenerate complete archive
+
+## Wave 12 — Admin Portal + Consumer Portal Standalone
+
+### Consumer Portal (paygate-consumer-portal/)
+- [ ] Scaffold standalone directory: package.json, tsconfig, vite.config, drizzle.config
+- [ ] Consumer DB schema: consumers, consumer_wallets, consumer_transactions, otp_sessions tables
+- [ ] Phone/OTP auth: sendOTP, verifyOTP procedures + JWT session (no OAuth)
+- [ ] tRPC procedures: wallet.get, wallet.topUp, wallet.sendMoney, bills.list, bills.pay, history.list
+- [ ] Pages: Wallet dashboard, Send Money, Bill Pay, QR Payments, Transaction History, Profile
+- [ ] Mobile-first PWA manifest + service worker
+- [ ] Consumer portal Express server on port 3002
+
+### Admin Portal (paygate-admin-portal/)
+- [ ] Scaffold standalone directory: package.json, tsconfig, vite.config, drizzle.config
+- [ ] Admin DB schema: admin_users, admin_sessions, audit_log, system_config, fee_schedules tables
+- [ ] Admin auth: email/password + TOTP 2FA, Permify role check (super_admin / ops_admin / support)
+- [ ] Merchant provisioning: create merchant, approve KYC, suspend/reactivate, configure limits
+- [ ] Consumer management: list consumers, freeze account, adjust wallet limits, view KYC docs
+- [ ] System configuration: fee schedules, FX spreads, settlement rules, BNPL limits, rate limits
+- [ ] Cross-portal observability: Temporal workflow status, Kafka consumer lag, TigerBeetle ledger health
+- [ ] Audit log: every admin action logged with actor, timestamp, before/after values
+- [ ] Admin portal Express server on port 3003
+
+### Middleware
+- [ ] Go: live CBN NIP directory lookup (replaces static map, Redis 24h TTL)
+- [ ] Go: settlement SLA alerting in Temporal workflow (Kafka event + notifyOwner)
+- [ ] Write vitest tests for Wave 12
+- [ ] Regenerate complete archive
+
+## Wave 12 — CBN NIP Bank Directory + Settlement SLA Alerting
+- [x] Install local PostgreSQL 14, create paygate_dev database and paygate user
+- [x] Update db.ts to auto-detect MySQL vs PostgreSQL URL and fall back to local PG
+- [x] Add settlements table to schema (id, tenantId, merchantId, reference, amount, currency, bankCode, accountNumber, accountName, status, slaDeadlineAt, slaBreachedAt, slaAlertSentAt, workflowId, etc.)
+- [x] Add nip_banks table to schema (bankCode, bankName, shortName, isActive, supportsNip, supportsUssd, lastSyncedAt)
+- [x] Add nip_account_cache table to schema (tenantId, bankCode, accountNumber, accountName, sessionId, expiresAt)
+- [x] Run pnpm db:push — all 3 new tables created in local PostgreSQL
+- [x] Add DB helpers: listNipBanks, getNipBankByCode, upsertNipBanks, getCachedNipAccount, cacheNipAccount
+- [x] Add DB helpers: createSettlement, getSettlementById, updateSettlement, listSettlements, listSlaBreachedSettlements, markSettlementSlaBreached, markSettlementSlaAlertSent
+- [x] Add nipRouter: listBanks (seeds 30 CBN NIP banks on first call), resolveAccount (24h cache)
+- [x] Add settlementsRouter: list, get, create (with bridge integration), checkSla (marks breached + notifyOwner)
+- [x] Register nip and settlements in appRouter
+- [x] Write 27 vitest tests for NIP bank directory, account name enquiry, SLA alerting, and status transitions
+- [x] All 305 tests passing (278 existing + 27 new)
