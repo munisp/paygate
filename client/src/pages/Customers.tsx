@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Search, UserPlus, Download, X, CreditCard, ArrowUpRight, ArrowDownRight, Shield, Phone, Mail, Calendar } from "lucide-react";
+import { Search, UserPlus, Download, X, CreditCard, ArrowUpRight, Phone, Mail, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -19,12 +22,44 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const limit = 20;
+
+  const utils = trpc.useUtils();
 
   const { data, isLoading } = trpc.customers.list.useQuery(
     { limit, offset: page * limit, search: search || undefined },
     { staleTime: 60_000 }
   );
+
+  const createCustomer = trpc.customers.create.useMutation({
+    onSuccess: () => {
+      utils.customers.list.invalidate();
+      setAddOpen(false);
+      toast.success("Customer added successfully");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const result = await utils.customers.export.fetch();
+      const blob = new Blob([result.csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.count} customers`);
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
@@ -38,10 +73,10 @@ export default function Customers() {
           <p className="text-sm text-muted-foreground mt-0.5">{total.toLocaleString()} total customers</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info("Export coming soon")}>
-            <Download className="w-4 h-4 mr-1.5" />Export
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+            <Download className="w-4 h-4 mr-1.5" />{exporting ? "Exporting..." : "Export"}
           </Button>
-          <Button size="sm" onClick={() => toast.info("Customer creation coming soon")}>
+          <Button size="sm" onClick={() => setAddOpen(true)}>
             <UserPlus className="w-4 h-4 mr-1.5" />Add Customer
           </Button>
         </div>
@@ -108,9 +143,65 @@ export default function Customers() {
         </div>
       )}
 
+      {/* Add Customer Dialog */}
+      <AddCustomerDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onSubmit={(vals) => createCustomer.mutate(vals)}
+        loading={createCustomer.isPending}
+      />
+
       {/* Customer Detail Drawer */}
       <CustomerDrawer customerId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
+  );
+}
+
+function AddCustomerDialog({
+  open, onClose, onSubmit, loading,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (v: { email: string; name: string; phone?: string }) => void;
+  loading: boolean;
+}) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({ email, name, phone: phone || undefined });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle style={{ fontFamily: "Space Grotesk, sans-serif" }}>Add Customer</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="cust-name">Full Name *</Label>
+            <Input id="cust-name" value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" required />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cust-email">Email Address *</Label>
+            <Input id="cust-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" required />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cust-phone">Phone (optional)</Label>
+            <Input id="cust-phone" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+234 801 234 5678" />
+          </div>
+          <DialogFooter className="pt-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+            <Button type="submit" disabled={loading || !name || !email}>
+              {loading ? "Adding..." : "Add Customer"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -141,7 +232,6 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
           <div className="text-center py-12 text-muted-foreground">Customer not found</div>
         ) : (
           <div className="space-y-6">
-            {/* Identity */}
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg shrink-0">
                 {(customer.name ?? customer.email)[0].toUpperCase()}
@@ -157,7 +247,6 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
 
             <Separator />
 
-            {/* Contact Info */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contact</p>
               <div className="grid grid-cols-1 gap-2">
@@ -180,40 +269,28 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
 
             <Separator />
 
-            {/* Risk & Metadata */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Risk Profile</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stats</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-muted/40 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Risk Level</p>
-                  <p className="font-semibold text-foreground capitalize">{customer.riskLevel}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Total Transactions</p>
+                  <p className="font-semibold text-foreground">{customer.totalTransactions.toLocaleString()}</p>
                 </div>
                 <div className="bg-muted/40 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Customer ID</p>
-                  <p className="font-mono text-xs text-foreground truncate">{customer.id}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Total Spend</p>
+                  <p className="font-semibold text-foreground">₦{(customer.totalSpend / 100).toLocaleString()}</p>
                 </div>
               </div>
-              {!!customer.metadata && (
-                <div className="bg-muted/40 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-2">Metadata</p>
-                  <pre className="text-xs text-foreground overflow-auto max-h-24 whitespace-pre-wrap">
-                    {JSON.stringify(customer.metadata as Record<string, unknown>, null, 2)}
-                  </pre>
-                </div>
-              )}
             </div>
 
             <Separator />
 
-            {/* Recent Transactions */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Recent Transactions {txs.length > 0 && `(${txs.length})`}
               </p>
               {txs.length === 0 ? (
-                <div className="text-center py-6 text-sm text-muted-foreground bg-muted/30 rounded-lg">
-                  No transactions found
-                </div>
+                <div className="text-center py-6 text-sm text-muted-foreground bg-muted/30 rounded-lg">No transactions found</div>
               ) : (
                 <div className="space-y-2">
                   {txs.map(tx => (

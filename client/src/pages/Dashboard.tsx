@@ -37,6 +37,24 @@ export default function Dashboard() {
 
   const { data, isLoading, refetch, isFetching } = trpc.dashboard.overview.useQuery(range, { staleTime: 60_000 });
   const { data: txData } = trpc.transactions.list.useQuery({ limit: 8, offset: 0 }, { staleTime: 60_000 });
+  const utils = trpc.useUtils();
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const result = await utils.export.transactions.fetch({ from: range.from, to: range.to });
+      const blob = new Blob([result.csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `transactions-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.count} transactions`);
+    } catch (e) {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const overview = data?.overview;
   const timeSeries = data?.timeSeries ?? [];
@@ -84,8 +102,8 @@ export default function Dashboard() {
           <Button variant="outline" size="sm" onClick={() => { refetch(); toast.info("Refreshing..."); }} disabled={isFetching}>
             <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
           </Button>
-          <Button size="sm" onClick={() => toast.info("Export coming soon")}>
-            <Download className="w-4 h-4 mr-1.5" />Export
+          <Button size="sm" onClick={handleExport} disabled={exporting}>
+            <Download className="w-4 h-4 mr-1.5" />{exporting ? "Exporting..." : "Export"}
           </Button>
         </div>
       </div>

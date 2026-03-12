@@ -223,6 +223,41 @@ const customersRouter = router({
       const txs = await listTransactions(merchant.id, { limit: 10, search: customer.email });
       return { customer, recentTransactions: txs.rows };
     }),
+
+  create: protectedProcedure
+    .input(z.object({
+      email: z.string().email(),
+      name: z.string().min(1),
+      phone: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return upsertCustomer({
+        id: nanoid("cus_"),
+        merchantId: merchant.id,
+        email: input.email,
+        name: input.name,
+        phone: input.phone ?? null,
+        riskLevel: "low",
+        totalTransactions: 0,
+        totalSpend: 0,
+      });
+    }),
+
+  export: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const all = await listCustomers(merchant.id, { limit: 10000, offset: 0 });
+      const header = "id,name,email,phone,country,riskLevel,totalTransactions,totalSpend,createdAt\n";
+      const csv = header + all.rows.map((c: any) =>
+        [c.id, c.name ?? "", c.email, c.phone ?? "", c.country ?? "", c.riskLevel ?? "",
+         c.totalTransactions ?? 0, ((c.totalSpend ?? 0) / 100).toFixed(2),
+         new Date(c.createdAt).toISOString()].join(",")
+      ).join("\n");
+      return { csv, count: all.total };
+    }),
 });
 
 // ─── Payouts Router ───────────────────────────────────────────────────────────
@@ -749,6 +784,23 @@ const complianceKycRouter = router({
       const merchant = await requireMerchant(user.id);
       return getKycStats(merchant.id);
     }),
+  uploadDocument: protectedProcedure
+    .input(z.object({
+      submissionId: z.string(),
+      documentType: z.string(),
+      fileUrl: z.string().url(),
+      fileName: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      // Attach document URL to the KYC submission
+      await updateKycSubmission(input.submissionId, merchant.id, {
+        documentUrl: input.fileUrl,
+        status: 'under_review',
+      });
+      return { success: true, fileUrl: input.fileUrl };
+    }),
   updateStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(['pending','under_review','approved','rejected','expired']), rejectionReason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -845,6 +897,50 @@ const webhookDeliveriesRouter = router({
       const merchant = await requireMerchant(user.id);
       return listWebhookDeliveries(merchant.id, input.webhookId, input.limit);
     }),
+  retry: protectedProcedure
+    .input(z.object({ deliveryId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { getWebhookDeliveryById, getWebhookById, createWebhookDelivery, updateWebhookDelivery } = await import("./db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const delivery = await getWebhookDeliveryById(input.deliveryId);
+      if (!delivery || delivery.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND", message: "Delivery not found" });
+      const webhook = await getWebhookById(delivery.webhookId);
+      if (!webhook) throw new TRPCError({ code: "NOT_FOUND", message: "Webhook not found" });
+      const startMs = Date.now();
+      let responseStatus: number | null = null;
+      let responseBody: string | null = null;
+      let status: "success" | "failed" = "failed";
+      try {
+        const res = await fetch(webhook.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-PayGate-Event": delivery.eventType, "X-PayGate-Retry": "true" },
+          body: JSON.stringify(delivery.payload),
+          signal: AbortSignal.timeout(10_000),
+        });
+        responseStatus = res.status;
+        responseBody = (await res.text()).slice(0, 2000);
+        status = res.ok ? "success" : "failed";
+      } catch (err: any) {
+        responseBody = err?.message ?? "Network error";
+      }
+      const latencyMs = Date.now() - startMs;
+      // Create a new delivery record for the retry
+      const newDelivery = await createWebhookDelivery({
+        id: `wd-retry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        webhookId: delivery.webhookId,
+        merchantId: merchant.id,
+        eventType: delivery.eventType,
+        payload: delivery.payload as any,
+        responseStatus,
+        responseBody,
+        latencyMs,
+        status,
+        attemptCount: (delivery.attemptCount ?? 0) + 1,
+        deliveredAt: status === "success" ? new Date() : null,
+      });
+      return { success: status === "success", responseStatus, latencyMs, newDeliveryId: newDelivery?.id };
+    }),
 });
 
 // ─── FX Rates Router ─────────────────────────────────────────────────────────
@@ -884,9 +980,23 @@ const fxRouter = router({
       const { getCorridorVolume } = await import("./db");
       return getCorridorVolume(input.daysSince);
     }),
+  setAlert: protectedProcedure
+    .input(z.object({
+      baseCurrency: z.string().length(3),
+      targetCurrency: z.string().length(3),
+      threshold: z.number().positive(),
+      direction: z.enum(["above", "below"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      await notifyOwner({
+        title: `FX Rate Alert Set: ${input.baseCurrency}/${input.targetCurrency}`,
+        content: `Alert configured: notify when ${input.baseCurrency}/${input.targetCurrency} goes ${input.direction} ${input.threshold}. User: ${user.email ?? user.openId}.`,
+      });
+      return { success: true, ...input };
+    }),
 });
-
-// ─── Transaction Export Router ────────────────────────────────────────────────
+// ─── Transaction Export Routerr ────────────────────────────────────────────────
 const exportRouter = router({
   transactions: protectedProcedure
     .input(z.object({
@@ -968,9 +1078,36 @@ const walletRouter = router({
       });
       return { success: true, reference: ref, transaction: tx };
     }),
+  topUp: protectedProcedure
+    .input(z.object({
+      amount: z.number().positive().max(10_000_000),
+      currency: z.string().default("NGN"),
+      channel: z.enum(["card", "bank_transfer", "ussd"]).default("bank_transfer"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const wallet = await getOrCreateWallet(String(ctx.user.id));
+      if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
+      const ref = `TOPUP-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      const balanceBefore = parseFloat(wallet.balance);
+      const newBalance = (balanceBefore + input.amount).toFixed(2);
+      await updateWalletBalance(wallet.id, newBalance);
+      const tx = await createWalletTransaction({
+        walletId: wallet.id,
+        type: "credit",
+        amount: String(input.amount),
+        currency: input.currency,
+        balanceBefore: String(balanceBefore),
+        balanceAfter: newBalance,
+        description: `Top-up via ${input.channel}`,
+        reference: ref,
+        channel: input.channel,
+        status: "completed",
+      });
+      return { success: true, reference: ref, newBalance, transaction: tx };
+    }),
 });
-
-// ─── Cross-Border Router ──────────────────────────────────────────────────────────
+// ─── Cross-Border Routerr ──────────────────────────────────────────────────────────
 
 const crossBorderRouter = router({
   list: protectedProcedure
@@ -1100,6 +1237,21 @@ const crossBorderRouter = router({
       if (bridgeResult?.status) {
         await updateCrossBorderTransferStatusByTransferId(transferId, bridgeResult.status as string);
       }
+
+      // Notify owner with transfer receipt
+      notifyOwner({
+        title: `Cross-Border Transfer Initiated — ${input.corridor}`,
+        content: [
+          `Transfer ID: ${transferId}`,
+          `Merchant: ${merchant.businessName ?? merchant.id}`,
+          `Corridor: ${input.sourceCurrency} → ${input.targetCurrency} (${input.corridor})`,
+          `Amount: ${input.amount} ${input.sourceCurrency} → ${targetAmount} ${input.targetCurrency}`,
+          `Exchange Rate: ${exchangeRate}`,
+          `Fee: ${fee} ${input.sourceCurrency}`,
+          `Rail: ${input.rail}`,
+          `Bridge Status: ${bridgeResult?.status ?? "pending"}`,
+        ].join("\n"),
+      }).catch(() => {}); // fire-and-forget
 
       return {
         success: true,

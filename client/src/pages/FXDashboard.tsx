@@ -7,6 +7,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -54,6 +57,60 @@ const FX_COST_DATA = [
   { method: "Western Union", cost: 5.1, color: "#6b7280" },
 ];
 
+function RateAlertDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [base, setBase] = useState("USD");
+  const [target, setTarget] = useState("NGN");
+  const [threshold, setThreshold] = useState("");
+  const [direction, setDirection] = useState<"above" | "below">("above");
+  const setAlert = trpc.fx.setAlert.useMutation({
+    onSuccess: () => { toast.success("Rate alert configured — you will be notified via the platform"); onClose(); },
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Add Rate Alert</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Base Currency</Label>
+              <select value={base} onChange={e => setBase(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm">
+                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Target Currency</Label>
+              <select value={target} onChange={e => setTarget(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm">
+                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Direction</Label>
+            <div className="flex gap-2">
+              {(["above", "below"] as const).map(d => (
+                <button key={d} onClick={() => setDirection(d)} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
+                  direction === d ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted"
+                }`}>{d}</button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Threshold Rate</Label>
+            <Input type="number" value={threshold} onChange={e => setThreshold(e.target.value)} placeholder="e.g. 1600" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!threshold || setAlert.isPending} onClick={() => setAlert.mutate({ baseCurrency: base, targetCurrency: target, threshold: parseFloat(threshold), direction })}>
+            {setAlert.isPending ? "Saving..." : "Set Alert"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function FXDashboard() {
   const [fromCurrency, setFromCurrency] = useState("USD");
   const [toCurrency, setToCurrency] = useState("NGN");
@@ -63,6 +120,7 @@ export default function FXDashboard() {
   const [settlementCurrency, setSettlementCurrency] = useState("NGN");
   const [tab, setTab] = useState<"rates" | "converter" | "analytics" | "settings">("rates");
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [alertDialogOpen, setAlertDialogOpen] = useState(false);
 
   // Live FX rates from DB
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? 60_000 : false });
@@ -415,9 +473,10 @@ export default function FXDashboard() {
                 </div>
               ))}
             </div>
-            <Button variant="outline" className="w-full" onClick={() => toast.info("Rate alert configuration coming soon")}>
+            <Button variant="outline" className="w-full" onClick={() => setAlertDialogOpen(true)}>
               <AlertTriangle className="w-4 h-4 mr-2" />Add Rate Alert
             </Button>
+            <RateAlertDialog open={alertDialogOpen} onClose={() => setAlertDialogOpen(false)} />
           </div>
         </div>
       )}

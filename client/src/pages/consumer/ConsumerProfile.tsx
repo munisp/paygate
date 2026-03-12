@@ -2,18 +2,101 @@
  * Consumer Profile Page
  * Shows user info, security settings, biometric auth registration.
  */
+import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BiometricAuth } from "@/components/BiometricAuth";
 import { toast } from "sonner";
-import { Shield, Bell, HelpCircle, LogOut, ChevronRight, User } from "lucide-react";
+import { Shield, Bell, HelpCircle, LogOut, ChevronRight } from "lucide-react";
+
+function NotificationsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Notifications</DialogTitle></DialogHeader>
+        <div className="py-6 text-center text-sm text-muted-foreground">
+          <Bell className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
+          No new notifications. You will be notified here for transfers, top-ups, and security alerts.
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SecurityDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Security &amp; Privacy</DialogTitle></DialogHeader>
+        <div className="py-4 space-y-3 text-sm">
+          <div className="flex items-center justify-between p-3 rounded-lg border border-border">
+            <span className="font-medium">Two-Factor Authentication</span>
+            <Badge variant="outline" className="text-emerald-600 border-emerald-200">Enabled</Badge>
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-lg border border-border">
+            <span className="font-medium">Session Timeout</span>
+            <span className="text-muted-foreground">30 minutes</span>
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-lg border border-border">
+            <span className="font-medium">Login Alerts</span>
+            <Badge variant="outline" className="text-emerald-600 border-emerald-200">Active</Badge>
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-lg border border-border">
+            <span className="font-medium">Biometric Login</span>
+            <Badge variant="outline" className="text-blue-600 border-blue-200">Registered below</Badge>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SupportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Help &amp; Support</DialogTitle></DialogHeader>
+        <div className="py-4 space-y-3 text-sm">
+          <a
+            href="mailto:support@paygate.africa"
+            className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted transition-colors"
+          >
+            <HelpCircle className="w-5 h-5 text-primary" />
+            <div>
+              <p className="font-medium">Email Support</p>
+              <p className="text-xs text-muted-foreground">support@paygate.africa</p>
+            </div>
+          </a>
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
+            <Shield className="w-5 h-5 text-primary" />
+            <div>
+              <p className="font-medium">Live Chat</p>
+              <p className="text-xs text-muted-foreground">Available 9am – 6pm WAT</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
+            <Bell className="w-5 h-5 text-primary" />
+            <div>
+              <p className="font-medium">Status Page</p>
+              <p className="text-xs text-muted-foreground">status.paygate.africa</p>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function ConsumerProfile() {
   const { user, logout } = useAuth();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
 
   const initials = user?.name
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
@@ -54,9 +137,9 @@ export default function ConsumerProfile() {
       <Card>
         <CardContent className="pt-4 divide-y divide-border">
           {[
-            { icon: Bell, label: "Notifications", action: () => toast.info("Notifications coming soon") },
-            { icon: Shield, label: "Security & Privacy", action: () => toast.info("Security settings coming soon") },
-            { icon: HelpCircle, label: "Help & Support", action: () => toast.info("Support coming soon") },
+            { icon: Bell, label: "Notifications", action: () => setNotifOpen(true) },
+            { icon: Shield, label: "Security & Privacy", action: () => setSecurityOpen(true) },
+            { icon: HelpCircle, label: "Help & Support", action: () => setSupportOpen(true) },
           ].map((item) => (
             <button
               key={item.label}
@@ -82,6 +165,10 @@ export default function ConsumerProfile() {
       >
         <LogOut className="w-4 h-4" />Sign Out
       </Button>
+
+      <NotificationsDialog open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <SecurityDialog open={securityOpen} onClose={() => setSecurityOpen(false)} />
+      <SupportDialog open={supportOpen} onClose={() => setSupportOpen(false)} />
     </div>
   );
 }

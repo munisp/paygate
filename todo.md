@@ -145,3 +145,17 @@
 - [x] Developer Portal: Webhook Event Log viewer (last 20 deliveries, payload inspector)
 - [x] Cross-Border FX ticker: corridor volume heatmap overlay on each tile
 - [x] Write vitest tests for Wave 5 logic
+
+## Wave 6 — Features
+- [x] Webhook retry: trpc.webhookDeliveries.retry procedure + Retry button in Event Log
+- [x] Transfer receipt: notifyOwner after crossBorder.initiate succeeds
+- [x] Corridor comparison view: side-by-side table on Cross-Border page
+
+## Wave 6 — Audit & Production Hardening
+- [x] Comprehensive service/router/DB/env audit
+- [x] UI end-to-end audit: every nav link, button, dropdown, search, CRUD
+- [x] Fix all orphaned services and disconnected features
+- [x] Replace all mock/stub data with real implementations
+- [x] Complete all outstanding TODOs
+- [x] Production security hardening (rate limiting, input validation, error masking)
+- [x] Generate unified archive (paygate_source_v6.tar.gz — 2172 source files, 13 MB)

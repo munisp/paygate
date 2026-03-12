@@ -460,6 +460,16 @@ export async function listWebhookDeliveries(merchantId: string, webhookId?: stri
     .orderBy(desc(webhookDeliveries.createdAt))
     .limit(limit);
 }
+export async function getWebhookById(id: string) {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+export async function getWebhookDeliveryById(id: string) {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)).limit(1);
+  return rows[0] ?? null;
+}
 export async function createWebhookDelivery(data: InsertWebhookDelivery) {
   const db = await getDb(); if (!db) return null;
   const [row] = await db.insert(webhookDeliveries).values(data).returning();

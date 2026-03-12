@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Search, Filter, Download, RefreshCw, ChevronLeft, ChevronRight, Eye } from "lucide-react";
+import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -17,11 +18,68 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.pending}`}>{status}</span>;
 }
 
+function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () => void }) {
+  const { data: tx, isLoading } = trpc.transactions.get.useQuery({ id: txId }, { enabled: !!txId });
+
+  const copyRef = (ref: string) => {
+    navigator.clipboard.writeText(ref).then(() => toast.success("Copied to clipboard"));
+  };
+
+  return (
+    <Dialog open={!!txId} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Transaction Details</DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-3 py-4">
+            {Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
+          </div>
+        ) : tx ? (
+          <div className="space-y-4 py-2">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Reference</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-semibold">{tx.reference}</span>
+                <button onClick={() => copyRef(tx.reference)} className="text-muted-foreground hover:text-foreground">
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+            {[
+              { label: "Amount", value: `${tx.currency} ${Number(tx.amount).toLocaleString()}` },
+              { label: "Fee", value: tx.feeAmount ? `${tx.currency} ${Number(tx.feeAmount).toLocaleString()}` : "—" },
+              { label: "Net Amount", value: tx.netAmount ? `${tx.currency} ${Number(tx.netAmount).toLocaleString()}` : "—" },
+              { label: "Channel", value: tx.channel?.replace("_", " ") ?? "—" },
+              { label: "Customer", value: tx.customerName ?? tx.customerEmail ?? "—" },
+              { label: "Description", value: tx.description ?? "—" },
+              { label: "Created", value: new Date(tx.createdAt).toLocaleString() },
+              { label: "Completed", value: tx.completedAt ? new Date(tx.completedAt).toLocaleString() : "—" },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                <span className="text-sm text-muted-foreground">{label}</span>
+                <span className="text-sm font-medium capitalize">{value}</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between py-1.5">
+              <span className="text-sm text-muted-foreground">Status</span>
+              <StatusBadge status={tx.status} />
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-4 text-center">Transaction not found</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Transactions() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [exporting, setExporting] = useState(false);
+  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const limit = 20;
 
   const utils = trpc.useUtils();
@@ -29,9 +87,7 @@ export default function Transactions() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const result = await utils.export.transactions.fetch({
-        status: statusFilter,
-      });
+      const result = await utils.export.transactions.fetch({ status: statusFilter });
       const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -49,7 +105,7 @@ export default function Transactions() {
     }
   };
 
-  const { data, isLoading, refetch } = trpc.transactions.list.useQuery(
+  const { data, isLoading, refetch, isFetching } = trpc.transactions.list.useQuery(
     { limit, offset: page * limit, search: search || undefined, status: statusFilter as any },
     { staleTime: 30_000 }
   );
@@ -66,12 +122,12 @@ export default function Transactions() {
           <p className="text-sm text-muted-foreground mt-0.5">{total.toLocaleString()} total transactions</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { refetch(); toast.info("Refreshed"); }}>
-            <RefreshCw className="w-4 h-4 mr-1.5" />Refresh
+          <Button variant="outline" size="sm" onClick={() => { refetch(); }} disabled={isFetching}>
+            <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
-            <Download className={`w-4 h-4 mr-1.5 ${exporting ? 'animate-spin' : ''}`} />
-            {exporting ? 'Exporting...' : 'Export CSV'}
+            <Download className={`w-4 h-4 mr-1.5 ${exporting ? "animate-spin" : ""}`} />
+            {exporting ? "Exporting..." : "Export CSV"}
           </Button>
         </div>
       </div>
@@ -115,7 +171,7 @@ export default function Transactions() {
                 <td className="px-4 py-3"><StatusBadge status={txn.status} /></td>
                 <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(txn.createdAt).toLocaleString()}</td>
                 <td className="px-4 py-3">
-                  <button onClick={() => toast.info(`Transaction ${txn.reference}`)} className="p-1.5 rounded hover:bg-muted transition-colors">
+                  <button onClick={() => setSelectedTxId(txn.id)} className="p-1.5 rounded hover:bg-muted transition-colors" title="View details">
                     <Eye className="w-4 h-4 text-muted-foreground" />
                   </button>
                 </td>
@@ -137,6 +193,10 @@ export default function Transactions() {
             </Button>
           </div>
         </div>
+      )}
+
+      {selectedTxId && (
+        <TransactionDetailDialog txId={selectedTxId} onClose={() => setSelectedTxId(null)} />
       )}
     </div>
   );

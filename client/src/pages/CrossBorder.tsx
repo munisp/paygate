@@ -23,6 +23,103 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
+// ─── Corridor Comparison ─────────────────────────────────────────────────────
+
+const SETTLEMENT_TIMES: Record<string, string> = {
+  mojaloop: "< 30s",
+  brics_pay: "< 2 min",
+  swift: "1-3 days",
+};
+
+function CorridorComparison() {
+  const { data: rates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: 30_000 });
+  const { data: volumes } = trpc.fx.corridorVolume.useQuery({}, { refetchInterval: 60_000 });
+
+  const rateMap = useMemo(() => {
+    const m: Record<string, number> = { USD: 1 };
+    if (Array.isArray(rates)) {
+      for (const r of rates as any[]) m[r.targetCurrency] = parseFloat(r.rate);
+    }
+    return m;
+  }, [rates]);
+
+  const volumeMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (Array.isArray(volumes)) {
+      for (const v of volumes as any[]) m[v.corridor] = v.transferCount;
+    }
+    return m;
+  }, [volumes]);
+
+  const maxVolume = useMemo(() => Math.max(1, ...Object.values(volumeMap)), [volumeMap]);
+
+  const rows = CORRIDORS.map(c => {
+    const srcToUsd = rateMap[c.from] ? 1 / rateMap[c.from] : null;
+    const usdToTgt = rateMap[c.to] ?? null;
+    const rate = srcToUsd && usdToTgt ? (srcToUsd * usdToTgt).toFixed(4) : "—";
+    const vol = volumeMap[c.value] ?? 0;
+    const normVol = vol / maxVolume;
+    return { ...c, rate, vol, normVol };
+  });
+
+  return (
+    <Card className="bg-slate-800/50 border-slate-700">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base text-slate-200 flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-indigo-400" />
+          Corridor Comparison
+          <Badge className="bg-slate-700 text-slate-400 text-[10px] ml-auto">Live rates · 30s refresh</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-700 text-[11px] text-slate-400 uppercase tracking-wide">
+                <th className="text-left p-3 pl-4">Corridor</th>
+                <th className="text-right p-3">Rate</th>
+                <th className="text-right p-3">Fee</th>
+                <th className="text-right p-3">Settlement (Moja)</th>
+                <th className="text-right p-3">Settlement (BRICS)</th>
+                <th className="text-right p-3">Settlement (SWIFT)</th>
+                <th className="text-left p-3 pr-4">7d Volume</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700/50">
+              {rows.map(r => (
+                <tr key={r.value} className="hover:bg-slate-700/20 transition-colors">
+                  <td className="p-3 pl-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">{r.value}</span>
+                      <span className="text-slate-400 text-xs hidden md:inline">{r.label.split(" (")[0]}</span>
+                    </div>
+                  </td>
+                  <td className="p-3 text-right font-mono text-slate-200 text-xs">{r.rate}</td>
+                  <td className="p-3 text-right text-xs text-amber-400">1.5%</td>
+                  <td className="p-3 text-right text-xs text-cyan-400">{SETTLEMENT_TIMES.mojaloop}</td>
+                  <td className="p-3 text-right text-xs text-orange-400">{SETTLEMENT_TIMES.brics_pay}</td>
+                  <td className="p-3 text-right text-xs text-blue-400">{SETTLEMENT_TIMES.swift}</td>
+                  <td className="p-3 pr-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden min-w-[60px]">
+                        <div
+                          className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.max(2, r.normVol * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono w-8 text-right">{r.vol}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CORRIDORS = [
@@ -663,6 +760,9 @@ export default function CrossBorder() {
           </Button>
         ))}
       </div>
+
+      {/* Corridor Comparison View */}
+      <CorridorComparison />
 
       {/* Transfers Table */}
       <Card className="bg-slate-800/50 border-slate-700">

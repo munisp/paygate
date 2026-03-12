@@ -448,6 +448,8 @@ function DeliveryStatusBadge({ status, responseStatus }: { status: string; respo
 function WebhookEventLog() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [webhookFilter, setWebhookFilter] = useState<string>("all");
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const utils = trpc.useUtils();
 
   const { data: webhooks } = trpc.webhooks.list.useQuery();
   const { data: deliveries, isLoading, refetch } = trpc.webhookDeliveries.list.useQuery(
@@ -457,6 +459,25 @@ function WebhookEventLog() {
     },
     { refetchInterval: 30_000 }
   );
+
+  const retryMutation = trpc.webhookDeliveries.retry.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Retry succeeded — HTTP ${data.responseStatus} in ${data.latencyMs}ms`);
+      } else {
+        toast.error(`Retry failed — HTTP ${data.responseStatus ?? "no response"}`);
+      }
+      utils.webhookDeliveries.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+    onSettled: () => setRetryingId(null),
+  });
+
+  const handleRetry = useCallback((deliveryId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRetryingId(deliveryId);
+    retryMutation.mutate({ deliveryId });
+  }, [retryMutation]);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId(prev => prev === id ? null : id);
@@ -539,9 +560,27 @@ function WebhookEventLog() {
                       {new Date(d.createdAt).toLocaleString()}
                     </div>
                   </div>
-                  {expandedId === d.id
-                    ? <ChevronUp className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                    : <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {(d.status === "failed" || d.status === "pending") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => handleRetry(d.id, e)}
+                        disabled={retryingId === d.id}
+                        className="h-6 px-2 text-[10px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20"
+                      >
+                        {retryingId === d.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-3 h-3 mr-1" />
+                        )}
+                        {retryingId === d.id ? "Retrying…" : "Retry"}
+                      </Button>
+                    )}
+                    {expandedId === d.id
+                      ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                      : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+                  </div>
                 </button>
 
                 {/* Expanded payload inspector */}

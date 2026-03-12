@@ -7,6 +7,10 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import multer from "multer";
+import { storagePut } from "../storage";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -27,23 +31,105 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+// ─── Rate Limiters ────────────────────────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 60_000,       // 1 minute
+  max: 300,               // 300 req/min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,  // 15 minutes
+  max: 20,                // 20 auth attempts per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts, please try again later." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  message: { error: "Too many upload requests." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // OAuth callback under /api/oauth/callback
+
+  // ─── Security Headers ──────────────────────────────────────────────────────
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disabled to allow Vite HMR in dev; enable in prod via CDN
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  // ─── Rate Limiting ─────────────────────────────────────────────────────────
+  app.use(globalLimiter);
+  app.use("/api/oauth", authLimiter);
+
+  // ─── Body Parsers ──────────────────────────────────────────────────────────
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+  // ─── OAuth ─────────────────────────────────────────────────────────────────
   registerOAuthRoutes(app);
-  // tRPC API
+
+  // ─── File Upload ───────────────────────────────────────────────────────────
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 16 * 1024 * 1024 }, // 16 MB
+    fileFilter: (_req, file, cb) => {
+      // Allow only safe document/image MIME types
+      const allowed = [
+        "image/jpeg", "image/png", "image/webp", "image/gif",
+        "application/pdf",
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ];
+      if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`File type ${file.mimetype} is not allowed`));
+      }
+    },
+  });
+
+  app.post("/api/upload", uploadLimiter, upload.single("file"), async (req: any, res: any) => {
+    if (!req.file) return res.status(400).json({ error: "No file provided" });
+    try {
+      const ext = req.file.originalname.split(".").pop()?.replace(/[^a-z0-9]/gi, "") ?? "bin";
+      const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { url } = await storagePut(key, req.file.buffer, req.file.mimetype);
+      res.json({ url, key, name: req.file.originalname, size: req.file.size });
+    } catch (e: any) {
+      // Mask internal error details in production
+      const msg = process.env.NODE_ENV === "development" ? (e.message ?? "Upload failed") : "Upload failed";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      onError: ({ error, path }) => {
+        // Log full error server-side but never expose stack traces to clients
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          console.error(`[tRPC Error] ${path}:`, error);
+        }
+      },
     })
   );
-  // development mode uses Vite, production mode uses static files
+
+  // ─── Static / Vite ─────────────────────────────────────────────────────────
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {

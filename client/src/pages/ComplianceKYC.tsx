@@ -1,7 +1,7 @@
-import { useState, ReactNode } from "react";
+import { useState, useRef, ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Shield, CheckCircle, AlertTriangle, Clock, FileText, Upload, Eye, Download, RefreshCw, ChevronRight } from "lucide-react";
+import { Shield, CheckCircle, AlertTriangle, Clock, FileText, Upload, Eye, Download, RefreshCw, ChevronRight, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,14 @@ const statusIcon: Record<string, ReactNode> = {
 
 export default function ComplianceKYC() {
   const [activeTab, setActiveTab] = useState("overview");
+  const [uploadingDocId, setUploadingDocId] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeDocId, setActiveDocId] = useState<number | null>(null);
+  const utils = trpc.useUtils();
+  const uploadDocMutation = trpc.complianceKyc.uploadDocument.useMutation({
+    onSuccess: () => { toast.success("Document uploaded and submitted for review"); utils.complianceKyc.list.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
   const refetch = () => {};
   const data: any = null;
 
@@ -68,6 +76,32 @@ export default function ComplianceKYC() {
 
   return (
     <div className="p-6 space-y-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file || activeDocId === null) return;
+          e.target.value = "";
+          setUploadingDocId(activeDocId);
+          try {
+            const fd = new FormData();
+            fd.append("file", file);
+            const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include" });
+            if (!res.ok) throw new Error("Upload failed");
+            const { url } = await res.json();
+            const doc = documents.find((d: any) => d.id === activeDocId);
+            await uploadDocMutation.mutateAsync({ submissionId: String(activeDocId), documentType: doc?.type ?? "other", fileUrl: url, fileName: file.name });
+          } catch {
+            toast.error("Upload failed");
+          } finally {
+            setUploadingDocId(null);
+            setActiveDocId(null);
+          }
+        }}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -230,17 +264,28 @@ export default function ComplianceKYC() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             {doc.status === "not_submitted" ? (
-                              <Button size="sm" className="h-7 bg-amber-500 hover:bg-amber-600 text-black text-xs" onClick={() => toast.info("Document upload coming soon")}>
-                                <Upload className="w-3 h-3 mr-1" /> Upload
+                              <Button
+                                size="sm"
+                                className="h-7 bg-amber-500 hover:bg-amber-600 text-black text-xs"
+                                disabled={uploadingDocId === doc.id}
+                                onClick={() => { setActiveDocId(doc.id); fileInputRef.current?.click(); }}
+                              >
+                                {uploadingDocId === doc.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Upload className="w-3 h-3 mr-1" />} Upload
                               </Button>
                             ) : (
                               <>
-                                <Button size="sm" variant="ghost" className="h-7 text-zinc-400 hover:text-white px-2" onClick={() => toast.info("Document viewer coming soon")}>
-                                  <Eye className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-7 text-zinc-400 hover:text-white px-2" onClick={() => toast.info("Download coming soon")}>
-                                  <Download className="w-3 h-3" />
-                                </Button>
+                                {doc.documentUrl && (
+                                  <Button size="sm" variant="ghost" className="h-7 text-zinc-400 hover:text-white px-2" onClick={() => window.open(doc.documentUrl, "_blank")}>
+                                    <Eye className="w-3 h-3" />
+                                  </Button>
+                                )}
+                                {doc.documentUrl && (
+                                  <a href={doc.documentUrl} download target="_blank" rel="noreferrer">
+                                    <Button size="sm" variant="ghost" className="h-7 text-zinc-400 hover:text-white px-2">
+                                      <Download className="w-3 h-3" />
+                                    </Button>
+                                  </a>
+                                )}
                               </>
                             )}
                           </div>
