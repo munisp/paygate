@@ -30,8 +30,9 @@ const randAmount = (min, max) => randInt(min * 100, max * 100); // kobo/cents
 const daysAgo = (n) => new Date(Date.now() - n * 86400000);
 const hoursAgo = (n) => new Date(Date.now() - n * 3600000);
 
-const MERCHANT_ID = "mch_" + randomBytes(8).toString("hex");
-const OWNER_OPEN_ID = "demo_owner_" + randomBytes(4).toString("hex");
+const MERCHANT_ID = "mch_acme_001";
+// Use the real Manus owner open_id so the merchant portal works after OAuth login
+const OWNER_OPEN_ID = process.env.OWNER_OPEN_ID || "demo_owner_" + randomBytes(4).toString("hex");
 
 // Nigerian names and companies for realism
 const firstNames = [
@@ -67,9 +68,9 @@ function randomEmail(name) {
 
 console.log("Seeding owner user...");
 const ownerRes = await client.query(
-  `INSERT INTO users (open_id, name, email, login_method, role, last_signed_in, created_at, updated_at)
-   VALUES ($1,$2,$3,'manus','admin',NOW(),NOW(),NOW())
-   ON CONFLICT (open_id) DO UPDATE SET name=EXCLUDED.name, email=EXCLUDED.email
+  `INSERT INTO users (open_id, name, email, login_method, role, tenant_id, last_signed_in, created_at, updated_at)
+   VALUES ($1,$2,$3,'manus','admin','ten_default',NOW(),NOW(),NOW())
+   ON CONFLICT (open_id) DO UPDATE SET name=EXCLUDED.name, email=EXCLUDED.email, tenant_id='ten_default'
    RETURNING id`,
   [OWNER_OPEN_ID, "Demo Owner", "demo@paygate.ng"]
 );
@@ -81,12 +82,12 @@ console.log(`  Owner user id=${ownerId}, open_id=${OWNER_OPEN_ID}`);
 console.log("Seeding merchant...");
 await client.query(
   `INSERT INTO merchants
-     (id, owner_id, business_name, business_type, email, phone, country, currency,
+     (id, owner_id, tenant_id, business_name, business_type, email, phone, country, currency,
       status, is_live, onboarding_step, webhook_url, created_at, updated_at)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
    ON CONFLICT (id) DO NOTHING`,
   [
-    MERCHANT_ID, ownerId, "Acme Payments Ltd", "fintech",
+    MERCHANT_ID, ownerId, "ten_default", "Acme Payments Ltd", "fintech",
     "payments@acme.ng", "+2348012345678", "NG", "NGN",
     "active", true, 5,
     "https://webhook.acme.ng/paygate",
@@ -115,13 +116,13 @@ for (let i = 0; i < 200; i++) {
 
   await client.query(
     `INSERT INTO transactions
-       (id, merchant_id, reference, amount, currency, status, channel,
+       (id, merchant_id, tenant_id, reference, amount, currency, status, channel,
         customer_email, customer_name, customer_phone, description,
         fee_amount, net_amount, metadata, completed_at, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      ON CONFLICT (id) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, ref("TXN"), amount, currency, status, channel,
+      uid(), MERCHANT_ID, "ten_default", ref("TXN"), amount, currency, status, channel,
       customer.email, customer.name, customer.phone,
       pick(["Payment for services","Product purchase","Subscription fee","Invoice settlement","Order payment"]),
       fee, net,
@@ -154,13 +155,13 @@ for (let i = 0; i < 20; i++) {
 
   await client.query(
     `INSERT INTO payouts
-       (id, merchant_id, reference, amount, currency, status,
+       (id, merchant_id, tenant_id, reference, amount, currency, status,
         bank_code, account_number, account_name,
         narration, fee_amount, processed_at, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
      ON CONFLICT (id) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, ref("PYT"), amount, "NGN", status,
+      uid(), MERCHANT_ID, "ten_default", ref("PYT"), amount, "NGN", status,
       pick(["044","058","011","057","033","070","232","076","035","039"]),
       `${randInt(1000000000, 9999999999)}`,
       randomName(),
@@ -187,11 +188,11 @@ for (let i = 0; i < 5; i++) {
   const dueDate = new Date(Date.now() + randInt(3, 14) * 86400000);
   await client.query(
     `INSERT INTO disputes
-       (id, merchant_id, reference, amount, currency, status, reason, due_date, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       (id, merchant_id, tenant_id, reference, amount, currency, status, reason, due_date, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, ref("DSP"), amount, "NGN",
+      uid(), MERCHANT_ID, "ten_default", ref("DSP"), amount, "NGN",
       disputeStatuses[i], disputeReasons[i],
       dueDate, daysAgo(randInt(1, 15)), daysAgo(randInt(0, 5)),
     ]
@@ -210,11 +211,11 @@ const cardData = [
 for (const card of cardData) {
   await client.query(
     `INSERT INTO virtual_cards
-       (id, merchant_id, masked_pan, brand, expiry_month, expiry_year, currency, status, balance, spend_limit, label, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       (id, merchant_id, tenant_id, masked_pan, brand, expiry_month, expiry_year, currency, status, balance, spend_limit, label, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT (id) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, card.pan, card.brand,
+      uid(), MERCHANT_ID, "ten_default", card.pan, card.brand,
       randInt(1, 12), 2027, card.currency, "active",
       card.balance, card.limit, card.label,
       daysAgo(randInt(10, 60)), daysAgo(randInt(0, 5)),
@@ -235,11 +236,11 @@ const linkData = [
 for (const link of linkData) {
   await client.query(
     `INSERT INTO payment_links
-       (id, merchant_id, slug, title, description, amount, currency, is_active, usage_count, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-     ON CONFLICT (slug) DO NOTHING`,
+       (id, merchant_id, tenant_id, slug, title, description, amount, currency, is_active, usage_count, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     ON CONFLICT (tenant_id, slug) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, link.slug, link.title, link.desc,
+      uid(), MERCHANT_ID, "ten_default", link.slug, link.title, link.desc,
       link.amount, "NGN", true, randInt(0, 150),
       daysAgo(randInt(5, 30)), daysAgo(randInt(0, 3)),
     ]
@@ -259,11 +260,11 @@ for (const k of keyData) {
   const keyHash = randomBytes(32).toString("hex");
   await client.query(
     `INSERT INTO api_keys
-       (id, merchant_id, name, key_hash, key_prefix, environment, is_active, last_used_at, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       (id, merchant_id, tenant_id, name, key_hash, key_prefix, environment, is_active, last_used_at, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (id) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, k.name, keyHash,
+      uid(), MERCHANT_ID, "ten_default", k.name, keyHash,
       `${k.prefix}_${keyHash.substring(0, 8)}`,
       k.env, true,
       k.env === "live" ? hoursAgo(randInt(1, 48)) : null,
@@ -289,11 +290,11 @@ const webhookData = [
 for (const wh of webhookData) {
   await client.query(
     `INSERT INTO webhooks
-       (id, merchant_id, url, events, secret, is_active, last_delivered_at, failure_count, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       (id, merchant_id, tenant_id, url, events, secret, is_active, last_delivered_at, failure_count, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO NOTHING`,
     [
-      uid(), MERCHANT_ID, wh.url,
+      uid(), MERCHANT_ID, "ten_default", wh.url,
       JSON.stringify(wh.events),
       `whsec_${randomBytes(24).toString("hex")}`,
       true, hoursAgo(randInt(1, 12)), 0,
@@ -314,11 +315,11 @@ const teamData = [
 for (const tm of teamData) {
   await client.query(
     `INSERT INTO team_members
-       (merchant_id, email, name, role, status, joined_at, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     ON CONFLICT (merchant_id, email) DO NOTHING`,
+       (merchant_id, tenant_id, email, name, role, status, joined_at, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT DO NOTHING`,
     [
-      MERCHANT_ID, tm.email, tm.name, tm.role, tm.status,
+      MERCHANT_ID, "ten_default", tm.email, tm.name, tm.role, tm.status,
       tm.status === "active" ? daysAgo(randInt(5, 30)) : null,
       daysAgo(randInt(10, 60)), daysAgo(randInt(0, 5)),
     ]

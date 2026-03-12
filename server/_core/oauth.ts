@@ -34,6 +34,8 @@ export function registerOAuthRoutes(app: Express) {
         email: userInfo.email ?? null,
         loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
         lastSignedIn: new Date(),
+        // Assign default tenant to all new users so merchants can be created
+        tenantId: "ten_default",
       });
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
@@ -44,7 +46,8 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      res.redirect(302, "/");
+      // Redirect to dashboard after successful login (not "/" which shows the login page again)
+      res.redirect(302, "/dashboard");
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
       res.status(500).json({ error: "OAuth callback failed" });

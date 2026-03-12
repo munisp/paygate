@@ -1,23 +1,23 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
-import { Zap, Eye, EyeOff, ArrowRight, Shield, Globe, Zap as ZapIcon } from "lucide-react";
+import { Zap, ArrowRight, Shield, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
+import { getLoginUrl } from "@/const";
 
 export default function Login() {
   const [, navigate] = useLocation();
-  const [email, setEmail] = useState("demo@acmecorp.com");
-  const [password, setPassword] = useState("password123");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { data: me, isLoading } = trpc.auth.me.useQuery();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    toast.success("Welcome back, Acme Corp!");
-    navigate("/dashboard");
+  // If already authenticated, redirect to dashboard
+  useEffect(() => {
+    if (!isLoading && me) {
+      navigate("/dashboard");
+    }
+  }, [me, isLoading, navigate]);
+
+  const handleLogin = () => {
+    window.location.href = getLoginUrl();
   };
 
   return (
@@ -79,7 +79,7 @@ export default function Login() {
             {[
               { icon: Shield, text: "PCI DSS Level 1 Certified" },
               { icon: Globe, text: "PAPSS & BRICS Pay Integration" },
-              { icon: ZapIcon, text: "Sub-100ms Transaction Processing" },
+              { icon: Zap, text: "Sub-100ms Transaction Processing" },
             ].map((feature) => (
               <div key={feature.text} className="flex items-center gap-3 text-white/70">
                 <div className="w-8 h-8 rounded-lg bg-indigo-600/30 flex items-center justify-center flex-shrink-0">
@@ -96,7 +96,7 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right panel - login form */}
+      {/* Right panel - login */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md space-y-8">
           {/* Mobile logo */}
@@ -116,86 +116,32 @@ export default function Login() {
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Email address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg border border-border bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
-                placeholder="you@company.com"
-                required
-              />
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-foreground">Password</label>
-                <button type="button" className="text-sm text-primary hover:underline">
-                  Forgot password?
-                </button>
-              </div>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border border-border bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm pr-12"
-                  placeholder="••••••••"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="remember" className="rounded border-border" defaultChecked />
-              <label htmlFor="remember" className="text-sm text-muted-foreground">
-                Keep me signed in for 30 days
-              </label>
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full py-3 text-sm font-semibold"
-              disabled={loading}
-            >
-              {loading ? (
+          ) : (
+            <div className="space-y-4">
+              <Button
+                onClick={handleLogin}
+                className="w-full py-3 text-sm font-semibold"
+              >
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Signing in...
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  Sign in
+                  Sign in with Manus
                   <ArrowRight className="w-4 h-4" />
                 </div>
-              )}
-            </Button>
-          </form>
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
+              </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                Secure single sign-on via Manus OAuth
+              </p>
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-3 text-muted-foreground">Demo credentials pre-filled</span>
-            </div>
-          </div>
+          )}
 
           <p className="text-center text-sm text-muted-foreground">
             Don't have an account?{" "}
-            <a href="#" className="text-primary font-medium hover:underline">
+            <button onClick={handleLogin} className="text-primary font-medium hover:underline">
               Create merchant account
-            </a>
+            </button>
           </p>
         </div>
       </div>
