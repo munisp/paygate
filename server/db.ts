@@ -519,3 +519,80 @@ export async function getTransactionsForExport(
     .orderBy(desc(transactions.createdAt))
     .limit(10000); // cap at 10k rows per export
 }
+
+// ─── Wallet Helpers ────────────────────────────────────────────────────────────
+import {
+  type InsertWallet, type InsertWalletTransaction, type InsertCrossBorderTransfer,
+  wallets, walletTransactions, crossBorderTransfers,
+} from "../drizzle/schema";
+
+export async function getOrCreateWallet(userId: string, merchantId?: string | null) {
+  const db = await getDb(); if (!db) return null;
+  const existing = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+  if (existing.length > 0) return existing[0];
+  const [created] = await db.insert(wallets).values({
+    userId, merchantId: merchantId ?? null, currency: "NGN",
+    balance: "0", ledgerBalance: "0", status: "active", tier: "basic",
+    dailyLimit: "50000", monthlyLimit: "500000",
+  }).returning();
+  return created;
+}
+
+export async function getWalletByUserId(userId: string) {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateWalletBalance(walletId: number, newBalance: string) {
+  const db = await getDb(); if (!db) return;
+  await db.update(wallets).set({ balance: newBalance, updatedAt: new Date() }).where(eq(wallets.id, walletId));
+}
+
+export async function listWalletTransactions(walletId: number, opts: { limit?: number; offset?: number } = {}) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(walletTransactions)
+    .where(eq(walletTransactions.walletId, walletId))
+    .orderBy(desc(walletTransactions.createdAt))
+    .limit(opts.limit ?? 50).offset(opts.offset ?? 0);
+}
+
+export async function createWalletTransaction(data: InsertWalletTransaction) {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.insert(walletTransactions).values(data).returning();
+  return row;
+}
+
+export async function getWalletTransactionCount(walletId: number) {
+  const db = await getDb(); if (!db) return 0;
+  const [row] = await db.select({ count: count() }).from(walletTransactions).where(eq(walletTransactions.walletId, walletId));
+  return Number(row?.count ?? 0);
+}
+
+// ─── Cross-Border Transfer Helpers ────────────────────────────────────────────
+export async function createCrossBorderTransfer(data: InsertCrossBorderTransfer) {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.insert(crossBorderTransfers).values(data).returning();
+  return row;
+}
+
+export async function listCrossBorderTransfers(merchantId: string, opts: { limit?: number; offset?: number; status?: string } = {}) {
+  const db = await getDb(); if (!db) return [];
+  const conds: any[] = [eq(crossBorderTransfers.merchantId, merchantId)];
+  if (opts.status) conds.push(eq(crossBorderTransfers.status, opts.status));
+  return db.select().from(crossBorderTransfers)
+    .where(and(...conds))
+    .orderBy(desc(crossBorderTransfers.createdAt))
+    .limit(opts.limit ?? 50).offset(opts.offset ?? 0);
+}
+
+export async function getCrossBorderTransferById(transferId: string) {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(crossBorderTransfers).where(eq(crossBorderTransfers.transferId, transferId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateCrossBorderTransferStatus(id: number, status: string, extra?: Partial<InsertCrossBorderTransfer>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(crossBorderTransfers).set({ status, ...(extra ?? {}), updatedAt: new Date() }).where(eq(crossBorderTransfers.id, id));
+}

@@ -29,6 +29,13 @@
       "when": 1773267525426,
       "tag": "0003_warm_makkari",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773278186351,
+      "tag": "0004_crazy_gauntlet",
+      "breakpoints": true
     }
   ]
 }

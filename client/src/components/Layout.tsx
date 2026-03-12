@@ -5,7 +5,7 @@ import {
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu, X,
   Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon, ArrowLeftRight as FXIcon,
-  QrCode, Smartphone
+  QrCode, Smartphone, Code2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,12 +29,14 @@ const navItems = [
   { icon: Users, label: "Team & Roles", path: "/team" },
   { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
   { icon: QrCode, label: "QR Payments", path: "/qr-payments" },
+  { icon: Globe, label: "Cross-Border", path: "/cross-border", badge: "New" },
   { icon: Smartphone, label: "Consumer App", path: "/consumer" },
 ];
 
 const devItems = [
   { icon: Key, label: "API Keys", path: "/api-keys" },
   { icon: Webhook, label: "Webhooks", path: "/webhooks" },
+  { icon: Code2, label: "Developer", path: "/developer" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 

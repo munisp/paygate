@@ -117,3 +117,17 @@
 ## Developer Portal
 - [x] SDK inventory page (JS/Node/Python/PHP/Android/iOS)
 - [x] Developer portal page with API docs and sandbox
+
+## Language-Specific Implementations (Go / Rust / Python)
+- [x] Go: Mojaloop DFSP adapter in middleware bridge (party lookup, quotes, transfers, callbacks)
+- [x] Go: Cross-border transfer handler with Mojaloop + BRICS Pay routing
+- [x] Rust: BRICS Pay RSA/ECDSA cryptographic signer crate
+- [x] Rust: TigerBeetle wallet ledger bridge (wallet debit/credit via FFI)
+- [x] Python: ML fraud scoring service (GNN + Bayesian inference)
+- [x] Python: USSD gateway session handler (Redis-backed state machine)
+- [x] Python: STK Push / M-Pesa channel handler
+- [x] Schema: wallets, wallet_transactions, cross_border_transfers tables
+- [x] Portal: consumer wallet balance tRPC procedures + UI
+- [x] Portal: P2P payment history page (/consumer/history)
+- [x] Portal: cross-border transfers UI (Mojaloop + BRICS Pay)
+- [x] Portal: developer portal page with SDK docs and live API key injection

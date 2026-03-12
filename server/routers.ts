@@ -906,6 +906,117 @@ const exportRouter = router({
     }),
 });
 
+// ─── Wallet Router ──────────────────────────────────────────────────────────────
+
+const walletRouter = router({
+  getWallet: protectedProcedure.query(async ({ ctx }) => {
+    const { getOrCreateWallet, listWalletTransactions, getWalletTransactionCount } = await import("./db");
+    const wallet = await getOrCreateWallet(String(ctx.user.id), null);
+    if (!wallet) return { wallet: null, transactions: [], total: 0 };
+    const [txs, total] = await Promise.all([
+      listWalletTransactions(wallet.id, { limit: 20 }),
+      getWalletTransactionCount(wallet.id),
+    ]);
+    return { wallet, transactions: txs, total };
+  }),
+  getHistory: protectedProcedure
+    .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const { getWalletByUserId, listWalletTransactions, getWalletTransactionCount } = await import("./db");
+      const wallet = await getWalletByUserId(String(ctx.user.id));
+      if (!wallet) return { transactions: [], total: 0 };
+      const [txs, total] = await Promise.all([
+        listWalletTransactions(wallet.id, { limit: input.limit, offset: input.offset }),
+        getWalletTransactionCount(wallet.id),
+      ]);
+      return { transactions: txs, total };
+    }),
+  sendMoney: protectedProcedure
+    .input(z.object({
+      recipientId: z.string(),
+      amount: z.number().positive(),
+      currency: z.string().default("NGN"),
+      note: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const senderWallet = await getOrCreateWallet(String(ctx.user.id));
+      if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
+      const balance = parseFloat(senderWallet.balance);
+      if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+      const ref = `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      const newBalance = (balance - input.amount).toFixed(2);
+      await updateWalletBalance(senderWallet.id, newBalance);
+      const tx = await createWalletTransaction({
+        walletId: senderWallet.id,
+        type: "debit",
+        amount: String(input.amount),
+        currency: input.currency,
+        balanceBefore: String(balance),
+        balanceAfter: newBalance,
+        description: input.note ?? `Transfer to ${input.recipientId}`,
+        reference: ref,
+        channel: "p2p",
+        counterpartyId: input.recipientId,
+        status: "completed",
+      });
+      return { success: true, reference: ref, transaction: tx };
+    }),
+});
+
+// ─── Cross-Border Router ──────────────────────────────────────────────────────────
+
+const crossBorderRouter = router({
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().default(20), offset: z.number().default(0), status: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const { listCrossBorderTransfers } = await import("./db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listCrossBorderTransfers(merchant.id, { limit: input.limit, offset: input.offset, status: input.status });
+    }),
+  initiate: protectedProcedure
+    .input(z.object({
+      receiverId: z.string(),
+      receiverIdType: z.string().default("MSISDN"),
+      sourceCurrency: z.string(),
+      targetCurrency: z.string(),
+      amount: z.string(),
+      corridor: z.string(),
+      senderName: z.string().optional(),
+      receiverName: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { createCrossBorderTransfer } = await import("./db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const transferId = `XB-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      const transfer = await createCrossBorderTransfer({
+        merchantId: merchant.id,
+        transferId,
+        sourceCurrency: input.sourceCurrency,
+        targetCurrency: input.targetCurrency,
+        sourceAmount: input.amount,
+        targetAmount: input.amount,
+        exchangeRate: "1.0",
+        fee: "0",
+        corridor: input.corridor,
+        rail: "mojaloop",
+        status: "pending",
+        senderName: input.senderName ?? merchant.businessName,
+        receiverAccount: input.receiverId,
+        receiverName: input.receiverName,
+      });
+      return { success: true, transferId, transfer };
+    }),
+  getById: protectedProcedure
+    .input(z.object({ transferId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { getCrossBorderTransferById } = await import("./db");
+      return getCrossBorderTransferById(input.transferId);
+    }),
+});
+
 // ─── Root Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -932,6 +1043,8 @@ export const appRouter = router({
   complianceKyc: complianceKycRouter,
   bnpl: bnplRouter,
   mobileMoneyRecon: mobileMoneyReconRouter,
+  wallet: walletRouter,
+  crossBorder: crossBorderRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -399,3 +399,84 @@ export const fxRates = pgTable("fx_rates", {
 ]);
 export type FxRate = typeof fxRates.$inferSelect;
 export type InsertFxRate = typeof fxRates.$inferInsert;
+
+// ─── Consumer Wallets ─────────────────────────────────────────────────────────
+export const wallets = pgTable("wallets", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  merchantId: text("merchant_id").references(() => merchants.id),
+  currency: text("currency").notNull().default("NGN"),
+  balance: text("balance").notNull().default("0"),
+  ledgerBalance: text("ledger_balance").notNull().default("0"),
+  status: text("status").notNull().default("active"),
+  tier: text("tier").notNull().default("basic"),
+  dailyLimit: text("daily_limit").notNull().default("50000"),
+  monthlyLimit: text("monthly_limit").notNull().default("500000"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallets_user_idx").on(t.userId),
+  index("wallets_merchant_idx").on(t.merchantId),
+]);
+export type Wallet = typeof wallets.$inferSelect;
+export type InsertWallet = typeof wallets.$inferInsert;
+
+// ─── Wallet Transactions ──────────────────────────────────────────────────────
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: serial("id").primaryKey(),
+  walletId: integer("wallet_id").references(() => wallets.id).notNull(),
+  type: text("type").notNull(),
+  amount: text("amount").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  balanceBefore: text("balance_before").notNull(),
+  balanceAfter: text("balance_after").notNull(),
+  description: text("description").notNull(),
+  reference: text("reference").notNull().unique(),
+  channel: text("channel").notNull(),
+  counterpartyId: text("counterparty_id"),
+  counterpartyName: text("counterparty_name"),
+  status: text("status").notNull().default("completed"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallet_tx_wallet_idx").on(t.walletId),
+  index("wallet_tx_reference_idx").on(t.reference),
+  index("wallet_tx_created_idx").on(t.createdAt),
+]);
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type InsertWalletTransaction = typeof walletTransactions.$inferInsert;
+
+// ─── Cross-Border Transfers ───────────────────────────────────────────────────
+export const crossBorderTransfers = pgTable("cross_border_transfers", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").references(() => merchants.id),
+  walletId: integer("wallet_id").references(() => wallets.id),
+  transferId: text("transfer_id").notNull().unique(),
+  quoteId: text("quote_id"),
+  sourceCurrency: text("source_currency").notNull(),
+  targetCurrency: text("target_currency").notNull(),
+  sourceAmount: text("source_amount").notNull(),
+  targetAmount: text("target_amount").notNull(),
+  exchangeRate: text("exchange_rate").notNull(),
+  fee: text("fee").notNull().default("0"),
+  corridor: text("corridor").notNull(),
+  rail: text("rail").notNull().default("mojaloop"),
+  status: text("status").notNull().default("pending"),
+  senderName: text("sender_name"),
+  senderAccount: text("sender_account"),
+  receiverName: text("receiver_name"),
+  receiverAccount: text("receiver_account"),
+  receiverFspId: text("receiver_fsp_id"),
+  errorCode: text("error_code"),
+  errorDescription: text("error_description"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("xborder_merchant_idx").on(t.merchantId),
+  index("xborder_status_idx").on(t.status),
+  index("xborder_rail_idx").on(t.rail),
+  index("xborder_created_idx").on(t.createdAt),
+]);
+export type CrossBorderTransfer = typeof crossBorderTransfers.$inferSelect;
+export type InsertCrossBorderTransfer = typeof crossBorderTransfers.$inferInsert;

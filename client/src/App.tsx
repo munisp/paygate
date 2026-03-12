@@ -33,6 +33,9 @@ import ConsumerWallet from "./pages/consumer/ConsumerWallet";
 import MakePayment from "./pages/consumer/MakePayment";
 import BillPay from "./pages/consumer/BillPay";
 import ConsumerProfile from "./pages/consumer/ConsumerProfile";
+import ConsumerHistory from "./pages/consumer/History";
+import CrossBorder from "./pages/CrossBorder";
+import DeveloperPortal from "./pages/DeveloperPortal";
 
 function Router() {
   const [location] = useLocation();
@@ -58,6 +61,7 @@ function Router() {
           <Route path="/consumer/qr" component={QRPayments} />
           <Route path="/consumer/bills" component={BillPay} />
           <Route path="/consumer/profile" component={ConsumerProfile} />
+          <Route path="/consumer/history" component={ConsumerHistory} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -87,6 +91,8 @@ function Router() {
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />
         <Route path="/qr-payments" component={QRPayments} />
+        <Route path="/cross-border" component={CrossBorder} />
+        <Route path="/developer" component={DeveloperPortal} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>
