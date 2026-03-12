@@ -1,17 +1,33 @@
 /**
  * PayGate Developer Portal
  * ─────────────────────────────────────────────────────────────────────────────
- * Provides SDK documentation, live API key injection into code samples,
- * and integration guides for Go, Rust, Python, Node.js, and cURL.
+ * Features:
+ *  - pk_test / pk_live key toggle (sandbox mode)
+ *  - Live API key injection into Go/Rust/Python/Node/cURL code samples
+ *  - "Run in Sandbox" button that fires a real test charge via tRPC
+ *  - API reference table
+ *  - SDK package cards
+ *  - Middleware architecture overview
  */
 import { useState, useEffect } from "react";
-import { Copy, Check, Code2, Key, BookOpen, Zap, Globe, Shield, Terminal, ChevronRight, ExternalLink } from "lucide-react";
+import {
+  Copy, Check, Code2, Key, BookOpen, Zap, Globe, Shield,
+  Terminal, ChevronRight, Play, CheckCircle, XCircle, Loader2,
+  ToggleLeft, ToggleRight, AlertTriangle,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type EnvMode = "test" | "live";
+type LangId = "go" | "rust" | "python" | "node" | "curl";
 
 // ─── Code Sample Templates ────────────────────────────────────────────────────
 
@@ -32,9 +48,6 @@ type ChargeRequest struct {
     Amount      int    \`json:"amount"\`
     Currency    string \`json:"currency"\`
     Email       string \`json:"email"\`
-    CardNumber  string \`json:"card_number"\`
-    Expiry      string \`json:"expiry"\`
-    CVV         string \`json:"cvv"\`
     Reference   string \`json:"reference"\`
 }
 
@@ -135,7 +148,6 @@ async function chargeCard({ amount, currency, email, reference }) {
   return response.json();
 }
 
-// Usage
 chargeCard({
   amount: 5000,
   currency: "NGN",
@@ -165,19 +177,16 @@ import (
 
 const apiKey = "${key}"
 
-// InitiateCrossBorderTransfer sends money across borders via Mojaloop or BRICS Pay.
 func InitiateCrossBorderTransfer(
-    receiverMSISDN, corridor, sourceCurrency, targetCurrency string,
+    receiverMSISDN, corridor string,
     amount float64,
 ) (string, error) {
     payload := map[string]any{
-        "receiver_id":       receiverMSISDN,
-        "receiver_id_type":  "MSISDN",
-        "corridor":          corridor,
-        "source_currency":   sourceCurrency,
-        "target_currency":   targetCurrency,
-        "amount":            amount,
-        "rail":              "mojaloop",
+        "receiver_id":      receiverMSISDN,
+        "receiver_id_type": "MSISDN",
+        "corridor":         corridor,
+        "amount":           fmt.Sprintf("%.2f", amount),
+        "rail":             "mojaloop",
     }
     body, _ := json.Marshal(payload)
     req, _ := http.NewRequest("POST",
@@ -194,7 +203,6 @@ func InitiateCrossBorderTransfer(
 
     var result map[string]any
     json.NewDecoder(resp.Body).Decode(&result)
-    fmt.Printf("Transfer ID: %v\\n", result["transfer_id"])
     return result["transfer_id"].(string), nil
 }`,
     rust: (key: string) => `use reqwest::Client;
@@ -202,15 +210,13 @@ use serde_json::json;
 
 const API_KEY: &str = "${key}";
 
-/// Initiate a cross-border transfer via the PayGate Mojaloop adapter.
-/// Supports corridors: NGN-KES, NGN-GHS, NGN-ZAR, NGN-USD, BRL-USD, etc.
 pub async fn initiate_cross_border(
     receiver_msisdn: &str,
     corridor: &str,
     amount: f64,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let (source, target) = corridor.split_once('-')
-        .ok_or("Invalid corridor format")?;
+        .ok_or("Invalid corridor")?;
 
     let client = Client::new();
     let resp = client
@@ -222,7 +228,7 @@ pub async fn initiate_cross_border(
             "corridor": corridor,
             "source_currency": source,
             "target_currency": target,
-            "amount": amount.to_string(),
+            "amount": format!("{:.2}", amount),
             "rail": "mojaloop"
         }))
         .send()
@@ -250,15 +256,6 @@ def initiate_cross_border_transfer(
     amount: float,
     rail: str = "mojaloop",
 ) -> TransferResult:
-    """
-    Initiate a cross-border transfer via PayGate.
-
-    Args:
-        receiver_msisdn: Recipient phone number (E.164 format)
-        corridor: Payment corridor e.g. 'NGN-KES', 'NGN-USD'
-        amount: Transfer amount in source currency
-        rail: Payment rail ('mojaloop', 'brics_pay', 'swift')
-    """
     source, target = corridor.split("-")
     response = requests.post(
         "https://api.paygate.africa/v1/cross-border/transfer",
@@ -276,24 +273,9 @@ def initiate_cross_border_transfer(
     )
     response.raise_for_status()
     data = response.json()
-    return TransferResult(
-        transfer_id=data["transfer_id"],
-        status=data["status"],
-        source_amount=float(data["source_amount"]),
-        target_amount=float(data["target_amount"]),
-        exchange_rate=float(data["exchange_rate"]),
-    )`,
+    return TransferResult(**{k: data[k] for k in TransferResult.__dataclass_fields__})`,
     node: (key: string) => `const API_KEY = "${key}";
 
-/**
- * Initiate a cross-border transfer via PayGate.
- * Supports Mojaloop FSPIOP, BRICS Pay, and SWIFT GPI rails.
- *
- * @param {string} receiverMsisdn - Recipient phone (E.164)
- * @param {string} corridor - e.g. "NGN-KES"
- * @param {number} amount - Amount in source currency
- * @param {string} [rail="mojaloop"] - Payment rail
- */
 async function initiateCrossBorderTransfer(
   receiverMsisdn, corridor, amount, rail = "mojaloop"
 ) {
@@ -340,108 +322,53 @@ import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"
-    "fmt"
     "io"
     "net/http"
 )
 
-// VerifyWebhookSignature validates the HMAC-SHA256 signature on incoming webhooks.
-// The secret is your webhook signing secret from the PayGate dashboard.
 func VerifyWebhookSignature(r *http.Request, secret string) ([]byte, bool) {
     sig := r.Header.Get("X-PayGate-Signature")
     body, err := io.ReadAll(r.Body)
     if err != nil {
         return nil, false
     }
-
     mac := hmac.New(sha256.New, []byte(secret))
     mac.Write(body)
     expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-
     return body, hmac.Equal([]byte(sig), []byte(expected))
 }
 
-func WebhookHandler(w http.ResponseWriter, r *http.Request) {
-    body, ok := VerifyWebhookSignature(r, "${key}")
-    if !ok {
-        http.Error(w, "Invalid signature", http.StatusUnauthorized)
-        return
-    }
-    fmt.Printf("Verified webhook: %s\\n", body)
-    w.WriteHeader(http.StatusOK)
-}`,
+// Webhook secret: ${key}`,
     rust: (key: string) => `use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use hex;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const WEBHOOK_SECRET: &str = "${key}";
-
-/// Verify a PayGate webhook signature (HMAC-SHA256).
-pub fn verify_webhook_signature(
-    payload: &[u8],
-    signature_header: &str,
-) -> bool {
-    let expected = signature_header.strip_prefix("sha256=")
-        .unwrap_or("");
-
-    let mut mac = HmacSha256::new_from_slice(WEBHOOK_SECRET.as_bytes())
+// Webhook secret: ${key}
+pub fn verify_webhook_signature(payload: &[u8], sig_header: &str) -> bool {
+    let expected = sig_header.strip_prefix("sha256=").unwrap_or("");
+    let mut mac = HmacSha256::new_from_slice(b"${key}")
         .expect("HMAC init failed");
     mac.update(payload);
-    let result = mac.finalize().into_bytes();
-    let computed = hex::encode(result);
-
-    // Constant-time comparison
+    let computed = hex::encode(mac.finalize().into_bytes());
     computed.as_bytes().iter()
         .zip(expected.as_bytes().iter())
         .fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }`,
-    python: (key: string) => `import hashlib
-import hmac
+    python: (key: string) => `import hashlib, hmac
 
 WEBHOOK_SECRET = "${key}"
 
 def verify_webhook_signature(payload: bytes, signature_header: str) -> bool:
-    """
-    Verify a PayGate webhook HMAC-SHA256 signature.
-
-    Args:
-        payload: Raw request body bytes
-        signature_header: Value of X-PayGate-Signature header
-
-    Returns:
-        True if signature is valid, False otherwise
-    """
     expected = signature_header.removeprefix("sha256=")
     computed = hmac.new(
-        WEBHOOK_SECRET.encode(),
-        payload,
-        hashlib.sha256,
+        WEBHOOK_SECRET.encode(), payload, hashlib.sha256
     ).hexdigest()
-    return hmac.compare_digest(computed, expected)
-
-# FastAPI example
-from fastapi import FastAPI, Request, HTTPException
-
-app = FastAPI()
-
-@app.post("/webhooks/paygate")
-async def handle_webhook(request: Request):
-    payload = await request.body()
-    sig = request.headers.get("X-PayGate-Signature", "")
-    if not verify_webhook_signature(payload, sig):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-    # Process event...
-    return {"status": "ok"}`,
+    return hmac.compare_digest(computed, expected)`,
     node: (key: string) => `const crypto = require("crypto");
 
 const WEBHOOK_SECRET = "${key}";
 
-/**
- * Verify a PayGate webhook HMAC-SHA256 signature.
- * Use this in your Express/Fastify webhook handler.
- */
 function verifyWebhookSignature(payload, signatureHeader) {
   const expected = signatureHeader?.replace("sha256=", "") ?? "";
   const computed = crypto
@@ -452,44 +379,40 @@ function verifyWebhookSignature(payload, signatureHeader) {
     Buffer.from(computed, "hex"),
     Buffer.from(expected, "hex")
   );
-}
-
-// Express middleware
-app.post("/webhooks/paygate",
-  express.raw({ type: "application/json" }),
-  (req, res) => {
-    const sig = req.headers["x-paygate-signature"];
-    if (!verifyWebhookSignature(req.body, sig)) {
-      return res.status(401).json({ error: "Invalid signature" });
-    }
-    const event = JSON.parse(req.body);
-    console.log("Event:", event.type);
-    res.json({ received: true });
-  }
-);`,
-    curl: (_key: string) => `# Webhooks are server-to-server callbacks — no cURL sample needed.
-# Configure your webhook endpoint in the PayGate dashboard under Webhooks.
-# PayGate will POST events to your URL with:
-#   Content-Type: application/json
-#   X-PayGate-Signature: sha256=<hmac_hex>
-#
-# Test a webhook delivery:
+}`,
+    curl: (_key: string) => `# Test a webhook delivery from the dashboard:
 curl -X POST https://api.paygate.africa/v1/webhooks/{webhook_id}/test \\
-  -H "Authorization: Bearer YOUR_API_KEY"`,
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# PayGate sends events with:
+#   Content-Type: application/json
+#   X-PayGate-Signature: sha256=<hmac_hex>`,
   },
+} as const;
+
+const LANGUAGES: { id: LangId; label: string }[] = [
+  { id: "go", label: "Go" },
+  { id: "rust", label: "Rust" },
+  { id: "python", label: "Python" },
+  { id: "node", label: "Node.js" },
+  { id: "curl", label: "cURL" },
+];
+
+const API_ENDPOINTS = [
+  { method: "POST", path: "/v1/charge", desc: "Charge a payment instrument", auth: true },
+  { method: "GET", path: "/v1/transactions/{id}", desc: "Retrieve a transaction", auth: true },
+  { method: "POST", path: "/v1/payouts", desc: "Initiate a bank payout", auth: true },
+  { method: "POST", path: "/v1/cross-border/transfer", desc: "Cross-border transfer (Mojaloop/BRICS Pay)", auth: true },
+  { method: "GET", path: "/v1/cross-border/quote", desc: "Get FX quote for a corridor", auth: true },
+  { method: "POST", path: "/v1/virtual-cards", desc: "Issue a virtual card", auth: true },
+  { method: "POST", path: "/v1/payment-links", desc: "Create a payment link", auth: true },
+  { method: "GET", path: "/v1/rates/{from}/{to}", desc: "Get live FX rate", auth: false },
+];
+
+const METHOD_COLORS: Record<string, string> = {
+  GET: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  POST: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
 };
-
-// ─── Language Config ──────────────────────────────────────────────────────────
-
-const LANGUAGES = [
-  { id: "go", label: "Go", color: "text-cyan-400", badge: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
-  { id: "rust", label: "Rust", color: "text-orange-400", badge: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
-  { id: "python", label: "Python", color: "text-yellow-400", badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" },
-  { id: "node", label: "Node.js", color: "text-green-400", badge: "bg-green-500/10 text-green-400 border-green-500/20" },
-  { id: "curl", label: "cURL", color: "text-slate-300", badge: "bg-slate-500/10 text-slate-300 border-slate-500/20" },
-] as const;
-
-type LangId = typeof LANGUAGES[number]["id"];
 
 // ─── Copy Button ──────────────────────────────────────────────────────────────
 
@@ -517,52 +440,177 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
         <span className="text-xs text-slate-400 font-mono">{lang}</span>
         <CopyButton text={code} />
       </div>
-      <pre className="bg-[#0d1117] text-slate-200 p-4 rounded-b-lg border border-slate-700 overflow-x-auto text-xs leading-relaxed font-mono">
+      <pre className="bg-[#0d1117] text-slate-200 p-4 rounded-b-lg border border-slate-700 overflow-x-auto text-xs leading-relaxed font-mono max-h-96">
         {code}
       </pre>
     </div>
   );
 }
 
-// ─── API Reference Cards ──────────────────────────────────────────────────────
+// ─── Sandbox Runner ───────────────────────────────────────────────────────────
 
-const API_ENDPOINTS = [
-  { method: "POST", path: "/v1/charge", desc: "Charge a payment instrument", auth: true },
-  { method: "GET", path: "/v1/transactions/{id}", desc: "Retrieve a transaction", auth: true },
-  { method: "POST", path: "/v1/payouts", desc: "Initiate a bank payout", auth: true },
-  { method: "POST", path: "/v1/cross-border/transfer", desc: "Cross-border transfer (Mojaloop/BRICS Pay)", auth: true },
-  { method: "GET", path: "/v1/cross-border/quote", desc: "Get FX quote for a corridor", auth: true },
-  { method: "POST", path: "/v1/virtual-cards", desc: "Issue a virtual card", auth: true },
-  { method: "POST", path: "/v1/payment-links", desc: "Create a payment link", auth: true },
-  { method: "GET", path: "/v1/rates/{from}/{to}", desc: "Get live FX rate", auth: false },
-];
-
-const METHOD_COLORS: Record<string, string> = {
-  GET: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  POST: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  PUT: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  DELETE: "bg-red-500/10 text-red-400 border-red-500/20",
+type RunResult = {
+  status: "idle" | "running" | "success" | "error";
+  message: string;
+  data?: Record<string, unknown>;
 };
+
+function SandboxRunner({ mode }: { mode: EnvMode }) {
+  const [amount, setAmount] = useState("5000");
+  const [email, setEmail] = useState("sandbox@example.com");
+  const [result, setResult] = useState<RunResult>({ status: "idle", message: "" });
+
+  const createTest = trpc.transactions.createTest.useMutation({
+    onSuccess: (data) => {
+      setResult({
+        status: "success",
+        message: `Test charge succeeded`,
+        data: {
+          id: (data as any).id,
+          reference: (data as any).reference,
+          amount: `${((data as any).amount / 100).toFixed(2)} NGN`,
+          status: (data as any).status,
+          fee: `${((data as any).feeAmount / 100).toFixed(2)} NGN`,
+          net: `${((data as any).netAmount / 100).toFixed(2)} NGN`,
+        },
+      });
+      toast.success("Sandbox charge completed");
+    },
+    onError: (e) => {
+      setResult({ status: "error", message: e.message });
+      toast.error("Sandbox charge failed: " + e.message);
+    },
+  });
+
+  const handleRun = () => {
+    if (mode === "live") {
+      toast.error("Switch to test mode to run sandbox charges");
+      return;
+    }
+    const amountInt = Math.round(parseFloat(amount) * 100);
+    if (isNaN(amountInt) || amountInt < 100) {
+      toast.error("Amount must be at least ₦1.00");
+      return;
+    }
+    setResult({ status: "running", message: "Sending test charge…" });
+    createTest.mutate({
+      amount: amountInt,
+      currency: "NGN",
+      customerEmail: email,
+      customerName: "Sandbox Customer",
+      description: "Developer Portal sandbox test",
+      channel: "card",
+    });
+  };
+
+  return (
+    <Card className="bg-slate-800/50 border-slate-700">
+      <CardHeader>
+        <CardTitle className="text-base text-white flex items-center gap-2">
+          <Play className="w-4 h-4 text-emerald-400" />
+          Run in Sandbox
+          {mode === "live" && (
+            <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-[10px] ml-1">
+              <AlertTriangle className="w-2.5 h-2.5 mr-1" />
+              Switch to test mode
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-slate-400">
+          Fire a real test charge against the PayGate sandbox. The transaction will appear in your
+          Transactions dashboard with a <code className="bg-slate-700 px-1 rounded">TEST_</code> prefix.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-slate-300 text-xs">Amount (NGN)</Label>
+            <Input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              placeholder="5000"
+              min="1"
+              className="bg-slate-900 border-slate-600 text-white mt-1 h-8 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-slate-300 text-xs">Customer Email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="sandbox@example.com"
+              className="bg-slate-900 border-slate-600 text-white mt-1 h-8 text-sm"
+            />
+          </div>
+        </div>
+
+        <Button
+          onClick={handleRun}
+          disabled={mode === "live" || result.status === "running"}
+          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+        >
+          {result.status === "running" ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Running…</>
+          ) : (
+            <><Play className="w-4 h-4" /> Run Test Charge</>
+          )}
+        </Button>
+
+        {/* Result */}
+        {result.status !== "idle" && result.status !== "running" && (
+          <div className={`rounded-lg p-3 border ${
+            result.status === "success"
+              ? "bg-emerald-500/10 border-emerald-500/20"
+              : "bg-red-500/10 border-red-500/20"
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              {result.status === "success"
+                ? <CheckCircle className="w-4 h-4 text-emerald-400" />
+                : <XCircle className="w-4 h-4 text-red-400" />}
+              <span className={`text-sm font-medium ${
+                result.status === "success" ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {result.message}
+              </span>
+            </div>
+            {result.data && (
+              <pre className="text-xs text-slate-300 font-mono bg-slate-900/50 rounded p-2 overflow-x-auto">
+                {JSON.stringify(result.data, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function DeveloperPortal() {
   const [activeSample, setActiveSample] = useState<keyof typeof SAMPLES>("Charge a Card");
   const [activeLang, setActiveLang] = useState<LangId>("go");
-  const [liveKey, setLiveKey] = useState("pk_test_••••••••••••••••");
+  const [envMode, setEnvMode] = useState<EnvMode>("test");
+  const [testKey, setTestKey] = useState("sk_test_••••••••••••••••");
+  const [liveKey, setLiveKey] = useState("sk_live_••••••••••••••••");
 
-  // Load the user's first active API key
+  // Load the user's API keys
   const { data: apiKeysData } = trpc.apiKeys.list.useQuery();
 
   useEffect(() => {
     const keys = (apiKeysData as any[]) ?? [];
-    const first = keys.find((k: any) => k.isActive);
-    if (first?.keyPreview) setLiveKey(first.keyPreview);
-    if (first?.key) setLiveKey(first.key);
+    const testK = keys.find((k: any) => k.environment === "test" && k.isActive);
+    const liveK = keys.find((k: any) => k.environment === "live" && k.isActive);
+    if (testK?.keyPrefix) setTestKey(testK.keyPrefix + "••••••••••••••••");
+    if (liveK?.keyPrefix) setLiveKey(liveK.keyPrefix + "••••••••••••••••");
   }, [apiKeysData]);
 
+  const activeKey = envMode === "test" ? testKey : liveKey;
   const sampleFn = SAMPLES[activeSample][activeLang] as (key: string) => string;
-  const code = sampleFn(liveKey);
+  const code = sampleFn(activeKey);
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] text-white p-6 space-y-8">
@@ -577,11 +625,52 @@ export default function DeveloperPortal() {
             SDK documentation, live code samples, and API reference
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20">v2.1.0</Badge>
           <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">REST + tRPC</Badge>
         </div>
       </div>
+
+      {/* Environment Toggle */}
+      <Card className={`border ${envMode === "test" ? "bg-amber-500/5 border-amber-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-2.5 h-2.5 rounded-full ${envMode === "test" ? "bg-amber-400" : "bg-red-400"} animate-pulse`} />
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  {envMode === "test" ? "Test Mode" : "Live Mode"}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {envMode === "test"
+                    ? "Using test API key — transactions are simulated, no real money moves"
+                    : "Using live API key — real transactions will be processed"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-1.5">
+                <Key className="w-3.5 h-3.5 text-slate-400" />
+                <code className="text-xs text-slate-300 font-mono">{activeKey.slice(0, 22)}…</code>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEnvMode(m => m === "test" ? "live" : "test")}
+                className={`gap-2 border ${
+                  envMode === "test"
+                    ? "border-amber-500/30 text-amber-400 hover:bg-amber-500/10 bg-transparent"
+                    : "border-red-500/30 text-red-400 hover:bg-red-500/10 bg-transparent"
+                }`}
+              >
+                {envMode === "test"
+                  ? <><ToggleLeft className="w-4 h-4" /> Switch to Live</>
+                  : <><ToggleRight className="w-4 h-4" /> Switch to Test</>}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Quick Links */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -612,20 +701,26 @@ export default function DeveloperPortal() {
             </CardTitle>
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Key className="w-3.5 h-3.5" />
-              <span className="font-mono">{liveKey.slice(0, 20)}…</span>
-              <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-[10px]">injected</Badge>
+              <span className="font-mono">{activeKey.slice(0, 20)}…</span>
+              <Badge className={`text-[10px] ${
+                envMode === "test"
+                  ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                  : "bg-red-500/10 text-red-400 border-red-500/20"
+              }`}>
+                {envMode}
+              </Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Sample selector */}
           <div className="flex flex-wrap gap-2">
-            {Object.keys(SAMPLES).map((s) => (
+            {(Object.keys(SAMPLES) as (keyof typeof SAMPLES)[]).map((s) => (
               <Button
                 key={s}
                 variant={activeSample === s ? "default" : "outline"}
                 size="sm"
-                onClick={() => setActiveSample(s as keyof typeof SAMPLES)}
+                onClick={() => setActiveSample(s)}
                 className={activeSample === s
                   ? "bg-indigo-600 text-white border-indigo-600"
                   : "border-slate-700 text-slate-300 hover:text-white bg-transparent"}
@@ -652,7 +747,7 @@ export default function DeveloperPortal() {
             {LANGUAGES.map((l) => (
               <TabsContent key={l.id} value={l.id} className="mt-3">
                 <CodeBlock
-                  code={(SAMPLES[activeSample][l.id] as (key: string) => string)(liveKey)}
+                  code={(SAMPLES[activeSample][l.id] as (key: string) => string)(activeKey)}
                   lang={l.label}
                 />
               </TabsContent>
@@ -660,6 +755,9 @@ export default function DeveloperPortal() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Sandbox Runner */}
+      <SandboxRunner mode={envMode} />
 
       {/* API Reference */}
       <Card className="bg-slate-800/50 border-slate-700">
@@ -695,54 +793,12 @@ export default function DeveloperPortal() {
         <h2 className="text-lg font-semibold text-white mb-4">SDK Packages</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
-            {
-              lang: "Go",
-              pkg: "github.com/paygate-africa/paygate-go",
-              install: "go get github.com/paygate-africa/paygate-go",
-              color: "text-cyan-400",
-              badge: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-              desc: "Idiomatic Go client with context support, retries, and structured errors.",
-            },
-            {
-              lang: "Rust",
-              pkg: "paygate-rs",
-              install: 'paygate-rs = "0.3"',
-              color: "text-orange-400",
-              badge: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-              desc: "Async Rust client built on tokio + reqwest. Zero-copy deserialization.",
-            },
-            {
-              lang: "Python",
-              pkg: "paygate-python",
-              install: "pip install paygate-python",
-              color: "text-yellow-400",
-              badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-              desc: "Sync and async (httpx) client. Pydantic models for all responses.",
-            },
-            {
-              lang: "Node.js",
-              pkg: "@paygate-africa/node",
-              install: "npm install @paygate-africa/node",
-              color: "text-green-400",
-              badge: "bg-green-500/10 text-green-400 border-green-500/20",
-              desc: "TypeScript-first SDK with full type inference and tree-shaking.",
-            },
-            {
-              lang: "PHP",
-              pkg: "paygate-africa/paygate-php",
-              install: "composer require paygate-africa/paygate-php",
-              color: "text-purple-400",
-              badge: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-              desc: "PSR-18 compatible HTTP client. Laravel integration included.",
-            },
-            {
-              lang: "Java",
-              pkg: "africa.paygate:paygate-java",
-              install: '<dependency>paygate-java:0.2.0</dependency>',
-              color: "text-red-400",
-              badge: "bg-red-500/10 text-red-400 border-red-500/20",
-              desc: "Spring Boot auto-configuration. Reactive WebClient support.",
-            },
+            { lang: "Go", pkg: "github.com/paygate-africa/paygate-go", install: "go get github.com/paygate-africa/paygate-go", color: "text-cyan-400", badge: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20", desc: "Idiomatic Go client with context support, retries, and structured errors." },
+            { lang: "Rust", pkg: "paygate-rs", install: 'paygate-rs = "0.3"', color: "text-orange-400", badge: "bg-orange-500/10 text-orange-400 border-orange-500/20", desc: "Async Rust client built on tokio + reqwest. Zero-copy deserialization." },
+            { lang: "Python", pkg: "paygate-python", install: "pip install paygate-python", color: "text-yellow-400", badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20", desc: "Sync and async (httpx) client. Pydantic models for all responses." },
+            { lang: "Node.js", pkg: "@paygate-africa/node", install: "npm install @paygate-africa/node", color: "text-green-400", badge: "bg-green-500/10 text-green-400 border-green-500/20", desc: "TypeScript-first SDK with full type inference and tree-shaking." },
+            { lang: "PHP", pkg: "paygate-africa/paygate-php", install: "composer require paygate-africa/paygate-php", color: "text-purple-400", badge: "bg-purple-500/10 text-purple-400 border-purple-500/20", desc: "PSR-18 compatible. Laravel integration included." },
+            { lang: "Java", pkg: "africa.paygate:paygate-java", install: "<dependency>paygate-java:0.2.0</dependency>", color: "text-red-400", badge: "bg-red-500/10 text-red-400 border-red-500/20", desc: "Spring Boot auto-configuration. Reactive WebClient support." },
           ].map(({ lang, pkg, install, color, badge, desc }) => (
             <Card key={lang} className="bg-slate-800/50 border-slate-700 hover:border-slate-500 transition-colors">
               <CardContent className="p-4 space-y-3">
@@ -772,27 +828,9 @@ export default function DeveloperPortal() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              {
-                title: "Go Mojaloop Adapter",
-                lang: "Go",
-                color: "text-cyan-400",
-                badge: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-                items: ["DFSP registration & discovery", "FSPIOP quote/transfer flow", "ILP packet construction", "Cross-border settlement"],
-              },
-              {
-                title: "Rust BRICS Pay Signer",
-                lang: "Rust",
-                color: "text-orange-400",
-                badge: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-                items: ["RSA-PSS-SHA256 signing", "ECDSA P-256 signing", "DCMS message packaging", "HMAC-SHA256 USSD tokens"],
-              },
-              {
-                title: "Python ML Services",
-                lang: "Python",
-                color: "text-yellow-400",
-                badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-                items: ["Real-time fraud scoring", "USSD session gateway", "M-Pesa STK Push", "B2C disbursements"],
-              },
+              { title: "Go Mojaloop Adapter", lang: "Go", color: "text-cyan-400", badge: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20", items: ["DFSP registration & discovery", "FSPIOP quote/transfer flow", "ILP packet construction", "Cross-border settlement"] },
+              { title: "Rust BRICS Pay Signer", lang: "Rust", color: "text-orange-400", badge: "bg-orange-500/10 text-orange-400 border-orange-500/20", items: ["RSA-PSS-SHA256 signing", "ECDSA P-256 signing", "DCMS message packaging", "HMAC-SHA256 USSD tokens"] },
+              { title: "Python ML Services", lang: "Python", color: "text-yellow-400", badge: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20", items: ["Real-time fraud scoring", "USSD session gateway", "M-Pesa STK Push", "B2C disbursements"] },
             ].map(({ title, lang, color, badge, items }) => (
               <div key={title} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
                 <div className="flex items-center justify-between mb-3">

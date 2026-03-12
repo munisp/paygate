@@ -131,3 +131,11 @@
 - [x] Portal: P2P payment history page (/consumer/history)
 - [x] Portal: cross-border transfers UI (Mojaloop + BRICS Pay)
 - [x] Portal: developer portal page with SDK docs and live API key injection
+
+## Next Steps (Wave 4)
+- [x] Wire Go middleware bridge: crossBorder.initiate calls MIDDLEWARE_BRIDGE_URL /v1/cross-border/transfer
+- [x] Wire Go middleware bridge: crossBorder.getQuote calls MIDDLEWARE_BRIDGE_URL /v1/cross-border/quote
+- [x] Cross-Border page: live FX rate ticker with spread indicator (30s auto-refresh)
+- [x] Developer Portal: pk_test / pk_live key toggle
+- [x] Developer Portal: Run in Sandbox button that fires a real test charge
+- [x] Write vitest tests for new procedures

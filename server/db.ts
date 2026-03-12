@@ -592,6 +592,11 @@ export async function getCrossBorderTransferById(transferId: string) {
   return rows[0] ?? null;
 }
 
+export async function updateCrossBorderTransferStatusByTransferId(transferId: string, status: string, extra?: Partial<InsertCrossBorderTransfer>) {
+  const db = await getDb(); if (!db) return;
+  await db.update(crossBorderTransfers).set({ status, ...(extra ?? {}), updatedAt: new Date() }).where(eq(crossBorderTransfers.transferId, transferId));
+}
+
 export async function updateCrossBorderTransferStatus(id: number, status: string, extra?: Partial<InsertCrossBorderTransfer>) {
   const db = await getDb(); if (!db) return;
   await db.update(crossBorderTransfers).set({ status, ...(extra ?? {}), updatedAt: new Date() }).where(eq(crossBorderTransfers.id, id));

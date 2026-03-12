@@ -975,6 +975,52 @@ const crossBorderRouter = router({
       const merchant = await requireMerchant(user.id);
       return listCrossBorderTransfers(merchant.id, { limit: input.limit, offset: input.offset, status: input.status });
     }),
+  getQuote: protectedProcedure
+    .input(z.object({
+      sourceCurrency: z.string().length(3),
+      targetCurrency: z.string().length(3),
+      amount: z.string(),
+      rail: z.enum(["mojaloop", "brics_pay", "swift"]).default("mojaloop"),
+    }))
+    .query(async ({ input }) => {
+      // Try the Go middleware bridge first for a live quote
+      const bridgeQuote = await bridgeFetch("/v1/cross-border/quote", "POST", {
+        source_currency: input.sourceCurrency,
+        target_currency: input.targetCurrency,
+        amount: input.amount,
+        rail: input.rail,
+      });
+      if (bridgeQuote) return bridgeQuote as {
+        exchange_rate: string;
+        target_amount: string;
+        fee: string;
+        fee_currency: string;
+        expires_at: string;
+        quote_id: string;
+      };
+      // Fallback: derive from stored FX rates
+      const rates = await getLatestFxRates("USD");
+      const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
+      const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
+      if (!srcRate || !tgtRate) throw new TRPCError({ code: "NOT_FOUND", message: "FX rate not available for this corridor" });
+      const srcToUsd = 1 / parseFloat(srcRate.rate);
+      const usdToTgt = parseFloat(tgtRate.rate);
+      const exchangeRate = (srcToUsd * usdToTgt).toFixed(6);
+      const sourceAmt = parseFloat(input.amount);
+      const feeRate = 0.015;
+      const fee = (sourceAmt * feeRate).toFixed(2);
+      const targetAmount = ((sourceAmt - parseFloat(fee)) * parseFloat(exchangeRate)).toFixed(2);
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      return {
+        exchange_rate: exchangeRate,
+        target_amount: targetAmount,
+        fee,
+        fee_currency: input.sourceCurrency,
+        expires_at: expiresAt,
+        quote_id: `QT-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+      };
+    }),
+
   initiate: protectedProcedure
     .input(z.object({
       receiverId: z.string(),
@@ -983,31 +1029,79 @@ const crossBorderRouter = router({
       targetCurrency: z.string(),
       amount: z.string(),
       corridor: z.string(),
+      rail: z.enum(["mojaloop", "brics_pay", "swift"]).default("mojaloop"),
+      quoteId: z.string().optional(),
       senderName: z.string().optional(),
       receiverName: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { createCrossBorderTransfer } = await import("./db");
+      const { createCrossBorderTransfer, updateCrossBorderTransferStatusByTransferId } = await import("./db");
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const transferId = `XB-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+
+      // Derive exchange rate from stored FX rates for record-keeping
+      const rates = await getLatestFxRates("USD");
+      const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
+      const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
+      let exchangeRate = "1.0";
+      let targetAmount = input.amount;
+      let fee = "0";
+      if (srcRate && tgtRate) {
+        const srcToUsd = 1 / parseFloat(srcRate.rate);
+        const usdToTgt = parseFloat(tgtRate.rate);
+        exchangeRate = (srcToUsd * usdToTgt).toFixed(6);
+        const sourceAmt = parseFloat(input.amount);
+        const feeRate = 0.015;
+        fee = (sourceAmt * feeRate).toFixed(2);
+        targetAmount = ((sourceAmt - parseFloat(fee)) * parseFloat(exchangeRate)).toFixed(2);
+      }
+
+      // Persist transfer record immediately
       const transfer = await createCrossBorderTransfer({
         merchantId: merchant.id,
         transferId,
         sourceCurrency: input.sourceCurrency,
         targetCurrency: input.targetCurrency,
         sourceAmount: input.amount,
-        targetAmount: input.amount,
-        exchangeRate: "1.0",
-        fee: "0",
+        targetAmount,
+        exchangeRate,
+        fee,
         corridor: input.corridor,
-        rail: "mojaloop",
+        rail: input.rail,
         status: "pending",
-        senderName: input.senderName ?? merchant.businessName,
+        senderName: input.senderName ?? merchant.businessName ?? "Unknown",
         receiverAccount: input.receiverId,
         receiverName: input.receiverName,
       });
-      return { success: true, transferId, transfer };
+
+      // Forward to Go middleware bridge (Mojaloop FSPIOP or BRICS Pay)
+      const bridgeResult = await bridgeFetch("/v1/cross-border/transfer", "POST", {
+        transfer_id: transferId,
+        merchant_id: merchant.id,
+        receiver_id: input.receiverId,
+        receiver_id_type: input.receiverIdType,
+        corridor: input.corridor,
+        source_currency: input.sourceCurrency,
+        target_currency: input.targetCurrency,
+        amount: input.amount,
+        rail: input.rail,
+        quote_id: input.quoteId,
+        sender_name: input.senderName ?? merchant.businessName,
+      });
+
+      // If bridge accepted the transfer, update status to submitted
+      if (bridgeResult?.status) {
+        await updateCrossBorderTransferStatusByTransferId(transferId, bridgeResult.status as string);
+      }
+
+      return {
+        success: true,
+        transferId,
+        transfer,
+        bridgeStatus: bridgeResult?.status ?? "pending",
+        bridgeTransferId: bridgeResult?.mojaloop_transfer_id ?? bridgeResult?.brics_transfer_id ?? null,
+      };
     }),
   getById: protectedProcedure
     .input(z.object({ transferId: z.string() }))
