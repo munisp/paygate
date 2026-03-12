@@ -2506,6 +2506,67 @@ const stripeRouter = router({
     }),
 });
 
+// ─── Push Token Router ─────────────────────────────────────────────────────
+// Registers FCM/APNs device tokens from the mobile app for push delivery.
+
+const pushTokensRouter = router({
+  register: protectedProcedure
+    .input(z.object({
+      token: z.string().min(10),
+      platform: z.enum(['fcm', 'apns']).default('fcm'),
+      deviceId: z.string().optional(),
+      appVersion: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`INSERT INTO device_push_tokens (merchant_id, user_id, token, platform, device_id, app_version, is_active, updated_at)
+            VALUES (${merchant.id}, ${user.id}, ${input.token}, ${input.platform}, ${input.deviceId ?? null}, ${input.appVersion ?? null}, true, now())
+            ON DUPLICATE KEY UPDATE
+              token = VALUES(token),
+              platform = VALUES(platform),
+              app_version = VALUES(app_version),
+              is_active = true,
+              updated_at = now()`
+      );
+      // Forward to Python push service (fire-and-forget)
+      import('./pushClient').then(({ registerToken }) =>
+        registerToken({
+          token:      input.token,
+          platform:   input.platform,
+          deviceId:   input.deviceId ?? 'unknown',
+          merchantId: String(merchant.id),
+          userId:     user.id,
+        })
+      ).catch((err: any) => console.error('[pushTokens.register] pushClient error:', err?.message));
+      return { registered: true };
+    }),
+
+  deregister: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`UPDATE device_push_tokens SET is_active = false, updated_at = now()
+            WHERE user_id = ${user.id} AND token = ${input.token}`
+      );
+      // Notify Python push service (fire-and-forget)
+      import("./pushClient").then(({ deregisterToken }) =>
+        deregisterToken(input.token)
+      ).catch((err: any) => console.error("[pushTokens.deregister] pushClient error:", err?.message));
+      return { deregistered: true };
+    }),
+});
+
 // ─── Root Router ─────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2538,6 +2599,7 @@ export const appRouter = router({
   settlements: settlementsRouter,
   stripe: stripeRouter,
   notifications: notificationsRouter,
+  pushTokens: pushTokensRouter,
 });
 
 export type AppRouter = typeof appRouter;

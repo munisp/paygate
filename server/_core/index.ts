@@ -579,6 +579,26 @@ async function startServer() {
       return res.json(data);
     } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
   });
+  // POST /api/mobile/push-tokens/register — register FCM/APNs device token
+  app.post("/api/mobile/push-tokens/register", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.pushTokens.register(req.body);
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
+  // POST /api/mobile/push-tokens/deregister — deregister FCM/APNs device token
+  app.post("/api/mobile/push-tokens/deregister", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.pushTokens.deregister(req.body);
+      return res.json(data);
+    } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
+  });
   // Health check endpoint
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now(), service: "paygate-merchant" });

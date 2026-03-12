@@ -786,3 +786,27 @@ export const merchantNotifications = pgTable("merchant_notifications", {
 ]);
 export type MerchantNotification = typeof merchantNotifications.$inferSelect;
 export type InsertMerchantNotification = typeof merchantNotifications.$inferInsert;
+
+// ─── Mobile Device Push Tokens ────────────────────────────────────────────────
+// Stores FCM/APNs tokens for mobile push notification delivery.
+// One row per device per merchant. Token is upserted on each app launch.
+export const devicePushTokens = pgTable("device_push_tokens", {
+  id: serial("id").primaryKey(),
+  merchantId: varchar("merchant_id", { length: 64 }).notNull(),
+  userId: integer("user_id").notNull(),
+  /** FCM token (Android + iOS via Firebase) or APNs token (iOS direct) */
+  token: text("token").notNull(),
+  platform: varchar("platform", { length: 8 }).notNull().default("fcm"),
+  deviceId: varchar("device_id", { length: 128 }),
+  appVersion: varchar("app_version", { length: 32 }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("push_tokens_merchant_idx").on(t.merchantId),
+  index("push_tokens_user_idx").on(t.userId),
+  index("push_tokens_token_idx").on(t.token),
+  uniqueIndex("push_tokens_device_unique").on(t.userId, t.deviceId),
+]);
+export type DevicePushToken = typeof devicePushTokens.$inferSelect;
+export type InsertDevicePushToken = typeof devicePushTokens.$inferInsert;
