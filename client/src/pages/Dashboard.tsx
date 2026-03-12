@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, DollarSign, ArrowLeftRight, Users, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Zap, Globe, Shield, Radio } from "lucide-react";
+import { TrendingUp, DollarSign, ArrowLeftRight, Users, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Zap, Globe, Shield, Radio, AlertTriangle, CheckCircle2, Trophy, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +31,62 @@ function StatusBadge({ status }: { status: string }) {
 const CHANNEL_COLORS: Record<string, string> = {
   card: "#4F46E5", bank_transfer: "#10B981", mobile_money: "#F59E0B", ussd: "#6366F1", qr: "#EC4899", bnpl: "#14B8A6",
 };
+
+function DisputeAnalyticsWidget() {
+  const { data, isLoading } = trpc.disputes.analytics.useQuery({ days: 30 }, { staleTime: 120_000 });
+  if (isLoading) return (
+    <div className="bg-card rounded-xl border border-border p-6">
+      <div className="flex items-center justify-between mb-4">
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-4 w-20" />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+      </div>
+    </div>
+  );
+  const d = data ?? { open: 0, resolved: 0, won: 0, lost: 0, winRate: 0, avgResolutionDays: 0 };
+  const stats = [
+    { label: "Open", value: d.open, icon: AlertTriangle, color: "amber", bg: "bg-amber-50", text: "text-amber-600" },
+    { label: "Resolved", value: d.resolved, icon: CheckCircle2, color: "emerald", bg: "bg-emerald-50", text: "text-emerald-600" },
+    { label: "Win Rate", value: `${d.winRate}%`, icon: Trophy, color: "indigo", bg: "bg-indigo-50", text: "text-indigo-600" },
+    { label: "Avg. Resolution", value: `${d.avgResolutionDays}d`, icon: Clock, color: "slate", bg: "bg-slate-50", text: "text-slate-600" },
+  ];
+  return (
+    <div className="bg-card rounded-xl border border-border p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Dispute Analytics</h3>
+          <p className="text-sm text-muted-foreground">Last 30 days</p>
+        </div>
+        <button onClick={() => window.location.href = "/disputes"} className="text-xs text-primary font-medium hover:underline">View all disputes →</button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {stats.map(s => (
+          <div key={s.label} className="bg-muted/40 rounded-xl p-4 flex items-center gap-3">
+            <div className={`p-2.5 rounded-xl ${s.bg} flex-shrink-0`}><s.icon className={`w-4 h-4 ${s.text}`} /></div>
+            <div>
+              <p className="text-xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>{s.value}</p>
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      {(d.won > 0 || d.lost > 0) && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+            <span>Won ({d.won})</span>
+            <span>Lost ({d.lost})</span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden flex">
+            <div className="h-full bg-emerald-500 rounded-l-full transition-all" style={{ width: `${d.winRate}%` }} />
+            <div className="h-full bg-red-400 rounded-r-full transition-all" style={{ width: `${100 - d.winRate}%` }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [range] = useState(() => ({ to: new Date(), from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }));
@@ -278,6 +334,9 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Dispute Analytics Widget */}
+      <DisputeAnalyticsWidget />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2"><RevenueForecast /></div>

@@ -31,6 +31,11 @@ import {
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
+import {
+  notifyDisputeOpened, notifyDisputeEscalated, notifyDisputeResolved,
+  notifyPayoutInitiated, notifyPayoutApproved, notifyKycSubmitted,
+  notifyHighRiskTransaction,
+} from "./platformNotifications";
 import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
@@ -451,6 +456,15 @@ const payoutsRouter = router({
         status,
       });
 
+      // Notify owner of new payout
+      notifyPayoutInitiated({
+        merchantName: merchant.businessName ?? merchant.id,
+        payoutId,
+        amount: input.amount,
+        currency: input.currency,
+        bankName: input.accountName ?? input.bankCode ?? 'Unknown Bank',
+      }).catch(() => {});
+
       // If approval required and bridge is available, start Temporal workflow.
       // The workflow handles TigerBeetle reservation, Kafka, Dapr, Fluvio, Lakehouse.
       // Falls back gracefully when bridge is not configured (dev/sandbox).
@@ -555,9 +569,14 @@ const payoutsRouter = router({
 
       // Fallback: direct DB update (dev/sandbox or bridge unavailable)
       await updatePayout(input.id, { status: "pending", processedAt: new Date() });
+      notifyPayoutApproved({
+        merchantName: merchant.businessName ?? merchant.id,
+        payoutId: input.id,
+        amount: Number(payout.amount),
+        currency: payout.currency ?? 'NGN',
+      }).catch(() => {});
       return { success: true, via: "db" };
     }),
-
   reject: protectedProcedure
     .input(z.object({ id: z.string(), reason: z.string().min(1).max(500).optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -877,6 +896,34 @@ const disputesRouter = router({
       const key = `dispute-evidence/${merchant.id}/${input.disputeId}-${Date.now()}.${ext}`;
       const { url } = await storagePut(key, buffer, input.mimeType);
       return { success: true, url };
+    }),
+
+  analytics: protectedProcedure
+    .input(z.object({ days: z.number().min(7).max(90).default(30) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb, schema } = await import('./db.js');
+      const { eq, and, gte } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { open: 0, resolved: 0, won: 0, lost: 0, winRate: 0, avgResolutionDays: 0 };
+      const since = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000);
+      const rows = await db
+        .select({ status: schema.disputes.status, createdAt: schema.disputes.createdAt, updatedAt: schema.disputes.updatedAt })
+        .from(schema.disputes)
+        .where(and(eq(schema.disputes.merchantId, merchant.id), gte(schema.disputes.createdAt, since)));
+      const open = rows.filter(r => r.status === 'open' || r.status === 'under_review').length;
+      const resolved = rows.filter(r => r.status === 'closed').length;
+      const won = rows.filter(r => r.status === 'resolved_merchant').length;
+      const lost = rows.filter(r => r.status === 'resolved_customer').length;
+      const total = won + lost;
+      const winRate = total > 0 ? Math.round((won / total) * 100) : 0;
+      const resolvedRows = rows.filter(r => ['closed', 'resolved_merchant', 'resolved_customer'].includes(r.status ?? ''));
+      const avgMs = resolvedRows.length > 0
+        ? resolvedRows.reduce((sum, r) => sum + (new Date(r.updatedAt ?? r.createdAt).getTime() - new Date(r.createdAt).getTime()), 0) / resolvedRows.length
+        : 0;
+      const avgResolutionDays = Math.round(avgMs / (1000 * 60 * 60 * 24));
+      return { open, resolved, won, lost, winRate, avgResolutionDays };
     }),
 });
 

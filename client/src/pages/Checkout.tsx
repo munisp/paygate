@@ -1,15 +1,9 @@
 import { useState } from "react";
-import { Copy, ExternalLink, Plus, Palette, Eye, Link2, QrCode, Share2 } from "lucide-react";
+import { Copy, ExternalLink, Plus, Palette, Eye, Link2, QrCode, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-
-const PAYMENT_LINKS = [
-  { id: "PL-001", name: "Product Purchase - Premium Plan", amount: 50000, currency: "NGN", uses: 142, status: "active", url: "pay.paygate.africa/pl/abc123", created: "Mar 1, 2026" },
-  { id: "PL-002", name: "Consultation Fee", amount: 25000, currency: "NGN", uses: 38, status: "active", url: "pay.paygate.africa/pl/def456", created: "Feb 20, 2026" },
-  { id: "PL-003", name: "Annual Subscription", amount: 120000, currency: "NGN", uses: 67, status: "active", url: "pay.paygate.africa/pl/ghi789", created: "Feb 10, 2026" },
-  { id: "PL-004", name: "Event Ticket - Tech Summit", amount: 15000, currency: "NGN", uses: 0, status: "draft", url: "pay.paygate.africa/pl/jkl012", created: "Mar 11, 2026" },
-];
+import { trpc } from "@/lib/trpc";
 
 const CheckoutPreview = ({ theme }: { theme: { primary: string; bg: string; text: string } }) => {
   const [step, setStep] = useState<"pay" | "card" | "success">("pay");
@@ -22,7 +16,6 @@ const CheckoutPreview = ({ theme }: { theme: { primary: string; bg: string; text
 
   return (
     <div className="rounded-2xl overflow-hidden shadow-2xl border border-border max-w-sm mx-auto" style={{ background: theme.bg }}>
-      {/* Header */}
       <div className="px-6 py-5 text-center border-b border-border/20" style={{ background: theme.primary }}>
         <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-2">
           <span className="text-white font-bold text-sm">AC</span>
@@ -120,9 +113,29 @@ export default function Checkout() {
   const [theme, setTheme] = useState({ primary: "#4F46E5", bg: "#ffffff", text: "#111827" });
   const [activeTab, setActiveTab] = useState<"links" | "theme" | "embed">("links");
 
+  // Wire to real tRPC endpoint
+  const { data: linksData, isLoading, error } = trpc.paymentLinks.list.useQuery();
+  const createMutation = trpc.paymentLinks.create.useMutation({
+    onSuccess: () => {
+      toast.success("Payment link created!");
+      utils.paymentLinks.list.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const utils = trpc.useUtils();
+
   const copyLink = (url: string) => {
     navigator.clipboard.writeText(`https://${url}`);
     toast.success("Payment link copied!");
+  };
+
+  const handleCreateLink = () => {
+    createMutation.mutate({
+      title: "New Payment Link",
+      amount: 10000,
+      currency: "NGN",
+      description: "Created from Checkout page",
+    });
   };
 
   return (
@@ -132,8 +145,8 @@ export default function Checkout() {
           <h1 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Checkout & Payment Links</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Create and manage payment links, customize checkout</p>
         </div>
-        <Button size="sm" onClick={() => toast.success("New payment link created!")}>
-          <Plus className="w-4 h-4 mr-2" />
+        <Button size="sm" onClick={handleCreateLink} disabled={createMutation.isPending}>
+          {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
           Create Payment Link
         </Button>
       </div>
@@ -153,32 +166,63 @@ export default function Checkout() {
 
       {activeTab === "links" && (
         <div className="space-y-4">
-          {PAYMENT_LINKS.map((link) => (
+          {isLoading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 text-destructive bg-destructive/10 rounded-lg p-4">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm">Failed to load payment links: {error.message}</span>
+            </div>
+          )}
+          {!isLoading && !error && (!linksData || linksData.length === 0) && (
+            <div className="text-center py-12 text-muted-foreground">
+              <Link2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No payment links yet. Create your first one.</p>
+            </div>
+          )}
+          {linksData?.map((link) => (
             <div key={link.id} className="bg-card rounded-xl border border-border p-5 flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <Link2 className="w-5 h-5 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="font-medium text-foreground">{link.name}</p>
-                  <Badge variant="secondary" className={`text-xs ${link.status === "active" ? "status-success" : "bg-muted text-muted-foreground border-0"}`}>
-                    {link.status}
+                  <p className="font-medium text-foreground">{link.title}</p>
+                  <Badge variant="secondary" className={`text-xs ${link.isActive ? "status-success" : "bg-muted text-muted-foreground border-0"}`}>
+                    {link.isActive ? "active" : "inactive"}
                   </Badge>
                 </div>
-                <p className="text-sm text-muted-foreground mt-0.5 font-mono truncate">{link.url}</p>
+                <p className="text-sm text-muted-foreground mt-0.5 font-mono truncate">
+                  pay.paygate.africa/pl/{link.slug ?? link.id}
+                </p>
               </div>
               <div className="text-right flex-shrink-0">
-                <p className="font-semibold amount">{link.currency} {link.amount.toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">{link.uses} uses</p>
+                <p className="font-semibold amount">{link.currency} {Number(link.amount).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">{link.usageCount ?? 0} uses</p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => copyLink(link.url)} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => copyLink(`pay.paygate.africa/pl/${link.slug ?? link.id}`)}
+                  className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  title="Copy link"
+                >
                   <Copy className="w-4 h-4" />
                 </button>
-                <button onClick={() => toast.info("Opening link preview")} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => window.open(`https://pay.paygate.africa/pl/${link.slug ?? link.id}`, "_blank")}
+                  className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  title="Open link"
+                >
                   <ExternalLink className="w-4 h-4" />
                 </button>
-                <button onClick={() => toast.info("QR code generated")} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => toast.info("QR code generated for " + link.title)}
+                  className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  title="Show QR code"
+                >
                   <QrCode className="w-4 h-4" />
                 </button>
               </div>
@@ -189,7 +233,6 @@ export default function Checkout() {
 
       {activeTab === "theme" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Controls */}
           <div className="space-y-6">
             <div className="bg-card rounded-xl border border-border p-6 space-y-5">
               <h3 className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
@@ -225,8 +268,6 @@ export default function Checkout() {
               </div>
             </div>
           </div>
-
-          {/* Live Preview */}
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Eye className="w-4 h-4 text-muted-foreground" />

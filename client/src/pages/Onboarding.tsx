@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 const STEPS = [
   { id: 1, label: "Account", icon: User, desc: "Create your account" },
@@ -220,8 +221,34 @@ export default function Onboarding() {
     return true;
   };
 
-  const handleNext = () => {
+  const createMerchantMutation = trpc.onboarding.createMerchant.useMutation({
+    onSuccess: () => {
+      setStep(3);
+      toast.success("Business profile created!");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const updateStepMutation = trpc.onboarding.updateStep.useMutation({
+    onError: (err) => console.error('[onboarding] updateStep failed:', err),
+  });
+
+  const handleNext = async () => {
     if (!canProceed()) { toast.error("Please complete all required fields"); return; }
+    // Step 2 → 3: persist merchant record
+    if (step === 2) {
+      const countryCode = business.country === "Nigeria" ? "NG" : business.country === "Kenya" ? "KE" : business.country === "Ghana" ? "GH" : "NG";
+      createMerchantMutation.mutate({
+        businessName: business.name,
+        businessType: business.type,
+        country: countryCode,
+        currency: countryCode === "KE" ? "KES" : countryCode === "GH" ? "GHS" : "NGN",
+      });
+      return;
+    }
+    // Steps 3-5: persist progress
+    if (step >= 3 && step <= 5) {
+      updateStepMutation.mutate({ step });
+    }
     if (step < 6) setStep(s => s + 1);
   };
 
