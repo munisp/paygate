@@ -858,6 +858,26 @@ const disputesRouter = router({
       }
       return { success: true };
     }),
+
+  uploadEvidence: protectedProcedure
+    .input(z.object({
+      disputeId: z.string(),
+      fileName: z.string(),
+      mimeType: z.string(),
+      base64Data: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const dispute = await getDisputeById(input.disputeId);
+      if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      const { storagePut } = await import('./storage.js');
+      const buffer = Buffer.from(input.base64Data, 'base64');
+      const ext = input.fileName.split('.').pop() ?? 'bin';
+      const key = `dispute-evidence/${merchant.id}/${input.disputeId}-${Date.now()}.${ext}`;
+      const { url } = await storagePut(key, buffer, input.mimeType);
+      return { success: true, url };
+    }),
 });
 
 // ─── Virtual Cards Router ─────────────────────────────────────────────────────

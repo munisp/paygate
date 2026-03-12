@@ -343,3 +343,24 @@
 - [x] Write 15 vitest tests for escalation scheduler (339 merchant + 25 admin = 364 total)
 
 
+
+## Wave 15 — Dispute Resolution, Comprehensive Audit & Testing
+- [x] Complete dispute resolution workflow: uploadEvidence, respond, escalate, resolve procedures
+- [x] Disputes.tsx: full UI with evidence upload, merchant response form, status timeline
+- [x] Write 23 vitest tests for dispute resolution (362 merchant total)
+- [x] Consumer portal: add Notifications.tsx page (derived from wallet transaction history)
+- [x] Consumer portal: add Help.tsx page (FAQ + support contact)
+- [x] Consumer portal: register /notifications and /help routes in App.tsx
+- [x] Consumer portal: fix Profile.tsx menu items to navigate to real pages
+- [x] Consumer portal: fix beneficiaries.add to include required name field
+- [x] Consumer portal: fix Transfer.tsx balance display (nullish coalescing)
+- [x] Consumer portal: add helmet + express-rate-limit security middleware
+- [x] Consumer portal: write 57 vitest tests (OTP auth, wallet, transfers, QR, beneficiaries, security)
+- [x] Admin portal: fix monitoring.ts kycStatus enum (in_review → pending)
+- [x] Admin portal: fix monitoring.ts getAlerts to await getDb()
+- [x] Admin portal: install sonner for toast notifications
+- [x] Admin portal: add helmet + express-rate-limit security middleware
+- [x] Admin portal: write 47 comprehensive vitest tests (KYC, SLA, feature flags, NIP, monitoring, RBAC)
+- [x] Merchant portal: write 72 comprehensive vitest tests (auth, transactions, webhooks, security, performance, UX)
+- [x] All portals: TypeScript clean (0 errors)
+- [x] All portals: 540 total tests passing (411 merchant + 57 consumer + 72 admin)
