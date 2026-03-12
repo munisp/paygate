@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, serial, text, integer, bigint,
-  boolean, timestamp, jsonb, unique, index,
+  boolean, timestamp, jsonb, unique, index, uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -480,3 +480,23 @@ export const crossBorderTransfers = pgTable("cross_border_transfers", {
 ]);
 export type CrossBorderTransfer = typeof crossBorderTransfers.$inferSelect;
 export type InsertCrossBorderTransfer = typeof crossBorderTransfers.$inferInsert;
+
+// ─── Idempotency Requests ─────────────────────────────────────────────────────
+// Stores idempotency keys for all mutating operations to ensure exactly-once semantics.
+// The response is cached so repeated requests with the same key return the same result.
+export const idempotencyRequests = pgTable("idempotency_requests", {
+  id: text("id").primaryKey(),                          // idempotency key (client-supplied UUID)
+  merchantId: text("merchant_id").notNull(),            // scoped per merchant
+  operation: text("operation").notNull(),               // e.g. "transactions.create", "wallet.transfer"
+  requestHash: text("request_hash").notNull(),          // SHA-256 of the request body for mismatch detection
+  responseStatus: integer("response_status").notNull(), // HTTP-equivalent status code (200, 422, etc.)
+  responseBody: jsonb("response_body"),                 // cached response payload
+  expiresAt: timestamp("expires_at").notNull(),         // TTL: 24h from creation
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("idempotency_key_merchant_idx").on(t.id, t.merchantId),
+  index("idempotency_operation_idx").on(t.operation),
+  index("idempotency_expires_idx").on(t.expiresAt),
+]);
+export type IdempotencyRequest = typeof idempotencyRequests.$inferSelect;
+export type InsertIdempotencyRequest = typeof idempotencyRequests.$inferInsert;

@@ -36,6 +36,13 @@
       "when": 1773278186351,
       "tag": "0004_crazy_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1773284027234,
+      "tag": "0005_outstanding_mister_sinister",
+      "breakpoints": true
     }
   ]
 }

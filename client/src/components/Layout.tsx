@@ -1,17 +1,20 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, ArrowLeftRight, Users, CreditCard, BarChart3,
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
-  ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu, X,
-  Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon, ArrowLeftRight as FXIcon,
-  QrCode, Smartphone, Code2, FileCheck
+  ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu,
+  Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon,
+  QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import NotificationPanel from "./NotificationPanel";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -19,7 +22,7 @@ const navItems = [
   { icon: Users, label: "Customers", path: "/customers" },
   { icon: CreditCard, label: "Virtual Cards", path: "/virtual-cards" },
   { icon: Wallet, label: "Payouts", path: "/payouts" },
-  { icon: AlertTriangle, label: "Disputes", path: "/disputes", badge: "3" },
+  { icon: AlertTriangle, label: "Disputes", path: "/disputes" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
   { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
   { icon: Link2, label: "Payment Links", path: "/payment-links" },
@@ -41,6 +44,14 @@ const devItems = [
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
+const ONBOARDING_STEPS = [
+  "Create merchant account",
+  "Verify business details",
+  "Add bank account",
+  "Complete KYC",
+  "Go live",
+];
+
 interface LayoutProps {
   children: React.ReactNode;
 }
@@ -50,12 +61,43 @@ export default function Layout({ children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const UNREAD_COUNT = 4;
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
 
-  const handleLogout = () => {
-    toast.success("Logged out successfully");
+  const { user, logout } = useAuth();
+
+  // ─── Fraud Alert Banner ──────────────────────────────────────────────────
+  const { data: fraudData, refetch: refetchAlerts } = trpc.fraudRisk.getAlerts.useQuery(
+    undefined,
+    { refetchInterval: 30_000, staleTime: 20_000 }
+  );
+  const acknowledgeMutation = trpc.fraudRisk.acknowledge.useMutation({
+    onSuccess: (_, vars) => {
+      setDismissedAlerts(prev => new Set(Array.from(prev).concat(vars.id)));
+      refetchAlerts();
+      toast.success("Alert acknowledged — moved to investigating");
+    },
+  });
+
+  const visibleAlerts = (fraudData?.alerts ?? []).filter(
+    (a: any) => !dismissedAlerts.has(a.id)
+  );
+
+  // ─── Onboarding Status ───────────────────────────────────────────────────
+  const { data: onboardingData } = trpc.onboarding.getStatus.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+  const onboardingStep = onboardingData?.merchant?.onboardingStep ?? 0;
+  const onboardingComplete = onboardingData?.isComplete ?? false;
+  const onboardingPct = Math.round((onboardingStep / ONBOARDING_STEPS.length) * 100);
+
+  const handleLogout = async () => {
+    await logout();
     navigate("/");
   };
+
+  const merchantName = onboardingData?.merchant?.businessName ?? user?.name ?? "Merchant";
+  const merchantEmail = user?.email ?? "";
+  const initials = merchantName.slice(0, 2).toUpperCase();
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -84,32 +126,32 @@ export default function Layout({ children }: LayoutProps) {
         {navItems.map((item) => {
           const isActive = location === item.path || (location === "/" && item.path === "/dashboard");
           return (
-            <Link key={item.path} href={item.path}>
-              <a
-                className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
-                onClick={() => setMobileOpen(false)}
-              >
-                <item.icon className="w-4 h-4 flex-shrink-0" />
-                {!collapsed && (
-                  <>
-                    <span className="flex-1">{item.label}</span>
-                    {item.badge && (
-                      <Badge
-                        variant="secondary"
-                        className={`text-xs px-1.5 py-0 ${
-                          item.badge === "Live"
-                            ? "bg-emerald-500/20 text-emerald-400 border-0"
-                            : item.badge === "AI"
-                            ? "bg-violet-500/20 text-violet-400 border-0"
-                            : "bg-red-500/20 text-red-400 border-0"
-                        }`}
-                      >
-                        {item.badge}
-                      </Badge>
-                    )}
-                  </>
-                )}
-              </a>
+            <Link
+              key={item.path}
+              href={item.path}
+              className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+              onClick={() => setMobileOpen(false)}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge && (
+                    <Badge
+                      variant="secondary"
+                      className={`text-xs px-1.5 py-0 ${
+                        item.badge === "Live"
+                          ? "bg-emerald-500/20 text-emerald-400 border-0"
+                          : item.badge === "AI"
+                          ? "bg-violet-500/20 text-violet-400 border-0"
+                          : "bg-blue-500/20 text-blue-400 border-0"
+                      }`}
+                    >
+                      {item.badge}
+                    </Badge>
+                  )}
+                </>
+              )}
             </Link>
           );
         })}
@@ -122,21 +164,40 @@ export default function Layout({ children }: LayoutProps) {
         {devItems.map((item) => {
           const isActive = location === item.path;
           return (
-            <Link key={item.path} href={item.path}>
-              <a
-                className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
-                onClick={() => setMobileOpen(false)}
-              >
-                <item.icon className="w-4 h-4 flex-shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </a>
+            <Link
+              key={item.path}
+              href={item.path}
+              className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+              onClick={() => setMobileOpen(false)}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      {/* Environment badge */}
-      {!collapsed && (
+      {/* Onboarding Progress Tracker — visible until complete */}
+      {!collapsed && !onboardingComplete && (
+        <div className="px-4 py-3 border-t border-sidebar-border">
+          <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-blue-400">Getting Started</span>
+              <span className="text-xs text-blue-400/70">{onboardingStep}/{ONBOARDING_STEPS.length}</span>
+            </div>
+            <Progress value={onboardingPct} className="h-1.5 mb-2" />
+            <p className="text-xs text-sidebar-foreground/60 truncate">
+              {onboardingStep < ONBOARDING_STEPS.length
+                ? `Next: ${ONBOARDING_STEPS[onboardingStep]}`
+                : "All steps complete!"}
+            </p>
+            <Link href="/onboarding" className="mt-2 text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2">
+              Continue setup →
+            </Link>
+          </div>
+        </div>
+      )}
+      {!collapsed && onboardingComplete && (
         <div className="px-4 py-3 border-t border-sidebar-border">
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
             <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
@@ -150,13 +211,13 @@ export default function Layout({ children }: LayoutProps) {
         <div className={`flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent transition-colors ${collapsed ? "justify-center" : ""}`}>
           <Avatar className="w-8 h-8 flex-shrink-0">
             <AvatarFallback className="bg-sidebar-primary text-white text-xs font-semibold">
-              AC
+              {initials}
             </AvatarFallback>
           </Avatar>
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">Acme Corp</p>
-              <p className="text-xs text-sidebar-foreground/50 truncate">admin@acmecorp.com</p>
+              <p className="text-sm font-medium text-sidebar-foreground truncate">{merchantName}</p>
+              <p className="text-xs text-sidebar-foreground/50 truncate">{merchantEmail}</p>
             </div>
           )}
           {!collapsed && (
@@ -181,7 +242,7 @@ export default function Layout({ children }: LayoutProps) {
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 translate-x-full bg-sidebar border border-sidebar-border rounded-r-lg p-1 text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors z-10"
+          className="absolute top-1/2 -translate-y-1/2 translate-x-full bg-sidebar border border-sidebar-border rounded-r-lg p-1 text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors z-10"
           style={{ left: collapsed ? "3.5rem" : "14.5rem" }}
         >
           {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
@@ -200,6 +261,41 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Fraud Alert Banner — sticky, high-severity only */}
+        {visibleAlerts.length > 0 && (
+          <div className="bg-red-600 text-white px-4 py-2 flex items-center gap-3 flex-shrink-0 z-20">
+            <AlertOctagon className="w-4 h-4 flex-shrink-0 animate-pulse" />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-semibold">
+                {visibleAlerts.length} High-Severity Fraud Alert{visibleAlerts.length > 1 ? "s" : ""}
+              </span>
+              <span className="text-sm text-red-100 ml-2 truncate hidden sm:inline">
+                {visibleAlerts[0].alertType?.replace(/_/g, " ")} — Risk score: {visibleAlerts[0].riskScore}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link href="/fraud-risk">
+                <a className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md transition-colors">
+                  View Alerts
+                </a>
+              </Link>
+              <button
+                onClick={() => acknowledgeMutation.mutate({ id: visibleAlerts[0].id })}
+                disabled={acknowledgeMutation.isPending}
+                className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md transition-colors disabled:opacity-50"
+              >
+                Acknowledge
+              </button>
+              <button
+                onClick={() => setDismissedAlerts(prev => new Set(Array.from(prev).concat(visibleAlerts[0].id)))}
+                className="p-1 hover:bg-white/20 rounded transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Top Bar */}
         <header className="flex items-center gap-4 px-6 py-4 bg-card border-b border-border flex-shrink-0">
           <button
@@ -228,11 +324,16 @@ export default function Layout({ children }: LayoutProps) {
               <span className="text-xs font-medium text-emerald-700">Live</span>
             </div>
 
-            {/* Notifications */}
-            <button onClick={() => setNotifOpen(true)} className="relative p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+            {/* Fraud alert count badge on bell */}
+            <button
+              onClick={() => setNotifOpen(true)}
+              className="relative p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            >
               <Bell className="w-5 h-5" />
-              {UNREAD_COUNT > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{UNREAD_COUNT}</span>
+              {visibleAlerts.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {visibleAlerts.length}
+                </span>
               )}
             </button>
 

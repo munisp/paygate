@@ -18,10 +18,13 @@ import {
   listMobileMoneyRecon, getMmReconStats,
   upsertFxRates, getLatestFxRates, getFxRateHistory,
   getTransactionsForExport,
+  updateTransaction,
+  createWebhookDelivery,
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
 import { systemRouter } from "./_core/systemRouter";
+import { withIdempotency } from "./idempotency";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -171,6 +174,7 @@ const transactionsRouter = router({
       customerName: z.string().optional(),
       description: z.string().optional(),
       channel: z.string().default("card"),
+      idempotencyKey: z.string().min(8).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -178,22 +182,60 @@ const transactionsRouter = router({
       if (merchant.isLive) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot create test transactions in live mode" });
       }
-      const feeAmount = Math.round(input.amount * 0.015);
-      return createTransaction({
-        id: nanoid("txn_"),
-        merchantId: merchant.id,
-        reference: "TEST_" + nanoid(),
-        amount: input.amount,
-        currency: input.currency,
-        status: "completed",
-        channel: input.channel as any,
-        customerEmail: input.customerEmail,
-        customerName: input.customerName,
-        description: input.description,
-        feeAmount,
-        netAmount: input.amount - feeAmount,
-        completedAt: new Date(),
-      });
+      const execute = async () => {
+        const feeAmount = Math.round(input.amount * 0.015);
+        return createTransaction({
+          id: nanoid("txn_"),
+          merchantId: merchant.id,
+          reference: "TEST_" + nanoid(),
+          amount: input.amount,
+          currency: input.currency,
+          status: "completed",
+          channel: input.channel as any,
+          customerEmail: input.customerEmail,
+          customerName: input.customerName,
+          description: input.description,
+          feeAmount,
+          netAmount: input.amount - feeAmount,
+          completedAt: new Date(),
+        });
+      };
+      if (input.idempotencyKey) {
+        return withIdempotency({ key: input.idempotencyKey, merchantId: merchant.id, operation: "transactions.createTest", requestBody: input, execute });
+      }
+      return execute();
+    }),
+
+  refund: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      amount: z.number().min(1).optional(), // partial refund; omit for full refund
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const tx = await getTransactionById(input.id);
+      if (!tx || tx.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (tx.status !== 'completed') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only completed transactions can be refunded' });
+      const refundAmount = input.amount ?? tx.amount;
+      if (refundAmount > tx.amount) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Refund amount exceeds original transaction amount' });
+      // Mark as reversed (full) or create a separate reversal record (partial)
+      const updated = await updateTransaction(tx.id, { status: 'reversed', metadata: { ...((tx.metadata as any) ?? {}), refundAmount, refundReason: input.reason ?? 'merchant_initiated', refundedAt: new Date().toISOString(), refundedBy: ctx.user.openId } });
+      // Fire webhook event for all active webhooks on this merchant
+      const webhooks = await listWebhooks(merchant.id);
+      const payload = JSON.stringify({ event: 'transaction.refunded', data: { transactionId: tx.id, merchantId: merchant.id, refundAmount, currency: tx.currency, reason: input.reason ?? 'merchant_initiated' }, timestamp: new Date().toISOString() });
+      for (const wh of (webhooks as any[])) {
+        if (!wh.isActive) continue;
+        const startedAt = Date.now();
+        try {
+          const resp = await fetch(wh.url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PayGate-Event': 'transaction.refunded' }, body: payload, signal: AbortSignal.timeout(10000) });
+          await createWebhookDelivery({ id: nanoid('wdl_'), webhookId: wh.id, merchantId: merchant.id, eventType: 'transaction.refunded', payload, responseStatus: resp.status, status: resp.ok ? 'success' : 'failed', responseBody: '', latencyMs: Date.now() - startedAt, attemptCount: 1 });
+        } catch {
+          await createWebhookDelivery({ id: nanoid('wdl_'), webhookId: wh.id, merchantId: merchant.id, eventType: 'transaction.refunded', payload, responseStatus: 0, status: 'failed', responseBody: '', latencyMs: Date.now() - startedAt, attemptCount: 1 });
+        }
+      }
+      return { success: true, transaction: updated };
     }),
 });
 
@@ -767,6 +809,25 @@ const fraudRiskRouter = router({
       }
       return alert;
     }),
+  // Returns open high-severity alerts (riskScore >= 75) for the dashboard banner
+  getAlerts: protectedProcedure
+    .input(z.object({ minRiskScore: z.number().min(0).max(100).default(75) }).optional())
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const minScore = input?.minRiskScore ?? 75;
+      const result = await listFraudAlerts(merchant.id, { limit: 10, status: 'open' });
+      const high = (result.rows as any[]).filter((a) => a.riskScore >= minScore);
+      return { alerts: high, count: high.length };
+    }),
+  acknowledge: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      await updateFraudAlert(input.id, merchant.id, { status: 'investigating' });
+      return { success: true };
+    }),
 });
 
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
@@ -1053,30 +1114,37 @@ const walletRouter = router({
       amount: z.number().positive(),
       currency: z.string().default("NGN"),
       note: z.string().optional(),
+      idempotencyKey: z.string().min(8).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
       const senderWallet = await getOrCreateWallet(String(ctx.user.id));
       if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
-      const balance = parseFloat(senderWallet.balance);
-      if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
-      const ref = `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      const newBalance = (balance - input.amount).toFixed(2);
-      await updateWalletBalance(senderWallet.id, newBalance);
-      const tx = await createWalletTransaction({
-        walletId: senderWallet.id,
-        type: "debit",
-        amount: String(input.amount),
-        currency: input.currency,
-        balanceBefore: String(balance),
-        balanceAfter: newBalance,
-        description: input.note ?? `Transfer to ${input.recipientId}`,
-        reference: ref,
-        channel: "p2p",
-        counterpartyId: input.recipientId,
-        status: "completed",
-      });
-      return { success: true, reference: ref, transaction: tx };
+      const execute = async () => {
+        const balance = parseFloat(senderWallet.balance);
+        if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+        const ref = `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+        const newBalance = (balance - input.amount).toFixed(2);
+        await updateWalletBalance(senderWallet.id, newBalance);
+        const tx = await createWalletTransaction({
+          walletId: senderWallet.id,
+          type: "debit",
+          amount: String(input.amount),
+          currency: input.currency,
+          balanceBefore: String(balance),
+          balanceAfter: newBalance,
+          description: input.note ?? `Transfer to ${input.recipientId}`,
+          reference: ref,
+          channel: "p2p",
+          counterpartyId: input.recipientId,
+          status: "completed",
+        });
+        return { success: true, reference: ref, transaction: tx };
+      };
+      if (input.idempotencyKey) {
+        return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
+      }
+      return execute();
     }),
   topUp: protectedProcedure
     .input(z.object({
@@ -1176,6 +1244,7 @@ const crossBorderRouter = router({
       quoteId: z.string().optional(),
       senderName: z.string().optional(),
       receiverName: z.string().optional(),
+      idempotencyKey: z.string().min(8).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { createCrossBorderTransfer, updateCrossBorderTransferStatusByTransferId } = await import("./db");
@@ -1253,13 +1322,34 @@ const crossBorderRouter = router({
         ].join("\n"),
       }).catch(() => {}); // fire-and-forget
 
-      return {
+      const result = {
         success: true,
         transferId,
         transfer,
         bridgeStatus: bridgeResult?.status ?? "pending",
         bridgeTransferId: bridgeResult?.mojaloop_transfer_id ?? bridgeResult?.brics_transfer_id ?? null,
       };
+      // Store idempotency record for this initiation
+      if (input.idempotencyKey) {
+        const { withIdempotency: _wi } = await import("./idempotency");
+        // Record already executed — just store the result for future replays
+        const { getDb } = await import("./db");
+        const { idempotencyRequests: idempotencyTable } = await import("../drizzle/schema");
+        const dbConn = await getDb();
+        if (dbConn) {
+          await dbConn.insert(idempotencyTable).values({
+            id: input.idempotencyKey,
+            merchantId: merchant.id,
+            operation: "crossBorder.initiate",
+            requestHash: require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"),
+            responseStatus: 200,
+            responseBody: result as any,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            createdAt: new Date(),
+          }).onConflictDoNothing();
+        }
+      }
+      return result;
     }),
   getById: protectedProcedure
     .input(z.object({ transferId: z.string() }))

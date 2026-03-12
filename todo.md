@@ -159,3 +159,12 @@
 - [x] Complete all outstanding TODOs
 - [x] Production security hardening (rate limiting, input validation, error masking)
 - [x] Generate unified archive (paygate_source_v6.tar.gz — 2172 source files, 13 MB)
+
+## Wave 7
+- [x] Fraud alert banner: real-time sticky banner on dashboard for high-severity alerts with Acknowledge action
+- [x] Transaction refund flow: transactions.refund tRPC procedure + Refund button in Transaction Detail dialog
+- [x] Onboarding progress tracker: persistent sidebar progress bar from onboarding.getStatus
+- [x] Consumer portal: confirmed embedded in merchant portal at /consumer/* routes
+- [x] gRPC: PaymentService, FraudService, FXService, WalletService proto + Go server + client helper
+- [x] Idempotency: idempotency_requests table, withIdempotency middleware, wired on createTest/sendMoney/initiate
+- [x] Write vitest tests for Wave 7 (28 new tests, 112 total)

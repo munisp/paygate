@@ -19,7 +19,21 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () => void }) {
-  const { data: tx, isLoading } = trpc.transactions.get.useQuery({ id: txId }, { enabled: !!txId });
+  const { data: tx, isLoading, refetch } = trpc.transactions.get.useQuery({ id: txId }, { enabled: !!txId });
+  const [showRefund, setShowRefund] = useState(false);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const utils = trpc.useUtils();
+
+  const refundMutation = trpc.transactions.refund.useMutation({
+    onSuccess: () => {
+      toast.success("Refund initiated successfully");
+      setShowRefund(false);
+      refetch();
+      utils.transactions.list.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const copyRef = (ref: string) => {
     navigator.clipboard.writeText(ref).then(() => toast.success("Copied to clipboard"));
@@ -65,6 +79,60 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               <span className="text-sm text-muted-foreground">Status</span>
               <StatusBadge status={tx.status} />
             </div>
+            {/* Refund section */}
+            {tx.status === 'completed' && !showRefund && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-2 border-red-200 text-red-600 hover:bg-red-50"
+                onClick={() => { setRefundAmount(String(tx.amount)); setShowRefund(true); }}
+              >
+                Initiate Refund
+              </Button>
+            )}
+            {tx.status === 'reversed' && (
+              <div className="mt-2 p-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 text-center font-medium">
+                This transaction has been refunded
+              </div>
+            )}
+            {showRefund && (
+              <div className="mt-3 p-3 rounded-lg border border-red-200 bg-red-50 space-y-3">
+                <p className="text-xs font-semibold text-red-700">Refund Details</p>
+                <div>
+                  <label className="text-xs text-muted-foreground">Refund Amount ({tx.currency})</label>
+                  <input
+                    type="number"
+                    value={refundAmount}
+                    onChange={(e) => setRefundAmount(e.target.value)}
+                    max={tx.amount}
+                    min={1}
+                    className="w-full mt-1 px-3 py-1.5 text-sm border border-border rounded-md bg-background"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Reason (optional)</label>
+                  <input
+                    type="text"
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    placeholder="e.g. Customer request"
+                    className="w-full mt-1 px-3 py-1.5 text-sm border border-border rounded-md bg-background"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="flex-1"
+                    disabled={refundMutation.isPending || !refundAmount}
+                    onClick={() => refundMutation.mutate({ id: tx.id, amount: Number(refundAmount), reason: refundReason || undefined })}
+                  >
+                    {refundMutation.isPending ? "Processing..." : "Confirm Refund"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowRefund(false)}>Cancel</Button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground py-4 text-center">Transaction not found</p>
