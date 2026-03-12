@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
@@ -179,6 +180,29 @@ async function startServer() {
       },
     })
   );
+
+  // ─── Sub-Portal Static Files (served BEFORE Vite to avoid interception) ────
+  const publicDir = path.resolve(process.cwd(), "client/public");
+
+  // Consumer PWA — served at /consumer/*
+  app.use("/consumer", express.static(path.join(publicDir, "consumer"), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".js")) res.setHeader("Content-Type", "application/javascript");
+      if (filePath.endsWith(".css")) res.setHeader("Content-Type", "text/css");
+    },
+  }));
+  app.get("/consumer", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
+  app.get("/consumer/*", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
+
+  // Admin Portal — served at /admin-portal/*
+  app.use("/admin-portal", express.static(path.join(publicDir, "admin-portal"), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".js")) res.setHeader("Content-Type", "application/javascript");
+      if (filePath.endsWith(".css")) res.setHeader("Content-Type", "text/css");
+    },
+  }));
+  app.get("/admin-portal", (_req, res) => res.sendFile(path.join(publicDir, "admin-portal", "index.html")));
+  app.get("/admin-portal/*", (_req, res) => res.sendFile(path.join(publicDir, "admin-portal", "index.html")));
 
   // ─── Static / Vite ─────────────────────────────────────────────────────────
   if (process.env.NODE_ENV === "development") {
