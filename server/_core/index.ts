@@ -599,6 +599,49 @@ async function startServer() {
       return res.json(data);
     } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
   });
+  // ─── Offline Sync Relay Proxy ──────────────────────────────────────────────
+  // Proxies mobile offline queue replays to the Go sync relay service.
+  // The Go service handles idempotency deduplication and exactly-once replay.
+  const SYNC_RELAY_URL = process.env.SYNC_RELAY_URL || "http://localhost:8002";
+  const SYNC_RELAY_KEY = process.env.SYNC_RELAY_KEY || process.env.INTERNAL_API_KEY || "";
+
+  // POST /api/mobile/sync — replay queued mobile operations
+  app.post("/api/mobile/sync", async (req: any, res: any) => {
+    try {
+      const response = await fetch(`${SYNC_RELAY_URL}/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": SYNC_RELAY_KEY,
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (e: any) {
+      // Graceful degradation: if sync relay is down, tell mobile to retry
+      return res.status(503).json({ error: "Sync relay unavailable — will retry", retryable: true });
+    }
+  });
+
+  // POST /api/mobile/reconcile — check server state of queued items
+  app.post("/api/mobile/reconcile", async (req: any, res: any) => {
+    try {
+      const response = await fetch(`${SYNC_RELAY_URL}/reconcile`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": SYNC_RELAY_KEY,
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (e: any) {
+      return res.status(503).json({ error: "Sync relay unavailable", retryable: true });
+    }
+  });
+
   // Health check endpoint
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now(), service: "paygate-merchant" });
