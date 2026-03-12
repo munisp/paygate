@@ -601,3 +601,35 @@ export async function updateCrossBorderTransferStatus(id: number, status: string
   const db = await getDb(); if (!db) return;
   await db.update(crossBorderTransfers).set({ status, ...(extra ?? {}), updatedAt: new Date() }).where(eq(crossBorderTransfers.id, id));
 }
+
+// ─── Corridor Volume (for FX heatmap) ─────────────────────────────────────────
+export async function getCorridorVolume(daysSince = 7): Promise<
+  { corridor: string; sourceCurrency: string; targetCurrency: string; transferCount: number; totalSourceAmount: number }[]
+> {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - daysSince * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      corridor: crossBorderTransfers.corridor,
+      sourceCurrency: crossBorderTransfers.sourceCurrency,
+      targetCurrency: crossBorderTransfers.targetCurrency,
+      transferCount: count(),
+      totalSourceAmount: sql<string>`coalesce(sum(cast(${crossBorderTransfers.sourceAmount} as numeric)), 0)`,
+    })
+    .from(crossBorderTransfers)
+    .where(gte(crossBorderTransfers.createdAt, since))
+    .groupBy(
+      crossBorderTransfers.corridor,
+      crossBorderTransfers.sourceCurrency,
+      crossBorderTransfers.targetCurrency,
+    )
+    .orderBy(desc(count()));
+  return rows.map((r) => ({
+    corridor: r.corridor,
+    sourceCurrency: r.sourceCurrency,
+    targetCurrency: r.targetCurrency,
+    transferCount: Number(r.transferCount),
+    totalSourceAmount: parseFloat(r.totalSourceAmount as string),
+  }));
+}

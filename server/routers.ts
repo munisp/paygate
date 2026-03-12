@@ -878,6 +878,12 @@ const fxRouter = router({
       await upsertFxRates(rows);
       return { count: rows.length, fetchedAt };
     }),
+  corridorVolume: protectedProcedure
+    .input(z.object({ daysSince: z.number().min(1).max(90).default(7) }))
+    .query(async ({ input }) => {
+      const { getCorridorVolume } = await import("./db");
+      return getCorridorVolume(input.daysSince);
+    }),
 });
 
 // ─── Transaction Export Router ────────────────────────────────────────────────

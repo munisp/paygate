@@ -9,11 +9,12 @@
  *  - SDK package cards
  *  - Middleware architecture overview
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Copy, Check, Code2, Key, BookOpen, Zap, Globe, Shield,
   Terminal, ChevronRight, Play, CheckCircle, XCircle, Loader2,
-  ToggleLeft, ToggleRight, AlertTriangle,
+  ToggleLeft, ToggleRight, AlertTriangle, Webhook, RefreshCw,
+  ChevronDown, ChevronUp, Clock, AlertOctagon,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -413,6 +414,163 @@ const METHOD_COLORS: Record<string, string> = {
   GET: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   POST: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
 };
+
+// ─── Webhook Event Log ───────────────────────────────────────────────────────
+
+type DeliveryRow = {
+  id: string;
+  eventType: string;
+  status: string;
+  responseStatus: number | null;
+  latencyMs: number | null;
+  createdAt: Date;
+  payload: unknown;
+  responseBody: string | null;
+  attemptCount: number;
+};
+
+function DeliveryStatusBadge({ status, responseStatus }: { status: string; responseStatus: number | null }) {
+  const isSuccess = status === "delivered" || (responseStatus && responseStatus >= 200 && responseStatus < 300);
+  const isFailed = status === "failed";
+  const isPending = status === "pending" || status === "retrying";
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+      isSuccess ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+      isFailed ? "bg-red-500/10 text-red-400 border-red-500/20" :
+      "bg-amber-500/10 text-amber-400 border-amber-500/20"
+    }`}>
+      {isSuccess ? <CheckCircle className="w-2.5 h-2.5" /> : isFailed ? <XCircle className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
+      {responseStatus ? `HTTP ${responseStatus}` : status}
+    </span>
+  );
+}
+
+function WebhookEventLog() {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [webhookFilter, setWebhookFilter] = useState<string>("all");
+
+  const { data: webhooks } = trpc.webhooks.list.useQuery();
+  const { data: deliveries, isLoading, refetch } = trpc.webhookDeliveries.list.useQuery(
+    {
+      webhookId: webhookFilter === "all" ? undefined : webhookFilter,
+      limit: 20,
+    },
+    { refetchInterval: 30_000 }
+  );
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedId(prev => prev === id ? null : id);
+  }, []);
+
+  const rows = (deliveries ?? []) as DeliveryRow[];
+
+  return (
+    <Card className="bg-slate-800/50 border-slate-700">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base text-white flex items-center gap-2">
+            <Webhook className="w-4 h-4 text-purple-400" />
+            Webhook Event Log
+            <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20 text-[10px]">Last 20</Badge>
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {/* Webhook filter */}
+            <select
+              value={webhookFilter}
+              onChange={e => setWebhookFilter(e.target.value)}
+              className="bg-slate-800 border border-slate-600 text-slate-300 text-xs rounded-md px-2 py-1.5 focus:outline-none focus:border-purple-500"
+            >
+              <option value="all">All webhooks</option>
+              {(webhooks as any[] ?? []).map((w: any) => (
+                <option key={w.id} value={w.id}>{w.url.replace(/^https?:\/\//, "").slice(0, 40)}</option>
+              ))}
+            </select>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => refetch()}
+              className="h-7 w-7 text-slate-400 hover:text-white"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="divide-y divide-slate-700">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="p-4 flex gap-4">
+                <div className="h-4 w-24 bg-slate-700 rounded animate-pulse" />
+                <div className="h-4 w-32 bg-slate-700 rounded animate-pulse" />
+                <div className="h-4 w-16 bg-slate-700 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="text-center py-10 text-slate-500">
+            <AlertOctagon className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm font-medium">No webhook deliveries yet</p>
+            <p className="text-xs mt-1">Deliveries appear here once your webhooks receive events</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-700/50">
+            {rows.map((d) => (
+              <div key={d.id} className="hover:bg-slate-700/20 transition-colors">
+                {/* Row summary */}
+                <button
+                  className="w-full text-left p-4 flex items-center gap-4"
+                  onClick={() => toggleExpand(d.id)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-xs font-mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">
+                        {d.eventType}
+                      </span>
+                      <DeliveryStatusBadge status={d.status} responseStatus={d.responseStatus} />
+                      {d.latencyMs != null && (
+                        <span className="text-[10px] text-slate-500 font-mono">{d.latencyMs}ms</span>
+                      )}
+                      {d.attemptCount > 1 && (
+                        <span className="text-[10px] text-amber-400">{d.attemptCount} attempts</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1 font-mono">
+                      {new Date(d.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  {expandedId === d.id
+                    ? <ChevronUp className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    : <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                </button>
+
+                {/* Expanded payload inspector */}
+                {expandedId === d.id && (
+                  <div className="px-4 pb-4 space-y-3">
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-medium mb-1 uppercase tracking-wide">Request Payload</div>
+                      <pre className="bg-[#0d1117] text-slate-300 p-3 rounded-lg border border-slate-700 text-[11px] font-mono overflow-x-auto max-h-48">
+                        {JSON.stringify(d.payload, null, 2)}
+                      </pre>
+                    </div>
+                    {d.responseBody && (
+                      <div>
+                        <div className="text-[10px] text-slate-400 font-medium mb-1 uppercase tracking-wide">Response Body</div>
+                        <pre className="bg-[#0d1117] text-slate-300 p-3 rounded-lg border border-slate-700 text-[11px] font-mono overflow-x-auto max-h-32">
+                          {d.responseBody.slice(0, 2000)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ─── Copy Button ──────────────────────────────────────────────────────────────
 
@@ -816,6 +974,9 @@ export default function DeveloperPortal() {
           ))}
         </div>
       </div>
+
+      {/* Webhook Event Log */}
+      <WebhookEventLog />
 
       {/* Middleware Architecture */}
       <Card className="bg-slate-800/50 border-slate-700">

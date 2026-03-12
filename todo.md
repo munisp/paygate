@@ -139,3 +139,9 @@
 - [x] Developer Portal: pk_test / pk_live key toggle
 - [x] Developer Portal: Run in Sandbox button that fires a real test charge
 - [x] Write vitest tests for new procedures
+
+## Wave 5
+- [x] Cross-Border: quote expiry countdown bar (visual progress bar, auto-refetch on expiry)
+- [x] Developer Portal: Webhook Event Log viewer (last 20 deliveries, payload inspector)
+- [x] Cross-Border FX ticker: corridor volume heatmap overlay on each tile
+- [x] Write vitest tests for Wave 5 logic

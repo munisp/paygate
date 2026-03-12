@@ -2,16 +2,15 @@
  * Cross-Border Transfers Page
  * ─────────────────────────────────────────────────────────────────────────────
  * Features:
- *  - Live FX rate ticker (30-second auto-refresh via trpc.fx.getRates)
- *  - Spread indicator with trend arrow
- *  - Live quote preview while filling the transfer form
+ *  - Live FX rate ticker (30s auto-refresh) with corridor volume heatmap overlay
+ *  - Quote preview with expiry countdown bar (auto-refetch on expiry)
  *  - Mojaloop / BRICS Pay / SWIFT rail selector
  *  - Transfer history table with status badges
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Globe, ArrowRight, Plus, RefreshCw, TrendingUp, TrendingDown,
-  Clock, CheckCircle, XCircle, AlertCircle, Zap, Activity,
+  Clock, CheckCircle, XCircle, AlertCircle, Zap, Activity, BarChart2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,17 +44,18 @@ const RAILS = [
   { value: "swift", label: "SWIFT GPI", desc: "Traditional correspondent banking", color: "text-blue-400" },
 ];
 
-// Corridors shown in the FX ticker (subset for display)
 const TICKER_PAIRS = [
-  { base: "NGN", target: "KES", label: "NGN/KES" },
-  { base: "NGN", target: "GHS", label: "NGN/GHS" },
-  { base: "NGN", target: "ZAR", label: "NGN/ZAR" },
-  { base: "NGN", target: "USD", label: "NGN/USD" },
-  { base: "NGN", target: "GBP", label: "NGN/GBP" },
-  { base: "NGN", target: "CNY", label: "NGN/CNY" },
-  { base: "KES", target: "USD", label: "KES/USD" },
-  { base: "ZAR", target: "USD", label: "ZAR/USD" },
+  { base: "NGN", target: "KES", label: "NGN/KES", corridor: "NGN-KES" },
+  { base: "NGN", target: "GHS", label: "NGN/GHS", corridor: "NGN-GHS" },
+  { base: "NGN", target: "ZAR", label: "NGN/ZAR", corridor: "NGN-ZAR" },
+  { base: "NGN", target: "USD", label: "NGN/USD", corridor: "NGN-USD" },
+  { base: "NGN", target: "GBP", label: "NGN/GBP", corridor: "NGN-GBP" },
+  { base: "NGN", target: "CNY", label: "NGN/CNY", corridor: "NGN-CNY" },
+  { base: "KES", target: "USD", label: "KES/USD", corridor: "KES-NGN" },
+  { base: "ZAR", target: "USD", label: "ZAR/USD", corridor: "ZAR-NGN" },
 ];
+
+const QUOTE_TTL_SECONDS = 300; // 5 minutes
 
 // ─── Status Helpers ───────────────────────────────────────────────────────────
 
@@ -85,50 +85,79 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ─── Live FX Ticker ───────────────────────────────────────────────────────────
+// ─── Heatmap colour helper ────────────────────────────────────────────────────
+// Returns a Tailwind bg class based on relative volume (0–1 normalised)
+function heatmapBg(normalised: number): string {
+  if (normalised >= 0.75) return "bg-indigo-500/30 border-indigo-400/40";
+  if (normalised >= 0.5) return "bg-indigo-500/20 border-indigo-400/30";
+  if (normalised >= 0.25) return "bg-indigo-500/10 border-indigo-400/20";
+  return "bg-slate-900/60 border-slate-700/50";
+}
+
+// ─── Live FX Ticker with Volume Heatmap ──────────────────────────────────────
 
 function FxTicker() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [prevRates, setPrevRates] = useState<Record<string, number>>({});
 
-  // Fetch rates from DB (base=USD, then cross-multiply for corridor rates)
-  const { data: ratesData, isLoading, refetch } = trpc.fx.getRates.useQuery(
+  const { data: ratesData, isLoading: ratesLoading, refetch } = trpc.fx.getRates.useQuery(
     { base: "USD" },
-    { refetchInterval: 30_000 }  // 30-second auto-refresh
+    { refetchInterval: 30_000 }
+  );
+
+  const { data: volumeData } = trpc.fx.corridorVolume.useQuery(
+    { daysSince: 7 },
+    { refetchInterval: 60_000 }
   );
 
   const fetchAndStore = trpc.fx.fetchAndStore.useMutation();
 
   useEffect(() => {
-    if (ratesData) {
-      setLastUpdated(new Date());
-    }
+    if (ratesData) setLastUpdated(new Date());
   }, [ratesData]);
 
-  // Build a rate map: currency → USD rate
-  const rateMap: Record<string, number> = {};
-  if (ratesData) {
-    for (const r of ratesData as any[]) {
-      rateMap[r.targetCurrency] = parseFloat(r.rate);
+  // Build USD rate map
+  const rateMap = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = { USD: 1 };
+    if (ratesData) {
+      for (const r of ratesData as any[]) {
+        map[r.targetCurrency] = parseFloat(r.rate);
+      }
     }
-    rateMap["USD"] = 1;
-  }
+    return map;
+  }, [ratesData]);
 
-  // Cross-rate: base/target = (base→USD) × (USD→target)
   function getCrossRate(base: string, target: string): number | null {
     if (!rateMap[base] || !rateMap[target]) return null;
-    const baseToUsd = 1 / rateMap[base];
-    return baseToUsd * rateMap[target];
+    return (1 / rateMap[base]) * rateMap[target];
   }
 
-  const tickerItems = TICKER_PAIRS.map(({ base, target, label }) => {
+  // Build volume map: corridor → transferCount
+  const volumeMap = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {};
+    if (volumeData) {
+      for (const v of volumeData as any[]) {
+        map[v.corridor] = v.transferCount;
+      }
+    }
+    return map;
+  }, [volumeData]);
+
+  const maxVolume = useMemo(
+    () => Math.max(1, ...Object.values(volumeMap)),
+    [volumeMap]
+  );
+
+  const tickerItems = TICKER_PAIRS.map(({ base, target, label, corridor }) => {
     const rate = getCrossRate(base, target);
     const prev = prevRates[label];
     const trend = rate && prev ? (rate > prev ? "up" : rate < prev ? "down" : "flat") : "flat";
-    return { label, rate, trend };
+    const volume = volumeMap[corridor] ?? 0;
+    const normVolume = volume / maxVolume;
+    return { label, rate, trend, volume, normVolume, corridor };
   });
 
-  // Seed prevRates on first load, then update on each refresh
+  // Update prevRates after each refresh
   useEffect(() => {
     if (!ratesData) return;
     const newMap: Record<string, number> = {};
@@ -136,16 +165,10 @@ function FxTicker() {
       const r = getCrossRate(base, target);
       if (r) newMap[label] = r;
     }
-    // Only update prev after initial seed
-    if (Object.keys(prevRates).length > 0) {
-      setPrevRates(newMap);
-    } else {
-      setPrevRates(newMap);
-    }
+    setPrevRates(newMap);
   }, [ratesData]);
 
   const handleRefresh = async () => {
-    // Trigger a fresh fetch from open.er-api.com, then re-query
     await fetchAndStore.mutateAsync();
     refetch();
     toast.success("FX rates refreshed");
@@ -161,6 +184,10 @@ function FxTicker() {
             <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-[10px]">
               30s refresh
             </Badge>
+            <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/20 text-[10px] flex items-center gap-1">
+              <BarChart2 className="w-2.5 h-2.5" />
+              7d volume
+            </Badge>
           </CardTitle>
           <div className="flex items-center gap-3">
             {lastUpdated && (
@@ -173,43 +200,62 @@ function FxTicker() {
               size="icon"
               onClick={handleRefresh}
               className="h-7 w-7 text-slate-400 hover:text-white"
+              disabled={fetchAndStore.isPending}
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className={`w-3.5 h-3.5 ${fetchAndStore.isPending ? "animate-spin" : ""}`} />
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0">
-        {isLoading ? (
+        {ratesLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 bg-slate-700 rounded-lg" />
+              <Skeleton key={i} className="h-20 bg-slate-700 rounded-lg" />
             ))}
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {tickerItems.map(({ label, rate, trend }) => (
+            {tickerItems.map(({ label, rate, trend, volume, normVolume }) => (
               <div
                 key={label}
-                className="bg-slate-900/60 rounded-lg p-3 border border-slate-700/50 hover:border-slate-600 transition-colors"
+                className={`rounded-lg p-3 border transition-all duration-500 hover:border-indigo-400/50 ${heatmapBg(normVolume)}`}
               >
+                {/* Header row */}
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-slate-400">{label}</span>
                   {trend === "up" && <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />}
                   {trend === "down" && <TrendingDown className="w-3.5 h-3.5 text-red-400" />}
                 </div>
+
+                {/* Rate */}
                 <div className={`text-sm font-bold font-mono ${
                   trend === "up" ? "text-emerald-400" :
                   trend === "down" ? "text-red-400" : "text-white"
                 }`}>
                   {rate != null ? rate.toFixed(4) : "—"}
                 </div>
-                {/* Spread indicator: 1.5% fee spread */}
+
+                {/* Spread */}
                 {rate != null && (
                   <div className="text-[10px] text-slate-500 mt-0.5">
                     Spread: {(rate * 0.015).toFixed(4)}
                   </div>
                 )}
+
+                {/* Volume heatmap bar */}
+                <div className="mt-2">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[10px] text-slate-500">7d vol</span>
+                    <span className="text-[10px] text-slate-400 font-mono">{volume}</span>
+                  </div>
+                  <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all duration-700"
+                      style={{ width: `${Math.max(2, normVolume * 100)}%` }}
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -219,7 +265,59 @@ function FxTicker() {
   );
 }
 
-// ─── Quote Preview ─────────────────────────────────────────────────────────────
+// ─── Quote Expiry Countdown Bar ───────────────────────────────────────────────
+
+function QuoteExpiryBar({
+  expiresAt,
+  onExpired,
+}: {
+  expiresAt: string;
+  onExpired: () => void;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState<number>(QUOTE_TTL_SECONDS);
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      const remaining = Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining === 0 && !expired) {
+        setExpired(true);
+        onExpired();
+      }
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt, expired, onExpired]);
+
+  const pct = (secondsLeft / QUOTE_TTL_SECONDS) * 100;
+  const isUrgent = secondsLeft <= 30;
+  const isCritical = secondsLeft <= 10;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className={`font-medium ${isCritical ? "text-red-400" : isUrgent ? "text-amber-400" : "text-slate-400"}`}>
+          Quote expires in
+        </span>
+        <span className={`font-mono font-bold ${isCritical ? "text-red-400" : isUrgent ? "text-amber-400" : "text-slate-300"}`}>
+          {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+        </span>
+      </div>
+      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ${
+            isCritical ? "bg-red-500" : isUrgent ? "bg-amber-500" : "bg-emerald-500"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Quote Preview with Countdown ────────────────────────────────────────────
 
 function QuotePreview({
   sourceCurrency,
@@ -232,35 +330,44 @@ function QuotePreview({
   amount: string;
   rail: string;
 }) {
+  const [quoteKey, setQuoteKey] = useState(0); // increment to force re-fetch
   const enabled = !!sourceCurrency && !!targetCurrency && !!amount && parseFloat(amount) > 0;
 
   const { data: quote, isLoading, error } = trpc.crossBorder.getQuote.useQuery(
     { sourceCurrency, targetCurrency, amount, rail: rail as any },
-    { enabled, refetchInterval: 30_000, staleTime: 25_000 }
+    {
+      enabled,
+      // Don't auto-refetch — we manage it manually via quoteKey
+      refetchOnWindowFocus: false,
+      staleTime: QUOTE_TTL_SECONDS * 1000,
+    }
   );
+
+  const handleExpired = useCallback(() => {
+    setQuoteKey((k) => k + 1);
+    toast.info("Quote expired — fetching a fresh rate…");
+  }, []);
 
   if (!enabled) return null;
   if (isLoading) return (
     <div className="bg-slate-800/50 rounded-lg p-3 space-y-2">
       <Skeleton className="h-4 w-3/4 bg-slate-700" />
       <Skeleton className="h-4 w-1/2 bg-slate-700" />
+      <Skeleton className="h-1.5 w-full bg-slate-700 rounded-full" />
     </div>
   );
   if (error || !quote) return null;
 
-  const expiresIn = quote.expires_at
-    ? Math.max(0, Math.round((new Date(quote.expires_at).getTime() - Date.now()) / 1000))
-    : null;
-
   return (
-    <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-3 space-y-2">
+    <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-3 space-y-3">
+      {/* Header */}
       <div className="flex items-center gap-2 text-xs text-indigo-400 font-medium">
         <Zap className="w-3.5 h-3.5" />
         Live Quote
-        {expiresIn != null && (
-          <span className="ml-auto text-slate-400">Expires in {expiresIn}s</span>
-        )}
+        <span className="ml-auto text-[10px] text-slate-500 font-mono">{quote.quote_id?.slice(0, 16)}</span>
       </div>
+
+      {/* Rate details */}
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <div className="text-slate-400 text-xs">You send</div>
@@ -287,6 +394,14 @@ function QuotePreview({
           </div>
         </div>
       </div>
+
+      {/* Countdown bar */}
+      {quote.expires_at && (
+        <QuoteExpiryBar
+          expiresAt={quote.expires_at}
+          onExpired={handleExpired}
+        />
+      )}
     </div>
   );
 }
@@ -441,7 +556,7 @@ function InitiateTransferDialog({ onSuccess }: { onSuccess: () => void }) {
             />
           </div>
 
-          {/* Live Quote Preview */}
+          {/* Live Quote Preview with Countdown */}
           {corridorInfo && (
             <QuotePreview
               sourceCurrency={corridorInfo.from}
@@ -456,7 +571,7 @@ function InitiateTransferDialog({ onSuccess }: { onSuccess: () => void }) {
             className="w-full bg-indigo-600 hover:bg-indigo-700"
             disabled={initiate.isPending}
           >
-            {initiate.isPending ? "Initiating..." : "Initiate Transfer"}
+            {initiate.isPending ? "Initiating…" : "Initiate Transfer"}
           </Button>
         </form>
       </DialogContent>
@@ -509,7 +624,7 @@ export default function CrossBorder() {
         </div>
       </div>
 
-      {/* Live FX Ticker */}
+      {/* Live FX Ticker with Volume Heatmap */}
       <FxTicker />
 
       {/* Stats */}
