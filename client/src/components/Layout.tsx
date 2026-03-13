@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import NotificationPanel, { useNotificationCount } from "./NotificationPanel";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { usePWA } from "@/hooks/usePWA";
+import { Download, WifiOff } from "lucide-react";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -109,6 +111,8 @@ export default function Layout({ children }: LayoutProps) {
   );
 
   const inAppUnread = useNotificationCount();
+  const { isInstallable, promptInstall, isOnline, dismissInstall } = usePWA();
+  const showPwaBanner = isInstallable;
 
   // ─── Onboarding Status ───────────────────────────────────────────────────
   const { data: onboardingData } = trpc.onboarding.getStatus.useQuery(undefined, {
@@ -321,6 +325,35 @@ export default function Layout({ children }: LayoutProps) {
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* PWA Install Banner */}
+        {showPwaBanner && (
+          <div className="flex items-center gap-3 px-6 py-2 bg-indigo-600 text-white text-sm">
+            <Download className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">Install PayGate as an app for faster access — works offline too.</span>
+            <button
+              onClick={() => { promptInstall(); }}
+              className="px-3 py-1 rounded bg-white text-indigo-700 font-semibold text-xs hover:bg-indigo-50 transition-colors"
+            >
+              Install
+            </button>
+            <button
+              onClick={() => { dismissInstall(); }}
+              className="p-1 rounded hover:bg-indigo-500 transition-colors"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Offline Banner */}
+        {!isOnline && (
+          <div className="flex items-center gap-2 px-6 py-2 bg-amber-500 text-white text-sm">
+            <WifiOff className="w-4 h-4" />
+            <span>You are offline. Some features may be unavailable.</span>
           </div>
         )}
 

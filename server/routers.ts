@@ -2486,13 +2486,33 @@ const notificationsRouter = router({
     await markAllNotificationsRead(merchant.id);
     return { success: true };
   }),
+  seedDemo: protectedProcedure.mutation(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const demos = [
+      { type: 'fraud', title: 'High-risk transaction flagged', body: 'Transaction TXN_944BF7014EA0 from Zainab Dlamini flagged as high-risk (score: 87/100). Review immediately.' },
+      { type: 'payment', title: 'Payout of ₦1,587,700 processed', body: 'Net payout of ₦1,587,700 has been sent to your GTBank account ending in 4521. Expected arrival: 1–2 business days.' },
+      { type: 'dispute', title: 'New chargeback dispute opened', body: 'Customer Femi Mensah opened a dispute for ₦29,917. Respond within 7 days to avoid automatic loss.' },
+      { type: 'system', title: 'Webhook delivery failed', body: 'Webhook to https://api.yourdomain.com/webhooks failed 3 times. Auto-disabled. Re-enable in Settings → Webhooks.' },
+      { type: 'payment', title: '₦607.1M revenue milestone reached', body: 'Your business has processed ₦607.1M in total revenue this month — up 12.5% from last month.' },
+      { type: 'fraud', title: 'Unusual login attempt detected', body: 'Login attempt from new IP 196.207.45.12 (Lagos, NG). If this was not you, change your password immediately.' },
+      { type: 'system', title: 'API rate limit warning', body: 'Your API key is approaching the rate limit (85% of 1,000 req/min). Consider upgrading your plan.' },
+      { type: 'dispute', title: 'Dispute resolved in your favour', body: 'Dispute for TXN_DC870A1225A5 (₦2,991,703) resolved in your favour. Funds released within 3 days.' },
+    ];
+    let created = 0;
+    for (const d of demos) {
+      const result = await createMerchantNotification({ merchantId: merchant.id, ...d });
+      if (result) created++;
+    }
+    return { created };
+  }),
 });
 
 // ─── Stripe Router ──────────────────────────────────────────────────────────
 
 const stripeRouter = router({
-  isConfigured: publicProcedure.query(() => {
-    const { isStripeConfigured } = require('./stripe');
+  isConfigured: publicProcedure.query(async () => {
+    const { isStripeConfigured } = await import('./stripe');
     return { configured: isStripeConfigured() as boolean };
   }),
   createPaymentIntent: protectedProcedure
@@ -3587,7 +3607,20 @@ const inventoryRouter = router({
     // Try Rust inventory-engine first (richer data with needs_reorder flag)
     const rustItems = await rustListInventoryItems(merchant.id);
     if (rustItems) return rustItems;
-    return listInventoryItems(merchant.id);
+    const raw = await listInventoryItems(merchant.id);
+    // Map snake_case DB fields to camelCase for the frontend
+    return raw.map((r: any) => ({
+      id: r.id,
+      merchantId: r.merchant_id,
+      name: r.name,
+      unit: r.unit,
+      currentStock: Number(r.current_stock ?? 0),
+      reorderLevel: Number(r.reorder_level ?? 0),
+      costPerUnitKobo: Number(r.cost_per_unit ?? 0),
+      needsReorder: Number(r.current_stock ?? 0) <= Number(r.reorder_level ?? 0),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
   }),
   upsertItem: protectedProcedure.input(z.object({
     id: z.string().optional(),

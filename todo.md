@@ -1053,3 +1053,12 @@
 - [x] Inventory: stock adjustment dialog with +/- preview and new-stock calculation
 - [x] Inventory: total inventory value card (stock × unit cost), Rust engine integration preserved
 - [x] Tests: 613 passing (24 files), 0 regressions from Wave 37 changes
+
+## Wave 38 (March 2026) — Visual Polish & Demo Data
+
+- [x] Notifications Center: seeded 8 demo notifications via seedDemo mutation — 9 unread showing
+- [x] Inventory: 12 items seeded — 6 in-stock, 5 low, 1 out, ₦791,400 total value
+- [x] PWA: install banner added to Layout.tsx (indigo bar with Install/Dismiss, gated by isInstallable)
+- [x] PWA: offline banner added (amber WifiOff bar, gated by !isOnline)
+- [x] Quick Pay: QR code renders via qrcode.react after Generate button click
+- [x] Tests: 613 passing (24 files), no regressions from Wave 38 changes

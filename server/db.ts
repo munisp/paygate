@@ -847,11 +847,12 @@ export async function createMerchantNotification(data: {
   entityType?: string;
 }): Promise<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; createdAt: Date } | null> {
   const db = await getDb(); if (!db) return null;
-  const [row] = await db.execute(sql`
+  const result = await db.execute(sql`
     INSERT INTO merchant_notifications (merchant_id, type, title, body, entity_id, entity_type, is_read, created_at)
     VALUES (${data.merchantId}, ${data.type}, ${data.title}, ${data.body}, ${data.entityId ?? null}, ${data.entityType ?? null}, false, NOW())
     RETURNING id, merchant_id, type, title, body, entity_id, entity_type, is_read, created_at
   `) as any;
+  const row = (result?.rows ?? result)?.[0];
   if (!row) return null;
   return {
     id: row.id,
@@ -870,13 +871,14 @@ export async function listMerchantNotifications(merchantId: string, options?: { 
   const db = await getDb(); if (!db) return [];
   const limit = options?.limit ?? 50;
   const unreadFilter = options?.unreadOnly ? sql` AND is_read = false` : sql``;
-  const rows = await db.execute(sql`
+  const result = await db.execute(sql`
     SELECT id, merchant_id, type, title, body, entity_id, entity_type, is_read, created_at
     FROM merchant_notifications
     WHERE merchant_id = ${merchantId}${unreadFilter}
     ORDER BY created_at DESC
     LIMIT ${limit}
-  `) as unknown as any[];
+  `) as unknown as { rows: any[] } | any[];
+  const rows: any[] = (result as any).rows ?? result;
   return rows.map((r: any) => ({
     id: r.id,
     merchantId: r.merchant_id,
@@ -892,9 +894,10 @@ export async function listMerchantNotifications(merchantId: string, options?: { 
 
 export async function countUnreadNotifications(merchantId: string): Promise<number> {
   const db = await getDb(); if (!db) return 0;
-  const rows = await db.execute(sql`
+  const result = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM merchant_notifications WHERE merchant_id = ${merchantId} AND is_read = false
-  `) as unknown as any[];
+  `) as unknown as { rows: any[] } | any[];
+  const rows: any[] = (result as any).rows ?? result;
   return Number(rows[0]?.cnt ?? 0);
 }
 
@@ -989,7 +992,7 @@ export async function upsertGeofenceRule(data: {
   id?: string; merchantId: string; terminalId?: string | null;
   name: string; centerLat: number; centerLng: number; radiusMeters: number; active: boolean;
 }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = data.id ?? `gfr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO geofence_rules (id, merchant_id, terminal_id, name, center_lat, center_lng, radius_meters, active)
@@ -1003,14 +1006,14 @@ export async function upsertGeofenceRule(data: {
 }
 
 export async function deleteGeofenceRule(id: string, merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`DELETE FROM geofence_rules WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
   await pool.end();
 }
 
 // ─── Wave 32: Agent Network Helpers ──────────────────────────────────────────
 export async function listSubAgents(superAgentMerchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(
     `SELECT an.*, m.business_name, m.email FROM agent_network an
      LEFT JOIN merchants m ON m.id = an.sub_agent_merchant_id
@@ -1022,7 +1025,7 @@ export async function listSubAgents(superAgentMerchantId: string) {
 }
 
 export async function upsertSubAgent(data: { superAgentMerchantId: string; subAgentMerchantId: string; status?: string }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(
     `INSERT INTO agent_network (super_agent_merchant_id, sub_agent_merchant_id, status)
      VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
@@ -1033,14 +1036,14 @@ export async function upsertSubAgent(data: { superAgentMerchantId: string; subAg
 
 // ─── Wave 32: Restaurant Table Helpers ───────────────────────────────────────
 export async function listRestaurantTables(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM restaurant_tables WHERE merchant_id=$1 ORDER BY table_number`, [merchantId]);
   await pool.end();
   return r.rows as any[];
 }
 
 export async function createRestaurantTable(data: { merchantId: string; tableNumber: string; capacity: number; section: string; posX: number; posY: number }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = `tbl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO restaurant_tables (id, merchant_id, table_number, capacity, section, pos_x, pos_y) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -1051,20 +1054,20 @@ export async function createRestaurantTable(data: { merchantId: string; tableNum
 }
 
 export async function updateRestaurantTableStatus(id: string, merchantId: string, status: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE restaurant_tables SET status=$1 WHERE id=$2 AND merchant_id=$3`, [status, id, merchantId]);
   await pool.end();
 }
 
 export async function updateRestaurantTablePosition(id: string, merchantId: string, posX: number, posY: number) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE restaurant_tables SET pos_x=$1, pos_y=$2 WHERE id=$3 AND merchant_id=$4`, [posX, posY, id, merchantId]);
   await pool.end();
 }
 
 // ─── Wave 32: Restaurant Order Helpers ───────────────────────────────────────
 export async function listRestaurantOrders(merchantId: string, status?: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   let r;
   if (status) {
     r = await pool.query(
@@ -1084,7 +1087,7 @@ export async function listRestaurantOrders(merchantId: string, status?: string) 
 }
 
 export async function createRestaurantOrder(data: { merchantId: string; tableId?: string | null; covers: number; notes?: string }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO restaurant_orders (id, merchant_id, table_id, covers, notes) VALUES ($1,$2,$3,$4,$5)`,
@@ -1098,7 +1101,7 @@ export async function createRestaurantOrder(data: { merchantId: string; tableId?
 }
 
 export async function addOrderItem(data: { orderId: string; name: string; qty: number; unitPriceKobo: number; courseNumber: number; notes?: string }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(
     `INSERT INTO restaurant_order_items (order_id, name, qty, unit_price_kobo, course_number, notes) VALUES ($1,$2,$3,$4,$5,$6)`,
     [data.orderId, data.name, data.qty, data.unitPriceKobo, data.courseNumber, data.notes ?? null]
@@ -1111,7 +1114,7 @@ export async function addOrderItem(data: { orderId: string; name: string; qty: n
 }
 
 export async function updateOrderStatus(id: string, merchantId: string, status: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE restaurant_orders SET status=$1, updated_at=NOW() WHERE id=$2 AND merchant_id=$3`, [status, id, merchantId]);
   if (status === 'paid' || status === 'voided') {
     const r = await pool.query(`SELECT table_id FROM restaurant_orders WHERE id=$1`, [id]);
@@ -1123,7 +1126,7 @@ export async function updateOrderStatus(id: string, merchantId: string, status: 
 }
 
 export async function getOrderWithItems(orderId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const orders = await pool.query(`SELECT * FROM restaurant_orders WHERE id=$1`, [orderId]);
   if (!orders.rows[0]) { await pool.end(); return null; }
   const items = await pool.query(`SELECT * FROM restaurant_order_items WHERE order_id=$1 ORDER BY course_number, id`, [orderId]);
@@ -1133,7 +1136,7 @@ export async function getOrderWithItems(orderId: string) {
 
 // ─── Wave 32: Split Bill Helpers ──────────────────────────────────────────────
 export async function createSplitBillSession(data: { orderId: string; merchantId: string; totalKobo: number; splitCount: number }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = `sbs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO split_bill_sessions (id, order_id, merchant_id, total_kobo, split_count) VALUES ($1,$2,$3,$4,$5)`,
@@ -1149,7 +1152,7 @@ export async function createSplitBillSession(data: { orderId: string; merchantId
 }
 
 export async function getSplitBillSession(id: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const s = await pool.query(`SELECT * FROM split_bill_sessions WHERE id=$1`, [id]);
   if (!s.rows[0]) { await pool.end(); return null; }
   const shares = await pool.query(`SELECT * FROM split_bill_shares WHERE session_id=$1 ORDER BY share_index`, [id]);
@@ -1159,14 +1162,14 @@ export async function getSplitBillSession(id: string) {
 
 // ─── Wave 32: Menu Helpers ────────────────────────────────────────────────────
 export async function listMenuCategories(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM menu_categories WHERE merchant_id=$1 ORDER BY display_order, name`, [merchantId]);
   await pool.end();
   return r.rows as any[];
 }
 
 export async function listMenuItems(merchantId: string, categoryId?: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   let r;
   if (categoryId) {
     r = await pool.query(`SELECT * FROM menu_items WHERE merchant_id=$1 AND category_id=$2 ORDER BY name`, [merchantId, categoryId]);
@@ -1178,7 +1181,7 @@ export async function listMenuItems(merchantId: string, categoryId?: string) {
 }
 
 export async function upsertMenuCategory(data: { id?: string; merchantId: string; name: string; displayOrder: number }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = data.id ?? `mcat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO menu_categories (id, merchant_id, name, display_order) VALUES ($1,$2,$3,$4)
@@ -1190,7 +1193,7 @@ export async function upsertMenuCategory(data: { id?: string; merchantId: string
 }
 
 export async function upsertMenuItem(data: { id?: string; categoryId: string; merchantId: string; name: string; description?: string | null; priceKobo: number; available: boolean; imageUrl?: string | null }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = data.id ?? `mitm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO menu_items (id, category_id, merchant_id, name, description, price_kobo, available, image_url)
@@ -1204,21 +1207,21 @@ export async function upsertMenuItem(data: { id?: string; categoryId: string; me
 }
 
 export async function toggleMenuItemAvailability(id: string, merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE menu_items SET available=NOT available WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
   await pool.end();
 }
 
 // ─── Wave 32: Loyalty Helpers ─────────────────────────────────────────────────
 export async function getLoyaltyProgram(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM loyalty_programs WHERE merchant_id=$1`, [merchantId]);
   await pool.end();
   return r.rows[0] ?? null;
 }
 
 export async function upsertLoyaltyProgram(data: { merchantId: string; pointsPerKobo: number; redeemRate: number; active: boolean }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = `lp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO loyalty_programs (id, merchant_id, points_per_kobo, redeem_rate, active) VALUES ($1,$2,$3,$4,$5)
@@ -1229,7 +1232,7 @@ export async function upsertLoyaltyProgram(data: { merchantId: string; pointsPer
 }
 
 export async function getLoyaltyAccount(merchantId: string, customerId: number) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM loyalty_accounts WHERE merchant_id=$1 AND customer_id=$2`, [merchantId, customerId]);
   await pool.end();
   return r.rows[0] ?? null;
@@ -1238,7 +1241,7 @@ export async function getLoyaltyAccount(merchantId: string, customerId: number) 
 export async function getOrCreateLoyaltyAccount(merchantId: string, customerId: number) {
   const existing = await getLoyaltyAccount(merchantId, customerId);
   if (existing) return existing;
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = `la_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(`INSERT INTO loyalty_accounts (id, merchant_id, customer_id) VALUES ($1,$2,$3)`, [id, merchantId, customerId]);
   await pool.end();
@@ -1246,14 +1249,14 @@ export async function getOrCreateLoyaltyAccount(merchantId: string, customerId: 
 }
 
 export async function earnLoyaltyPoints(accountId: string, points: number, orderId?: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE loyalty_accounts SET points_balance=points_balance+$1, lifetime_points=lifetime_points+$1 WHERE id=$2`, [points, accountId]);
   await pool.query(`INSERT INTO loyalty_transactions (account_id, type, points, order_id) VALUES ($1,'earn',$2,$3)`, [accountId, points, orderId ?? null]);
   await pool.end();
 }
 
 export async function redeemLoyaltyPoints(accountId: string, points: number, orderId?: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT points_balance FROM loyalty_accounts WHERE id=$1`, [accountId]);
   if (!r.rows[0] || r.rows[0].points_balance < points) { await pool.end(); return false; }
   await pool.query(`UPDATE loyalty_accounts SET points_balance=points_balance-$1 WHERE id=$2`, [points, accountId]);
@@ -1263,7 +1266,7 @@ export async function redeemLoyaltyPoints(accountId: string, points: number, ord
 }
 
 export async function getLoyaltyHistory(accountId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM loyalty_transactions WHERE account_id=$1 ORDER BY created_at DESC LIMIT 50`, [accountId]);
   await pool.end();
   return r.rows as any[];
@@ -1271,14 +1274,14 @@ export async function getLoyaltyHistory(accountId: string) {
 
 // ─── Wave 32: KDS Helpers ─────────────────────────────────────────────────────
 export async function listKdsStations(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM kds_stations WHERE merchant_id=$1 AND active=TRUE ORDER BY name`, [merchantId]);
   await pool.end();
   return r.rows as any[];
 }
 
 export async function upsertKdsStation(data: { id?: string; merchantId: string; name: string; categories: string[]; active: boolean }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = data.id ?? `kds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO kds_stations (id, merchant_id, name, categories, active) VALUES ($1,$2,$3,$4,$5)
@@ -1290,7 +1293,7 @@ export async function upsertKdsStation(data: { id?: string; merchantId: string; 
 }
 
 export async function listKdsOrders(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(
     `SELECT o.*, t.table_number FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id=o.table_id
      WHERE o.merchant_id=$1 AND o.status IN ('open','sent_to_kitchen','ready') ORDER BY o.created_at ASC`,
@@ -1306,27 +1309,27 @@ export async function listKdsOrders(merchantId: string) {
 }
 
 export async function markOrderItemReady(itemId: number) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE restaurant_order_items SET status='ready' WHERE id=$1`, [itemId]);
   await pool.end();
 }
 
 export async function markOrderComplete(orderId: string, merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE restaurant_orders SET status='ready', updated_at=NOW() WHERE id=$1 AND merchant_id=$2`, [orderId, merchantId]);
   await pool.end();
 }
 
 // ─── Wave 32: Inventory Helpers ───────────────────────────────────────────────
 export async function listInventoryItems(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM inventory_items WHERE merchant_id=$1 ORDER BY name`, [merchantId]);
   await pool.end();
   return r.rows as any[];
 }
 
 export async function upsertInventoryItem(data: { id?: string; merchantId: string; name: string; unit: string; currentStock: number; reorderLevel: number; costPerUnit: number }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = data.id ?? `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO inventory_items (id, merchant_id, name, unit, current_stock, reorder_level, cost_per_unit)
@@ -1340,14 +1343,14 @@ export async function upsertInventoryItem(data: { id?: string; merchantId: strin
 }
 
 export async function adjustInventoryStock(itemId: string, quantity: number, type: string, note?: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE inventory_items SET current_stock=current_stock+$1, updated_at=NOW() WHERE id=$2`, [quantity, itemId]);
   await pool.query(`INSERT INTO inventory_transactions (item_id, type, quantity, note) VALUES ($1,$2,$3,$4)`, [itemId, type, quantity, note ?? null]);
   await pool.end();
 }
 
 export async function getRecipeCost(menuItemId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(
     `SELECT COALESCE(SUM(ri.quantity_per_serving * ii.cost_per_unit / 100.0), 0) as total_cost
      FROM recipe_ingredients ri JOIN inventory_items ii ON ii.id=ri.inventory_item_id WHERE ri.menu_item_id=$1`,
@@ -1358,7 +1361,7 @@ export async function getRecipeCost(menuItemId: string) {
 }
 
 export async function upsertRecipeIngredient(data: { menuItemId: string; inventoryItemId: string; quantityPerServing: number }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(
     `INSERT INTO recipe_ingredients (menu_item_id, inventory_item_id, quantity_per_serving) VALUES ($1,$2,$3)
      ON CONFLICT (menu_item_id, inventory_item_id) DO UPDATE SET quantity_per_serving=EXCLUDED.quantity_per_serving`,
@@ -1369,14 +1372,14 @@ export async function upsertRecipeIngredient(data: { menuItemId: string; invento
 
 // ─── Wave 32: Staff & Payroll Helpers ────────────────────────────────────────
 export async function listStaffMembers(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM staff_members WHERE merchant_id=$1 AND active=TRUE ORDER BY name`, [merchantId]);
   await pool.end();
   return r.rows as any[];
 }
 
 export async function upsertStaffMember(data: { id?: string; merchantId: string; name: string; role: string; hourlyRateKobo: number; bankCode?: string | null; accountNumber?: string | null }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = data.id ?? `stf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   await pool.query(
     `INSERT INTO staff_members (id, merchant_id, name, role, hourly_rate_kobo, bank_code, account_number)
@@ -1390,7 +1393,7 @@ export async function upsertStaffMember(data: { id?: string; merchantId: string;
 }
 
 export async function recordStaffShift(data: { staffId: string; merchantId: string; clockIn: Date; clockOut?: Date | null; tipsKobo?: number }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const hoursWorked = data.clockOut ? Math.round((data.clockOut.getTime() - data.clockIn.getTime()) / 60000) : null;
   const r = await pool.query(
     `INSERT INTO staff_shifts (staff_id, merchant_id, clock_in, clock_out, tips_kobo, hours_worked)
@@ -1402,7 +1405,7 @@ export async function recordStaffShift(data: { staffId: string; merchantId: stri
 }
 
 export async function listStaffShifts(merchantId: string, staffId?: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   let r;
   if (staffId) {
     r = await pool.query(
@@ -1422,7 +1425,7 @@ export async function listStaffShifts(merchantId: string, staffId?: string) {
 }
 
 export async function createPayrollRun(data: { merchantId: string; periodStart: Date; periodEnd: Date }) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const id = `pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const shifts = await pool.query(
     `SELECT ss.staff_id, SUM(ss.hours_worked) as total_minutes, SUM(ss.tips_kobo) as total_tips, sm.hourly_rate_kobo
@@ -1445,21 +1448,21 @@ export async function createPayrollRun(data: { merchantId: string; periodStart: 
 }
 
 export async function listPayrollRuns(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(`SELECT * FROM payroll_runs WHERE merchant_id=$1 ORDER BY period_start DESC LIMIT 20`, [merchantId]);
   await pool.end();
   return r.rows as any[];
 }
 
 export async function approvePayrollRun(id: string, merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   await pool.query(`UPDATE payroll_runs SET status='approved' WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
   await pool.end();
 }
 
 // ─── Wave 32: Kiosk Health Summary ───────────────────────────────────────────
 export async function getKioskHealthSummary(merchantId: string) {
-  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const pool = new Pool({ connectionString: resolveDbUrl(), max: 1 });
   const r = await pool.query(
     `SELECT id, terminal_label, terminal_type, status, last_heartbeat_at, latitude, longitude
      FROM pos_terminals WHERE merchant_id=$1 ORDER BY terminal_label`,
@@ -1481,8 +1484,7 @@ export async function getKioskHealthSummary(merchantId: string) {
 
 // ─── Wave 33: Missing helpers (raw pg Pool, matching Wave 32 pattern) ─────────
 function pgPool() {
-  const { Pool: PgPool } = require('pg');
-  return new PgPool({ connectionString: resolveDbUrl(), max: 1 });
+  return new Pool({ connectionString: resolveDbUrl(), max: 1 });
 }
 function genId(prefix: string) {
   return `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
