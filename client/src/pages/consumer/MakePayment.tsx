@@ -11,10 +11,12 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Send, Phone, Building2, CreditCard, CheckCircle, Loader2, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
+import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 
 type PaymentMethod = "phone" | "account" | "card";
 
 export default function MakePayment() {
+  useOnboardingGate();
   const [, navigate] = useLocation();
   const [method, setMethod] = useState<PaymentMethod>("phone");
   const [recipient, setRecipient] = useState("");

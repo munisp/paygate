@@ -159,6 +159,20 @@ const authRouter = router({
       }, { expiresInMs: ONE_YEAR_MS });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS / 1000 });
+      // Audit log — fire-and-forget
+      import('./db').then(async ({ logAuditEvent, getMerchantByOwnerId: getMerch }) => {
+        const merch = await getMerch(user.id).catch(() => null);
+        if (merch) await logAuditEvent({
+          merchantId: merch.id,
+          actorId: String(user.id),
+          actorName: user.name ?? user.email ?? 'unknown',
+          action: 'user.login',
+          resource: 'user',
+          resourceId: String(user.id),
+          metadata: { email: input.email },
+          ipAddress: ctx.req.ip ?? null,
+        });
+      }).catch(() => {});
       return { success: true, user: { id: user.id, email: user.email, name: user.name } };
     }),
 
@@ -710,6 +724,16 @@ const apiKeysRouter = router({
         permissions: input.permissions ?? ["read", "write"],
         createdBy: user.id,
       });
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'api_key.created',
+        resource: 'api_key',
+        resourceId: apiKey.id,
+        metadata: { name: input.name, environment: input.environment },
+      })).catch(() => {});
       return { ...apiKey, rawKey };
     }),
 
@@ -719,6 +743,16 @@ const apiKeysRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await revokeApiKey(input.id, merchant.id);
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'api_key.revoked',
+        resource: 'api_key',
+        resourceId: input.id,
+        metadata: {},
+      })).catch(() => {});
       return { success: true };
     }),
 });
@@ -741,7 +775,7 @@ const webhooksRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const secret = "whsec_" + crypto.randomBytes(24).toString("hex");
-      return createWebhook({
+      const webhook = await createWebhook({
         id: nanoid("wh_"),
         merchantId: merchant.id,
         tenantId: merchant.tenantId ?? "ten_default",
@@ -749,6 +783,17 @@ const webhooksRouter = router({
         events: input.events,
         secret,
       });
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'webhook.created',
+        resource: 'webhook',
+        resourceId: (webhook as any).id,
+        metadata: { url: input.url, events: input.events },
+      })).catch(() => {});
+      return webhook;
     }),
 
   delete: protectedProcedure
@@ -757,6 +802,16 @@ const webhooksRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await deleteWebhook(input.id, merchant.id);
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'webhook.deleted',
+        resource: 'webhook',
+        resourceId: input.id,
+        metadata: {},
+      })).catch(() => {});
       return { success: true };
     }),
 
@@ -901,6 +956,16 @@ const disputesRouter = router({
         evidence: input.evidence,
         status: "under_review",
       });
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'dispute.responded',
+        resource: 'dispute',
+        resourceId: input.id,
+        metadata: { responseLength: input.merchantResponse.length },
+      })).catch(() => {});
       // Bridge: submit dispute response via Temporal + Kafka + Permify + Lakehouse
       if (isBridgeAvailable()) {
         submitDisputeViaMiddleware({
@@ -1119,7 +1184,7 @@ const teamRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const inviteToken = crypto.randomBytes(32).toString("hex");
-      return createTeamMember({
+      const member = await createTeamMember({
         merchantId: merchant.id,
         tenantId: merchant.tenantId ?? "ten_default",
         email: input.email,
@@ -1129,6 +1194,17 @@ const teamRouter = router({
         inviteToken,
         inviteExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       });
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'team.member_invited',
+        resource: 'team_member',
+        resourceId: String((member as any).id ?? ''),
+        metadata: { email: input.email, role: input.role },
+      })).catch(() => {});
+      return member;
     }),
 
   remove: protectedProcedure
@@ -1137,6 +1213,16 @@ const teamRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await deleteTeamMember(input.id, merchant.id);
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'team.member_removed',
+        resource: 'team_member',
+        resourceId: String(input.id),
+        metadata: {},
+      })).catch(() => {});
       return { success: true };
     }),
 });
@@ -1160,7 +1246,18 @@ const settingsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return updateMerchant(merchant.id, input);
+      const updated = await updateMerchant(merchant.id, input);
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'settings.updated',
+        resource: 'merchant',
+        resourceId: merchant.id,
+        metadata: { fields: Object.keys(input) },
+      })).catch(() => {});
+      return updated;
     }),
 
   updateNotificationPrefs: protectedProcedure
@@ -3951,10 +4048,43 @@ const purchaseOrdersRouter = router({
       const { sql } = await import('drizzle-orm');
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      // Fetch PO details for notification
+      const poResult = await db.execute(
+        sql`SELECT item_name, vendor_name, quantity, unit, total_cost_kobo FROM purchase_orders
+            WHERE id = ${input.id} AND merchant_id = ${merchant.id} LIMIT 1`
+      );
+      const po = (poResult.rows ?? [])[0] as any;
       await db.execute(
         sql`UPDATE purchase_orders SET status = ${input.status}, updated_at = now()
             WHERE id = ${input.id} AND merchant_id = ${merchant.id}`
       );
+      // Notify owner on key status transitions
+      if (po && (input.status === 'approved' || input.status === 'received')) {
+        const { notifyOwner } = await import('./_core/notification');
+        const totalNGN = po.total_cost_kobo ? `₦${(Number(po.total_cost_kobo) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : 'N/A';
+        const vendorStr = po.vendor_name ? ` from ${po.vendor_name}` : '';
+        if (input.status === 'approved') {
+          notifyOwner({
+            title: `PO Approved: ${po.item_name}`,
+            content: `Purchase order for ${po.quantity} ${po.unit}(s) of ${po.item_name}${vendorStr} has been approved. Estimated cost: ${totalNGN}. The vendor can now be contacted to fulfil the order.`,
+          }).catch(() => {});
+        } else if (input.status === 'received') {
+          notifyOwner({
+            title: `PO Received: ${po.item_name}`,
+            content: `Delivery confirmed for ${po.quantity} ${po.unit}(s) of ${po.item_name}${vendorStr}. Total cost: ${totalNGN}. Inventory should be updated accordingly.`,
+          }).catch(() => {});
+        }
+      }
+      // Audit log
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: `purchase_order.${input.status}`,
+        resource: 'purchase_order',
+        resourceId: input.id,
+        metadata: { status: input.status },
+      })).catch(() => {});
       return { ok: true };
     }),
 });

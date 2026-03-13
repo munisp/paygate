@@ -8,6 +8,7 @@ import { QrCode, Send, Phone, Zap, ShoppingCart, Repeat, Users, Copy, Check, Arr
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { QRCodeSVG as QRCode } from "qrcode.react";
+import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 
 const SHORTCUTS = [
   { icon: Send,        label: "Send Money",   color: "bg-blue-500/15 text-blue-400",    action: "/consumer/send" },
@@ -23,6 +24,7 @@ const SHORTCUTS = [
 const AMOUNTS = [500, 1000, 2000, 5000];
 
 export default function ConsumerQuickPay() {
+  useOnboardingGate();
   const [amount, setAmount] = useState("");
   const [qrVisible, setQrVisible] = useState(false);
   const [copied, setCopied] = useState(false);

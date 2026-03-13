@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Zap, Wifi, Phone, Tv, Droplets, CheckCircle, Loader2, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
+import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 
 type BillCategory = { id: string; label: string; icon: React.ElementType; color: string };
 
@@ -24,6 +25,7 @@ const BILL_CATEGORIES: BillCategory[] = [
 ];
 
 export default function BillPay() {
+  useOnboardingGate();
   const [, navigate] = useLocation();
   const [selected, setSelected] = useState<string | null>(null);
   const [accountNumber, setAccountNumber] = useState("");

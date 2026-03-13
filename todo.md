@@ -1118,3 +1118,35 @@
 - [x] Consumer onboarding: 3-step flow at /consumer/onboarding (phone, PIN, KYC)
 - [x] Consumer onboarding: gate wallet/send screens behind onboarding completion
 - [x] Tests: 613 passing (24 files), 0 regressions from Wave 40 changes
+
+## Wave 41 (March 2026) — Audit Auto-Seeding, PO Email Notifications, Consumer Onboarding Gate
+
+- [ ] Audit: wire logAuditEvent into auth.login mutation (user.login event)
+- [ ] Audit: wire logAuditEvent into settings.update mutation (settings.updated event)
+- [ ] Audit: wire logAuditEvent into disputes.submit mutation (dispute.submitted event)
+- [ ] Audit: wire logAuditEvent into apiKeys.create and apiKeys.revoke (api_key.created/revoked events)
+- [ ] Audit: wire logAuditEvent into webhooks.create and webhooks.delete (webhook.created/deleted events)
+- [ ] Audit: wire logAuditEvent into team.invite and team.remove (team.invited/removed events)
+- [ ] PO email: notifyOwner on purchaseOrders.approve with item name, qty, estimated cost
+- [ ] PO email: notifyOwner on purchaseOrders.markReceived with delivery confirmation
+- [ ] Consumer gate: useOnboardingGate hook — checks localStorage "consumer_onboarded" flag
+- [ ] Consumer gate: redirect wallet/send/QR/bills screens to /consumer/onboarding if not completed
+- [ ] Consumer gate: set "consumer_onboarded" flag on step 3 completion in ConsumerOnboarding.tsx
+- [ ] Tests: Wave 41 vitest coverage — no regressions
+
+## Wave 41 (March 2026) — Audit Seeding, PO Email, Consumer Gate
+
+- [x] Audit: logAuditEvent wired into auth.login mutation
+- [x] Audit: logAuditEvent wired into apiKeys.create and apiKeys.revoke mutations
+- [x] Audit: logAuditEvent wired into webhooks.create and webhooks.delete mutations
+- [x] Audit: logAuditEvent wired into team.invite and team.remove mutations
+- [x] Audit: logAuditEvent wired into settings.updateMerchant mutation
+- [x] Audit: logAuditEvent wired into disputes.respond mutation
+- [x] PO email: notifyOwner fires on purchaseOrders.updateStatus when status = 'approved'
+- [x] PO email: notifyOwner fires on purchaseOrders.updateStatus when status = 'received'
+- [x] PO email: audit log also fires on every status transition
+- [x] Consumer gate: useOnboardingGate hook created (checks localStorage consumer_onboarded)
+- [x] Consumer gate: markOnboardingComplete() exported from hook
+- [x] Consumer gate: gate applied to ConsumerWallet, MakePayment, BillPay, ConsumerQuickPay
+- [x] Consumer gate: ConsumerOnboarding.handleFinish already sets localStorage — gate works end-to-end
+- [x] Tests: 613 passing (24 files), 0 regressions from Wave 41 changes

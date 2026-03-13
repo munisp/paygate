@@ -17,6 +17,7 @@ import {
   Plus, Phone, Bell, Eye, EyeOff, Loader2
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 
 function QuickAction({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
   return (
@@ -95,6 +96,7 @@ function TopUpDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () 
 }
 
 export default function ConsumerWallet() {
+  useOnboardingGate();
   const [hideBalance, setHideBalance] = useState(false);
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [, navigate] = useLocation();
