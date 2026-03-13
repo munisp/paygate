@@ -107,3 +107,36 @@ All secrets must be injected at deploy time; **never commit `.env` files**.
 - [ ] Health check endpoints are configured at `/health`
 - [ ] Log aggregation (e.g., Datadog, Loki) is connected
 - [ ] Alerting is configured for error rate > 1% and p99 latency > 2s
+
+## Wave 32/33 Microservice URLs (Optional — fall back to DB-only mode when absent)
+
+| Variable | Default | Description |
+|---|---|---|
+| `INVENTORY_ENGINE_URL` | `http://localhost:8091` | Rust inventory cost engine HTTP API |
+| `LOYALTY_LEDGER_URL` | `http://localhost:8092` | Rust loyalty points ledger HTTP API |
+| `PAYROLL_SERVICE_URL` | `http://localhost:8093` | Python payroll calculation service |
+| `KIOSK_HEALTH_URL` | `http://localhost:8094` | Python kiosk health anomaly detector |
+
+These services are optional. When the environment variables are not set, the tRPC procedures fall back to direct PostgreSQL queries. For production, deploy each Rust/Python service and set the URLs accordingly.
+
+### Starting Rust Services
+```bash
+# Inventory Engine (port 8091)
+cd /home/ubuntu/paygate-middleware/rust/inventory-engine
+DATABASE_URL="postgres://..." cargo run --release
+
+# Loyalty Ledger (port 8092)
+cd /home/ubuntu/paygate-middleware/rust/loyalty-ledger
+DATABASE_URL="postgres://..." cargo run --release
+```
+
+### Starting Python Services
+```bash
+# Payroll Service (port 8093)
+cd /home/ubuntu/paygate-middleware/python/payroll
+DATABASE_URL="postgres://..." uvicorn payroll_service:app --host 0.0.0.0 --port 8093
+
+# Kiosk Health Service (port 8094)
+cd /home/ubuntu/paygate-middleware/python/kiosk_health
+DATABASE_URL="postgres://..." uvicorn kiosk_health_service:app --host 0.0.0.0 --port 8094
+```

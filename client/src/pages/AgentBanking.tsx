@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Users, TrendingUp, Wallet, Plus, RefreshCw, ChevronRight, MapPin } from "lucide-react";
+import { Users, TrendingUp, Wallet, Plus, RefreshCw, ChevronRight, MapPin, Banknote } from "lucide-react";
 
 export default function AgentBanking() {
   const { isAuthenticated } = useAuth();
@@ -23,6 +23,11 @@ export default function AgentBanking() {
     undefined,
     { enabled: isAuthenticated }
   );
+
+  const disburseMutation = trpc.agentBanking.disburseCommissions.useMutation({
+    onSuccess: (res: any) => toast.success(`Disbursed ₦${((res?.totalDisbursedKobo ?? 0) / 100).toLocaleString("en-NG", { maximumFractionDigits: 0 })} to ${res?.count ?? 0} agents`),
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const createAgent = trpc.agentBanking.addSubAgent.useMutation({
     onSuccess: () => {
@@ -54,6 +59,16 @@ export default function AgentBanking() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-green-600 border-green-600 hover:bg-green-50"
+            disabled={disburseMutation.isPending}
+            onClick={() => disburseMutation.mutate()}
+          >
+            <Banknote className="w-4 h-4 mr-2" />
+            {disburseMutation.isPending ? "Disbursing…" : "Disburse Commissions"}
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>

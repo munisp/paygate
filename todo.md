@@ -968,3 +968,21 @@
 - [x] UI: GeofenceAlerts page (/geofence-alerts) with rule management
 - [x] Schema: 17 new tables (restaurant_tables, restaurant_orders, menu_categories, menu_items, loyalty_programs, loyalty_accounts, loyalty_ledger, kds_stations, inventory_items, inventory_movements, staff_members, staff_shifts, payroll_runs, payroll_line_items, geofence_rules, sub_agent_links, ptsp_batches)
 - [x] Tests: 582 passing (22 test files, Wave 32 adds 37 new tests)
+
+## Wave 33 (March 2026) — Production Readiness
+
+- [x] Comprehensive audit: all services, routers, tables, pages mapped
+- [x] Wire Rust inventory-engine (port 8091) into tRPC inventory router
+- [x] Wire Rust loyalty-ledger (port 8092) into tRPC restaurant loyalty router
+- [x] Wire Python payroll service (port 8093) into tRPC payroll router
+- [x] Wire Python kiosk-health service (port 8094) into tRPC kioskHealth router
+- [x] Wire Python fraud scoring into fraudRisk router
+- [x] Add DB helpers for all 29 orphan tables (idempotency, device push tokens, subscriptions, etc.)
+- [x] Add cancelSubscription DB helper
+- [x] KDS→soundbox trigger on markOrderComplete
+- [x] Agent commission disbursement button in AgentBanking UI
+- [x] Restaurant table-turn stats tRPC procedure
+- [x] Analytics date range selector and CSV export button
+- [x] ENV_DOCS.md updated with Wave 32/33 microservice URLs and startup instructions
+- [x] Production dist/index.js rebuilt clean (no duplicate exports)
+- [x] 594 tests passing across 23 test files

@@ -23,4 +23,12 @@ export const ENV = {
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
   stripePublishableKey: process.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "",
+  // Rust microservices
+  inventoryEngineUrl: process.env.INVENTORY_ENGINE_URL ?? "http://localhost:8091",
+  loyaltyLedgerUrl: process.env.LOYALTY_LEDGER_URL ?? "http://localhost:8092",
+  // Python microservices
+  payrollServiceUrl: process.env.PAYROLL_SERVICE_URL ?? "http://localhost:8093",
+  kioskHealthUrl: process.env.KIOSK_HEALTH_URL ?? "http://localhost:8094",
+  fraudScoringUrl: process.env.FRAUD_SCORING_URL ?? "http://localhost:8083",
+  ussdGatewayUrl: process.env.USSD_GATEWAY_URL ?? "http://localhost:8095",
 };

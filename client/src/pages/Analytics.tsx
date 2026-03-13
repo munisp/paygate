@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Download, Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 
 function fmt(n: number | null | undefined) {
@@ -12,10 +14,23 @@ function fmt(n: number | null | undefined) {
 }
 
 export default function Analytics() {
-  const [range] = useState(() => ({
+  const [period, setPeriod] = useState("30d");
+  const [range, setRange] = useState(() => ({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
     to: new Date(),
   }));
+
+  const handlePeriodChange = (val: string) => {
+    setPeriod(val);
+    const days = val === "7d" ? 7 : val === "90d" ? 90 : val === "1y" ? 365 : 30;
+    setRange({ from: new Date(Date.now() - days * 24 * 60 * 60 * 1000), to: new Date() });
+  };
+
+  const handleExport = () => {
+    const rows = [["Date", "Volume (Kobo)", "Count"], ...(timeSeries ?? []).map((r: any) => [r.date, r.volume, r.count])];
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `analytics-${period}.csv`; a.click();
+  };
 
   const { data: overview, isLoading: oLoading } = trpc.analytics.overview.useQuery(range, { staleTime: 60_000 });
   const { data: timeSeries, isLoading: tsLoading } = trpc.analytics.timeSeries.useQuery(range, { staleTime: 60_000 });
@@ -38,9 +53,28 @@ export default function Analytics() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Analytics</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Last 30 days — live data from your transactions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Analytics</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Live data from your transactions</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={period} onValueChange={handlePeriodChange}>
+            <SelectTrigger className="w-28 h-8 text-sm">
+              <Calendar className="w-3 h-3 mr-1" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Last 7 days</SelectItem>
+              <SelectItem value="30d">Last 30 days</SelectItem>
+              <SelectItem value="90d">Last 90 days</SelectItem>
+              <SelectItem value="1y">Last year</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="w-3 h-3 mr-1" /> Export CSV
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

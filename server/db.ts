@@ -11,6 +11,17 @@ import {
   apiKeys, customers, disputes, merchants, paymentLinks, payouts,
   teamMembers, transactions, users, virtualCards, webhooks, webhookDeliveries,
   fraudAlerts, kycSubmissions, bnplLoans, mobileMoneyRecon,
+  // Wave 33 additions
+  tenants, tenantConfig, idempotencyRequests, merchantNotifications,
+  devicePushTokens, subscriptions, subscriptionCharges,
+  posTerminals, posTransactions, ptspBatches,
+  geofenceRules, agentNetwork,
+  restaurantTables, restaurantOrders, restaurantOrderItems,
+  splitBillSessions, splitBillShares,
+  menuCategories, menuItems,
+  loyaltyPrograms, loyaltyAccounts, loyaltyTransactions,
+  kdsStations, inventoryItems, inventoryTransactions, recipeIngredients,
+  staffMembers, staffShifts, payrollRuns,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import * as schema from "../drizzle/schema";
@@ -1464,4 +1475,252 @@ export async function getKioskHealthSummary(merchantId: string) {
     return { ...t, health };
   });
   return { total: terminals.length, online, warning, offline, terminals };
+}
+
+
+
+// ─── Wave 33: Missing helpers (raw pg Pool, matching Wave 32 pattern) ─────────
+function pgPool() {
+  const { Pool: PgPool } = require('pg');
+  return new PgPool({ connectionString: resolveDbUrl(), max: 1 });
+}
+function genId(prefix: string) {
+  return `${prefix}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Tenants
+export async function getTenant(id: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM tenants WHERE id=$1`, [id]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+export async function upsertTenant(data: { id: string; name: string; plan?: string }) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO tenants (id, name, plan) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET name=$2, plan=$3`,
+    [data.id, data.name, data.plan ?? 'starter']
+  );
+  await pool.end();
+}
+export async function getTenantConfig(tenantId: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM tenant_config WHERE tenant_id=$1`, [tenantId]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+export async function upsertTenantConfig(tenantId: string, configData: Record<string, unknown>) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO tenant_config (tenant_id, config, updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (tenant_id) DO UPDATE SET config=$2, updated_at=NOW()`,
+    [tenantId, JSON.stringify(configData)]
+  );
+  await pool.end();
+}
+
+// Idempotency
+export async function getIdempotencyRequest(key: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM idempotency_requests WHERE key=$1`, [key]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+export async function insertIdempotencyRequest(data: { key: string; merchantId: string; responseBody: unknown; statusCode: number }) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO idempotency_requests (key, merchant_id, response_body, status_code, created_at) VALUES ($1,$2,$3,$4,NOW()) ON CONFLICT DO NOTHING`,
+    [data.key, data.merchantId, JSON.stringify(data.responseBody), data.statusCode]
+  );
+  await pool.end();
+}
+
+// Device Push Tokens
+export async function upsertDevicePushToken(data: { userId: number; token: string; platform: string; deviceId?: string }) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO device_push_tokens (user_id, token, platform, device_id, created_at, updated_at) VALUES ($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT (user_id, token) DO UPDATE SET platform=$3, updated_at=NOW()`,
+    [data.userId, data.token, data.platform, data.deviceId ?? null]
+  );
+  await pool.end();
+}
+export async function listDevicePushTokens(userId: number) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM device_push_tokens WHERE user_id=$1`, [userId]);
+  await pool.end();
+  return r.rows;
+}
+export async function deleteDevicePushToken(token: string) {
+  const pool = pgPool();
+  await pool.query(`DELETE FROM device_push_tokens WHERE token=$1`, [token]);
+  await pool.end();
+}
+
+// Subscriptions (full CRUD)
+export async function listSubscriptions(merchantId: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM subscriptions WHERE merchant_id=$1 ORDER BY created_at DESC`, [merchantId]);
+  await pool.end();
+  return r.rows;
+}
+export async function getSubscription(id: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM subscriptions WHERE id=$1`, [id]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+export async function upsertSubscription(data: {
+  id: string; merchantId: string; customerId?: number; planId: string;
+  status: string; currentPeriodStart?: Date; currentPeriodEnd?: Date;
+  stripeSubscriptionId?: string;
+}) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO subscriptions (id, merchant_id, customer_id, plan_id, status, current_period_start, current_period_end, stripe_subscription_id, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
+     ON CONFLICT (id) DO UPDATE SET status=$5, current_period_end=$7, updated_at=NOW()`,
+    [data.id, data.merchantId, data.customerId ?? null, data.planId, data.status,
+     data.currentPeriodStart ?? null, data.currentPeriodEnd ?? null, data.stripeSubscriptionId ?? null]
+  );
+  await pool.end();
+}
+export async function listSubscriptionCharges(subscriptionId: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM subscription_charges WHERE subscription_id=$1 ORDER BY created_at DESC`, [subscriptionId]);
+  await pool.end();
+  return r.rows;
+}
+export async function insertSubscriptionCharge(data: {
+  id: string; subscriptionId: string; merchantId: string;
+  amountKobo: number; status: string; stripeInvoiceId?: string;
+}) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO subscription_charges (id, subscription_id, merchant_id, amount_kobo, status, stripe_invoice_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,NOW()) ON CONFLICT DO NOTHING`,
+    [data.id, data.subscriptionId, data.merchantId, data.amountKobo, data.status, data.stripeInvoiceId ?? null]
+  );
+  await pool.end();
+}
+
+// POS Terminals (full CRUD)
+export async function listPosTerminals(merchantId: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM pos_terminals WHERE merchant_id=$1 ORDER BY created_at DESC`, [merchantId]);
+  await pool.end();
+  return r.rows;
+}
+export async function getPosTerminal(id: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM pos_terminals WHERE id=$1`, [id]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+export async function upsertPosTerminal(data: {
+  id?: string; merchantId: string; serialNumber: string; model?: string;
+  status?: string; lat?: number; lng?: number; lastHeartbeatAt?: Date;
+}) {
+  const pool = pgPool();
+  const id = data.id ?? genId('term_');
+  await pool.query(
+    `INSERT INTO pos_terminals (id, merchant_id, serial_number, model, status, lat, lng, last_heartbeat_at, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
+     ON CONFLICT (id) DO UPDATE SET status=$5, lat=$6, lng=$7, last_heartbeat_at=$8, updated_at=NOW()`,
+    [id, data.merchantId, data.serialNumber, data.model ?? null, data.status ?? 'active',
+     data.lat ?? null, data.lng ?? null, data.lastHeartbeatAt ?? null]
+  );
+  await pool.end();
+  return id;
+}
+export async function deletePosTerminal(id: string, merchantId: string) {
+  const pool = pgPool();
+  await pool.query(`DELETE FROM pos_terminals WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
+  await pool.end();
+}
+
+// POS Transactions (full CRUD)
+export async function listPosTransactions(merchantId: string, limit = 50, offset = 0) {
+  const pool = pgPool();
+  const [rows, cnt] = await Promise.all([
+    pool.query(`SELECT * FROM pos_transactions WHERE merchant_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, [merchantId, limit, offset]),
+    pool.query(`SELECT COUNT(*) FROM pos_transactions WHERE merchant_id=$1`, [merchantId]),
+  ]);
+  await pool.end();
+  return { rows: rows.rows, total: parseInt(cnt.rows[0].count, 10) };
+}
+export async function getPosTransaction(id: string) {
+  const pool = pgPool();
+  const r = await pool.query(`SELECT * FROM pos_transactions WHERE id=$1`, [id]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+export async function insertPosTransaction(data: {
+  id: string; merchantId: string; terminalId: string; amountKobo: number;
+  currency?: string; status: string; channel?: string; rrn?: string;
+  maskedPan?: string; cardScheme?: string; responseCode?: string;
+}) {
+  const pool = pgPool();
+  await pool.query(
+    `INSERT INTO pos_transactions (id, merchant_id, terminal_id, amount_kobo, currency, status, channel, rrn, masked_pan, card_scheme, response_code, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()) ON CONFLICT DO NOTHING`,
+    [data.id, data.merchantId, data.terminalId, data.amountKobo, data.currency ?? 'NGN',
+     data.status, data.channel ?? null, data.rrn ?? null, data.maskedPan ?? null,
+     data.cardScheme ?? null, data.responseCode ?? null]
+  );
+  await pool.end();
+}
+export async function updatePosTransactionSettlement(id: string, data: {
+  settlementStatus: string; nibssReference?: string; settledAt?: Date;
+}) {
+  const pool = pgPool();
+  await pool.query(
+    `UPDATE pos_transactions SET settlement_status=$2, nibss_reference=$3, settled_at=$4 WHERE id=$1`,
+    [id, data.settlementStatus, data.nibssReference ?? null, data.settledAt ?? null]
+  );
+  await pool.end();
+}
+
+// Agent commission disbursement
+export async function disburseAgentCommissions(superAgentMerchantId: string) {
+  const pool = pgPool();
+  const r = await pool.query(
+    `SELECT id, pending_commission_kobo FROM agent_network WHERE super_agent_merchant_id=$1 AND status='active' AND pending_commission_kobo > 0`,
+    [superAgentMerchantId]
+  );
+  let disbursed = 0;
+  let totalKobo = 0;
+  for (const agent of r.rows) {
+    const pending = parseInt(agent.pending_commission_kobo, 10);
+    await pool.query(
+      `UPDATE agent_network SET pending_commission_kobo=0, total_disbursed_kobo=total_disbursed_kobo+$2, last_disbursed_at=NOW() WHERE id=$1`,
+      [agent.id, pending]
+    );
+    disbursed++;
+    totalKobo += pending;
+  }
+  await pool.end();
+  return { disbursed, totalKobo };
+}
+
+// Restaurant table-turn stats
+export async function getRestaurantTableTurnStats(merchantId: string, date: string) {
+  const pool = pgPool();
+  const r = await pool.query(
+    `SELECT covers, created_at, completed_at FROM restaurant_orders WHERE merchant_id=$1 AND status='paid' AND DATE(created_at)=$2`,
+    [merchantId, date]
+  );
+  await pool.end();
+  const turnsToday = r.rows.length;
+  const coversServed = r.rows.reduce((s: number, o: any) => s + (parseInt(o.covers, 10) || 1), 0);
+  const dwellTimes = r.rows
+    .filter((o: any) => o.completed_at)
+    .map((o: any) => (new Date(o.completed_at).getTime() - new Date(o.created_at).getTime()) / 60000);
+  const avgDwellMinutes = dwellTimes.length > 0 ? Math.round(dwellTimes.reduce((a: number, b: number) => a + b, 0) / dwellTimes.length) : 0;
+  return { turnsToday, avgDwellMinutes, coversServed };
+}
+export async function cancelSubscription(id: string, merchantId: string) {
+  const pool = pgPool();
+  await pool.query(
+    `UPDATE subscriptions SET status='cancelled', updated_at=NOW() WHERE id=$1 AND merchant_id=$2`,
+    [id, merchantId]
+  );
+  await pool.end();
 }

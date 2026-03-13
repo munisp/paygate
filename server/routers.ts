@@ -57,6 +57,8 @@ import {
   listInventoryItems, upsertInventoryItem, adjustInventoryStock, getRecipeCost, upsertRecipeIngredient,
   listStaffMembers, upsertStaffMember, recordStaffShift, listStaffShifts, createPayrollRun, listPayrollRuns, approvePayrollRun,
   getKioskHealthSummary,
+  disburseAgentCommissions,
+  getRestaurantTableTurnStats,
 } from "./db";
 import {
   isBridgeAvailable,
@@ -92,6 +94,13 @@ import {
   forceTerminateWorkflowViaMiddleware,
   sendPayoutApprovalEmailViaMiddleware,
 } from "./middlewareBridge";
+import {
+  rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
+  rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
+  pythonRunPayroll, pythonGetPayrollHistory, pythonGetPayrollStub, pythonScoreTransaction,
+  pythonGetKioskHealth, pythonGetKioskAnomaly, pythonHandleUSSD, pythonGetUSSDBalance,
+  checkAllMicroservices,
+} from "./microservices";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1379,12 +1388,23 @@ const fraudRiskRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      const alert = await createFraudAlert({
+      // Enhance risk score with Python ML fraud scorer if transaction provided
+    let finalRiskScore = input.riskScore;
+    if (input.transactionId) {
+      const pythonScore = await pythonScoreTransaction({
+        transaction_id: input.transactionId,
+        merchant_id: merchant.id,
+        amount_kobo: 0,
+        channel: input.alertType,
+      });
+      if (pythonScore) finalRiskScore = Math.max(finalRiskScore, pythonScore.risk_score);
+    }
+    const alert = await createFraudAlert({
         id: nanoid('fa_'),
         merchantId: merchant.id,
         tenantId: merchant.tenantId ?? "ten_default",
         alertType: input.alertType,
-        riskScore: input.riskScore,
+        riskScore: finalRiskScore,
         description: input.description,
         transactionId: input.transactionId,
         status: 'open',
@@ -3136,10 +3156,34 @@ const agentBankingRouter = router({
     await upsertSubAgent({ superAgentMerchantId: merchant.id, ...input });
     return { ok: true };
   }),
+  disburseCommissions: protectedProcedure.mutation(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const result = await disburseAgentCommissions(merchant.id);
+    if (result.disbursed > 0) {
+      await notifyOwner({ title: "Commission Disbursement", content: `Disbursed to ${result.disbursed} sub-agents` }).catch(() => {});
+    }
+    return result;
+  }),
   kioskHealth: protectedProcedure.query(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return { total: 0, online: 0, warning: 0, offline: 0, terminals: [] };
+    // Try Python kiosk-health anomaly detector first (ML-based)
+    const pythonHealth = await pythonGetKioskHealth(merchant.id);
+    if (pythonHealth) {
+      const total = pythonHealth.length;
+      const online = pythonHealth.filter((t: any) => t.status === 'online').length;
+      const warning = pythonHealth.filter((t: any) => t.status === 'warning').length;
+      const offline = pythonHealth.filter((t: any) => t.status === 'offline').length;
+      return { total, online, warning, offline, terminals: pythonHealth };
+    }
     return getKioskHealthSummary(merchant.id);
+  }),
+  kioskAnomaly: protectedProcedure.input(z.object({ terminalId: z.string() })).query(async ({ ctx, input }) => {
+    return pythonGetKioskAnomaly(input.terminalId);
+  }),
+  microserviceStatus: protectedProcedure.query(async () => {
+    return checkAllMicroservices();
   }),
 });
 
@@ -3300,6 +3344,14 @@ const restaurantRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    // Try Rust loyalty-ledger (double-entry, atomic)
+    const rustResult = await rustEarnPoints({
+      merchant_id: merchant.id,
+      customer_id: String(input.customerId),
+      points: input.points,
+      order_id: input.orderId,
+    });
+    if (rustResult) return { ok: true, newBalance: rustResult.new_balance };
     const account = await getOrCreateLoyaltyAccount(merchant.id, input.customerId);
     if (!account) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await earnLoyaltyPoints(account.id, input.points, input.orderId);
@@ -3310,18 +3362,43 @@ const restaurantRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    // Try Rust loyalty-ledger (validates balance atomically)
+    const rustResult = await rustRedeemPoints({
+      merchant_id: merchant.id,
+      customer_id: String(input.customerId),
+      points: input.points,
+      order_id: input.orderId,
+    });
+    if (rustResult) {
+      if (!rustResult.ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points balance" });
+      return { ok: true, newBalance: rustResult.new_balance };
+    }
     const account = await getOrCreateLoyaltyAccount(merchant.id, input.customerId);
     if (!account) throw new TRPCError({ code: "NOT_FOUND" });
     const ok = await redeemLoyaltyPoints(account.id, input.points, input.orderId);
     if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points balance" });
     return { ok: true };
   }),
+  getLoyaltyBalance: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return null;
+    return rustGetLoyaltyBalance(merchant.id, String(input.customerId));
+  }),
   getLoyaltyHistory: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
+    // Try Rust for history (includes expiry metadata)
+    const rustHistory = await rustGetLoyaltyHistory(merchant.id, String(input.customerId));
+    if (rustHistory) return rustHistory;
     const account = await getOrCreateLoyaltyAccount(merchant.id, input.customerId);
     if (!account) return [];
     return getLoyaltyHistory(account.id);
+  }),
+  tableTurnStats: protectedProcedure.input(z.object({ date: z.string().optional() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return { turnsToday: 0, avgDwellMinutes: 0, coversServed: 0 };
+    const date = input.date ?? new Date().toISOString().slice(0, 10);
+    return getRestaurantTableTurnStats(merchant.id, date);
   }),
 });
 
@@ -3352,10 +3429,27 @@ const kdsRouter = router({
     await markOrderItemReady(input.itemId);
     return { ok: true };
   }),
-  markOrderComplete: protectedProcedure.input(z.object({ orderId: z.string() })).mutation(async ({ ctx, input }) => {
+  markOrderComplete: protectedProcedure.input(z.object({
+    orderId: z.string(),
+    tableNumber: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await markOrderComplete(input.orderId, merchant.id);
+    // KDS→Soundbox: announce in merchant's preferred language
+    try {
+      const lang = (merchant as any).soundboxLanguage ?? 'en';
+      const tableRef = input.tableNumber ? ` Table ${input.tableNumber}` : '';
+      const msgs: Record<string, string> = { en: `Order ready${tableRef}`, yo: `\u00c0\u1e63\u1eb9 t\u00e1n${tableRef}`, ha: `Oda ya${tableRef}`, ig: `\u1ecdr\u1ee5 d\u012b njikere${tableRef}` };
+      const msg = msgs[lang] ?? msgs['en'];
+      if (isBridgeAvailable()) {
+        fetch(`${process.env.MIDDLEWARE_BRIDGE_URL}/v1/soundbox/announce`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Key': process.env.MIDDLEWARE_INTERNAL_KEY ?? '' },
+          body: JSON.stringify({ merchantId: merchant.id, message: msg, language: lang }),
+        }).catch(() => {});
+      }
+    } catch (_) {}
     return { ok: true };
   }),
 });
@@ -3365,6 +3459,9 @@ const inventoryRouter = router({
   listItems: protectedProcedure.query(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
+    // Try Rust inventory-engine first (richer data with needs_reorder flag)
+    const rustItems = await rustListInventoryItems(merchant.id);
+    if (rustItems) return rustItems;
     return listInventoryItems(merchant.id);
   }),
   upsertItem: protectedProcedure.input(z.object({
@@ -3390,8 +3487,16 @@ const inventoryRouter = router({
     return { ok: true };
   }),
   getRecipeCost: protectedProcedure.input(z.object({ menuItemId: z.string() })).query(async ({ ctx, input }) => {
+    // Try Rust engine for detailed ingredient breakdown
+    const rustCost = await rustGetRecipeCost(input.menuItemId);
+    if (rustCost) return { costKobo: rustCost.total_cost_kobo, ingredients: rustCost.ingredients };
     const cost = await getRecipeCost(input.menuItemId);
-    return { costKobo: cost };
+    return { costKobo: cost, ingredients: [] };
+  }),
+  getCOGS: protectedProcedure.input(z.object({ from: z.string(), to: z.string() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return null;
+    return rustGetCOGS(merchant.id, input.from, input.to);
   }),
   upsertRecipeIngredient: protectedProcedure.input(z.object({
     menuItemId: z.string(),
@@ -3445,7 +3550,24 @@ const payrollRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    // Try Python payroll service first (handles tax calc, NHF, pension)
+    const pythonResult = await pythonRunPayroll({
+      merchant_id: merchant.id,
+      period_start: input.periodStart.toISOString().slice(0, 10),
+      period_end: input.periodEnd.toISOString().slice(0, 10),
+    });
+    if (pythonResult) return pythonResult;
     return createPayrollRun({ ...input, merchantId: merchant.id });
+  }),
+  getPayrollHistory: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    const pythonHistory = await pythonGetPayrollHistory(merchant.id);
+    if (pythonHistory) return pythonHistory;
+    return listPayrollRuns(merchant.id);
+  }),
+  getPayrollStub: protectedProcedure.input(z.object({ runId: z.string(), staffId: z.string() })).query(async ({ ctx, input }) => {
+    return pythonGetPayrollStub(input.runId, input.staffId);
   }),
   listRuns: protectedProcedure.query(async ({ ctx }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
