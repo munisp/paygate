@@ -652,3 +652,34 @@
 - [x] Tests: Merchant portal 425 tests passing (up from 411, +14 Keycloak tests)
 - [x] Tests: USSD service 15 tests passing after grpc_stubs import fix
 - [x] TypeScript: 0 errors in both merchant and consumer portals
+
+## Wave 26 — Consumer UI Pages, TigerBeetle Wiring, Keycloak Secrets
+
+- [x] Consumer portal: AnalyticsDashboard.tsx page (spend trends, top merchants, credit/debit split)
+- [x] Consumer portal: DisputeCenter.tsx page (file dispute, list disputes, status tracking)
+- [x] Consumer portal: FraudAlerts.tsx page (active flags, velocity alerts, resolve actions)
+- [x] Consumer portal: wire all 3 new pages into App.tsx routes and sidebar nav
+- [x] Consumer portal: write vitest tests for new UI logic
+- [x] Middleware: wire TigerBeetle consumer account creation on consumer registration (Go bridge)
+- [x] Consumer portal: call bridge /consumer/v1/account/create after OTP verification
+- [x] Consumer portal: store tigerBeetleAccountId on consumers table
+- [x] Rust: add consumer account type constant to TigerBeetle FFI crate
+- [x] Keycloak: configure KEYCLOAK_ISSUER_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET secrets
+- [x] Keycloak: validate auth flow end-to-end with test token
+
+## Wave 26 — Completion Summary
+
+- [x] AnalyticsDashboard.tsx — spend stats, monthly summary, daily volume chart, category breakdown, top recipients (all fields match router schema)
+- [x] DisputeCenter.tsx — file dispute, list disputes, dispute detail, cancel dispute, stats summary (rewritten to match schema field names)
+- [x] FraudAlerts.tsx — fraud flag list, security summary, acknowledge flag, report suspicious activity (rewritten to match schema field names)
+- [x] Routes wired in consumer portal App.tsx (/analytics, /disputes, /fraud-alerts)
+- [x] Profile.tsx — added quick-access links to Analytics, Disputes, Security pages
+- [x] TigerBeetle consumer account creation on OTP registration (Go consumer_account_handler.go + consumer_accounts.go)
+- [x] callMiddlewareBridge wired into verifyOtp for new consumer TB account provisioning
+- [x] Keycloak secrets configured with defaults (KEYCLOAK_ISSUER_URL, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET)
+- [x] Consumer portal TypeScript: 0 errors
+- [x] Merchant portal: 425 tests passing
+- [x] Consumer portal: 103 tests passing
+- [x] Admin portal: 72 tests passing
+- [x] USSD service: 15 tests passing
+- [x] Go relays: all tests passing

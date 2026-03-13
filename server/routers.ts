@@ -1,3 +1,4 @@
+import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -42,7 +43,6 @@ import {
 import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
-import { grpcRouter } from "./grpcRouter";
 import {
   isBridgeAvailable,
   initiatePayoutApproval,
