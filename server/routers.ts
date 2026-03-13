@@ -42,6 +42,7 @@ import {
 import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
+import { grpcRouter } from "./grpcRouter";
 import {
   isBridgeAvailable,
   initiatePayoutApproval,
@@ -2642,6 +2643,7 @@ export const appRouter = router({
   notifications: notificationsRouter,
   pushTokens: pushTokensRouter,
   qrPayments: qrPaymentsRouter,
+  grpc: grpcRouter,
 });
 
 export type AppRouter = typeof appRouter;

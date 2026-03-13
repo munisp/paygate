@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package paygate;
+
+option java_package = "com.paygate.grpc";
+option java_multiple_files = true;
+
+// ─── Ledger Service (TigerBeetle bridge) ──────────────────────────────────────
+
+service LedgerService {
+  rpc GetBalance (GetBalanceRequest) returns (GetBalanceResponse);
+  rpc CreateTransfer (CreateTransferRequest) returns (CreateTransferResponse);
+  rpc GetTransfer (GetTransferRequest) returns (GetTransferResponse);
+  rpc BatchCreateTransfers (BatchCreateTransfersRequest) returns (BatchCreateTransfersResponse);
+}
+
+message GetBalanceRequest {
+  string account_id = 1;
+  string currency = 2;
+}
+
+message GetBalanceResponse {
+  string account_id = 1;
+  int64 balance_cents = 2;
+  string currency = 3;
+  int64 credits_posted = 4;
+  int64 debits_posted = 5;
+  int64 credits_pending = 6;
+  int64 debits_pending = 7;
+}
+
+message CreateTransferRequest {
+  string idempotency_key = 1;
+  string debit_account_id = 2;
+  string credit_account_id = 3;
+  int64 amount_cents = 4;
+  string currency = 5;
+  string ledger_code = 6;
+  string reference = 7;
+  map<string, string> metadata = 8;
+}
+
+message CreateTransferResponse {
+  string transfer_id = 1;
+  bool success = 2;
+  string error_code = 3;
+  string error_message = 4;
+}
+
+message GetTransferRequest {
+  string transfer_id = 1;
+}
+
+message GetTransferResponse {
+  string transfer_id = 1;
+  string debit_account_id = 2;
+  string credit_account_id = 3;
+  int64 amount_cents = 4;
+  string currency = 5;
+  string status = 6;
+  int64 timestamp_ms = 7;
+}
+
+message BatchCreateTransfersRequest {
+  repeated CreateTransferRequest transfers = 1;
+}
+
+message BatchCreateTransfersResponse {
+  repeated CreateTransferResponse results = 1;
+  int32 success_count = 2;
+  int32 failure_count = 3;
+}
+
+// ─── Fraud Scoring Service (Python ML) ────────────────────────────────────────
+
+service FraudService {
+  rpc ScoreTransaction (ScoreTransactionRequest) returns (ScoreTransactionResponse);
+  rpc ReportFraud (ReportFraudRequest) returns (ReportFraudResponse);
+  rpc GetRiskProfile (GetRiskProfileRequest) returns (GetRiskProfileResponse);
+}
+
+message ScoreTransactionRequest {
+  string transaction_id = 1;
+  string entity_id = 2;
+  string entity_type = 3; // "merchant" | "consumer"
+  int64 amount_cents = 4;
+  string currency = 5;
+  string channel = 6;
+  int32 velocity_1h = 7;
+  int32 velocity_24h = 8;
+  bool is_new_device = 9;
+  bool is_new_ip = 10;
+  double amount_vs_avg_ratio = 11;
+}
+
+message ScoreTransactionResponse {
+  double fraud_score = 1;
+  string risk_level = 2; // "low" | "medium" | "high" | "critical"
+  string action = 3;     // "allow" | "review" | "block"
+  repeated string explanation = 4;
+}
+
+message ReportFraudRequest {
+  string transaction_id = 1;
+  string entity_id = 2;
+  string entity_type = 3;
+  string reason = 4;
+}
+
+message ReportFraudResponse {
+  bool success = 1;
+  string case_id = 2;
+}
+
+message GetRiskProfileRequest {
+  string entity_id = 1;
+  string entity_type = 2;
+}
+
+message GetRiskProfileResponse {
+  string entity_id = 1;
+  double overall_risk_score = 2;
+  string risk_tier = 3;
+  int32 total_flags_30d = 4;
+  int32 critical_flags_30d = 5;
+  int64 last_flag_timestamp_ms = 6;
+}
+
+// ─── Notification Service (Python FCM/APNs) ───────────────────────────────────
+
+service NotificationService {
+  rpc SendToUser (SendToUserRequest) returns (SendToUserResponse);
+  rpc SendToTopic (SendToTopicRequest) returns (SendToTopicResponse);
+  rpc RegisterToken (RegisterTokenRequest) returns (RegisterTokenResponse);
+  rpc DeregisterToken (DeregisterTokenRequest) returns (DeregisterTokenResponse);
+}
+
+message NotificationPayload {
+  string title = 1;
+  string body = 2;
+  string image_url = 3;
+  map<string, string> data = 4;
+}
+
+message SendToUserRequest {
+  string user_id = 1;
+  string merchant_id = 2;
+  NotificationPayload notification = 3;
+  string notification_type = 4;
+  string priority = 5; // "HIGH" | "NORMAL"
+}
+
+message SendToUserResponse {
+  bool success = 1;
+  int32 sent_count = 2;
+  int32 failed_count = 3;
+  repeated string failed_tokens = 4;
+}
+
+message SendToTopicRequest {
+  string topic = 1;
+  NotificationPayload notification = 2;
+  string notification_type = 3;
+}
+
+message SendToTopicResponse {
+  bool success = 1;
+  string message_id = 2;
+}
+
+message RegisterTokenRequest {
+  string token = 1;
+  string platform = 2; // "fcm" | "apns"
+  string device_id = 3;
+  string merchant_id = 4;
+  string user_id = 5;
+  string user_type = 6; // "merchant" | "consumer"
+}
+
+message RegisterTokenResponse {
+  bool success = 1;
+  string token_id = 2;
+}
+
+message DeregisterTokenRequest {
+  string token = 1;
+}
+
+message DeregisterTokenResponse {
+  bool success = 1;
+}
+
+// ─── USSD Service ─────────────────────────────────────────────────────────────
+
+service UssdService {
+  rpc HandleSession (UssdSessionRequest) returns (UssdSessionResponse);
+  rpc GetSessionState (GetSessionStateRequest) returns (GetSessionStateResponse);
+}
+
+message UssdSessionRequest {
+  string session_id = 1;
+  string phone_number = 2;
+  string service_code = 3;
+  string text = 4;
+  string network_code = 5;
+}
+
+message UssdSessionResponse {
+  string response = 1;
+  bool end_session = 2;
+}
+
+message GetSessionStateRequest {
+  string session_id = 1;
+}
+
+message GetSessionStateResponse {
+  string session_id = 1;
+  string phone_number = 2;
+  string current_menu = 3;
+  map<string, string> state = 4;
+  bool is_active = 5;
+}
+
+// ─── Outbox Relay Service (Go) ────────────────────────────────────────────────
+
+service OutboxService {
+  rpc PublishEvent (PublishEventRequest) returns (PublishEventResponse);
+  rpc GetEventStatus (GetEventStatusRequest) returns (GetEventStatusResponse);
+  rpc RetryEvent (RetryEventRequest) returns (RetryEventResponse);
+}
+
+message PublishEventRequest {
+  string idempotency_key = 1;
+  string topic = 2;
+  string event_type = 3;
+  string aggregate_id = 4;
+  bytes payload = 5;
+  map<string, string> headers = 6;
+}
+
+message PublishEventResponse {
+  bool success = 1;
+  string event_id = 2;
+  bool was_duplicate = 3;
+}
+
+message GetEventStatusRequest {
+  string event_id = 1;
+}
+
+message GetEventStatusResponse {
+  string event_id = 1;
+  string status = 2; // "pending" | "published" | "failed"
+  int32 retry_count = 3;
+  int64 created_at_ms = 4;
+  int64 published_at_ms = 5;
+  string error_message = 6;
+}
+
+message RetryEventRequest {
+  string event_id = 1;
+}
+
+message RetryEventResponse {
+  bool success = 1;
+}
