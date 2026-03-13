@@ -2549,6 +2549,72 @@ const stripeRouter = router({
       const { listCheckoutSessions } = await import('./stripe');
       return listCheckoutSessions({ limit: input.limit, startingAfter: input.startingAfter });
     }),
+
+  // Returns whether Stripe is in test mode, live mode, or unconfigured.
+  // Used by the go-live checklist and Settings page.
+  getKeyMode: publicProcedure.query(() => {
+    const key = process.env.STRIPE_SECRET_KEY ?? '';
+    const publishable = process.env.VITE_STRIPE_PUBLISHABLE_KEY ?? '';
+    if (!key) return { mode: 'unconfigured' as const, sandboxClaimUrl: 'https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ', sandboxExpiry: '2026-05-11T16:17:47.000Z' };
+    if (key.startsWith('sk_test_') || key.startsWith('sk_live_')) {
+      const mode = key.startsWith('sk_live_') ? 'live' : 'test';
+      return { mode, sandboxClaimUrl: 'https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ', sandboxExpiry: '2026-05-11T16:17:47.000Z', publishableKeySet: Boolean(publishable) };
+    }
+    return { mode: 'test' as const, sandboxClaimUrl: 'https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ', sandboxExpiry: '2026-05-11T16:17:47.000Z', publishableKeySet: Boolean(publishable) };
+  }),
+});
+
+// ─── Admin Router ─────────────────────────────────────────────────────────────
+const adminMgmtRouter = router({
+  // Returns count of admin users — used by onboarding wizard to detect no-admin state.
+  getAdminCount: protectedProcedure.query(async ({ ctx }) => {
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const res = await pool.query(`SELECT COUNT(*) as cnt FROM users WHERE role='admin'`);
+    await pool.end();
+    return { count: parseInt(res.rows[0]?.cnt ?? '0', 10) };
+  }),
+
+  // Promotes the currently logged-in owner to admin (only works when 0 admins exist).
+  promoteOwnerToAdmin: protectedProcedure.mutation(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    // Safety: only allow self-promotion when no admins exist yet
+    const check = await pool.query(`SELECT COUNT(*) as cnt FROM users WHERE role='admin'`);
+    const adminCount = parseInt(check.rows[0]?.cnt ?? '0', 10);
+    if (adminCount > 0) {
+      await pool.end();
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'An admin already exists. Use the Database panel to manage roles.' });
+    }
+    await pool.query(`UPDATE users SET role='admin' WHERE id=$1`, [user.id]);
+    await pool.end();
+    return { promoted: true, userId: user.id };
+  }),
+
+  // Lists all users with their roles — admin only.
+  listUsers: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    if (user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const res = await pool.query(`SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC LIMIT 200`);
+    await pool.end();
+    return res.rows as { id: string; name: string; email: string; role: string; created_at: Date }[];
+  }),
+
+  // Changes a user's role — admin only.
+  setUserRole: protectedProcedure
+    .input(z.object({ userId: z.string(), role: z.enum(['admin', 'user']) }))
+    .mutation(async ({ ctx, input }) => {
+      const caller = await resolveUser(ctx.user.openId);
+      if (caller.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
+      const { Pool } = await import('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      await pool.query(`UPDATE users SET role=$1 WHERE id=$2`, [input.role, input.userId]);
+      await pool.end();
+      return { updated: true };
+    }),
 });
 
 // ─── Push Token Router ─────────────────────────────────────────────────────
@@ -3611,6 +3677,7 @@ export const appRouter = router({
   nip: nipRouter,
   settlements: settlementsRouter,
   stripe: stripeRouter,
+  adminMgmt: adminMgmtRouter,
   notifications: notificationsRouter,
   pushTokens: pushTokensRouter,
   qrPayments: qrPaymentsRouter,

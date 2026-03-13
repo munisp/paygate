@@ -7,8 +7,8 @@ import {
   Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon,
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
-  ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers
-} from "lucide-react";
+  ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
+  Rocket, Crown, Server} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -44,6 +44,9 @@ const navItems = [
   { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement", badge: "New" },
   { icon: Layers, label: "PTSP Batches", path: "/ptsp-batches" },
   { icon: ShieldAlert, label: "Geofence Alerts", path: "/geofence-alerts" },
+  { icon: Server, label: "Service Health", path: "/microservice-health" },
+  { icon: Crown, label: "Admin Setup", path: "/admin-setup" },
+  { icon: Rocket, label: "Go-Live Checklist", path: "/go-live" },
   { icon: Users2, label: "Agent Banking", path: "/agent-banking" },
   { icon: Activity, label: "Kiosk Health", path: "/kiosk-health" },
   { icon: UtensilsCrossed, label: "Floor Plan", path: "/restaurant/floor-plan" },

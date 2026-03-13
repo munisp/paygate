@@ -55,6 +55,9 @@ import KitchenDisplay from "./pages/KitchenDisplay";
 import Inventory from "./pages/Inventory";
 import Payroll from "./pages/Payroll";
 import GeofenceAlerts from "./pages/GeofenceAlerts";
+import MicroserviceHealth from "./pages/MicroserviceHealth";
+import AdminSetup from "./pages/AdminSetup";
+import GoLiveChecklist from "./pages/GoLiveChecklist";
 
 function Router() {
   const [location] = useLocation();
@@ -131,6 +134,9 @@ function Router() {
         <Route path="/inventory" component={Inventory} />
         <Route path="/payroll" component={Payroll} />
         <Route path="/geofence-alerts" component={GeofenceAlerts} />
+      <Route path="/microservice-health" component={MicroserviceHealth} />
+      <Route path="/admin-setup" component={AdminSetup} />
+      <Route path="/go-live" component={GoLiveChecklist} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

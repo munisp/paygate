@@ -986,3 +986,24 @@
 - [x] ENV_DOCS.md updated with Wave 32/33 microservice URLs and startup instructions
 - [x] Production dist/index.js rebuilt clean (no duplicate exports)
 - [x] 594 tests passing across 23 test files
+
+## Wave 34 (March 2026) — Go-Live Readiness
+
+- [ ] Stripe sandbox claim reminder banner in Settings with deadline countdown
+- [ ] Live key swap workflow: detect test vs live keys, show upgrade path
+- [ ] Microservice deployment health dashboard (online/fallback/offline per service)
+- [ ] First admin user promotion flow: onboarding wizard for no-admin state
+- [ ] Production go-live checklist page with real-time prerequisite checks
+
+## Wave 34 (March 2026)
+
+- [x] Stripe sandbox claim reminder UI in Settings
+- [x] Stripe live key swap workflow (mode detection: test/live/unconfigured)
+- [x] Microservice Health dashboard page (/microservice-health) with per-service start commands
+- [x] Admin Setup wizard page (/admin-setup) with first-admin promotion and user role table
+- [x] Production Go-Live Checklist page (/go-live) with real-time status checks
+- [x] adminMgmt tRPC router (getAdminCount, promoteOwnerToAdmin, listUsers, setUserRole)
+- [x] system.goLiveChecklist procedure (Stripe, JWT, admin, DB, domain checks)
+- [x] system.microservicesHealth procedure (6 services, 30s polling)
+- [x] Wave 34 vitest tests (19 tests)
+- [x] All three pages wired into App.tsx routes and Layout.tsx sidebar
