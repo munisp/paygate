@@ -4,10 +4,11 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Users } from "lucide-react";
+import { Plus, RefreshCw, Users, TrendingUp, Clock, BarChart3 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
   available: "#22c55e",
@@ -55,6 +56,10 @@ export default function RestaurantFloorPlan() {
   });
 
   const updatePosition = trpc.restaurant.updateTablePosition.useMutation();
+
+  const { data: turnStats } = trpc.restaurant.tableTurnStats.useQuery({}, {
+    staleTime: 60_000,
+  });
 
   const tables: any[] = data ?? [];
 
@@ -210,6 +215,45 @@ export default function RestaurantFloorPlan() {
           </div>
         </CardContent>
       </Card>
+      {/* Table Turn Stats */}
+      {turnStats && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-muted-foreground" />
+              Today's Table Turn Stats
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">{(turnStats as any).tablesServed ?? 0}</div>
+                <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+                  <TrendingUp className="w-3 h-3" /> Tables Served
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{(turnStats as any).coversServed ?? 0}</div>
+                <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+                  <Users className="w-3 h-3" /> Covers
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-amber-600">{Math.round((turnStats as any).avgDwellMinutes ?? 0)}m</div>
+                <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+                  <Clock className="w-3 h-3" /> Avg Dwell
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">
+                  ₦{(((turnStats as any).revenueKobo ?? 0) / 100).toLocaleString("en-NG", { maximumFractionDigits: 0 })}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">Revenue Today</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -1007,3 +1007,15 @@
 - [x] system.microservicesHealth procedure (6 services, 30s polling)
 - [x] Wave 34 vitest tests (19 tests)
 - [x] All three pages wired into App.tsx routes and Layout.tsx sidebar
+
+## Wave 35 (March 2026) — Production UI Polish
+
+- [x] Settings page: Stripe Payment section with live-key swap UI, sandbox claim deep-link, and May 11 2026 countdown timer
+- [x] RestaurantFloorPlan.tsx: production-quality drag-and-drop floor plan with table status management, turn stats KPIs, and section filtering
+- [x] RestaurantOrders.tsx: full order management with split-bill dialog, status workflow (pending→preparing→ready→served), and real-time refresh
+- [x] RestaurantMenu.tsx: category management, menu item CRUD, food cost % display, and availability toggle
+- [x] KitchenDisplay.tsx: age-coded KDS cards with station selector, order priority, and soundbox integration
+- [x] RestaurantInventory.tsx (Inventory.tsx): stock level table with adjustment dialog, low-stock alerts, and Rust cost engine integration
+- [x] AgentBanking.tsx: full production UI — KPI cards, network health panel, search/filter/sort, agent detail drawer with status management, bulk commission disbursement
+- [x] TypeScript: 0 errors across all 35+ pages
+- [x] Tests: 613 passing (24 test files, no regressions)

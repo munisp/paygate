@@ -1,10 +1,108 @@
 import { useState, useEffect } from "react";
-import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2 } from "lucide-react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+
+// ── Stripe Payment Section ──────────────────────────────────────────────────
+function StripeSection() {
+  const { data: stripeData, isLoading: stripeLoading, refetch } = trpc.stripe.getKeyMode.useQuery(undefined, { staleTime: 30_000 });
+
+  const mode = stripeData?.mode ?? 'unconfigured';
+  const sandboxClaimUrl = (stripeData as any)?.sandboxClaimUrl ?? 'https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ';
+  const sandboxExpiry = (stripeData as any)?.sandboxExpiry ?? '2026-05-11T16:17:47.000Z';
+  const daysLeft = Math.max(0, Math.ceil((new Date(sandboxExpiry).getTime() - Date.now()) / 86_400_000));
+
+  const modeConfig = {
+    live:          { icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', label: 'Live Mode', desc: 'Real card processing is active.' },
+    test:          { icon: Clock,        color: 'text-amber-600',   bg: 'bg-amber-50 border-amber-200',   badge: 'bg-amber-100 text-amber-700',   label: 'Test Mode', desc: `Sandbox active — ${daysLeft} days until expiry.` },
+    unconfigured:  { icon: AlertTriangle, color: 'text-red-600',    bg: 'bg-red-50 border-red-200',       badge: 'bg-red-100 text-red-700',       label: 'Not Configured', desc: 'No Stripe keys found.' },
+  }[mode] ?? { icon: AlertTriangle, color: 'text-muted-foreground', bg: 'bg-muted border-border', badge: 'bg-muted text-muted-foreground', label: 'Unknown', desc: '' };
+
+  const ModeIcon = modeConfig.icon;
+
+  return (
+    <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+      <div className="flex items-center gap-2 mb-2">
+        <CreditCard className="w-4 h-4 text-primary" />
+        <h3 className="font-semibold">Payment Configuration</h3>
+      </div>
+
+      {stripeLoading ? (
+        <Skeleton className="h-20 w-full rounded-xl" />
+      ) : (
+        <div className={`rounded-xl border p-4 ${modeConfig.bg}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <ModeIcon className={`w-5 h-5 mt-0.5 ${modeConfig.color}`} />
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-sm">{modeConfig.label}</p>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${modeConfig.badge}`}>{mode.toUpperCase()}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{modeConfig.desc}</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs h-7">
+              Refresh
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'test' && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Claim your Stripe sandbox before {new Date(sandboxExpiry).toLocaleDateString()}</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                You have <strong>{daysLeft} days</strong> to claim the sandbox. After that, test payments will stop working.
+                Once claimed, go live by replacing keys in Settings → Secrets.
+              </p>
+            </div>
+          </div>
+          <a href={sandboxClaimUrl} target="_blank" rel="noopener noreferrer">
+            <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5">
+              <ExternalLink className="w-3.5 h-3.5" />
+              Claim Stripe Sandbox
+            </Button>
+          </a>
+        </div>
+      )}
+
+      {mode === 'unconfigured' && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <p className="text-sm text-red-700">
+            No Stripe keys detected. Go to <strong>Settings → Secrets</strong> and add
+            <code className="mx-1 px-1 bg-red-100 rounded text-xs font-mono">STRIPE_SECRET_KEY</code> and
+            <code className="mx-1 px-1 bg-red-100 rounded text-xs font-mono">VITE_STRIPE_PUBLISHABLE_KEY</code>.
+          </p>
+        </div>
+      )}
+
+      <div className="rounded-xl bg-muted/50 p-4 space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Test Card Numbers</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[
+            { card: '4242 4242 4242 4242', label: 'Visa — Success' },
+            { card: '4000 0000 0000 9995', label: 'Visa — Decline (insufficient funds)' },
+            { card: '4000 0025 0000 3155', label: 'Visa — 3D Secure required' },
+            { card: '5555 5555 5555 4444', label: 'Mastercard — Success' },
+          ].map(({ card, label }) => (
+            <div key={card} className="flex items-center gap-2 p-2 rounded-lg bg-background border border-border">
+              <code className="text-xs font-mono text-primary">{card}</code>
+              <span className="text-xs text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Use any future expiry date and any 3-digit CVV.</p>
+      </div>
+    </div>
+  );
+}
 
 const FREQUENCY_OPTIONS = [
   { value: "daily",   label: "Daily",   desc: "Settled every business day" },
@@ -305,6 +403,9 @@ export default function Settings() {
           )}
         </div>
       </form>
+
+      {/* Stripe Payment Configuration */}
+      <StripeSection />
 
       {/* Soundbox Language Preference */}
       <div className="bg-card rounded-xl border border-border p-6 space-y-4">
