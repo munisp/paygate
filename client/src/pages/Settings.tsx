@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff, Smartphone } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff, Smartphone, Share2, MessageCircle, Copy, QrCode, Link } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -566,51 +566,127 @@ export default function Settings() {
       </div>
 
       {/* Consumer Portal Launch Card */}
-      <div className="bg-gradient-to-br from-violet-500/10 to-indigo-500/10 rounded-xl border border-violet-500/20 p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
-            <Smartphone className="w-5 h-5 text-violet-400" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">Consumer App Portal</h3>
-            <p className="text-xs text-muted-foreground">Separate app for your end-customers — wallets, QR pay, bill payments</p>
-          </div>
+      <ConsumerPortalSection merchantName={form.businessName} merchantId={(data?.merchant as any)?.id ?? ''} />
+    </div>
+  );
+}
+
+// ─── Consumer Portal Section ────────────────────────────────────────────────
+function ConsumerPortalSection({ merchantName, merchantId }: { merchantName: string; merchantId: string }) {
+  const [showQR, setShowQR] = useState(false);
+
+  // Generate a merchant-specific deep link slug from business name
+  const slug = merchantName
+    ? merchantName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30)
+    : merchantId.slice(0, 12);
+  const consumerUrl = `${window.location.origin}/consumer`;
+  const deepLink = slug ? `${window.location.origin}/consumer?merchant=${encodeURIComponent(slug)}` : consumerUrl;
+  const shareText = `Pay with PayGate — ${merchantName || 'our store'}. Open the app to manage your wallet, send money, and pay at checkout.`;
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(deepLink);
+    toast.success('Deep link copied to clipboard');
+  }, [deepLink]);
+
+  const handleWhatsApp = useCallback(() => {
+    const msg = encodeURIComponent(`${shareText}\n\n${deepLink}`);
+    window.open(`https://wa.me/?text=${msg}`, '_blank', 'noopener');
+  }, [shareText, deepLink]);
+
+  const handleSMS = useCallback(() => {
+    const msg = encodeURIComponent(`${shareText} ${deepLink}`);
+    window.open(`sms:?body=${msg}`, '_blank');
+  }, [shareText, deepLink]);
+
+  const handleNativeShare = useCallback(async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `${merchantName || 'PayGate'} Consumer App`, text: shareText, url: deepLink });
+      } catch { /* user cancelled */ }
+    } else {
+      handleCopy();
+    }
+  }, [merchantName, shareText, deepLink, handleCopy]);
+
+  return (
+    <div className="bg-gradient-to-br from-violet-500/10 to-indigo-500/10 rounded-xl border border-violet-500/20 p-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
+          <Smartphone className="w-5 h-5 text-violet-400" />
         </div>
-        <p className="text-sm text-muted-foreground">
-          The <strong>PayGate Consumer App</strong> is a standalone mobile-first portal your customers use to manage their wallet, send money, pay bills, and scan QR codes at your checkout. It is entirely separate from this merchant portal.
+        <div>
+          <h3 className="font-semibold text-foreground">Consumer App Portal</h3>
+          <p className="text-xs text-muted-foreground">Separate app for your end-customers — wallets, QR pay, bill payments</p>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        The <strong>PayGate Consumer App</strong> is a standalone mobile-first portal your customers use to manage their wallet, send money, pay bills, and scan QR codes at your checkout.
+      </p>
+
+      {/* Deep link display */}
+      <div className="rounded-lg bg-background border border-border p-3">
+        <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1">
+          <Link className="w-3 h-3" />
+          Your merchant deep link
         </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <a
-            href={`${window.location.origin}/consumer`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
-          >
-            <ExternalLink className="w-4 h-4" />
-            Open Consumer App
-          </a>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-xs font-mono text-violet-600 bg-violet-50 px-2 py-1.5 rounded truncate">
+            {deepLink}
+          </code>
           <button
-            onClick={() => {
-              const url = `${window.location.origin}/consumer`;
-              navigator.clipboard.writeText(url);
-              toast.success("Consumer app URL copied to clipboard");
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-500/10 transition-colors"
+            onClick={handleCopy}
+            className="flex-shrink-0 p-1.5 rounded hover:bg-muted transition-colors"
+            title="Copy link"
           >
-            <Globe className="w-4 h-4" />
-            Copy URL for customers
+            <Copy className="w-3.5 h-3.5 text-muted-foreground" />
           </button>
         </div>
-        <div className="rounded-lg bg-muted/50 border border-border p-3">
-          <p className="text-xs font-medium text-muted-foreground mb-1">Consumer App Features</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
-            {["Wallet & Balance", "Send Money", "QR Payments", "Bill Pay", "Quick Pay", "Notifications", "Transaction History", "KYC Onboarding"].map(f => (
-              <div key={f} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CheckCircle2 className="w-3 h-3 text-violet-400 flex-shrink-0" />
-                {f}
-              </div>
-            ))}
-          </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-2">
+        <a
+          href={consumerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          Open App
+        </a>
+        <button
+          onClick={handleWhatsApp}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 transition-colors"
+        >
+          <MessageCircle className="w-3.5 h-3.5" />
+          WhatsApp
+        </button>
+        <button
+          onClick={handleSMS}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-violet-500/30 text-violet-600 text-sm font-medium hover:bg-violet-500/10 transition-colors"
+        >
+          <MessageCircle className="w-3.5 h-3.5" />
+          SMS
+        </button>
+        <button
+          onClick={handleNativeShare}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-muted-foreground text-sm font-medium hover:bg-muted transition-colors"
+        >
+          <Share2 className="w-3.5 h-3.5" />
+          Share
+        </button>
+      </div>
+
+      {/* Features grid */}
+      <div className="rounded-lg bg-muted/50 border border-border p-3">
+        <p className="text-xs font-medium text-muted-foreground mb-1">Consumer App Features</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+          {["Wallet & Balance", "Send Money", "QR Payments", "Bill Pay", "Quick Pay", "Notifications", "Transaction History", "KYC Onboarding"].map(f => (
+            <div key={f} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CheckCircle2 className="w-3 h-3 text-violet-400 flex-shrink-0" />
+              {f}
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -3956,6 +3956,185 @@ const auditLogRouter = router({
       resources: (resourcesResult.rows ?? []).map((r: any) => r.resource as string),
     };
   }),
+
+  exportCsv: protectedProcedure
+    .input(z.object({
+      action: z.string().optional(),
+      resource: z.string().optional(),
+      actorId: z.string().optional(),
+      from: z.number().optional(),
+      to: z.number().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { csv: '', count: 0 };
+      const fromTs = input.from ? new Date(input.from) : new Date(Date.now() - 90 * 86400_000);
+      const toTs = input.to ? new Date(input.to) : new Date();
+      // Fetch up to 50,000 rows for compliance export
+      const result = await db.execute(
+        sql`SELECT * FROM audit_events
+            WHERE merchant_id = ${merchant.id}
+            ${input.action ? sql`AND action = ${input.action}` : sql``}
+            ${input.resource ? sql`AND resource = ${input.resource}` : sql``}
+            ${input.actorId ? sql`AND actor_id = ${input.actorId}` : sql``}
+            AND created_at BETWEEN ${fromTs} AND ${toTs}
+            ORDER BY created_at DESC
+            LIMIT 50000`
+      );
+      const rows = result.rows ?? [];
+      const header = 'Timestamp,Actor Name,Actor Email,Action,Resource,Resource ID,IP Address,Metadata\n';
+      const csvRows = rows.map((r: any) => {
+        const meta = r.metadata ? JSON.stringify(r.metadata).replace(/"/g, '""') : '';
+        return [
+          new Date(r.created_at).toISOString(),
+          r.actor_name ?? '',
+          r.actor_email ?? '',
+          r.action,
+          r.resource,
+          r.resource_id ?? '',
+          r.ip_address ?? '',
+          meta,
+        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+      });
+      return { csv: header + csvRows.join('\n'), count: rows.length };
+    }),
+});
+
+// ─── Vendor Router ───────────────────────────────────────────────────────────
+const vendorRouter = router({
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const { getDb } = await import('./db');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return { vendors: [] };
+    const result = await db.execute(
+      sql`SELECT * FROM vendors WHERE merchant_id = ${merchant.id} ORDER BY name ASC`
+    );
+    return {
+      vendors: (result.rows ?? []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        contactName: r.contact_name,
+        email: r.email,
+        phone: r.phone,
+        address: r.address,
+        paymentTerms: r.payment_terms,
+        notes: r.notes,
+        isActive: r.is_active,
+        createdAt: r.created_at,
+      })),
+    };
+  }),
+
+  create: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(200),
+      contactName: z.string().optional(),
+      email: z.string().email().optional().or(z.literal('')),
+      phone: z.string().optional(),
+      address: z.string().optional(),
+      paymentTerms: z.enum(['immediate', 'net7', 'net14', 'net30', 'net60', 'net90']).default('net30'),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const id = `vnd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await db.execute(
+        sql`INSERT INTO vendors (id, merchant_id, name, contact_name, email, phone, address, payment_terms, notes)
+            VALUES (${id}, ${merchant.id}, ${input.name}, ${input.contactName ?? null},
+                    ${input.email || null}, ${input.phone ?? null}, ${input.address ?? null},
+                    ${input.paymentTerms}, ${input.notes ?? null})`
+      );
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'vendor.created',
+        resource: 'vendor',
+        resourceId: id,
+        metadata: { name: input.name, paymentTerms: input.paymentTerms },
+      })).catch(() => {});
+      return { id, ok: true };
+    }),
+
+  update: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      name: z.string().min(1).max(200).optional(),
+      contactName: z.string().optional(),
+      email: z.string().email().optional().or(z.literal('')),
+      phone: z.string().optional(),
+      address: z.string().optional(),
+      paymentTerms: z.enum(['immediate', 'net7', 'net14', 'net30', 'net60', 'net90']).optional(),
+      notes: z.string().optional(),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`UPDATE vendors SET
+            name = COALESCE(${input.name ?? null}, name),
+            contact_name = COALESCE(${input.contactName ?? null}, contact_name),
+            email = COALESCE(${input.email || null}, email),
+            phone = COALESCE(${input.phone ?? null}, phone),
+            address = COALESCE(${input.address ?? null}, address),
+            payment_terms = COALESCE(${input.paymentTerms ?? null}, payment_terms),
+            notes = COALESCE(${input.notes ?? null}, notes),
+            is_active = COALESCE(${input.isActive ?? null}, is_active),
+            updated_at = NOW()
+            WHERE id = ${input.id} AND merchant_id = ${merchant.id}`
+      );
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'vendor.updated',
+        resource: 'vendor',
+        resourceId: input.id,
+        metadata: { changes: Object.keys(input).filter(k => k !== 'id') },
+      })).catch(() => {});
+      return { ok: true };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`DELETE FROM vendors WHERE id = ${input.id} AND merchant_id = ${merchant.id}`
+      );
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'vendor.deleted',
+        resource: 'vendor',
+        resourceId: input.id,
+        metadata: {},
+      })).catch(() => {});
+      return { ok: true };
+    }),
 });
 
 // ─── Purchase Orders Router ──────────────────────────────────────────────────
@@ -4135,5 +4314,7 @@ export const appRouter = router({
   kds: kdsRouter,
   inventory: inventoryRouter,
   payroll: payrollRouter,
+  // Wave 42
+  vendors: vendorRouter,
 });
 export type AppRouter = typeof appRouter;

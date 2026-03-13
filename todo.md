@@ -1150,3 +1150,18 @@
 - [x] Consumer gate: gate applied to ConsumerWallet, MakePayment, BillPay, ConsumerQuickPay
 - [x] Consumer gate: ConsumerOnboarding.handleFinish already sets localStorage — gate works end-to-end
 - [x] Tests: 613 passing (24 files), 0 regressions from Wave 41 changes
+
+## Wave 42 (March 2026) — Audit CSV Export, Vendor Directory, Consumer Deep Link
+
+- [x] Audit Log: server-side CSV export endpoint (tRPC auditLog.exportCsv, up to 50k rows)
+- [x] Audit Log: Download CSV button in /audit-log page with loading state
+- [x] Audit Log: export includes all filtered events (actor, action, resource, timestamp, metadata)
+- [x] Vendors: vendors table in PostgreSQL (id, merchant_id, name, contact, email, phone, payment_terms, notes)
+- [x] Vendors: vendorsRouter tRPC (list, create, update, delete)
+- [x] Vendors: /vendors page with CRUD card grid, add/edit dialog, delete confirm
+- [x] Vendors: PO Create dialog auto-fill vendor from dropdown (falls back to manual input)
+- [x] Consumer deep link: Settings → Consumer Portal deep link display with copy button
+- [x] Consumer deep link: generates branded short URL with merchant slug
+- [ ] Consumer deep link: QR code of the share URL (deferred — requires QR library)
+- [x] Consumer deep link: WhatsApp and SMS share buttons
+- [x] Tests: Wave 42 vitest coverage — 626 passing (25 files), 0 regressions

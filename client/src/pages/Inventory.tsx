@@ -20,6 +20,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { Building2, ChevronDown } from "lucide-react";
 import {
   AlertTriangle,
   ArrowDownCircle,
@@ -615,6 +616,10 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
     notes: "",
   });
 
+  // Load vendor directory for dropdown
+  const { data: vendorsData } = trpc.vendors.list.useQuery(undefined, { staleTime: 60_000 });
+  const vendorList = vendorsData?.vendors ?? [];
+
   const createPO = trpc.purchaseOrders.create.useMutation({
     onSuccess: () => {
       toast.success("Purchase Order created", {
@@ -667,11 +672,37 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
 
           <div className="space-y-1.5">
             <Label>Vendor / Supplier Name</Label>
-            <Input
-              placeholder="e.g. FreshFarm Supplies"
-              value={form.vendorName}
-              onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
-            />
+            {vendorList.length > 0 ? (
+              <Select
+                value={form.vendorName}
+                onValueChange={(v) => setForm((f) => ({ ...f, vendorName: v === '__manual__' ? '' : v }))}
+              >
+                <SelectTrigger>
+                  <Building2 className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                  <SelectValue placeholder="Select from directory or type manually" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__manual__">— Enter manually —</SelectItem>
+                  {vendorList.map((v: any) => (
+                    <SelectItem key={v.id} value={v.name}>{v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                placeholder="e.g. FreshFarm Supplies"
+                value={form.vendorName}
+                onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
+              />
+            )}
+            {vendorList.length > 0 && (form.vendorName === '' || form.vendorName === '__manual__') && (
+              <Input
+                placeholder="Type vendor name manually"
+                value={form.vendorName === '__manual__' ? '' : form.vendorName}
+                onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
+                className="mt-1.5"
+              />
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

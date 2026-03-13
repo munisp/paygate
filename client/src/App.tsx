@@ -65,6 +65,7 @@ import QuickPay from "./pages/QuickPay";
 import NotificationsCenter from "./pages/NotificationsCenter";
 import AuditLog from "./pages/AuditLog";
 import PurchaseOrders from "./pages/PurchaseOrders";
+import Vendors from "./pages/Vendors";
 
 function Router() {
   const [location] = useLocation();
@@ -151,6 +152,7 @@ function Router() {
         <Route path="/notifications" component={NotificationsCenter} />
         <Route path="/audit-log" component={AuditLog} />
         <Route path="/purchase-orders" component={PurchaseOrders} />
+        <Route path="/vendors" component={Vendors} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

@@ -61,6 +61,7 @@ const navItems = [
   { icon: Bell, label: "Notifications", path: "/notifications" },
   { icon: FileText, label: "Audit Log", path: "/audit-log", badge: "Admin" },
   { icon: ShoppingCart, label: "Purchase Orders", path: "/purchase-orders", badge: "New" },
+  { icon: Building2, label: "Vendor Directory", path: "/vendors" },
 ];
 
 const devItems = [

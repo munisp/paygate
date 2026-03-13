@@ -32,7 +32,7 @@ import {
   Webhook,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { toast } from "sonner";
 
 // ─── Action icon map ─────────────────────────────────────────────────────────
@@ -118,33 +118,31 @@ export default function AuditLog() {
     );
   }, [events, search]);
 
-  const handleExportCSV = () => {
-    if (!filtered.length) { toast.error("No events to export"); return; }
-    const header = "Timestamp,Actor,Email,Action,Resource,Resource ID,IP\n";
-    const rows = filtered
-      .map((e: any) =>
-        [
-          formatTime(e.createdAt),
-          e.actorName ?? "",
-          e.actorEmail ?? "",
-          e.action,
-          e.resource,
-          e.resourceId ?? "",
-          e.ipAddress ?? "",
-        ]
-          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-          .join(",")
-      )
-      .join("\n");
-    const blob = new Blob([header + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Audit log exported");
-  };
+  const [isExporting, setIsExporting] = useState(false);
+  const utils = trpc.useUtils();
+
+  const handleExportCSV = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      const result = await utils.auditLog.exportCsv.fetch({
+        action: actionFilter !== "all" ? actionFilter : undefined,
+        resource: resourceFilter !== "all" ? resourceFilter : undefined,
+      });
+      if (!result.count) { toast.error("No events to export"); return; }
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.count.toLocaleString()} audit events`);
+    } catch (err: any) {
+      toast.error("Export failed", { description: err.message });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [actionFilter, resourceFilter, utils]);
 
   return (
     <div className="space-y-5">
@@ -164,9 +162,13 @@ export default function AuditLog() {
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <Download className="h-3.5 w-3.5 mr-1.5" />
-            Export CSV
+          <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={isExporting}>
+            {isExporting ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {isExporting ? "Exporting…" : "Download CSV"}
           </Button>
         </div>
       </div>
