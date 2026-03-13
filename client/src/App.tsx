@@ -44,6 +44,17 @@ import POSTerminals from "./pages/POSTerminals";
 import TerminalMap from "./pages/TerminalMap";
 import POSReconciliation from "./pages/POSReconciliation";
 import PTSPSettlement from "./pages/PTSPSettlement";
+import PtspBatches from "./pages/PtspBatches";
+import AgentBanking from "./pages/AgentBanking";
+import KioskHealth from "./pages/KioskHealth";
+import RestaurantFloorPlan from "./pages/RestaurantFloorPlan";
+import RestaurantOrders from "./pages/RestaurantOrders";
+import RestaurantMenu from "./pages/RestaurantMenu";
+import RestaurantLoyalty from "./pages/RestaurantLoyalty";
+import KitchenDisplay from "./pages/KitchenDisplay";
+import Inventory from "./pages/Inventory";
+import Payroll from "./pages/Payroll";
+import GeofenceAlerts from "./pages/GeofenceAlerts";
 
 function Router() {
   const [location] = useLocation();
@@ -109,6 +120,17 @@ function Router() {
         <Route path="/terminal-map" component={TerminalMap} />
         <Route path="/pos-reconciliation" component={POSReconciliation} />
         <Route path="/ptsp-settlement" component={PTSPSettlement} />
+        <Route path="/ptsp-batches" component={PtspBatches} />
+        <Route path="/agent-banking" component={AgentBanking} />
+        <Route path="/kiosk-health" component={KioskHealth} />
+        <Route path="/restaurant/floor-plan" component={RestaurantFloorPlan} />
+        <Route path="/restaurant/orders" component={RestaurantOrders} />
+        <Route path="/restaurant/menu" component={RestaurantMenu} />
+        <Route path="/restaurant/loyalty" component={RestaurantLoyalty} />
+        <Route path="/kitchen-display" component={KitchenDisplay} />
+        <Route path="/inventory" component={Inventory} />
+        <Route path="/payroll" component={Payroll} />
+        <Route path="/geofence-alerts" component={GeofenceAlerts} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

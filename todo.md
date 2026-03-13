@@ -871,3 +871,100 @@
 - [x] Add Soundbox Language section to Settings page (EN/YO/HA/IG selector)
 - [x] Write PayGate value proposition doc (agent banking, kiosks, restaurants)
 - [x] Write PayGate vs Toast competitive gap analysis
+
+## Wave 32 (March 2026)
+
+### Geofencing Alerts
+- [ ] Add geofence_rules table (merchantId, terminalId, centerLat, centerLng, radiusMeters, active)
+- [ ] Add tRPC pos.setGeofence and pos.listGeofences procedures
+- [ ] Add geofence violation check in pos transaction flow
+- [ ] Add GeofenceAlerts UI section in TerminalMap page
+- [ ] Add geofence violation notifications to merchant_notifications
+
+### PTSP Batch UI
+- [ ] Build /ptsp-batches page with batch list, NIBSS ref, status badges, and re-confirm button
+- [ ] Add PTSP Batches to sidebar navigation
+
+### Agent Banking
+- [ ] Add agent_network table (superAgentId, subAgentId, merchantId, status, joinedAt)
+- [ ] Add tRPC agentBanking.listSubAgents, agentBanking.getPerformance procedures
+- [ ] Build /agent-banking page: sub-agent ranked table, volume, settlement rate, fraud incidents
+- [ ] Add Agent Banking to sidebar navigation
+
+### Retail Kiosk
+- [ ] Build /kiosk-health page: multi-site terminal health grid, uptime %, last transaction time
+- [ ] Add tRPC pos.getKioskHealthSummary procedure
+- [ ] Add Kiosk Health to sidebar navigation
+
+### Restaurant: Table & Floor Plan
+- [ ] Add restaurant_tables table (merchantId, tableNumber, capacity, section, status)
+- [ ] Add restaurant_orders table (merchantId, tableId, status, covers, totalKobo, createdAt)
+- [ ] Add restaurant_order_items table (orderId, name, qty, unitPriceKobo, courseNumber)
+- [ ] Add tRPC restaurant.listTables, createTable, updateTableStatus, createOrder, addOrderItem procedures
+- [ ] Build /restaurant/floor-plan page with visual table layout
+- [ ] Build /restaurant/orders page with live order list per table
+- [ ] Add Restaurant section to sidebar navigation
+
+### Restaurant: Split-Bill Payment Links
+- [ ] Add split_bill_sessions table (orderId, totalKobo, splitCount, paidCount, status)
+- [ ] Add split_bill_shares table (sessionId, shareKobo, paymentLinkId, paidAt)
+- [ ] Add tRPC restaurant.createSplitBill procedure
+- [ ] Build split-bill UI in order detail page
+
+### Restaurant: Online Ordering
+- [ ] Add menu_categories table (merchantId, name, displayOrder)
+- [ ] Add menu_items table (categoryId, name, description, priceKobo, available, imageUrl)
+- [ ] Add tRPC restaurant.listMenu, upsertMenuItem, toggleItemAvailability procedures
+- [ ] Build /restaurant/menu page with category/item CRUD
+- [ ] Build /restaurant/online-ordering page with public ordering link generator
+
+### Restaurant: Loyalty Points
+- [ ] Add loyalty_programs table (merchantId, pointsPerKobo, redeemRate, active)
+- [ ] Add loyalty_accounts table (merchantId, customerId, pointsBalance, lifetimePoints)
+- [ ] Add loyalty_transactions table (accountId, type, points, orderId, createdAt)
+- [ ] Add tRPC loyalty.getAccount, earnPoints, redeemPoints, getHistory procedures
+- [ ] Build /restaurant/loyalty page with customer lookup and points management
+
+### Toast-Parity: Kitchen Display System
+- [ ] Add kds_stations table (merchantId, name, categories, active)
+- [ ] Add tRPC kds.listOrders, markItemReady, markOrderComplete procedures
+- [ ] Build /kds page with live order queue, item status, and completion workflow
+
+### Toast-Parity: Inventory Management
+- [ ] Add inventory_items table (merchantId, name, unit, currentStock, reorderLevel, costPerUnit)
+- [ ] Add inventory_transactions table (itemId, type, quantity, orderId, note, createdAt)
+- [ ] Add recipe_ingredients table (menuItemId, inventoryItemId, quantityPerServing)
+- [ ] Add tRPC inventory.listItems, updateStock, getRecipeCost procedures
+- [ ] Build /inventory page with stock levels, reorder alerts, and recipe cost calculator
+
+### Toast-Parity: Payroll Stub
+- [ ] Add staff_members table (merchantId, name, role, hourlyRateKobo, bankCode, accountNumber)
+- [ ] Add staff_shifts table (staffId, clockIn, clockOut, tipsKobo, hoursWorked)
+- [ ] Add payroll_runs table (merchantId, periodStart, periodEnd, status, totalKobo)
+- [ ] Add tRPC payroll.listStaff, recordShift, runPayroll procedures
+- [ ] Build /payroll page with staff list, shift log, and payroll run summary
+
+## Wave 32 (March 2026)
+
+- [x] Go: geofence violation handler (wave32_handlers.go)
+- [x] Go: agent banking aggregator (listSubAgents, addSubAgent, kioskHealth)
+- [x] Go: restaurant order router (createOrder, addOrderItem, updateOrderStatus, createSplitBill)
+- [x] Go: KDS order dispatcher (listStations, listOrders, markItemReady, markOrderComplete)
+- [x] Go: PTSP batch UI handler (listBatches, confirmBatch, upsertBatch)
+- [x] Rust: inventory cost engine (inventory-engine crate, recipe costing, food cost %)
+- [x] Rust: loyalty points ledger (loyalty-ledger crate, earn/redeem/history)
+- [x] Python: payroll calculation service (payroll_service.py, PAYE, tips, hourly/salary)
+- [x] Python: kiosk health anomaly detector (kiosk_health_service.py, haversine, heartbeat)
+- [x] UI: PtspBatches page (/ptsp-batches)
+- [x] UI: AgentBanking page (/agent-banking)
+- [x] UI: KioskHealth page (/kiosk-health)
+- [x] UI: RestaurantFloorPlan page (/restaurant/floor-plan) with drag-and-drop
+- [x] UI: RestaurantOrders page (/restaurant/orders) with split-bill dialog
+- [x] UI: RestaurantMenu page (/restaurant/menu) with category management
+- [x] UI: RestaurantLoyalty page (/restaurant/loyalty) with earn/redeem
+- [x] UI: KitchenDisplay page (/kitchen-display) with age-coded cards
+- [x] UI: Inventory page (/inventory) with stock adjustment
+- [x] UI: Payroll page (/payroll) with staff, shifts, and payroll runs
+- [x] UI: GeofenceAlerts page (/geofence-alerts) with rule management
+- [x] Schema: 17 new tables (restaurant_tables, restaurant_orders, menu_categories, menu_items, loyalty_programs, loyalty_accounts, loyalty_ledger, kds_stations, inventory_items, inventory_movements, staff_members, staff_shifts, payroll_runs, payroll_line_items, geofence_rules, sub_agent_links, ptsp_batches)
+- [x] Tests: 582 passing (22 test files, Wave 32 adds 37 new tests)

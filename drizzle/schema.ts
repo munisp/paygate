@@ -976,3 +976,287 @@ export const ptspBatches = pgTable("ptsp_batches", {
 ]);
 export type PtspBatch = typeof ptspBatches.$inferSelect;
 export type InsertPtspBatch = typeof ptspBatches.$inferInsert;
+
+// ─── Geofence Rules ───────────────────────────────────────────────────────────
+export const geofenceRules = pgTable("geofence_rules", {
+  id: text("id").primaryKey().$defaultFn(() => `gfr_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  terminalId: text("terminal_id"),          // null = applies to all merchant terminals
+  name: text("name").notNull(),
+  centerLat: integer("center_lat").notNull(), // × 1e6
+  centerLng: integer("center_lng").notNull(), // × 1e6
+  radiusMeters: integer("radius_meters").notNull().default(500),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("geofence_merchant_idx").on(t.merchantId),
+]);
+export type GeofenceRule = typeof geofenceRules.$inferSelect;
+export type InsertGeofenceRule = typeof geofenceRules.$inferInsert;
+
+// ─── Agent Network ────────────────────────────────────────────────────────────
+export const agentNetwork = pgTable("agent_network", {
+  id: serial("id").primaryKey(),
+  superAgentMerchantId: text("super_agent_merchant_id").notNull(),
+  subAgentMerchantId: text("sub_agent_merchant_id").notNull(),
+  status: text("status").notNull().default("active"),  // active | suspended | pending
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  totalVolumeKobo: bigint("total_volume_kobo", { mode: "number" }).notNull().default(0),
+  transactionCount: integer("transaction_count").notNull().default(0),
+  fraudIncidents: integer("fraud_incidents").notNull().default(0),
+  settlementRate: integer("settlement_rate").notNull().default(100), // percentage 0-100
+}, (t) => [
+  index("agent_network_super_idx").on(t.superAgentMerchantId),
+]);
+export type AgentNetwork = typeof agentNetwork.$inferSelect;
+
+// ─── Restaurant Tables ────────────────────────────────────────────────────────
+export const restaurantTableStatusEnum = pgEnum("restaurant_table_status", [
+  "available", "occupied", "reserved", "cleaning",
+]);
+export const restaurantTables = pgTable("restaurant_tables", {
+  id: text("id").primaryKey().$defaultFn(() => `tbl_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  tableNumber: text("table_number").notNull(),
+  capacity: integer("capacity").notNull().default(4),
+  section: text("section").notNull().default("main"),
+  status: restaurantTableStatusEnum("status").notNull().default("available"),
+  posX: integer("pos_x").notNull().default(0),  // floor plan x position (px)
+  posY: integer("pos_y").notNull().default(0),  // floor plan y position (px)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("restaurant_table_merchant_idx").on(t.merchantId),
+]);
+export type RestaurantTable = typeof restaurantTables.$inferSelect;
+export type InsertRestaurantTable = typeof restaurantTables.$inferInsert;
+
+// ─── Restaurant Orders ────────────────────────────────────────────────────────
+export const restaurantOrderStatusEnum = pgEnum("restaurant_order_status", [
+  "open", "sent_to_kitchen", "ready", "paid", "voided",
+]);
+export const restaurantOrders = pgTable("restaurant_orders", {
+  id: text("id").primaryKey().$defaultFn(() => `ord_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  tableId: text("table_id"),
+  status: restaurantOrderStatusEnum("status").notNull().default("open"),
+  covers: integer("covers").notNull().default(1),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull().default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("restaurant_order_merchant_idx").on(t.merchantId),
+  index("restaurant_order_table_idx").on(t.tableId),
+]);
+export type RestaurantOrder = typeof restaurantOrders.$inferSelect;
+export type InsertRestaurantOrder = typeof restaurantOrders.$inferInsert;
+
+// ─── Restaurant Order Items ───────────────────────────────────────────────────
+export const restaurantOrderItems = pgTable("restaurant_order_items", {
+  id: serial("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  name: text("name").notNull(),
+  qty: integer("qty").notNull().default(1),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }).notNull(),
+  courseNumber: integer("course_number").notNull().default(1),
+  status: text("status").notNull().default("pending"),  // pending | ready | served
+  notes: text("notes"),
+}, (t) => [
+  index("order_item_order_idx").on(t.orderId),
+]);
+export type RestaurantOrderItem = typeof restaurantOrderItems.$inferSelect;
+
+// ─── Split Bill Sessions ──────────────────────────────────────────────────────
+export const splitBillSessions = pgTable("split_bill_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => `sbs_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  orderId: text("order_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  splitCount: integer("split_count").notNull(),
+  paidCount: integer("paid_count").notNull().default(0),
+  status: text("status").notNull().default("pending"),  // pending | partial | complete
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("split_bill_order_idx").on(t.orderId),
+]);
+export type SplitBillSession = typeof splitBillSessions.$inferSelect;
+
+export const splitBillShares = pgTable("split_bill_shares", {
+  id: serial("id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  shareKobo: bigint("share_kobo", { mode: "number" }).notNull(),
+  paymentLinkId: text("payment_link_id"),
+  paidAt: timestamp("paid_at"),
+  shareIndex: integer("share_index").notNull(),
+}, (t) => [
+  index("split_share_session_idx").on(t.sessionId),
+]);
+export type SplitBillShare = typeof splitBillShares.$inferSelect;
+
+// ─── Menu Categories ──────────────────────────────────────────────────────────
+export const menuCategories = pgTable("menu_categories", {
+  id: text("id").primaryKey().$defaultFn(() => `mcat_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("menu_cat_merchant_idx").on(t.merchantId),
+]);
+export type MenuCategory = typeof menuCategories.$inferSelect;
+export type InsertMenuCategory = typeof menuCategories.$inferInsert;
+
+// ─── Menu Items ───────────────────────────────────────────────────────────────
+export const menuItems = pgTable("menu_items", {
+  id: text("id").primaryKey().$defaultFn(() => `mitm_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  categoryId: text("category_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  available: boolean("available").notNull().default(true),
+  imageUrl: text("image_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("menu_item_cat_idx").on(t.categoryId),
+  index("menu_item_merchant_idx").on(t.merchantId),
+]);
+export type MenuItem = typeof menuItems.$inferSelect;
+export type InsertMenuItem = typeof menuItems.$inferInsert;
+
+// ─── Loyalty Programs ─────────────────────────────────────────────────────────
+export const loyaltyPrograms = pgTable("loyalty_programs", {
+  id: text("id").primaryKey().$defaultFn(() => `lp_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull().unique(),
+  pointsPerKobo: integer("points_per_kobo").notNull().default(1),  // points earned per kobo spent
+  redeemRate: integer("redeem_rate").notNull().default(100),        // kobo per point when redeeming
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type LoyaltyProgram = typeof loyaltyPrograms.$inferSelect;
+
+export const loyaltyAccounts = pgTable("loyalty_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => `la_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  pointsBalance: bigint("points_balance", { mode: "number" }).notNull().default(0),
+  lifetimePoints: bigint("lifetime_points", { mode: "number" }).notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("loyalty_account_merchant_idx").on(t.merchantId),
+  index("loyalty_account_customer_idx").on(t.customerId),
+]);
+export type LoyaltyAccount = typeof loyaltyAccounts.$inferSelect;
+
+export const loyaltyTransactions = pgTable("loyalty_transactions", {
+  id: serial("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  type: text("type").notNull(),  // earn | redeem | expire | adjust
+  points: bigint("points", { mode: "number" }).notNull(),
+  orderId: text("order_id"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("loyalty_tx_account_idx").on(t.accountId),
+]);
+export type LoyaltyTransaction = typeof loyaltyTransactions.$inferSelect;
+
+// ─── KDS Stations ─────────────────────────────────────────────────────────────
+export const kdsStations = pgTable("kds_stations", {
+  id: text("id").primaryKey().$defaultFn(() => `kds_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  categories: jsonb("categories").$type<string[]>().notNull().default([]),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("kds_merchant_idx").on(t.merchantId),
+]);
+export type KdsStation = typeof kdsStations.$inferSelect;
+export type InsertKdsStation = typeof kdsStations.$inferInsert;
+
+// ─── Inventory Items ──────────────────────────────────────────────────────────
+export const inventoryItems = pgTable("inventory_items", {
+  id: text("id").primaryKey().$defaultFn(() => `inv_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  unit: text("unit").notNull().default("unit"),  // kg, litre, unit, etc.
+  currentStock: integer("current_stock").notNull().default(0),
+  reorderLevel: integer("reorder_level").notNull().default(10),
+  costPerUnit: bigint("cost_per_unit", { mode: "number" }).notNull().default(0),  // kobo
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("inventory_merchant_idx").on(t.merchantId),
+]);
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InsertInventoryItem = typeof inventoryItems.$inferInsert;
+
+export const inventoryTransactions = pgTable("inventory_transactions", {
+  id: serial("id").primaryKey(),
+  itemId: text("item_id").notNull(),
+  type: text("type").notNull(),  // restock | consume | waste | adjust
+  quantity: integer("quantity").notNull(),
+  orderId: text("order_id"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("inv_tx_item_idx").on(t.itemId),
+]);
+export type InventoryTransaction = typeof inventoryTransactions.$inferSelect;
+
+export const recipeIngredients = pgTable("recipe_ingredients", {
+  id: serial("id").primaryKey(),
+  menuItemId: text("menu_item_id").notNull(),
+  inventoryItemId: text("inventory_item_id").notNull(),
+  quantityPerServing: integer("quantity_per_serving").notNull(),  // in base unit × 100
+}, (t) => [
+  index("recipe_menu_item_idx").on(t.menuItemId),
+]);
+export type RecipeIngredient = typeof recipeIngredients.$inferSelect;
+
+// ─── Staff Members ────────────────────────────────────────────────────────────
+export const staffMembers = pgTable("staff_members", {
+  id: text("id").primaryKey().$defaultFn(() => `stf_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  role: text("role").notNull().default("server"),  // manager | server | chef | cashier
+  hourlyRateKobo: bigint("hourly_rate_kobo", { mode: "number" }).notNull().default(0),
+  bankCode: text("bank_code"),
+  accountNumber: text("account_number"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("staff_merchant_idx").on(t.merchantId),
+]);
+export type StaffMember = typeof staffMembers.$inferSelect;
+export type InsertStaffMember = typeof staffMembers.$inferInsert;
+
+export const staffShifts = pgTable("staff_shifts", {
+  id: serial("id").primaryKey(),
+  staffId: text("staff_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  clockIn: timestamp("clock_in").notNull(),
+  clockOut: timestamp("clock_out"),
+  tipsKobo: bigint("tips_kobo", { mode: "number" }).notNull().default(0),
+  hoursWorked: integer("hours_worked"),  // minutes
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("shift_staff_idx").on(t.staffId),
+  index("shift_merchant_idx").on(t.merchantId),
+]);
+export type StaffShift = typeof staffShifts.$inferSelect;
+
+export const payrollRuns = pgTable("payroll_runs", {
+  id: text("id").primaryKey().$defaultFn(() => `pay_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  merchantId: text("merchant_id").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  status: text("status").notNull().default("draft"),  // draft | approved | paid
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull().default(0),
+  staffCount: integer("staff_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("payroll_merchant_idx").on(t.merchantId),
+]);
+export type PayrollRun = typeof payrollRuns.$inferSelect;

@@ -46,6 +46,19 @@ import { dispatchSlaBreachWebhook } from "./webhookDispatch";
 import { systemRouter } from "./_core/systemRouter";
 import { withIdempotency } from "./idempotency";
 import {
+  listGeofenceRules, upsertGeofenceRule, deleteGeofenceRule,
+  listSubAgents, upsertSubAgent,
+  listRestaurantTables, createRestaurantTable, updateRestaurantTableStatus, updateRestaurantTablePosition,
+  listRestaurantOrders, createRestaurantOrder, addOrderItem, updateOrderStatus, getOrderWithItems,
+  createSplitBillSession, getSplitBillSession,
+  listMenuCategories, listMenuItems, upsertMenuCategory, upsertMenuItem, toggleMenuItemAvailability,
+  getLoyaltyProgram, upsertLoyaltyProgram, getOrCreateLoyaltyAccount, earnLoyaltyPoints, redeemLoyaltyPoints, getLoyaltyHistory,
+  listKdsStations, upsertKdsStation, listKdsOrders, markOrderItemReady, markOrderComplete,
+  listInventoryItems, upsertInventoryItem, adjustInventoryStock, getRecipeCost, upsertRecipeIngredient,
+  listStaffMembers, upsertStaffMember, recordStaffShift, listStaffShifts, createPayrollRun, listPayrollRuns, approvePayrollRun,
+  getKioskHealthSummary,
+} from "./db";
+import {
   isBridgeAvailable,
   initiatePayoutApproval,
   approvePayoutViaMiddleware,
@@ -3075,6 +3088,378 @@ const posRouter = router({
     }),
 });
 // --- Root Router ---
+// ═══════════════════════════════════════════════════════════════════════════════
+// Wave 32 Routers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Geofence Router ─────────────────────────────────────────────────────────
+const geofenceRouter = router({
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listGeofenceRules(merchant.id);
+  }),
+  upsert: protectedProcedure.input(z.object({
+    id: z.string().optional(),
+    terminalId: z.string().nullable().optional(),
+    name: z.string().min(1),
+    centerLat: z.number(),
+    centerLng: z.number(),
+    radiusMeters: z.number().min(50).max(50000),
+    active: z.boolean(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    return upsertGeofenceRule({ ...input, merchantId: merchant.id });
+  }),
+  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await deleteGeofenceRule(input.id, merchant.id);
+    return { ok: true };
+  }),
+});
+
+// ─── Agent Banking Router ─────────────────────────────────────────────────────
+const agentBankingRouter = router({
+  listSubAgents: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listSubAgents(merchant.id);
+  }),
+  addSubAgent: protectedProcedure.input(z.object({
+    subAgentMerchantId: z.string(),
+    status: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await upsertSubAgent({ superAgentMerchantId: merchant.id, ...input });
+    return { ok: true };
+  }),
+  kioskHealth: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return { total: 0, online: 0, warning: 0, offline: 0, terminals: [] };
+    return getKioskHealthSummary(merchant.id);
+  }),
+});
+
+// ─── Restaurant Router ────────────────────────────────────────────────────────
+const restaurantRouter = router({
+  listTables: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listRestaurantTables(merchant.id);
+  }),
+  createTable: protectedProcedure.input(z.object({
+    tableNumber: z.string().min(1),
+    capacity: z.number().min(1).max(50),
+    section: z.string().default("main"),
+    posX: z.number().default(0),
+    posY: z.number().default(0),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await createRestaurantTable({ merchantId: merchant.id, ...input });
+    return { id };
+  }),
+  updateTableStatus: protectedProcedure.input(z.object({
+    id: z.string(),
+    status: z.enum(["available", "occupied", "reserved", "cleaning"]),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await updateRestaurantTableStatus(input.id, merchant.id, input.status);
+    return { ok: true };
+  }),
+  updateTablePosition: protectedProcedure.input(z.object({
+    id: z.string(), posX: z.number(), posY: z.number(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await updateRestaurantTablePosition(input.id, merchant.id, input.posX, input.posY);
+    return { ok: true };
+  }),
+  listOrders: protectedProcedure.input(z.object({ status: z.string().optional() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listRestaurantOrders(merchant.id, input.status);
+  }),
+  createOrder: protectedProcedure.input(z.object({
+    tableId: z.string().nullable().optional(),
+    covers: z.number().min(1).default(1),
+    notes: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await createRestaurantOrder({ merchantId: merchant.id, ...input });
+    return { id };
+  }),
+  addOrderItem: protectedProcedure.input(z.object({
+    orderId: z.string(),
+    name: z.string().min(1),
+    qty: z.number().min(1),
+    unitPriceKobo: z.number().min(0),
+    courseNumber: z.number().min(1).default(1),
+    notes: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    await addOrderItem(input);
+    return { ok: true };
+  }),
+  updateOrderStatus: protectedProcedure.input(z.object({
+    id: z.string(),
+    status: z.enum(["open", "sent_to_kitchen", "ready", "paid", "voided"]),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await updateOrderStatus(input.id, merchant.id, input.status);
+    return { ok: true };
+  }),
+  getOrder: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+    return getOrderWithItems(input.id);
+  }),
+  createSplitBill: protectedProcedure.input(z.object({
+    orderId: z.string(),
+    splitCount: z.number().min(2).max(20),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const order = await getOrderWithItems(input.orderId);
+    if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+    const id = await createSplitBillSession({
+      orderId: input.orderId, merchantId: merchant.id,
+      totalKobo: Number(order.total_kobo), splitCount: input.splitCount,
+    });
+    return getSplitBillSession(id!);
+  }),
+  getSplitBill: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+    return getSplitBillSession(input.id);
+  }),
+  // Menu management
+  listMenu: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return { categories: [], items: [] };
+    const [categories, items] = await Promise.all([
+      listMenuCategories(merchant.id),
+      listMenuItems(merchant.id),
+    ]);
+    return { categories, items };
+  }),
+  upsertCategory: protectedProcedure.input(z.object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    displayOrder: z.number().default(0),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await upsertMenuCategory({ ...input, merchantId: merchant.id });
+    return { id };
+  }),
+  upsertMenuItem: protectedProcedure.input(z.object({
+    id: z.string().optional(),
+    categoryId: z.string(),
+    name: z.string().min(1),
+    description: z.string().nullable().optional(),
+    priceKobo: z.number().min(0),
+    available: z.boolean().default(true),
+    imageUrl: z.string().nullable().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await upsertMenuItem({ ...input, merchantId: merchant.id });
+    return { id };
+  }),
+  toggleItemAvailability: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await toggleMenuItemAvailability(input.id, merchant.id);
+    return { ok: true };
+  }),
+  // Loyalty
+  getLoyaltyProgram: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return null;
+    return getLoyaltyProgram(merchant.id);
+  }),
+  upsertLoyaltyProgram: protectedProcedure.input(z.object({
+    pointsPerKobo: z.number().min(0),
+    redeemRate: z.number().min(1),
+    active: z.boolean(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await upsertLoyaltyProgram({ ...input, merchantId: merchant.id });
+    return { ok: true };
+  }),
+  getLoyaltyAccount: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return null;
+    return getOrCreateLoyaltyAccount(merchant.id, input.customerId);
+  }),
+  earnPoints: protectedProcedure.input(z.object({
+    customerId: z.number(), points: z.number().min(1), orderId: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const account = await getOrCreateLoyaltyAccount(merchant.id, input.customerId);
+    if (!account) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    await earnLoyaltyPoints(account.id, input.points, input.orderId);
+    return { ok: true };
+  }),
+  redeemPoints: protectedProcedure.input(z.object({
+    customerId: z.number(), points: z.number().min(1), orderId: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const account = await getOrCreateLoyaltyAccount(merchant.id, input.customerId);
+    if (!account) throw new TRPCError({ code: "NOT_FOUND" });
+    const ok = await redeemLoyaltyPoints(account.id, input.points, input.orderId);
+    if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient points balance" });
+    return { ok: true };
+  }),
+  getLoyaltyHistory: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    const account = await getOrCreateLoyaltyAccount(merchant.id, input.customerId);
+    if (!account) return [];
+    return getLoyaltyHistory(account.id);
+  }),
+});
+
+// ─── KDS Router ───────────────────────────────────────────────────────────────
+const kdsRouter = router({
+  listStations: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listKdsStations(merchant.id);
+  }),
+  upsertStation: protectedProcedure.input(z.object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    categories: z.array(z.string()),
+    active: z.boolean().default(true),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await upsertKdsStation({ ...input, merchantId: merchant.id });
+    return { id };
+  }),
+  listOrders: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listKdsOrders(merchant.id);
+  }),
+  markItemReady: protectedProcedure.input(z.object({ itemId: z.number() })).mutation(async ({ ctx, input }) => {
+    await markOrderItemReady(input.itemId);
+    return { ok: true };
+  }),
+  markOrderComplete: protectedProcedure.input(z.object({ orderId: z.string() })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await markOrderComplete(input.orderId, merchant.id);
+    return { ok: true };
+  }),
+});
+
+// ─── Inventory Router ─────────────────────────────────────────────────────────
+const inventoryRouter = router({
+  listItems: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listInventoryItems(merchant.id);
+  }),
+  upsertItem: protectedProcedure.input(z.object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    unit: z.string().default("unit"),
+    currentStock: z.number().min(0),
+    reorderLevel: z.number().min(0),
+    costPerUnit: z.number().min(0),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await upsertInventoryItem({ ...input, merchantId: merchant.id });
+    return { id };
+  }),
+  adjustStock: protectedProcedure.input(z.object({
+    itemId: z.string(),
+    quantity: z.number(),
+    type: z.enum(["restock", "consume", "waste", "adjust"]),
+    note: z.string().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    await adjustInventoryStock(input.itemId, input.quantity, input.type, input.note);
+    return { ok: true };
+  }),
+  getRecipeCost: protectedProcedure.input(z.object({ menuItemId: z.string() })).query(async ({ ctx, input }) => {
+    const cost = await getRecipeCost(input.menuItemId);
+    return { costKobo: cost };
+  }),
+  upsertRecipeIngredient: protectedProcedure.input(z.object({
+    menuItemId: z.string(),
+    inventoryItemId: z.string(),
+    quantityPerServing: z.number().min(1),
+  })).mutation(async ({ ctx, input }) => {
+    await upsertRecipeIngredient(input);
+    return { ok: true };
+  }),
+});
+
+// ─── Payroll Router ───────────────────────────────────────────────────────────
+const payrollRouter = router({
+  listStaff: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listStaffMembers(merchant.id);
+  }),
+  upsertStaff: protectedProcedure.input(z.object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    role: z.string().default("server"),
+    hourlyRateKobo: z.number().min(0),
+    bankCode: z.string().nullable().optional(),
+    accountNumber: z.string().nullable().optional(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await upsertStaffMember({ ...input, merchantId: merchant.id });
+    return { id };
+  }),
+  recordShift: protectedProcedure.input(z.object({
+    staffId: z.string(),
+    clockIn: z.date(),
+    clockOut: z.date().nullable().optional(),
+    tipsKobo: z.number().min(0).default(0),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    const id = await recordStaffShift({ ...input, merchantId: merchant.id });
+    return { id };
+  }),
+  listShifts: protectedProcedure.input(z.object({ staffId: z.string().optional() })).query(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listStaffShifts(merchant.id, input.staffId);
+  }),
+  runPayroll: protectedProcedure.input(z.object({
+    periodStart: z.date(),
+    periodEnd: z.date(),
+  })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    return createPayrollRun({ ...input, merchantId: merchant.id });
+  }),
+  listRuns: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) return [];
+    return listPayrollRuns(merchant.id);
+  }),
+  approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
+    await approvePayrollRun(input.id, merchant.id);
+    return { ok: true };
+  }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -3111,6 +3496,12 @@ export const appRouter = router({
   // Wave 28 — Subscriptions (Go scheduler) + POS Terminals
   subscriptions: subscriptionsRouter,
   pos: posRouter,
+  // Wave 32
+  geofence: geofenceRouter,
+  agentBanking: agentBankingRouter,
+  restaurant: restaurantRouter,
+  kds: kdsRouter,
+  inventory: inventoryRouter,
+  payroll: payrollRouter,
 });
-
 export type AppRouter = typeof appRouter;

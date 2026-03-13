@@ -965,3 +965,503 @@ export async function confirmPtspBatch(
     WHERE id = ${batchId}
   `);
 }
+
+// ─── Wave 32: Geofence Helpers ────────────────────────────────────────────────
+export async function listGeofenceRules(merchantId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await (db as any).execute(`SELECT * FROM geofence_rules WHERE merchant_id = '${merchantId}' ORDER BY created_at DESC`);
+  return (rows.rows ?? rows) as any[];
+}
+
+export async function upsertGeofenceRule(data: {
+  id?: string; merchantId: string; terminalId?: string | null;
+  name: string; centerLat: number; centerLng: number; radiusMeters: number; active: boolean;
+}) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = data.id ?? `gfr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO geofence_rules (id, merchant_id, terminal_id, name, center_lat, center_lng, radius_meters, active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, center_lat=EXCLUDED.center_lat,
+       center_lng=EXCLUDED.center_lng, radius_meters=EXCLUDED.radius_meters, active=EXCLUDED.active`,
+    [id, data.merchantId, data.terminalId ?? null, data.name, data.centerLat, data.centerLng, data.radiusMeters, data.active]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function deleteGeofenceRule(id: string, merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`DELETE FROM geofence_rules WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
+  await pool.end();
+}
+
+// ─── Wave 32: Agent Network Helpers ──────────────────────────────────────────
+export async function listSubAgents(superAgentMerchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(
+    `SELECT an.*, m.business_name, m.email FROM agent_network an
+     LEFT JOIN merchants m ON m.id = an.sub_agent_merchant_id
+     WHERE an.super_agent_merchant_id=$1 ORDER BY an.total_volume_kobo DESC`,
+    [superAgentMerchantId]
+  );
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function upsertSubAgent(data: { superAgentMerchantId: string; subAgentMerchantId: string; status?: string }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(
+    `INSERT INTO agent_network (super_agent_merchant_id, sub_agent_merchant_id, status)
+     VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+    [data.superAgentMerchantId, data.subAgentMerchantId, data.status ?? 'active']
+  );
+  await pool.end();
+}
+
+// ─── Wave 32: Restaurant Table Helpers ───────────────────────────────────────
+export async function listRestaurantTables(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM restaurant_tables WHERE merchant_id=$1 ORDER BY table_number`, [merchantId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function createRestaurantTable(data: { merchantId: string; tableNumber: string; capacity: number; section: string; posX: number; posY: number }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = `tbl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO restaurant_tables (id, merchant_id, table_number, capacity, section, pos_x, pos_y) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [id, data.merchantId, data.tableNumber, data.capacity, data.section, data.posX, data.posY]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function updateRestaurantTableStatus(id: string, merchantId: string, status: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE restaurant_tables SET status=$1 WHERE id=$2 AND merchant_id=$3`, [status, id, merchantId]);
+  await pool.end();
+}
+
+export async function updateRestaurantTablePosition(id: string, merchantId: string, posX: number, posY: number) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE restaurant_tables SET pos_x=$1, pos_y=$2 WHERE id=$3 AND merchant_id=$4`, [posX, posY, id, merchantId]);
+  await pool.end();
+}
+
+// ─── Wave 32: Restaurant Order Helpers ───────────────────────────────────────
+export async function listRestaurantOrders(merchantId: string, status?: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  let r;
+  if (status) {
+    r = await pool.query(
+      `SELECT o.*, t.table_number FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id=o.table_id
+       WHERE o.merchant_id=$1 AND o.status=$2 ORDER BY o.created_at DESC LIMIT 100`,
+      [merchantId, status]
+    );
+  } else {
+    r = await pool.query(
+      `SELECT o.*, t.table_number FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id=o.table_id
+       WHERE o.merchant_id=$1 ORDER BY o.created_at DESC LIMIT 100`,
+      [merchantId]
+    );
+  }
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function createRestaurantOrder(data: { merchantId: string; tableId?: string | null; covers: number; notes?: string }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO restaurant_orders (id, merchant_id, table_id, covers, notes) VALUES ($1,$2,$3,$4,$5)`,
+    [id, data.merchantId, data.tableId ?? null, data.covers, data.notes ?? null]
+  );
+  if (data.tableId) {
+    await pool.query(`UPDATE restaurant_tables SET status='occupied' WHERE id=$1`, [data.tableId]);
+  }
+  await pool.end();
+  return id;
+}
+
+export async function addOrderItem(data: { orderId: string; name: string; qty: number; unitPriceKobo: number; courseNumber: number; notes?: string }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(
+    `INSERT INTO restaurant_order_items (order_id, name, qty, unit_price_kobo, course_number, notes) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [data.orderId, data.name, data.qty, data.unitPriceKobo, data.courseNumber, data.notes ?? null]
+  );
+  await pool.query(
+    `UPDATE restaurant_orders SET total_kobo=(SELECT COALESCE(SUM(qty*unit_price_kobo),0) FROM restaurant_order_items WHERE order_id=$1), updated_at=NOW() WHERE id=$1`,
+    [data.orderId]
+  );
+  await pool.end();
+}
+
+export async function updateOrderStatus(id: string, merchantId: string, status: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE restaurant_orders SET status=$1, updated_at=NOW() WHERE id=$2 AND merchant_id=$3`, [status, id, merchantId]);
+  if (status === 'paid' || status === 'voided') {
+    const r = await pool.query(`SELECT table_id FROM restaurant_orders WHERE id=$1`, [id]);
+    if (r.rows[0]?.table_id) {
+      await pool.query(`UPDATE restaurant_tables SET status='available' WHERE id=$1`, [r.rows[0].table_id]);
+    }
+  }
+  await pool.end();
+}
+
+export async function getOrderWithItems(orderId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const orders = await pool.query(`SELECT * FROM restaurant_orders WHERE id=$1`, [orderId]);
+  if (!orders.rows[0]) { await pool.end(); return null; }
+  const items = await pool.query(`SELECT * FROM restaurant_order_items WHERE order_id=$1 ORDER BY course_number, id`, [orderId]);
+  await pool.end();
+  return { ...orders.rows[0], items: items.rows };
+}
+
+// ─── Wave 32: Split Bill Helpers ──────────────────────────────────────────────
+export async function createSplitBillSession(data: { orderId: string; merchantId: string; totalKobo: number; splitCount: number }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = `sbs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO split_bill_sessions (id, order_id, merchant_id, total_kobo, split_count) VALUES ($1,$2,$3,$4,$5)`,
+    [id, data.orderId, data.merchantId, data.totalKobo, data.splitCount]
+  );
+  const shareKobo = Math.ceil(data.totalKobo / data.splitCount);
+  for (let i = 0; i < data.splitCount; i++) {
+    const actual = i === data.splitCount - 1 ? data.totalKobo - shareKobo * (data.splitCount - 1) : shareKobo;
+    await pool.query(`INSERT INTO split_bill_shares (session_id, share_kobo, share_index) VALUES ($1,$2,$3)`, [id, actual, i]);
+  }
+  await pool.end();
+  return id;
+}
+
+export async function getSplitBillSession(id: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const s = await pool.query(`SELECT * FROM split_bill_sessions WHERE id=$1`, [id]);
+  if (!s.rows[0]) { await pool.end(); return null; }
+  const shares = await pool.query(`SELECT * FROM split_bill_shares WHERE session_id=$1 ORDER BY share_index`, [id]);
+  await pool.end();
+  return { ...s.rows[0], shares: shares.rows };
+}
+
+// ─── Wave 32: Menu Helpers ────────────────────────────────────────────────────
+export async function listMenuCategories(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM menu_categories WHERE merchant_id=$1 ORDER BY display_order, name`, [merchantId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function listMenuItems(merchantId: string, categoryId?: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  let r;
+  if (categoryId) {
+    r = await pool.query(`SELECT * FROM menu_items WHERE merchant_id=$1 AND category_id=$2 ORDER BY name`, [merchantId, categoryId]);
+  } else {
+    r = await pool.query(`SELECT * FROM menu_items WHERE merchant_id=$1 ORDER BY name`, [merchantId]);
+  }
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function upsertMenuCategory(data: { id?: string; merchantId: string; name: string; displayOrder: number }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = data.id ?? `mcat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO menu_categories (id, merchant_id, name, display_order) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, display_order=EXCLUDED.display_order`,
+    [id, data.merchantId, data.name, data.displayOrder]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function upsertMenuItem(data: { id?: string; categoryId: string; merchantId: string; name: string; description?: string | null; priceKobo: number; available: boolean; imageUrl?: string | null }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = data.id ?? `mitm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO menu_items (id, category_id, merchant_id, name, description, price_kobo, available, image_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description,
+       price_kobo=EXCLUDED.price_kobo, available=EXCLUDED.available, image_url=EXCLUDED.image_url`,
+    [id, data.categoryId, data.merchantId, data.name, data.description ?? null, data.priceKobo, data.available, data.imageUrl ?? null]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function toggleMenuItemAvailability(id: string, merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE menu_items SET available=NOT available WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
+  await pool.end();
+}
+
+// ─── Wave 32: Loyalty Helpers ─────────────────────────────────────────────────
+export async function getLoyaltyProgram(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM loyalty_programs WHERE merchant_id=$1`, [merchantId]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+
+export async function upsertLoyaltyProgram(data: { merchantId: string; pointsPerKobo: number; redeemRate: number; active: boolean }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = `lp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO loyalty_programs (id, merchant_id, points_per_kobo, redeem_rate, active) VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (merchant_id) DO UPDATE SET points_per_kobo=EXCLUDED.points_per_kobo, redeem_rate=EXCLUDED.redeem_rate, active=EXCLUDED.active`,
+    [id, data.merchantId, data.pointsPerKobo, data.redeemRate, data.active]
+  );
+  await pool.end();
+}
+
+export async function getLoyaltyAccount(merchantId: string, customerId: number) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM loyalty_accounts WHERE merchant_id=$1 AND customer_id=$2`, [merchantId, customerId]);
+  await pool.end();
+  return r.rows[0] ?? null;
+}
+
+export async function getOrCreateLoyaltyAccount(merchantId: string, customerId: number) {
+  const existing = await getLoyaltyAccount(merchantId, customerId);
+  if (existing) return existing;
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = `la_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(`INSERT INTO loyalty_accounts (id, merchant_id, customer_id) VALUES ($1,$2,$3)`, [id, merchantId, customerId]);
+  await pool.end();
+  return getLoyaltyAccount(merchantId, customerId);
+}
+
+export async function earnLoyaltyPoints(accountId: string, points: number, orderId?: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE loyalty_accounts SET points_balance=points_balance+$1, lifetime_points=lifetime_points+$1 WHERE id=$2`, [points, accountId]);
+  await pool.query(`INSERT INTO loyalty_transactions (account_id, type, points, order_id) VALUES ($1,'earn',$2,$3)`, [accountId, points, orderId ?? null]);
+  await pool.end();
+}
+
+export async function redeemLoyaltyPoints(accountId: string, points: number, orderId?: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT points_balance FROM loyalty_accounts WHERE id=$1`, [accountId]);
+  if (!r.rows[0] || r.rows[0].points_balance < points) { await pool.end(); return false; }
+  await pool.query(`UPDATE loyalty_accounts SET points_balance=points_balance-$1 WHERE id=$2`, [points, accountId]);
+  await pool.query(`INSERT INTO loyalty_transactions (account_id, type, points, order_id) VALUES ($1,'redeem',$2,$3)`, [accountId, -points, orderId ?? null]);
+  await pool.end();
+  return true;
+}
+
+export async function getLoyaltyHistory(accountId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM loyalty_transactions WHERE account_id=$1 ORDER BY created_at DESC LIMIT 50`, [accountId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+// ─── Wave 32: KDS Helpers ─────────────────────────────────────────────────────
+export async function listKdsStations(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM kds_stations WHERE merchant_id=$1 AND active=TRUE ORDER BY name`, [merchantId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function upsertKdsStation(data: { id?: string; merchantId: string; name: string; categories: string[]; active: boolean }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = data.id ?? `kds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO kds_stations (id, merchant_id, name, categories, active) VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, categories=EXCLUDED.categories, active=EXCLUDED.active`,
+    [id, data.merchantId, data.name, JSON.stringify(data.categories), data.active]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function listKdsOrders(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(
+    `SELECT o.*, t.table_number FROM restaurant_orders o LEFT JOIN restaurant_tables t ON t.id=o.table_id
+     WHERE o.merchant_id=$1 AND o.status IN ('open','sent_to_kitchen','ready') ORDER BY o.created_at ASC`,
+    [merchantId]
+  );
+  const orders = r.rows as any[];
+  for (const order of orders) {
+    const items = await pool.query(`SELECT * FROM restaurant_order_items WHERE order_id=$1 ORDER BY course_number, id`, [order.id]);
+    order.items = items.rows;
+  }
+  await pool.end();
+  return orders;
+}
+
+export async function markOrderItemReady(itemId: number) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE restaurant_order_items SET status='ready' WHERE id=$1`, [itemId]);
+  await pool.end();
+}
+
+export async function markOrderComplete(orderId: string, merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE restaurant_orders SET status='ready', updated_at=NOW() WHERE id=$1 AND merchant_id=$2`, [orderId, merchantId]);
+  await pool.end();
+}
+
+// ─── Wave 32: Inventory Helpers ───────────────────────────────────────────────
+export async function listInventoryItems(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM inventory_items WHERE merchant_id=$1 ORDER BY name`, [merchantId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function upsertInventoryItem(data: { id?: string; merchantId: string; name: string; unit: string; currentStock: number; reorderLevel: number; costPerUnit: number }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = data.id ?? `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO inventory_items (id, merchant_id, name, unit, current_stock, reorder_level, cost_per_unit)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, unit=EXCLUDED.unit, current_stock=EXCLUDED.current_stock,
+       reorder_level=EXCLUDED.reorder_level, cost_per_unit=EXCLUDED.cost_per_unit, updated_at=NOW()`,
+    [id, data.merchantId, data.name, data.unit, data.currentStock, data.reorderLevel, data.costPerUnit]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function adjustInventoryStock(itemId: string, quantity: number, type: string, note?: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE inventory_items SET current_stock=current_stock+$1, updated_at=NOW() WHERE id=$2`, [quantity, itemId]);
+  await pool.query(`INSERT INTO inventory_transactions (item_id, type, quantity, note) VALUES ($1,$2,$3,$4)`, [itemId, type, quantity, note ?? null]);
+  await pool.end();
+}
+
+export async function getRecipeCost(menuItemId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(
+    `SELECT COALESCE(SUM(ri.quantity_per_serving * ii.cost_per_unit / 100.0), 0) as total_cost
+     FROM recipe_ingredients ri JOIN inventory_items ii ON ii.id=ri.inventory_item_id WHERE ri.menu_item_id=$1`,
+    [menuItemId]
+  );
+  await pool.end();
+  return Number(r.rows[0]?.total_cost ?? 0);
+}
+
+export async function upsertRecipeIngredient(data: { menuItemId: string; inventoryItemId: string; quantityPerServing: number }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(
+    `INSERT INTO recipe_ingredients (menu_item_id, inventory_item_id, quantity_per_serving) VALUES ($1,$2,$3)
+     ON CONFLICT (menu_item_id, inventory_item_id) DO UPDATE SET quantity_per_serving=EXCLUDED.quantity_per_serving`,
+    [data.menuItemId, data.inventoryItemId, data.quantityPerServing]
+  );
+  await pool.end();
+}
+
+// ─── Wave 32: Staff & Payroll Helpers ────────────────────────────────────────
+export async function listStaffMembers(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM staff_members WHERE merchant_id=$1 AND active=TRUE ORDER BY name`, [merchantId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function upsertStaffMember(data: { id?: string; merchantId: string; name: string; role: string; hourlyRateKobo: number; bankCode?: string | null; accountNumber?: string | null }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = data.id ?? `stf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await pool.query(
+    `INSERT INTO staff_members (id, merchant_id, name, role, hourly_rate_kobo, bank_code, account_number)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role,
+       hourly_rate_kobo=EXCLUDED.hourly_rate_kobo, bank_code=EXCLUDED.bank_code, account_number=EXCLUDED.account_number`,
+    [id, data.merchantId, data.name, data.role, data.hourlyRateKobo, data.bankCode ?? null, data.accountNumber ?? null]
+  );
+  await pool.end();
+  return id;
+}
+
+export async function recordStaffShift(data: { staffId: string; merchantId: string; clockIn: Date; clockOut?: Date | null; tipsKobo?: number }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const hoursWorked = data.clockOut ? Math.round((data.clockOut.getTime() - data.clockIn.getTime()) / 60000) : null;
+  const r = await pool.query(
+    `INSERT INTO staff_shifts (staff_id, merchant_id, clock_in, clock_out, tips_kobo, hours_worked)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [data.staffId, data.merchantId, data.clockIn, data.clockOut ?? null, data.tipsKobo ?? 0, hoursWorked]
+  );
+  await pool.end();
+  return r.rows[0]?.id ?? null;
+}
+
+export async function listStaffShifts(merchantId: string, staffId?: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  let r;
+  if (staffId) {
+    r = await pool.query(
+      `SELECT ss.*, sm.name as staff_name FROM staff_shifts ss JOIN staff_members sm ON sm.id=ss.staff_id
+       WHERE ss.merchant_id=$1 AND ss.staff_id=$2 ORDER BY ss.clock_in DESC LIMIT 50`,
+      [merchantId, staffId]
+    );
+  } else {
+    r = await pool.query(
+      `SELECT ss.*, sm.name as staff_name FROM staff_shifts ss JOIN staff_members sm ON sm.id=ss.staff_id
+       WHERE ss.merchant_id=$1 ORDER BY ss.clock_in DESC LIMIT 100`,
+      [merchantId]
+    );
+  }
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function createPayrollRun(data: { merchantId: string; periodStart: Date; periodEnd: Date }) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const id = `pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const shifts = await pool.query(
+    `SELECT ss.staff_id, SUM(ss.hours_worked) as total_minutes, SUM(ss.tips_kobo) as total_tips, sm.hourly_rate_kobo
+     FROM staff_shifts ss JOIN staff_members sm ON sm.id=ss.staff_id
+     WHERE ss.merchant_id=$1 AND ss.clock_in>=$2 AND ss.clock_in<=$3 AND ss.clock_out IS NOT NULL
+     GROUP BY ss.staff_id, sm.hourly_rate_kobo`,
+    [data.merchantId, data.periodStart, data.periodEnd]
+  );
+  let totalKobo = 0;
+  for (const s of shifts.rows) {
+    const hours = (s.total_minutes ?? 0) / 60;
+    totalKobo += Math.round(hours * s.hourly_rate_kobo) + Number(s.total_tips ?? 0);
+  }
+  await pool.query(
+    `INSERT INTO payroll_runs (id, merchant_id, period_start, period_end, total_kobo, staff_count) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [id, data.merchantId, data.periodStart, data.periodEnd, totalKobo, shifts.rows.length]
+  );
+  await pool.end();
+  return { id, totalKobo, staffCount: shifts.rows.length };
+}
+
+export async function listPayrollRuns(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(`SELECT * FROM payroll_runs WHERE merchant_id=$1 ORDER BY period_start DESC LIMIT 20`, [merchantId]);
+  await pool.end();
+  return r.rows as any[];
+}
+
+export async function approvePayrollRun(id: string, merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  await pool.query(`UPDATE payroll_runs SET status='approved' WHERE id=$1 AND merchant_id=$2`, [id, merchantId]);
+  await pool.end();
+}
+
+// ─── Wave 32: Kiosk Health Summary ───────────────────────────────────────────
+export async function getKioskHealthSummary(merchantId: string) {
+  const pool = new (require('pg').Pool)({ connectionString: resolveDbUrl(), max: 1 });
+  const r = await pool.query(
+    `SELECT id, terminal_label, terminal_type, status, last_heartbeat_at, latitude, longitude
+     FROM pos_terminals WHERE merchant_id=$1 ORDER BY terminal_label`,
+    [merchantId]
+  );
+  await pool.end();
+  const now = Date.now();
+  let online = 0, warning = 0, offline = 0;
+  const terminals = r.rows.map((t: any) => {
+    const ageMs = t.last_heartbeat_at ? now - new Date(t.last_heartbeat_at).getTime() : Infinity;
+    const health = ageMs < 5 * 60000 ? 'online' : ageMs < 30 * 60000 ? 'warning' : 'offline';
+    if (health === 'online') online++; else if (health === 'warning') warning++; else offline++;
+    return { ...t, health };
+  });
+  return { total: terminals.length, online, warning, offline, terminals };
+}
