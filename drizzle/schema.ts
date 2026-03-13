@@ -153,6 +153,7 @@ export const merchants = pgTable("merchants", {
   // USSD support
   merchantCode: text("merchant_code").unique(),  // Short code for USSD pay-merchant (e.g. PG-1234)
   ussdPin: text("ussd_pin"),                      // bcrypt hash of 4-digit USSD PIN
+  soundboxLanguage: text("soundbox_language").default("en").notNull(), // en | yo | ha | ig
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -900,6 +901,8 @@ export const posTerminals = pgTable("pos_terminals", {
   model: posTerminalModelEnum("model").notNull().default("soundbox_basic"),
   label: text("label"),                                // "Main Counter", "Gate 2", etc.
   location: text("location"),                          // Physical address / branch name
+  latitude: integer("latitude"),                           // GPS latitude * 1e6 (stored as integer)
+  longitude: integer("longitude"),                          // GPS longitude * 1e6 (stored as integer)
   status: posTerminalStatusEnum("status").notNull().default("active"),
   // Connectivity
   lastHeartbeatAt: timestamp("last_heartbeat_at"),
@@ -936,6 +939,10 @@ export const posTransactions = pgTable("pos_transactions", {
   nipSessionId: text("nip_session_id"),
   status: text("status").notNull().default("completed"),
   receiptData: jsonb("receipt_data"),
+  settlementStatus: text("settlement_status").notNull().default("pending"),
+  settlementBatchId: text("settlement_batch_id"),
+  nibssReference: text("nibss_reference"),
+  settledAt: timestamp("settled_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("pos_tx_terminal_idx").on(t.terminalId),
@@ -943,3 +950,29 @@ export const posTransactions = pgTable("pos_transactions", {
 ]);
 export type PosTransaction = typeof posTransactions.$inferSelect;
 export type InsertPosTransaction = typeof posTransactions.$inferInsert;
+
+// ─── PTSP Settlement Batches ──────────────────────────────────────────────────
+// Tracks NIBSS batch settlement lifecycle: pending → submitted → confirmed/failed
+export const ptspBatchStatusEnum = pgEnum("ptsp_batch_status", [
+  "pending", "submitted", "confirmed", "failed", "partial",
+]);
+export const ptspBatches = pgTable("ptsp_batches", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  settlementDate: text("settlement_date").notNull(),   // YYYY-MM-DD
+  status: ptspBatchStatusEnum("status").notNull().default("pending"),
+  nibssReference: text("nibss_reference"),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
+  transactionCount: integer("transaction_count").notNull().default(0),
+  submittedAt: timestamp("submitted_at"),
+  confirmedAt: timestamp("confirmed_at"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("ptsp_batch_merchant_idx").on(t.merchantId),
+  index("ptsp_batch_date_idx").on(t.settlementDate),
+  index("ptsp_batch_status_idx").on(t.status),
+]);
+export type PtspBatch = typeof ptspBatches.$inferSelect;
+export type InsertPtspBatch = typeof ptspBatches.$inferInsert;

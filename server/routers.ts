@@ -1169,6 +1169,15 @@ const settingsRouter = router({
       const merchant = await requireMerchant(user.id);
       return updateMerchant(merchant.id, input);
     }),
+
+  // Update the merchant-level default soundbox language (en | yo | ha | ig)
+  updateSoundboxLanguage: protectedProcedure
+    .input(z.object({ soundboxLanguage: z.enum(["en", "yo", "ha", "ig"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return updateMerchant(merchant.id, { soundboxLanguage: input.soundboxLanguage });
+    }),
 });
 
 // ─── Analytics Router ─────────────────────────────────────────────────────────
@@ -2994,6 +3003,75 @@ const posRouter = router({
       } catch (err) {
         return { success: false, csv: '', message: `Batch queued (bridge offline: ${(err as Error).message})` };
       }
+    }),
+
+  // Update terminal GPS coordinates (called from map view or terminal registration)
+  updateLocation: protectedProcedure
+    .input(z.object({
+      terminalId: z.string(),
+      latitude:   z.number(),
+      longitude:  z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { posTerminals } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      await db.update(posTerminals)
+        .set({ latitude: Math.round(input.latitude * 1e6), longitude: Math.round(input.longitude * 1e6), updatedAt: new Date() })
+        .where(and(eq(posTerminals.id, input.terminalId), eq(posTerminals.merchantId, merchant.id)));
+      return { success: true };
+    }),
+
+  // ── PTSP Batch CRUD ────────────────────────────────────────────────────────
+  // Upsert a batch record (called by Go bridge when a batch is submitted)
+  upsertBatch: protectedProcedure
+    .input(z.object({
+      id:               z.string(),
+      settlementDate:   z.string(),
+      status:           z.enum(['pending', 'submitted', 'confirmed', 'failed', 'partial']).default('pending'),
+      nibssReference:   z.string().optional(),
+      totalAmountKobo:  z.number().optional(),
+      transactionCount: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { upsertPtspBatch } = await import('./db');
+      await upsertPtspBatch({ ...input, merchantId: merchant.id });
+      return { success: true };
+    }),
+
+  // List PTSP batches for the authenticated merchant
+  listBatches: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { listPtspBatches } = await import('./db');
+      return listPtspBatches(merchant.id, input.limit);
+    }),
+
+  // Called by Go NIBSS webhook when a batch is confirmed / failed
+  confirmBatch: protectedProcedure
+    .input(z.object({
+      batchId:        z.string(),
+      nibssReference: z.string(),
+      status:         z.enum(['confirmed', 'failed', 'partial']),
+      confirmedAt:    z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      await requireMerchant(user.id);
+      const { confirmPtspBatch } = await import('./db');
+      await confirmPtspBatch(input.batchId, input.nibssReference, input.status, input.confirmedAt);
+      await notifyOwner({
+        title:   `NIBSS Settlement ${input.status.toUpperCase()}: ${input.batchId}`,
+        content: `Batch ${input.batchId} — NIBSS ref ${input.nibssReference} — status: ${input.status} — confirmed at ${input.confirmedAt}`,
+      });
+      return { success: true, batchId: input.batchId, status: input.status };
     }),
 });
 // --- Root Router ---

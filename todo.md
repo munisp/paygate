@@ -818,3 +818,56 @@
 - [x] vitest: wave30.test.ts — 34 tests (Soundbox tones, PTSP grouping, CSV format, status transitions, POS event schema)
 - [x] Python: test_pos_simulator.py — 32 tests (helpers, payment/heartbeat/error events, ISO 8583, JSON serialization, multi-terminal)
 - [x] Total Wave 30: 66 tests (34 vitest + 32 Python)
+
+## Wave 31 — PTSP Webhook, Terminal Map, Soundbox Language Preference
+
+### 31a: PTSP Batch Confirmation Webhook (Go)
+- [ ] Write ptsp_confirmation_webhook.go in paygate-middleware/wiring/
+- [ ] POST /v1/pos/settlement/confirm endpoint: accepts NIBSS confirmation payload (batch_id, status, confirmed_at, reference)
+- [ ] Validates HMAC-SHA256 signature on incoming NIBSS webhook
+- [ ] Calls merchant portal /api/trpc/pos.confirmBatch via internal bridge call
+- [ ] Produces event to Fluvio paygate-pos-settlement-events topic
+- [ ] Register route in bridge setupRouter
+
+### 31b: posRouter.confirmBatch tRPC Procedure
+- [ ] Add confirmBatch procedure to posRouter in merchant portal routers.ts
+- [ ] Accepts batch_id, nibss_reference, confirmed_at
+- [ ] Updates pos_transactions settlement_status to 'confirmed' for the batch
+- [ ] Sends owner notification via notifyOwner
+
+### 31c: Terminal Map View (Merchant Portal)
+- [ ] Add MapView tab to POSTerminals.tsx (alongside List and Live Feed tabs)
+- [ ] Register terminal with lat/lng fields (add to pos_terminals table schema)
+- [ ] Map pins colour-coded: green (online), amber (stale), grey (offline)
+- [ ] Click pin → terminal detail popover (terminal ID, model, last heartbeat, today's volume)
+- [ ] Use MapView component from client/src/components/Map.tsx
+
+### 31d: Soundbox Language Preference Per Merchant
+- [ ] Add soundbox_language column to merchants table (enum: en/yo/ha/ig, default 'en')
+- [ ] Run pnpm db:push to migrate
+- [ ] Add soundbox_language field to settings.get and settings.update tRPC procedures
+- [ ] Add Soundbox Language selector to Settings.tsx → POS section
+- [ ] Wire useSoundbox hook in POSTerminals.tsx to read soundbox_language from trpc.settings.get
+
+### 31e: Tests
+- [ ] Go: ptsp_confirmation_webhook_test.go — HMAC validation, payload parsing, status transition
+- [ ] vitest: wave31.test.ts — confirmBatch procedure, map pin colour logic, language preference wiring
+- [ ] Python: no new tests (simulator already covered)
+
+## Wave 31 (March 2026)
+
+- [x] Switch database layer to PostgreSQL (drizzle migrations synced)
+- [x] Add settlement_status, settlement_batch_id, nibss_reference, settled_at to pos_transactions
+- [x] Add lat/lng columns to pos_terminals for GPS positioning
+- [x] Add soundbox_language column to merchants table
+- [x] Add ptsp_batches table for NIBSS settlement batch tracking
+- [x] Add pos.confirmBatch tRPC procedure (called by Go NIBSS webhook)
+- [x] Add pos.upsertBatch tRPC procedure (called by Go bridge on submission)
+- [x] Add pos.listBatches tRPC procedure
+- [x] Add pos.updateLocation tRPC procedure (GPS from map click)
+- [x] Add settings.updateSoundboxLanguage tRPC procedure
+- [x] Build TerminalMap page with Google Maps, health colour coding, and GPS editing
+- [x] Add Terminal Map to sidebar navigation
+- [x] Add Soundbox Language section to Settings page (EN/YO/HA/IG selector)
+- [x] Write PayGate value proposition doc (agent banking, kiosks, restaurants)
+- [x] Write PayGate vs Toast competitive gap analysis

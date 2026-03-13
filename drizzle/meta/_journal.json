@@ -113,6 +113,20 @@
       "when": 1773391026345,
       "tag": "0015_needy_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1773396616808,
+      "tag": "0016_shallow_moon_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773397672606,
+      "tag": "0017_boring_sinister_six",
+      "breakpoints": true
     }
   ]
 }

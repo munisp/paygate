@@ -41,6 +41,7 @@ import KeycloakRoleSync from "./pages/KeycloakRoleSync";
 import NIPBanks from "./pages/NIPBanks";
 import Subscriptions from "./pages/Subscriptions";
 import POSTerminals from "./pages/POSTerminals";
+import TerminalMap from "./pages/TerminalMap";
 import POSReconciliation from "./pages/POSReconciliation";
 import PTSPSettlement from "./pages/PTSPSettlement";
 
@@ -105,6 +106,7 @@ function Router() {
         <Route path="/nip-banks" component={NIPBanks} />
         <Route path="/subscriptions" component={Subscriptions} />
         <Route path="/pos-terminals" component={POSTerminals} />
+        <Route path="/terminal-map" component={TerminalMap} />
         <Route path="/pos-reconciliation" component={POSReconciliation} />
         <Route path="/ptsp-settlement" component={PTSPSettlement} />
         <Route component={Dashboard} />

@@ -900,3 +900,68 @@ export async function markAllNotificationsRead(merchantId: string): Promise<void
     UPDATE merchant_notifications SET is_read = true WHERE merchant_id = ${merchantId} AND is_read = false
   `);
 }
+
+// ─── PTSP Batch Helpers ───────────────────────────────────────────────────────
+export async function upsertPtspBatch(data: {
+  id: string; merchantId: string; settlementDate: string;
+  status?: string; nibssReference?: string | null;
+  totalAmountKobo?: number; transactionCount?: number;
+  submittedAt?: Date | null; confirmedAt?: Date | null; failureReason?: string | null;
+}): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.execute(sql`
+    INSERT INTO ptsp_batches (id, merchant_id, settlement_date, status, nibss_reference,
+      total_amount_kobo, transaction_count, submitted_at, confirmed_at, failure_reason,
+      created_at, updated_at)
+    VALUES (
+      ${data.id}, ${data.merchantId}, ${data.settlementDate},
+      ${data.status ?? 'pending'}, ${data.nibssReference ?? null},
+      ${data.totalAmountKobo ?? 0}, ${data.transactionCount ?? 0},
+      ${data.submittedAt ?? null}, ${data.confirmedAt ?? null},
+      ${data.failureReason ?? null}, NOW(), NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      status = EXCLUDED.status,
+      nibss_reference = COALESCE(EXCLUDED.nibss_reference, ptsp_batches.nibss_reference),
+      total_amount_kobo = COALESCE(EXCLUDED.total_amount_kobo, ptsp_batches.total_amount_kobo),
+      transaction_count = COALESCE(EXCLUDED.transaction_count, ptsp_batches.transaction_count),
+      submitted_at = COALESCE(EXCLUDED.submitted_at, ptsp_batches.submitted_at),
+      confirmed_at = COALESCE(EXCLUDED.confirmed_at, ptsp_batches.confirmed_at),
+      failure_reason = COALESCE(EXCLUDED.failure_reason, ptsp_batches.failure_reason),
+      updated_at = NOW()
+  `);
+}
+
+export async function listPtspBatches(merchantId: string, limit = 50): Promise<any[]> {
+  const db = await getDb(); if (!db) return [];
+  const rows = await db.execute(sql`
+    SELECT * FROM ptsp_batches WHERE merchant_id = ${merchantId}
+    ORDER BY settlement_date DESC, created_at DESC LIMIT ${limit}
+  `) as unknown as any[];
+  return rows;
+}
+
+export async function getPtspBatchById(id: string): Promise<any | null> {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.execute(sql`
+    SELECT * FROM ptsp_batches WHERE id = ${id} LIMIT 1
+  `) as unknown as any[];
+  return rows[0] ?? null;
+}
+
+export async function confirmPtspBatch(
+  batchId: string,
+  nibssReference: string,
+  status: 'confirmed' | 'failed' | 'partial',
+  confirmedAt: string,
+): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.execute(sql`
+    UPDATE ptsp_batches
+    SET status = ${status},
+        nibss_reference = ${nibssReference},
+        confirmed_at = ${confirmedAt}::timestamptz,
+        updated_at = NOW()
+    WHERE id = ${batchId}
+  `);
+}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote } from "lucide-react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -18,6 +19,8 @@ export default function Settings() {
     notifyOnPayout: true,
     notifyOnDispute: true,
   });
+  const [soundboxLang, setSoundboxLang] = useState<"en" | "yo" | "ha" | "ig">("en");
+
   const [settlementForm, setSettlementForm] = useState({
     settlementFrequency: "daily" as "daily" | "weekly" | "monthly",
     settlementMinAmount: 10000,
@@ -37,6 +40,11 @@ export default function Settings() {
     onSuccess: () => { toast.success("Notification preferences saved"); utils.settings.get.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  const updateSoundboxLang = trpc.settings.updateSoundboxLanguage.useMutation({
+    onSuccess: () => { toast.success("Soundbox language saved"); utils.settings.get.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
   const updateSettlement = trpc.settings.updateSettlementSchedule.useMutation({
     onSuccess: () => { toast.success("Settlement schedule saved"); utils.settings.getSettlementSchedule.invalidate(); },
     onError: (e) => toast.error(e.message),
@@ -55,6 +63,7 @@ export default function Settings() {
         notifyOnPayout: (data.merchant as any).notifyOnPayout ?? true,
         notifyOnDispute: (data.merchant as any).notifyOnDispute ?? true,
       });
+      setSoundboxLang(((data.merchant as any).soundboxLanguage as "en" | "yo" | "ha" | "ig") ?? "en");
     }
   }, [data]);
 
@@ -296,6 +305,57 @@ export default function Settings() {
           )}
         </div>
       </form>
+
+      {/* Soundbox Language Preference */}
+      <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Volume2 className="w-4 h-4 text-primary" />
+          <h3 className="font-semibold">Soundbox Language</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Default language for audio payment confirmations across all your soundbox terminals.
+          Individual terminals can override this setting.
+        </p>
+        <div className="flex items-center gap-4">
+          <Select value={soundboxLang} onValueChange={(v) => setSoundboxLang(v as typeof soundboxLang)}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Select language" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English (EN)</SelectItem>
+              <SelectItem value="yo">Yoruba (YO)</SelectItem>
+              <SelectItem value="ha">Hausa (HA)</SelectItem>
+              <SelectItem value="ig">Igbo (IG)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={() => updateSoundboxLang.mutate({ soundboxLanguage: soundboxLang })}
+            disabled={updateSoundboxLang.isPending}
+          >
+            <Save className="w-4 h-4 mr-1.5" />
+            {updateSoundboxLang.isPending ? "Saving..." : "Save Language"}
+          </Button>
+        </div>
+        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {([
+            { code: "en", label: "English",  sample: "Payment received" },
+            { code: "yo", label: "Yoruba",   sample: "Owo ti gba" },
+            { code: "ha", label: "Hausa",    sample: "An karɓi kuɗi" },
+            { code: "ig", label: "Igbo",     sample: "Ego enwetara" },
+          ] as const).map(({ code, label, sample }) => (
+            <div
+              key={code}
+              className={`rounded-lg border p-3 cursor-pointer transition-all ${
+                soundboxLang === code ? "border-primary bg-primary/5" : "border-border"
+              }`}
+              onClick={() => setSoundboxLang(code)}
+            >
+              <p className="font-medium text-sm">{label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">"{sample}"</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

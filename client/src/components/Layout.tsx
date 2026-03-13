@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu,
   Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon,
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
-  GitBranch, Building2, RefreshCw, Monitor
+  GitBranch, Building2, RefreshCw, Monitor, Map
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,7 @@ const navItems = [
   { icon: Smartphone, label: "Consumer App", path: "/consumer" },
   { icon: RefreshCw, label: "Subscriptions", path: "/subscriptions", badge: "New" },
   { icon: Monitor, label: "POS Terminals", path: "/pos-terminals", badge: "New" },
+  { icon: Map, label: "Terminal Map", path: "/terminal-map" },
   { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
   { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement", badge: "New" },
 ];
