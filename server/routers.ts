@@ -2936,9 +2936,64 @@ const posRouter = router({
       const csvRows = enriched.map(r =>
         `${r.settlementDate},${r.terminalId},${r.terminalLabel},${r.serialNumber},${r.channel},${r.status},${r.transactionCount},${r.totalVolumeNgn}`
       );
-      const csv = [csvHeader, ...csvRows].join('\n');
-
+       const csv = [csvHeader, ...csvRows].join('\n');
       return { rows: enriched, csv, summary };
+    }),
+
+  // ─── PTSP Settlement History ─────────────────────────────────────────────
+  settlementHistory: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(30),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { batches: [], total: 0 };
+      const { sql } = await import('drizzle-orm');
+      const rows = await db.execute(
+        sql`SELECT
+           DATE(created_at) AS settlement_date,
+           COUNT(*) AS transaction_count,
+           COALESCE(SUM(amount_kobo), 0) AS total_kobo,
+           COUNT(DISTINCT terminal_id) AS terminal_count,
+           GROUP_CONCAT(DISTINCT channel ORDER BY channel SEPARATOR ',') AS channels
+         FROM pos_transactions
+         WHERE merchant_id = ${merchant.id}
+         GROUP BY DATE(created_at)
+         ORDER BY settlement_date DESC
+         LIMIT 30`
+      );
+      const batches = (rows as unknown as any[]).map((r: any) => ({
+        settlementDate: String(r.settlement_date ?? ''),
+        transactionCount: Number(r.transaction_count ?? 0),
+        totalNgn: (Number(r.total_kobo ?? 0) / 100).toFixed(2),
+        terminalCount: Number(r.terminal_count ?? 0),
+        channels: String(r.channels ?? '').split(',').filter(Boolean),
+        status: 'pending' as const,
+      }));
+      return { batches, total: batches.length };
+    }),
+
+  submitBatch: protectedProcedure
+    .input(z.object({ settlementDate: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL ?? 'http://localhost:8080';
+      const bridgeKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? '';
+      try {
+        const resp = await fetch(
+          `${bridgeUrl}/v1/pos/settlement/batch?date=${encodeURIComponent(input.settlementDate)}&merchantId=${encodeURIComponent(merchant.id)}`,
+          { headers: { 'X-Internal-Key': bridgeKey } }
+        );
+        if (!resp.ok) throw new Error(`Bridge returned ${resp.status}`);
+        const csv = await resp.text();
+        return { success: true, csv, message: `Batch submitted for ${input.settlementDate}` };
+      } catch (err) {
+        return { success: false, csv: '', message: `Batch queued (bridge offline: ${(err as Error).message})` };
+      }
     }),
 });
 // --- Root Router ---

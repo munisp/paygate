@@ -39,6 +39,7 @@ const navItems = [
   { icon: RefreshCw, label: "Subscriptions", path: "/subscriptions", badge: "New" },
   { icon: Monitor, label: "POS Terminals", path: "/pos-terminals", badge: "New" },
   { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
+  { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement", badge: "New" },
 ];
 
 const devItems = [

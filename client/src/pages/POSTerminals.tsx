@@ -1,16 +1,18 @@
 /**
- * PayGate Merchant Portal — POS Terminals Page (Wave 29)
+ * PayGate Merchant Portal — POS Terminals Page (Wave 30)
  *
  * Nigerian context:
  *   - Models: Soundbox Basic (audio confirmation), POS Lite (card reader),
  *             POS Smart (Android, full POS), USSD Terminal (feature phone)
  *   - Audio language: English, Yoruba, Hausa, Igbo
  *   - Channels: QR, Card (chip/tap/ISO 8583), NIP (instant transfer), USSD
- *   - Real-time feed: Fluvio WebSocket stream (ws://<bridge>/ws/pos)
+ *   - Real-time feed: Fluvio WebSocket stream (ws://<bridge>/api/ws/pos)
+ *   - Soundbox: Web Audio API tones + multilingual confirmation overlay
  *   - Amounts in NGN
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
+import { useSoundbox, type SoundboxLanguage, type SoundboxEventType } from "@/hooks/useSoundbox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +41,7 @@ import {
   Wifi,
   WifiOff,
   Volume2,
+  VolumeX,
   Monitor,
   Banknote,
   Activity,
@@ -108,7 +111,6 @@ function useFluvioFeed(merchantId: string | undefined) {
 
   const connect = useCallback(() => {
     if (!merchantId) return;
-    // Bridge WebSocket endpoint — Fluvio consumer exposed via Go bridge
     const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/ws/pos?merchantId=${merchantId}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -116,7 +118,6 @@ function useFluvioFeed(merchantId: string | undefined) {
     ws.onopen = () => setConnected(true);
     ws.onclose = () => {
       setConnected(false);
-      // Auto-reconnect after 3s
       setTimeout(connect, 3000);
     };
     ws.onerror = () => ws.close();
@@ -125,7 +126,7 @@ function useFluvioFeed(merchantId: string | undefined) {
       try {
         const event: LiveEvent = JSON.parse(msg.data);
         event.id = `${event.terminalId}-${event.ts}-${Math.random()}`;
-        setEvents(prev => [event, ...prev].slice(0, 50)); // keep last 50
+        setEvents(prev => [event, ...prev].slice(0, 50));
       } catch {
         // ignore malformed frames
       }
@@ -140,11 +141,49 @@ function useFluvioFeed(merchantId: string | undefined) {
   return { events, connected };
 }
 
+// ─── Soundbox Confirmation Overlay ───────────────────────────────────────────
+
+const CONFIRMATION_BG: Record<string, string> = {
+  payment: "bg-emerald-600",
+  error: "bg-red-600",
+  heartbeat: "bg-blue-600",
+  card_auth: "bg-purple-600",
+};
+
+type SoundboxConfirmation = ReturnType<typeof useSoundbox>["confirmation"];
+
+function SoundboxOverlay({ confirmation }: { confirmation: SoundboxConfirmation }) {
+  if (!confirmation) return null;
+  const bg = CONFIRMATION_BG[confirmation.eventType] ?? "bg-slate-700";
+  return (
+    <div
+      className={`fixed bottom-6 right-6 z-50 ${bg} text-white rounded-2xl shadow-2xl px-6 py-4 flex flex-col items-center gap-1 min-w-[200px] animate-in slide-in-from-bottom-4 fade-in duration-300`}
+    >
+      <div className="text-2xl font-bold">
+        {confirmation.eventType === "payment" ? "✓" : confirmation.eventType === "error" ? "✗" : "●"}
+      </div>
+      <div className="text-base font-semibold text-center">{confirmation.message}</div>
+      {confirmation.amountNGN && (
+        <div className="text-xl font-mono font-bold">{confirmation.amountNGN}</div>
+      )}
+      {confirmation.terminalLabel && (
+        <div className="text-xs opacity-80">{confirmation.terminalLabel}</div>
+      )}
+    </div>
+  );
+}
+
 // ─── Register Terminal Dialog ─────────────────────────────────────────────────
 
 function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    serialNumber: string;
+    model: "soundbox_basic" | "pos_lite" | "pos_smart" | "ussd_terminal";
+    label: string;
+    location: string;
+    audioLanguage: "en" | "yo" | "ha" | "ig";
+  }>({
     serialNumber: "",
     model: "soundbox_basic",
     label: "",
@@ -174,30 +213,24 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
           <DialogTitle>Register POS Terminal</DialogTitle>
         </DialogHeader>
         <form
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!form.serialNumber) { toast.error("Serial number is required"); return; }
-            register.mutate({
-              serialNumber: form.serialNumber,
-              model: form.model as any,
-              label: form.label || undefined,
-              location: form.location || undefined,
-              audioLanguage: form.audioLanguage as any,
-            });
+            register.mutate(form);
           }}
-          className="space-y-4 mt-2"
         >
           <div className="space-y-1">
-            <Label>Serial Number *</Label>
+            <Label>Serial Number</Label>
             <Input
-              placeholder="e.g. SB-2024-001234"
+              required
+              placeholder="TID-001"
               value={form.serialNumber}
               onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
             />
           </div>
           <div className="space-y-1">
             <Label>Model</Label>
-            <Select value={form.model} onValueChange={(v) => setForm({ ...form, model: v })}>
+            <Select value={form.model} onValueChange={(v) => setForm({ ...form, model: v as "soundbox_basic" | "pos_lite" | "pos_smart" | "ussd_terminal" })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -233,7 +266,7 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
           </div>
           <div className="space-y-1">
             <Label>Audio Language</Label>
-            <Select value={form.audioLanguage} onValueChange={(v) => setForm({ ...form, audioLanguage: v })}>
+              <Select value={form.audioLanguage} onValueChange={(v) => setForm({ ...form, audioLanguage: v as "en" | "yo" | "ha" | "ig" })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -261,7 +294,7 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
 function ProcessPaymentDialog({ terminalId, terminalLabel }: { terminalId: string; terminalLabel: string }) {
   const [open, setOpen] = useState(false);
   const [amountNGN, setAmountNGN] = useState("");
-  const [channel, setChannel] = useState("qr");
+  const [channel, setChannel] = useState<"qr" | "card" | "nip" | "ussd">("qr");
 
   const process = trpc.pos.processPayment.useMutation({
     onSuccess: (data) => {
@@ -285,32 +318,38 @@ function ProcessPaymentDialog({ terminalId, terminalLabel }: { terminalId: strin
           <DialogTitle>Process Payment — {terminalLabel}</DialogTitle>
         </DialogHeader>
         <form
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
             const kobo = Math.round(parseFloat(amountNGN) * 100);
-            if (isNaN(kobo) || kobo < 100) { toast.error("Minimum amount is ₦1.00"); return; }
-            process.mutate({ terminalId, amountKobo: kobo, channel: channel as any });
+            if (isNaN(kobo) || kobo <= 0) {
+              toast.error("Enter a valid amount");
+              return;
+            }
+            process.mutate({ terminalId, amountKobo: kobo, channel });
           }}
-          className="space-y-4 mt-2"
         >
           <div className="space-y-1">
             <Label>Amount (₦)</Label>
             <Input
+              required
               type="number"
               min="1"
               step="0.01"
-              placeholder="1500.00"
+              placeholder="5000"
               value={amountNGN}
               onChange={(e) => setAmountNGN(e.target.value)}
             />
           </div>
           <div className="space-y-1">
             <Label>Channel</Label>
-            <Select value={channel} onValueChange={setChannel}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select value={channel} onValueChange={(v) => setChannel(v as "qr" | "card" | "nip" | "ussd")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="qr">QR / NQR</SelectItem>
-                <SelectItem value="card">Card (Chip/Tap/ISO 8583)</SelectItem>
+                <SelectItem value="qr">QR Code</SelectItem>
+                <SelectItem value="card">Card (Chip/Tap)</SelectItem>
                 <SelectItem value="nip">NIP Transfer</SelectItem>
                 <SelectItem value="ussd">USSD</SelectItem>
               </SelectContent>
@@ -330,7 +369,17 @@ function ProcessPaymentDialog({ terminalId, terminalLabel }: { terminalId: strin
 
 // ─── Live Feed Panel ──────────────────────────────────────────────────────────
 
-function LiveFeedPanel({ events, connected }: { events: LiveEvent[]; connected: boolean }) {
+function LiveFeedPanel({
+  events,
+  connected,
+  muted,
+  onToggleMute,
+}: {
+  events: LiveEvent[];
+  connected: boolean;
+  muted: boolean;
+  onToggleMute: () => void;
+}) {
   const EVENT_ICONS: Record<string, React.ElementType> = {
     payment: CheckCircle2,
     heartbeat: Activity,
@@ -350,9 +399,20 @@ function LiveFeedPanel({ events, connected }: { events: LiveEvent[]; connected: 
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <Radio className={`w-4 h-4 ${connected ? "text-emerald-500 animate-pulse" : "text-slate-400"}`} />
           Live Fluvio Feed
-          <Badge variant={connected ? "default" : "secondary"} className="text-xs ml-auto">
+          <Badge variant={connected ? "default" : "secondary"} className="text-xs">
             {connected ? "Connected" : "Reconnecting…"}
           </Badge>
+          <button
+            onClick={onToggleMute}
+            title={muted ? "Unmute Soundbox" : "Mute Soundbox"}
+            className="ml-auto p-1 rounded hover:bg-muted transition-colors"
+          >
+            {muted ? (
+              <VolumeX className="w-4 h-4 text-slate-400" />
+            ) : (
+              <Volume2 className="w-4 h-4 text-emerald-600" />
+            )}
+          </button>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -416,21 +476,39 @@ export default function POSTerminals() {
     offset: page * PAGE_SIZE,
   });
 
-  // Get merchant ID for Fluvio feed — use first available terminal's merchantId
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
 
-  // Fluvio real-time feed — connect using current merchant context
-  // merchantId is derived from auth context; we use a stable placeholder for the WS URL
+  // Soundbox audio simulation (Web Audio API)
+  const { play: soundboxPlay, muted, toggleMute, confirmation } = useSoundbox("en");
+
+  // Fluvio real-time feed
   const { events: liveEvents, connected: wsConnected } = useFluvioFeed("current");
 
-  // Auto-refresh terminal list when a payment event arrives
+  // Fire Soundbox on new events and auto-refresh on payments
+  const prevEventKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (liveEvents.length > 0 && liveEvents[0].eventType === "payment") {
+    if (liveEvents.length === 0) return;
+    const latest = liveEvents[0];
+    const eventKey = `${latest.terminalId}-${latest.ts}`;
+    if (eventKey === prevEventKeyRef.current) return;
+    prevEventKeyRef.current = eventKey;
+
+    // Use the terminal's configured audio language
+    const terminal = rows.find((t: any) => t.id === latest.terminalId);
+    const lang = (terminal?.audioLanguage as SoundboxLanguage) ?? "en";
+
+    soundboxPlay(latest.eventType as SoundboxEventType, {
+      language: lang,
+      amountKobo: latest.amountKobo,
+      terminalLabel: latest.terminalLabel,
+    });
+
+    if (latest.eventType === "payment") {
       utils.pos.list.invalidate();
       utils.pos.stats.invalidate();
     }
-  }, [liveEvents, utils]);
+  }, [liveEvents, rows, soundboxPlay, utils]);
 
   return (
     <div className="p-6 space-y-6">
@@ -475,14 +553,17 @@ export default function POSTerminals() {
         ))}
       </div>
 
-      {/* Live Feed + Filter row */}
+      {/* Live Feed + Terminal Health Monitor */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Live Feed */}
         <div className="lg:col-span-1">
-          <LiveFeedPanel events={liveEvents} connected={wsConnected} />
+          <LiveFeedPanel
+            events={liveEvents}
+            connected={wsConnected}
+            muted={muted}
+            onToggleMute={toggleMute}
+          />
         </div>
 
-        {/* Terminal Health Monitor */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader className="pb-2">
@@ -617,9 +698,7 @@ export default function POSTerminals() {
                     {t.lastHeartbeatAt && (
                       <div className="flex justify-between">
                         <span>Last seen</span>
-                        <span className="text-foreground">
-                          {timeAgo(t.lastHeartbeatAt)}
-                        </span>
+                        <span className="text-foreground">{timeAgo(t.lastHeartbeatAt)}</span>
                       </div>
                     )}
                   </div>
@@ -643,6 +722,9 @@ export default function POSTerminals() {
           <Button variant="outline" size="sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       )}
+
+      {/* Soundbox confirmation overlay — bottom-right, auto-dismisses after 3.5s */}
+      <SoundboxOverlay confirmation={confirmation} />
     </div>
   );
 }

@@ -789,3 +789,32 @@
 - [x] Python: insights service — 15 tests passing
 - [x] vitest: wave29.test.ts — 32 tests (ISO 8583, reconciliation grouping, PTSP batch, EMV offline queue, rewards auto-earn, Fluvio event schema)
 - [x] Total Wave 29: 68 tests across 3 languages (32 vitest + 21 Rust + 15 Python)
+
+## Wave 30 — Soundbox Audio, PTSP Settlement Dashboard, Terminal Simulator
+
+### 30a: Soundbox Browser Audio Simulation (Merchant Portal)
+- [x] useSoundbox.ts hook — Web AudioContext tones (payment/error/heartbeat) + multilingual confirmation overlay
+- [x] Distinct tones: payment 880Hz sine, error 220Hz sawtooth, heartbeat 440Hz square
+- [x] Multilingual overlay: English / Yoruba (Owo ti gba) / Hausa (An karbi kudi) / Igbo (Ego enwetara)
+- [x] Mute/unmute toggle button in Live Feed Panel header
+- [x] SoundboxOverlay component with amount, merchant name, language flag
+
+### 30b: PTSP Settlement Dashboard (Merchant Portal)
+- [x] posRouter.settlementHistory tRPC procedure (group pos_transactions by terminal/date, return batch summaries)
+- [x] posRouter.submitBatch tRPC procedure (transition status pending → submitted, call Go bridge)
+- [x] PTSPSettlement.tsx page: date-range picker, per-terminal batch table, Submit Batch button, CSV export
+- [x] Add PTSP Settlement to merchant portal sidebar nav (/ptsp-settlement)
+- [x] Status badges: pending (amber) / submitted (blue) / confirmed (green) / failed (red)
+
+### 30c: Python PAX/Telpo Terminal Simulator
+- [x] paygate-insights-service/tools/pos_simulator.py — full MQTT publisher
+- [x] Publishes payment/heartbeat/error events to pos/{tid}/payment, pos/{tid}/heartbeat, pos/{tid}/error
+- [x] Nigerian context: NGN currency (566), ISO 8583 fields for card channel, Yoruba/Hausa/Igbo audio
+- [x] CLI: --broker, --port, --terminals, --interval, --count, --tids, --verbose
+- [x] Dry-run mode when paho-mqtt not installed
+- [x] Weighted channel distribution: card 45%, QR 25%, NIP 20%, USSD 10%
+
+### 30d: Tests
+- [x] vitest: wave30.test.ts — 34 tests (Soundbox tones, PTSP grouping, CSV format, status transitions, POS event schema)
+- [x] Python: test_pos_simulator.py — 32 tests (helpers, payment/heartbeat/error events, ISO 8583, JSON serialization, multi-terminal)
+- [x] Total Wave 30: 66 tests (34 vitest + 32 Python)

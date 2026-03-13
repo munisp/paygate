@@ -42,6 +42,7 @@ import NIPBanks from "./pages/NIPBanks";
 import Subscriptions from "./pages/Subscriptions";
 import POSTerminals from "./pages/POSTerminals";
 import POSReconciliation from "./pages/POSReconciliation";
+import PTSPSettlement from "./pages/PTSPSettlement";
 
 function Router() {
   const [location] = useLocation();
@@ -105,6 +106,7 @@ function Router() {
         <Route path="/subscriptions" component={Subscriptions} />
         <Route path="/pos-terminals" component={POSTerminals} />
         <Route path="/pos-reconciliation" component={POSReconciliation} />
+        <Route path="/ptsp-settlement" component={PTSPSettlement} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>
