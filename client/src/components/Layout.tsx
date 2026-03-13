@@ -38,6 +38,7 @@ const navItems = [
   { icon: Smartphone, label: "Consumer App", path: "/consumer" },
   { icon: RefreshCw, label: "Subscriptions", path: "/subscriptions", badge: "New" },
   { icon: Monitor, label: "POS Terminals", path: "/pos-terminals", badge: "New" },
+  { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
 ];
 
 const devItems = [

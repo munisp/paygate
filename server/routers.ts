@@ -2862,10 +2862,86 @@ const posRouter = router({
         totalTransactions: Number(rows[0]?.totalTransactions ?? 0),
       };
     }),
+
+  /**
+   * POS Reconciliation Report
+   * Groups POS transactions by terminal, settlement date, and channel.
+   * Returns a summary table + CSV export. Closes the Moniepoint/Paytm recon gap.
+   */
+  reconciliationReport: protectedProcedure
+    .input(z.object({
+      from: z.date().optional(),
+      to: z.date().optional(),
+      terminalId: z.string().optional(),
+      channel: z.enum(['qr', 'card', 'nip', 'ussd', 'all']).default('all'),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { rows: [], csv: '', summary: { totalVolumeKobo: 0, totalCount: 0, settledCount: 0 } };
+
+      const { posTransactions, posTerminals } = await import('../drizzle/schema');
+      const { eq, and, gte, lte, desc, sum, count: countFn, sql: sqlFn } = await import('drizzle-orm');
+
+      const conds: any[] = [eq(posTransactions.merchantId, merchant.id)];
+      if (input.from) conds.push(gte(posTransactions.createdAt, input.from));
+      if (input.to) conds.push(lte(posTransactions.createdAt, input.to));
+      if (input.terminalId) conds.push(eq(posTransactions.terminalId, input.terminalId));
+      if (input.channel !== 'all') conds.push(eq(posTransactions.channel, input.channel as any));
+
+      const rows = await db
+        .select({
+          terminalId: posTransactions.terminalId,
+          channel: posTransactions.channel,
+          status: posTransactions.status,
+          settlementDate: sqlFn<string>`DATE(${posTransactions.createdAt})`,
+          totalVolumeKobo: sum(posTransactions.amountKobo),
+          transactionCount: countFn(),
+        })
+        .from(posTransactions)
+        .where(and(...conds))
+        .groupBy(
+          posTransactions.terminalId,
+          posTransactions.channel,
+          posTransactions.status,
+          sqlFn`DATE(${posTransactions.createdAt})`
+        )
+        .orderBy(desc(sqlFn`DATE(${posTransactions.createdAt})`));
+
+      // Enrich with terminal labels
+      const terminalIds = Array.from(new Set(rows.map(r => r.terminalId).filter(Boolean)));
+      const terminals = terminalIds.length > 0
+        ? await db.select({ id: posTerminals.id, label: posTerminals.label, serialNumber: posTerminals.serialNumber })
+            .from(posTerminals).where(eq(posTerminals.merchantId, merchant.id))
+        : [];
+      const terminalMap = Object.fromEntries(terminals.map(t => [t.id, t]));
+
+      const enriched = rows.map(r => ({
+        ...r,
+        terminalLabel: terminalMap[r.terminalId ?? '']?.label ?? r.terminalId,
+        serialNumber: terminalMap[r.terminalId ?? '']?.serialNumber ?? '',
+        totalVolumeNgn: ((Number(r.totalVolumeKobo) || 0) / 100).toFixed(2),
+        transactionCount: Number(r.transactionCount),
+      }));
+
+      const summary = {
+        totalVolumeKobo: enriched.reduce((s, r) => s + (Number(r.totalVolumeKobo) || 0), 0),
+        totalCount: enriched.reduce((s, r) => s + r.transactionCount, 0),
+        settledCount: enriched.filter(r => r.status === 'completed').reduce((s, r) => s + r.transactionCount, 0),
+      };
+
+      // CSV export
+      const csvHeader = 'Settlement Date,Terminal ID,Terminal Label,Serial Number,Channel,Status,Transactions,Volume (NGN)';
+      const csvRows = enriched.map(r =>
+        `${r.settlementDate},${r.terminalId},${r.terminalLabel},${r.serialNumber},${r.channel},${r.status},${r.transactionCount},${r.totalVolumeNgn}`
+      );
+      const csv = [csvHeader, ...csvRows].join('\n');
+
+      return { rows: enriched, csv, summary };
+    }),
 });
-
-// ─── Root Router ─────────────────────────────────────────────────────────────
-
+// --- Root Router ---
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,

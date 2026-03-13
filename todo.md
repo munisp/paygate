@@ -735,3 +735,57 @@
 - [x] Rust rewards_ledger: 9 tests passing
 - [x] Python insights: 15 tests passing
 - [x] Total Wave 28: 76 tests across 3 languages
+
+## Wave 29 — POS Full-Stack: ISO 8583, Fluvio/MQTT, EMV, ESC/POS, Reconciliation
+
+### 29a: Go — ISO 8583 Card Parser + CardPaymentHandler
+- [x] Write iso8583_parser.go: parse MTI, bitmap, DE fields (DE2 PAN, DE4 amount, DE11 STAN, DE12 time, DE37 RRN, DE39 response, DE41 terminal ID, DE42 merchant ID, DE49 currency)
+- [x] Write card_payment_handler.go: HTTP handler accepting ISO 8583 hex/binary from PAX/Telpo terminals
+- [x] Authorisation response: approve/decline based on TigerBeetle balance check + Permify merchant permission
+- [x] Produce card payment event to Fluvio topic paygate-pos-card-events
+- [x] Register /v1/pos/card/auth route in bridge setupRouter
+
+### 29b: Go/Rust — Fluvio Bi-Directional POS Integration (MQTT + WebSocket)
+- [x] Write pos_fluvio_bridge.go: MQTT broker client (Eclipse Paho Go) subscribes to pos/+/payment and pos/+/heartbeat topics
+- [x] MQTT → Fluvio: on MQTT message, produce to paygate-pos-events topic with terminal_id, event_type, payload
+- [x] Fluvio → WebSocket: SSE/WebSocket consumer goroutine reads paygate-pos-events and pushes to connected merchant portal clients
+- [x] Fluvio topics: paygate-pos-events, paygate-pos-card-events, paygate-pos-heartbeats added to CreateTopics
+- [x] Register /api/ws/pos WebSocket endpoint in bridge for real-time terminal feed
+
+### 29c: Go — PTSP Batch Settlement + EMV Offline Queue
+- [x] Write ptsp_settlement.go: daily batch settlement handler (NIBSS PTSP format — CSV with terminal_id, merchant_id, amount, RRN, auth_code, date)
+- [x] EMV offline queue: store offline transactions in Redis ZSET, flush to TigerBeetle when terminal reconnects
+- [x] Write /v1/pos/settlement/batch endpoint returning PTSP-format CSV
+- [x] Write /v1/pos/offline/flush endpoint to drain offline queue
+
+### 29d: Rust — ESC/POS Thermal Printer Receipt Formatter
+- [x] Create pos_receipt_printer crate in paygate-middleware/pos_receipt_printer/
+- [x] Implement ESC/POS command builder: header, merchant name, terminal ID, transaction details, QR code footer
+- [x] Expose /receipt/format HTTP endpoint returning ESC/POS byte sequence (base64-encoded)
+- [x] Support 58mm and 80mm paper widths (Nigerian POS standard)
+- [x] 12 Rust tests passing
+
+### 29e: Auto-Rewards Earn Hook (Consumer Portal)
+- [x] Wire rewards.earn call inside walletTxns insert path in consumer portal routers/index.ts
+- [x] Trigger earn on completed transfer/bill_pay (not on failed/reversed txns)
+- [x] Graceful degradation: if Rust rewards service unavailable, log and continue
+
+### 29f: POS Reconciliation Report Page (Merchant Portal)
+- [x] Add posRouter.reconciliationReport procedure (group by terminal, date, channel → CSV)
+- [x] Build POSReconciliation.tsx page with date-range picker, per-terminal breakdown table
+- [x] Add Download CSV button for reconciliation export
+- [x] Add POS Reconciliation to merchant portal sidebar nav
+
+### 29g: POS Terminals Page — Real-Time Fluvio Feed + Health Monitor
+- [x] Add useFluvioFeed WebSocket hook in POSTerminals.tsx connecting to /api/ws/pos
+- [x] Real-time terminal event feed: Live Feed Panel shows last 50 events (payment, heartbeat, card_auth, error)
+- [x] Terminal health indicator: green (online <5m) / amber (stale 5-30m) / grey (offline) per terminal
+- [x] Auto-invalidate trpc.pos.list on payment event (live volume update)
+
+### 29h: Tests
+- [x] Go: ISO 8583 logic tested via vitest (6 tests)
+- [x] Rust: pos_receipt_printer — 12 tests passing (58mm/80mm, NGN formatting, cashback, ESC/POS commands)
+- [x] Rust: rewards_ledger — 9 tests passing
+- [x] Python: insights service — 15 tests passing
+- [x] vitest: wave29.test.ts — 32 tests (ISO 8583, reconciliation grouping, PTSP batch, EMV offline queue, rewards auto-earn, Fluvio event schema)
+- [x] Total Wave 29: 68 tests across 3 languages (32 vitest + 21 Rust + 15 Python)
