@@ -33,6 +33,7 @@ import {
   RefreshCw,
   Search,
   TrendingDown,
+  ShoppingCart,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -287,6 +288,7 @@ export default function Inventory() {
   const [addOpen, setAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [adjustItem, setAdjustItem] = useState<any>(null);
+  const [poItem, setPoItem] = useState<any>(null);
   const utils = trpc.useUtils();
 
   const { data: items = [], isLoading, refetch } = trpc.inventory.listItems.useQuery(
@@ -526,7 +528,18 @@ export default function Inventory() {
                   </div>
 
                   {/* Actions */}
-                  <div className="col-span-12 sm:col-span-2 flex items-center justify-end gap-1.5">
+                  <div className="col-span-12 sm:col-span-2 flex items-center justify-end gap-1.5 flex-wrap">
+                    {(item.currentStock <= item.reorderLevel) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs px-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                        onClick={() => setPoItem(item)}
+                      >
+                        <ShoppingCart className="h-3.5 w-3.5 mr-1" />
+                        Create PO
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -574,6 +587,148 @@ export default function Inventory() {
           onSaved={refresh}
         />
       )}
+      {poItem && (
+        <CreatePODialog
+          open={!!poItem}
+          onClose={() => setPoItem(null)}
+          item={poItem}
+          onSaved={refresh}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Create PO Dialog ────────────────────────────────────────────────────────
+interface CreatePODialogProps {
+  open: boolean;
+  onClose: () => void;
+  item: any;
+  onSaved: () => void;
+}
+function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
+  const suggestedQty = Math.max(1, (item.reorderLevel ?? 10) * 2 - (item.currentStock ?? 0));
+  const [form, setForm] = useState({
+    vendorName: "",
+    quantity: String(suggestedQty),
+    unitCost: String(item.costPerUnitKobo ? item.costPerUnitKobo / 100 : 0),
+    notes: "",
+  });
+
+  const createPO = trpc.purchaseOrders.create.useMutation({
+    onSuccess: () => {
+      toast.success("Purchase Order created", {
+        description: `PO for ${form.quantity} ${item.unit}(s) of ${item.name} sent to owner.`,
+      });
+      onSaved();
+      onClose();
+    },
+    onError: (err: any) => toast.error("Failed to create PO", { description: err.message }),
+  });
+
+  const totalKobo = Math.round(Number(form.unitCost) * 100) * Number(form.quantity);
+
+  const handleSubmit = () => {
+    if (!form.quantity || Number(form.quantity) < 1) { toast.error("Quantity must be at least 1"); return; }
+    createPO.mutate({
+      inventoryItemId: item.id,
+      itemName: item.name,
+      vendorName: form.vendorName || undefined,
+      quantity: Number(form.quantity),
+      unit: item.unit,
+      unitCostKobo: Math.round(Number(form.unitCost) * 100),
+      notes: form.notes || undefined,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5 text-amber-600" />
+            Create Purchase Order
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {/* Item summary */}
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-amber-900">{item.name}</p>
+                <p className="text-xs text-amber-700">
+                  Current stock: <span className="font-medium">{item.currentStock} {item.unit}</span>
+                  {" "}&middot; Reorder at: <span className="font-medium">{item.reorderLevel} {item.unit}</span>
+                </p>
+              </div>
+              <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Vendor / Supplier Name</Label>
+            <Input
+              placeholder="e.g. FreshFarm Supplies"
+              value={form.vendorName}
+              onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Order Quantity ({item.unit})</Label>
+              <Input
+                type="number"
+                min={1}
+                value={form.quantity}
+                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Unit Cost (₦)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₦</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className="pl-7"
+                  value={form.unitCost}
+                  onChange={(e) => setForm((f) => ({ ...f, unitCost: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Total estimate */}
+          {Number(form.quantity) > 0 && (
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-muted/50 text-sm">
+              <span className="text-muted-foreground">Estimated Total</span>
+              <span className="font-bold text-lg">{formatKobo(totalKobo)}</span>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label>Notes (optional)</Label>
+            <Input
+              placeholder="Delivery instructions, urgency, etc."
+              value={form.notes}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+            onClick={handleSubmit}
+            disabled={createPO.isPending}
+          >
+            {createPO.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Submit Purchase Order
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

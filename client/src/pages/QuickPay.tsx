@@ -187,10 +187,19 @@ function QRPanel({ merchant }: { merchant: any }) {
         )}
       </Button>
 
-      {/* QR display */}
+      {/* QR display — animated fade+scale in */}
       {qrData && (
-        <div className="flex flex-col items-center gap-4 pt-2">
-          <div className="p-4 bg-white rounded-2xl shadow-md border">
+        <div
+          className="flex flex-col items-center gap-4 pt-2"
+          style={{ animation: "qrFadeIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both" }}
+        >
+          <style>{`
+            @keyframes qrFadeIn {
+              from { opacity: 0; transform: scale(0.7); }
+              to   { opacity: 1; transform: scale(1); }
+            }
+          `}</style>
+          <div className="p-4 bg-white rounded-2xl shadow-lg border-2 border-primary/20 relative">
             <QRCodeSVG
               ref={qrRef as any}
               value={qrData}
@@ -198,11 +207,29 @@ function QRPanel({ merchant }: { merchant: any }) {
               level="H"
               includeMargin={false}
             />
+            {/* Scan indicator corners */}
+            <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-primary rounded-tl-sm" />
+            <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-primary rounded-tr-sm" />
+            <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-primary rounded-bl-sm" />
+            <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-primary rounded-br-sm" />
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold">₦{Number(amount).toLocaleString()}</p>
             {description && <p className="text-sm text-muted-foreground">{description}</p>}
+            <p className="text-xs text-muted-foreground mt-1">Scan to pay via PayGate</p>
           </div>
+          {/* Copy link button */}
+          <Button
+            variant="outline"
+            className="w-full border-primary/30 text-primary hover:bg-primary/5"
+            onClick={() => {
+              navigator.clipboard.writeText(qrData);
+              toast.success('Payment link copied!', { description: 'Share this link with your customer.' });
+            }}
+          >
+            <ClipboardCopy className="h-4 w-4 mr-2" />
+            Copy Payment Link
+          </Button>
           <div className="flex gap-2 w-full">
             <Button variant="outline" className="flex-1" onClick={handleDownload}>
               <Download className="h-4 w-4 mr-1.5" />

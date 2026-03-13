@@ -2717,10 +2717,10 @@ const pushTokensRouter = router({
       await db.execute(
         sql`INSERT INTO device_push_tokens (merchant_id, user_id, token, platform, device_id, app_version, is_active, updated_at)
             VALUES (${merchant.id}, ${user.id}, ${input.token}, ${input.platform}, ${input.deviceId ?? null}, ${input.appVersion ?? null}, true, now())
-            ON DUPLICATE KEY UPDATE
-              token = VALUES(token),
-              platform = VALUES(platform),
-              app_version = VALUES(app_version),
+            ON CONFLICT (user_id, device_id) DO UPDATE SET
+              token = EXCLUDED.token,
+              platform = EXCLUDED.platform,
+              app_version = EXCLUDED.app_version,
               is_active = true,
               updated_at = now()`
       );
@@ -3740,6 +3740,203 @@ const payrollRouter = router({
   }),
 });
 
+// ─── Audit Log Router ──────────────────────────────────────────────────────
+
+const auditLogRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(200).default(50),
+      offset: z.number().int().min(0).default(0),
+      action: z.string().optional(),
+      resource: z.string().optional(),
+      actorId: z.string().optional(),
+      from: z.number().optional(),
+      to: z.number().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { events: [], total: 0 };
+      const fromTs = input.from ? new Date(input.from) : new Date(Date.now() - 30 * 86400_000);
+      const toTs = input.to ? new Date(input.to) : new Date();
+      const result = await db.execute(
+        sql`SELECT * FROM audit_events
+            WHERE merchant_id = ${merchant.id}
+            ${input.action ? sql`AND action = ${input.action}` : sql``}
+            ${input.resource ? sql`AND resource = ${input.resource}` : sql``}
+            ${input.actorId ? sql`AND actor_id = ${input.actorId}` : sql``}
+            AND created_at BETWEEN ${fromTs} AND ${toTs}
+            ORDER BY created_at DESC
+            LIMIT ${input.limit} OFFSET ${input.offset}`
+      );
+      const countResult = await db.execute(
+        sql`SELECT COUNT(*) as total FROM audit_events
+            WHERE merchant_id = ${merchant.id}
+            ${input.action ? sql`AND action = ${input.action}` : sql``}
+            ${input.resource ? sql`AND resource = ${input.resource}` : sql``}
+            ${input.actorId ? sql`AND actor_id = ${input.actorId}` : sql``}
+            AND created_at BETWEEN ${fromTs} AND ${toTs}`
+      );
+      const events = (result.rows ?? []).map((r: any) => ({
+        id: r.id,
+        merchantId: r.merchant_id,
+        actorId: r.actor_id,
+        actorName: r.actor_name,
+        actorEmail: r.actor_email,
+        action: r.action,
+        resource: r.resource,
+        resourceId: r.resource_id,
+        metadata: r.metadata,
+        ipAddress: r.ip_address,
+        createdAt: r.created_at,
+      }));
+      const total = Number((countResult.rows?.[0] as any)?.total ?? 0);
+      return { events, total };
+    }),
+
+  log: protectedProcedure
+    .input(z.object({
+      action: z.string(),
+      resource: z.string(),
+      resourceId: z.string().optional(),
+      metadata: z.record(z.string(), z.any()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { logged: false };
+      await db.execute(
+        sql`INSERT INTO audit_events (merchant_id, actor_id, actor_name, actor_email, action, resource, resource_id, metadata)
+            VALUES (${merchant.id}, ${String(user.id)}, ${user.name ?? 'Unknown'}, ${user.email ?? null},
+                    ${input.action}, ${input.resource}, ${input.resourceId ?? null}, ${JSON.stringify(input.metadata ?? {})})`
+      );
+      return { logged: true };
+    }),
+
+  getActions: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const { getDb } = await import('./db');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return { actions: [], resources: [] };
+    const actionsResult = await db.execute(
+      sql`SELECT DISTINCT action FROM audit_events WHERE merchant_id = ${merchant.id} ORDER BY action`
+    );
+    const resourcesResult = await db.execute(
+      sql`SELECT DISTINCT resource FROM audit_events WHERE merchant_id = ${merchant.id} ORDER BY resource`
+    );
+    return {
+      actions: (actionsResult.rows ?? []).map((r: any) => r.action as string),
+      resources: (resourcesResult.rows ?? []).map((r: any) => r.resource as string),
+    };
+  }),
+});
+
+// ─── Purchase Orders Router ──────────────────────────────────────────────────
+
+const purchaseOrdersRouter = router({
+  create: protectedProcedure
+    .input(z.object({
+      inventoryItemId: z.string().optional(),
+      itemName: z.string().min(1),
+      vendorName: z.string().optional(),
+      quantity: z.number().int().min(1),
+      unit: z.string().default('unit'),
+      unitCostKobo: z.number().int().min(0),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const id = `po_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const totalCostKobo = input.unitCostKobo * input.quantity;
+      await db.execute(
+        sql`INSERT INTO purchase_orders (id, merchant_id, inventory_item_id, item_name, vendor_name, quantity, unit, unit_cost_kobo, total_cost_kobo, notes, status, created_by)
+            VALUES (${id}, ${merchant.id}, ${input.inventoryItemId ?? null}, ${input.itemName}, ${input.vendorName ?? null},
+                    ${input.quantity}, ${input.unit}, ${input.unitCostKobo}, ${totalCostKobo}, ${input.notes ?? null}, 'pending', ${String(user.id)})`
+      );
+      // Log audit event
+      await db.execute(
+        sql`INSERT INTO audit_events (merchant_id, actor_id, actor_name, actor_email, action, resource, resource_id, metadata)
+            VALUES (${merchant.id}, ${String(user.id)}, ${user.name ?? 'Unknown'}, ${user.email ?? null},
+                    'purchase_order.created', 'purchase_order', ${id},
+                    ${JSON.stringify({ itemName: input.itemName, quantity: input.quantity, totalCostKobo })})`
+      );
+      // Notify owner
+      const { notifyOwner } = await import('./_core/notification');
+      await notifyOwner({
+        title: `Purchase Order Created: ${input.itemName}`,
+        content: `A new PO for ${input.quantity} ${input.unit}(s) of ${input.itemName} was created.${input.vendorName ? ` Vendor: ${input.vendorName}.` : ''} Total: ₦${(totalCostKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`,
+      }).catch(() => {});
+      return { id, ok: true };
+    }),
+
+  list: protectedProcedure
+    .input(z.object({
+      status: z.string().optional(),
+      limit: z.number().int().min(1).max(100).default(50),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { orders: [] };
+      const result = await db.execute(
+        sql`SELECT * FROM purchase_orders
+            WHERE merchant_id = ${merchant.id}
+            ${input.status ? sql`AND status = ${input.status}` : sql``}
+            ORDER BY created_at DESC LIMIT ${input.limit}`
+      );
+      const orders = (result.rows ?? []).map((r: any) => ({
+        id: r.id,
+        inventoryItemId: r.inventory_item_id,
+        itemName: r.item_name,
+        vendorName: r.vendor_name,
+        quantity: r.quantity,
+        unit: r.unit,
+        unitCostKobo: Number(r.unit_cost_kobo),
+        totalCostKobo: Number(r.total_cost_kobo),
+        notes: r.notes,
+        status: r.status,
+        createdBy: r.created_by,
+        createdAt: r.created_at,
+      }));
+      return { orders };
+    }),
+
+  updateStatus: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      status: z.enum(['pending', 'approved', 'received', 'cancelled']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`UPDATE purchase_orders SET status = ${input.status}, updated_at = now()
+            WHERE id = ${input.id} AND merchant_id = ${merchant.id}`
+      );
+      return { ok: true };
+    }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -3756,6 +3953,8 @@ export const appRouter = router({
   paymentLinks: paymentLinksRouter,
   team: teamRouter,
   settings: settingsRouter,
+  auditLog: auditLogRouter,
+  purchaseOrders: purchaseOrdersRouter,
   analytics: analyticsRouter,
   middleware: middlewareRouter,
   fx: fxRouter,

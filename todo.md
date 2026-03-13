@@ -1062,3 +1062,40 @@
 - [x] PWA: offline banner added (amber WifiOff bar, gated by !isOnline)
 - [x] Quick Pay: QR code renders via qrcode.react after Generate button click
 - [x] Tests: 613 passing (24 files), no regressions from Wave 38 changes
+
+## Wave 39 (March 2026) — Push Notifications, Reorder PO, QR Animation, Audit Log
+
+- [ ] Push notifications: Notification.requestPermission() opt-in button in Notifications Center
+- [ ] Push notifications: notifications.registerDevice tRPC procedure (save FCM/browser push token)
+- [ ] Push notifications: device_push_tokens table in schema + migration
+- [ ] Push notifications: notifyOwner integration for fraud/payout/dispute alerts
+- [ ] Inventory reorder: "Create PO" button on low-stock rows in Inventory page
+- [ ] Inventory reorder: pre-filled Purchase Order dialog (vendor, qty, unit cost, total)
+- [ ] Inventory reorder: owner notification on PO creation
+- [ ] Inventory reorder: purchase_orders table + tRPC procedure
+- [ ] Quick Pay QR: fade+scale animation on QR code reveal
+- [ ] Quick Pay QR: "Copy Link" button below QR with clipboard feedback
+- [ ] Audit log: audit_events table (actor, action, resource, metadata, timestamp)
+- [ ] Audit log: /audit-log page with filter by action type, actor, date range
+- [ ] Audit log: admin sidebar entry under ADMIN group
+- [ ] Audit log: auto-log key actions (login, payout, dispute, settings change)
+- [ ] Tests: Wave 39 vitest coverage
+
+## Wave 39 (March 2026) — Push Notifications, Inventory PO, QR Animation, Audit Log
+
+- [x] Push notification opt-in: Notification.requestPermission() banner in NotificationsCenter
+- [x] Push notification: notifications.registerDevice tRPC procedure (PostgreSQL ON CONFLICT upsert)
+- [x] Inventory: Create PO button on low-stock/out-of-stock rows (amber "Create PO" button)
+- [x] Inventory: CreatePODialog — vendor name, quantity, unit cost, estimated total, notes
+- [x] Inventory: PO submitted via purchaseOrders.create tRPC + owner notification
+- [x] Quick Pay: QR fade+scale spring animation (cubic-bezier 0.34,1.56,0.64,1, 0.35s)
+- [x] Quick Pay: Scan indicator corner brackets on QR card
+- [x] Quick Pay: "Copy Payment Link" button below QR with clipboard toast
+- [x] Audit Log: /audit-log page with timeline, filters (action, resource), search, pagination
+- [x] Audit Log: Export CSV button for compliance download
+- [x] Audit Log: Expandable event rows with metadata JSON viewer and Copy JSON button
+- [x] Audit Log: auditLogRouter (list, getActions) + purchaseOrdersRouter (create, list) in appRouter
+- [x] Audit Log: audit_events + purchase_orders tables created in PostgreSQL
+- [x] Audit Log: "Audit Log" nav item added to sidebar (Admin badge)
+- [x] Consumer App menu: /consumer/* routes with ConsumerLayout, wallet, send, QR, bills, profile, history
+- [x] Tests: 613 passing (24 files), 0 regressions from Wave 39 changes

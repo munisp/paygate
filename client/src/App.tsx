@@ -60,6 +60,7 @@ import AdminSetup from "./pages/AdminSetup";
 import GoLiveChecklist from "./pages/GoLiveChecklist";
 import QuickPay from "./pages/QuickPay";
 import NotificationsCenter from "./pages/NotificationsCenter";
+import AuditLog from "./pages/AuditLog";
 
 function Router() {
   const [location] = useLocation();
@@ -141,6 +142,7 @@ function Router() {
       <Route path="/go-live" component={GoLiveChecklist} />
         <Route path="/quick-pay" component={QuickPay} />
         <Route path="/notifications" component={NotificationsCenter} />
+        <Route path="/audit-log" component={AuditLog} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

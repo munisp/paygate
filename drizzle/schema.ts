@@ -1260,3 +1260,51 @@ export const payrollRuns = pgTable("payroll_runs", {
   index("payroll_merchant_idx").on(t.merchantId),
 ]);
 export type PayrollRun = typeof payrollRuns.$inferSelect;
+
+// ─── Audit Events ─────────────────────────────────────────────────────────────
+// Tamper-evident audit trail for compliance — every significant action is logged.
+export const auditEvents = pgTable("audit_events", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  actorId: text("actor_id").notNull(),          // user openId or "system"
+  actorName: text("actor_name").notNull(),
+  actorEmail: text("actor_email"),
+  action: text("action").notNull(),             // e.g. "payout.created", "settings.updated"
+  resource: text("resource").notNull(),         // e.g. "payout", "webhook", "api_key"
+  resourceId: text("resource_id"),              // ID of the affected resource
+  metadata: jsonb("metadata"),                  // extra context (amount, old/new values, etc.)
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("audit_merchant_idx").on(t.merchantId),
+  index("audit_actor_idx").on(t.actorId),
+  index("audit_action_idx").on(t.action),
+  index("audit_created_idx").on(t.createdAt),
+]);
+export type AuditEvent = typeof auditEvents.$inferSelect;
+export type InsertAuditEvent = typeof auditEvents.$inferInsert;
+
+// ─── Purchase Orders ──────────────────────────────────────────────────────────
+// Inventory reorder workflow — created when stock falls below reorder level.
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: text("id").primaryKey(),                  // e.g. "po_1741234567_abc123"
+  merchantId: text("merchant_id").notNull(),
+  inventoryItemId: text("inventory_item_id"),   // linked inventory item
+  itemName: text("item_name").notNull(),
+  vendorName: text("vendor_name"),
+  quantity: integer("quantity").notNull(),
+  unit: text("unit").notNull().default("unit"),
+  unitCostKobo: bigint("unit_cost_kobo", { mode: "number" }).notNull().default(0),
+  totalCostKobo: bigint("total_cost_kobo", { mode: "number" }).notNull().default(0),
+  notes: text("notes"),
+  status: text("status").notNull().default("pending"), // pending | approved | received | cancelled
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("po_merchant_idx").on(t.merchantId),
+  index("po_status_idx").on(t.status),
+]);
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type InsertPurchaseOrder = typeof purchaseOrders.$inferInsert;

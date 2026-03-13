@@ -8,7 +8,7 @@ import {
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
-  Rocket, Crown, Server} from "lucide-react";
+  Rocket, Crown, Server, FileText} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -60,6 +60,7 @@ const navItems = [
   { icon: DollarSign, label: "Payroll", path: "/payroll" },
   { icon: Zap, label: "Quick Pay", path: "/quick-pay", badge: "New" },
   { icon: Bell, label: "Notifications", path: "/notifications" },
+  { icon: FileText, label: "Audit Log", path: "/audit-log", badge: "Admin" },
 ];
 
 const devItems = [
