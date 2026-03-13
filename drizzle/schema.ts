@@ -813,3 +813,133 @@ export const devicePushTokens = pgTable("device_push_tokens", {
 ]);
 export type DevicePushToken = typeof devicePushTokens.$inferSelect;
 export type InsertDevicePushToken = typeof devicePushTokens.$inferInsert;
+
+// ─── Subscriptions (Recurring Payments) ──────────────────────────────────────
+// Nigerian context: merchants can set up recurring charges for customers
+// (e.g. monthly subscriptions, weekly savings plans, utility auto-pay).
+// Scheduler fires processdue every minute to charge due subscriptions via NIP.
+
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "paused", "cancelled", "completed", "failed"]);
+export const subscriptionIntervalEnum = pgEnum("subscription_interval", ["daily", "weekly", "monthly", "quarterly", "annually"]);
+
+export const subscriptions = pgTable("subscriptions", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  tenantId: text("tenant_id").notNull(),
+  // Customer details
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  // Plan details
+  planName: text("plan_name").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(), // amount in kobo (NGN smallest unit)
+  currency: text("currency").notNull().default("NGN"),
+  interval: subscriptionIntervalEnum("interval").notNull().default("monthly"),
+  totalCycles: integer("total_cycles"), // null = indefinite
+  completedCycles: integer("completed_cycles").notNull().default(0),
+  // Scheduling
+  startAt: timestamp("start_at").notNull(),
+  nextRunAt: timestamp("next_run_at").notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  // Status
+  status: subscriptionStatusEnum("status").notNull().default("active"),
+  failureReason: text("failure_reason"),
+  // NIP payment details
+  bankCode: text("bank_code"),
+  accountNumber: text("account_number"),
+  accountName: text("account_name"),
+  // Metadata
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("subscriptions_merchant_idx").on(t.merchantId),
+  index("subscriptions_status_idx").on(t.status),
+  index("subscriptions_next_run_idx").on(t.nextRunAt),
+]);
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = typeof subscriptions.$inferInsert;
+
+// ─── Subscription Charges (execution log) ────────────────────────────────────
+export const subscriptionCharges = pgTable("subscription_charges", {
+  id: text("id").primaryKey(),
+  subscriptionId: text("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending"), // pending | success | failed
+  nipSessionId: text("nip_session_id"),
+  failureReason: text("failure_reason"),
+  chargedAt: timestamp("charged_at").defaultNow().notNull(),
+}, (t) => [
+  index("sub_charges_sub_idx").on(t.subscriptionId),
+  index("sub_charges_merchant_idx").on(t.merchantId),
+]);
+export type SubscriptionCharge = typeof subscriptionCharges.$inferSelect;
+export type InsertSubscriptionCharge = typeof subscriptionCharges.$inferInsert;
+
+// ─── POS Terminals (Nigerian Soundbox / Card Machine equivalent) ──────────────
+// Nigerian context: Moniepoint/OPay-style POS terminals that merchants deploy
+// at physical locations. Each terminal sends payment events to the portal via webhook.
+// Also supports audio alert simulation (Soundbox equivalent via WebSocket push).
+
+export const posTerminalStatusEnum = pgEnum("pos_terminal_status", ["active", "inactive", "maintenance", "stolen"]);
+export const posTerminalModelEnum = pgEnum("pos_terminal_model", [
+  "soundbox_basic",    // Audio-only QR/NIP notification device
+  "pos_lite",          // Card + QR (Verve/Mastercard/Visa)
+  "pos_smart",         // Android POS with receipt printer
+  "ussd_terminal",     // USSD-only offline terminal
+]);
+
+export const posTerminals = pgTable("pos_terminals", {
+  id: text("id").primaryKey(),                         // e.g. "pos_abc123"
+  merchantId: text("merchant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  tenantId: text("tenant_id").notNull(),
+  serialNumber: text("serial_number").notNull().unique(),
+  model: posTerminalModelEnum("model").notNull().default("soundbox_basic"),
+  label: text("label"),                                // "Main Counter", "Gate 2", etc.
+  location: text("location"),                          // Physical address / branch name
+  status: posTerminalStatusEnum("status").notNull().default("active"),
+  // Connectivity
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  firmwareVersion: text("firmware_version"),
+  ipAddress: text("ip_address"),
+  // Audio alert config (Soundbox equivalent)
+  audioAlertsEnabled: boolean("audio_alerts_enabled").notNull().default(true),
+  audioLanguage: text("audio_language").notNull().default("en"),  // en | yo | ha | ig
+  // Totals (cached for dashboard)
+  totalTransactions: integer("total_transactions").notNull().default(0),
+  totalVolumeKobo: bigint("total_volume_kobo", { mode: "number" }).notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("pos_merchant_idx").on(t.merchantId),
+  index("pos_status_idx").on(t.status),
+  index("pos_serial_idx").on(t.serialNumber),
+]);
+export type PosTerminal = typeof posTerminals.$inferSelect;
+export type InsertPosTerminal = typeof posTerminals.$inferInsert;
+
+// ─── POS Terminal Transactions ────────────────────────────────────────────────
+// Records each payment event received from a POS terminal.
+// Links back to the main transactions table via transactionId.
+export const posTransactions = pgTable("pos_transactions", {
+  id: text("id").primaryKey(),
+  terminalId: text("terminal_id").notNull().references(() => posTerminals.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id"),               // links to transactions table
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  channel: text("channel").notNull().default("qr"),    // qr | card | nip | ussd
+  maskedPan: text("masked_pan"),                       // e.g. "****1234" for card
+  nipSessionId: text("nip_session_id"),
+  status: text("status").notNull().default("completed"),
+  receiptData: jsonb("receipt_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("pos_tx_terminal_idx").on(t.terminalId),
+  index("pos_tx_merchant_idx").on(t.merchantId),
+]);
+export type PosTransaction = typeof posTransactions.$inferSelect;
+export type InsertPosTransaction = typeof posTransactions.$inferInsert;

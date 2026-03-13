@@ -32,6 +32,8 @@ import {
   // Notifications
   createMerchantNotification, listMerchantNotifications, countUnreadNotifications,
   markNotificationRead, markAllNotificationsRead,
+  // DB connection (used by subscriptions/POS routers)
+  getDb,
 } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
@@ -2609,6 +2611,259 @@ const qrPaymentsRouter = router({
     }),
 });
 
+// ─── Subscriptions Router (Recurring Payments — Nigerian context) ─────────────
+
+const subscriptionsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { subscriptions } = await import('../drizzle/schema');
+      const { eq, and, desc, count: countFn } = await import('drizzle-orm');
+      const conds = [eq(subscriptions.merchantId, merchant.id)];
+      if (input.status) conds.push(eq(subscriptions.status, input.status as any));
+      const w = and(...conds);
+      const [rows, tot] = await Promise.all([
+        db.select().from(subscriptions).where(w).orderBy(desc(subscriptions.createdAt)).limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(subscriptions).where(w),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0 };
+    }),
+
+  create: protectedProcedure
+    .input(z.object({
+      planName: z.string().min(1).max(100),
+      amountKobo: z.number().int().positive(),
+      currency: z.string().length(3).default('NGN'),
+      interval: z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'annually']).default('monthly'),
+      totalCycles: z.number().int().positive().optional(),
+      customerEmail: z.string().email().optional(),
+      customerName: z.string().optional(),
+      customerPhone: z.string().optional(),
+      bankCode: z.string().optional(),
+      accountNumber: z.string().optional(),
+      accountName: z.string().optional(),
+      description: z.string().optional(),
+      startAt: z.date().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { subscriptions } = await import('../drizzle/schema');
+      const id = nanoid('sub_');
+      const startAt = input.startAt ?? new Date();
+      // Calculate first run based on interval
+      const nextRunAt = new Date(startAt);
+      const intervalMap: Record<string, number> = { daily: 1, weekly: 7, monthly: 30, quarterly: 90, annually: 365 };
+      nextRunAt.setDate(nextRunAt.getDate() + (intervalMap[input.interval] ?? 30));
+      await db.insert(subscriptions).values({
+        id, merchantId: merchant.id, tenantId: merchant.tenantId ?? 'ten_default',
+        planName: input.planName, amountKobo: input.amountKobo, currency: input.currency,
+        interval: input.interval, totalCycles: input.totalCycles ?? null,
+        customerEmail: input.customerEmail ?? null, customerName: input.customerName ?? null,
+        customerPhone: input.customerPhone ?? null, bankCode: input.bankCode ?? null,
+        accountNumber: input.accountNumber ?? null, accountName: input.accountName ?? null,
+        description: input.description ?? null, startAt, nextRunAt, status: 'active',
+      });
+      const { eq } = await import('drizzle-orm');
+      const r = await db.select().from(subscriptions).where(eq(subscriptions.id, id)).limit(1);
+      return r[0];
+    }),
+
+  pause: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const { subscriptions } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      await db.update(subscriptions).set({ status: 'paused', updatedAt: new Date() })
+        .where(and(eq(subscriptions.id, input.id), eq(subscriptions.merchantId, merchant.id)));
+      return { success: true };
+    }),
+
+  cancel: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const { subscriptions } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      await db.update(subscriptions).set({ status: 'cancelled', updatedAt: new Date() })
+        .where(and(eq(subscriptions.id, input.id), eq(subscriptions.merchantId, merchant.id)));
+      return { success: true };
+    }),
+
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { total: 0, active: 0, paused: 0, cancelled: 0, totalVolumeKobo: 0 };
+      const { subscriptions } = await import('../drizzle/schema');
+      const { eq, and, count: countFn, sum } = await import('drizzle-orm');
+      const rows = await db.select({
+        status: subscriptions.status,
+        cnt: countFn(),
+        vol: sum(subscriptions.amountKobo),
+      }).from(subscriptions).where(eq(subscriptions.merchantId, merchant.id)).groupBy(subscriptions.status);
+      const result = { total: 0, active: 0, paused: 0, cancelled: 0, totalVolumeKobo: 0 };
+      for (const r of rows) {
+        result.total += Number(r.cnt);
+        result.totalVolumeKobo += Number(r.vol ?? 0);
+        if (r.status === 'active') result.active = Number(r.cnt);
+        if (r.status === 'paused') result.paused = Number(r.cnt);
+        if (r.status === 'cancelled') result.cancelled = Number(r.cnt);
+      }
+      return result;
+    }),
+});
+
+// ─── POS Terminals Router (Nigerian Soundbox / Card Machine) ─────────────────
+
+const posRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { posTerminals } = await import('../drizzle/schema');
+      const { eq, and, desc, count: countFn } = await import('drizzle-orm');
+      const conds = [eq(posTerminals.merchantId, merchant.id)];
+      if (input.status) conds.push(eq(posTerminals.status, input.status as any));
+      const w = and(...conds);
+      const [rows, tot] = await Promise.all([
+        db.select().from(posTerminals).where(w).orderBy(desc(posTerminals.createdAt)).limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(posTerminals).where(w),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0 };
+    }),
+
+  register: protectedProcedure
+    .input(z.object({
+      serialNumber: z.string().min(4).max(64),
+      model: z.enum(['soundbox_basic', 'pos_lite', 'pos_smart', 'ussd_terminal']).default('soundbox_basic'),
+      label: z.string().optional(),
+      location: z.string().optional(),
+      audioLanguage: z.enum(['en', 'yo', 'ha', 'ig']).default('en'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { posTerminals } = await import('../drizzle/schema');
+      const id = nanoid('pos_');
+      await db.insert(posTerminals).values({
+        id, merchantId: merchant.id, tenantId: merchant.tenantId ?? 'ten_default',
+        serialNumber: input.serialNumber, model: input.model,
+        label: input.label ?? null, location: input.location ?? null,
+        audioLanguage: input.audioLanguage, status: 'active',
+      });
+      const { eq } = await import('drizzle-orm');
+      const r = await db.select().from(posTerminals).where(eq(posTerminals.id, id)).limit(1);
+      return r[0];
+    }),
+
+  heartbeat: protectedProcedure
+    .input(z.object({ terminalId: z.string(), firmwareVersion: z.string().optional(), ipAddress: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { ok: false };
+      const { posTerminals } = await import('../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(posTerminals).set({
+        lastHeartbeatAt: new Date(),
+        firmwareVersion: input.firmwareVersion ?? undefined,
+        ipAddress: input.ipAddress ?? undefined,
+        updatedAt: new Date(),
+      }).where(eq(posTerminals.id, input.terminalId));
+      return { ok: true, timestamp: new Date() };
+    }),
+
+  processPayment: protectedProcedure
+    .input(z.object({
+      terminalId: z.string(),
+      amountKobo: z.number().int().positive(),
+      channel: z.enum(['qr', 'card', 'nip', 'ussd']).default('qr'),
+      maskedPan: z.string().optional(),
+      nipSessionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const { posTerminals, posTransactions } = await import('../drizzle/schema');
+      const { eq, and, sql } = await import('drizzle-orm');
+      // Verify terminal belongs to merchant
+      const terminals = await db.select().from(posTerminals)
+        .where(and(eq(posTerminals.id, input.terminalId), eq(posTerminals.merchantId, merchant.id))).limit(1);
+      if (!terminals[0]) throw new TRPCError({ code: 'NOT_FOUND', message: 'Terminal not found' });
+      const posId = nanoid('ptx_');
+      // Create a main transaction record
+      const txId = nanoid('txn_');
+      const feeKobo = Math.round(input.amountKobo * 0.015);
+      await createTransaction({
+        id: txId, merchantId: merchant.id, tenantId: merchant.tenantId ?? 'ten_default',
+        reference: `POS-${input.terminalId}-${Date.now()}`,
+        amount: input.amountKobo, currency: 'NGN', status: 'completed',
+        channel: input.channel as any, feeAmount: feeKobo,
+        netAmount: input.amountKobo - feeKobo, completedAt: new Date(),
+        description: `POS payment via ${terminals[0].label ?? input.terminalId}`,
+      });
+      // Record POS transaction
+      await db.insert(posTransactions).values({
+        id: posId, terminalId: input.terminalId, merchantId: merchant.id,
+        transactionId: txId, amountKobo: input.amountKobo, currency: 'NGN',
+        channel: input.channel, maskedPan: input.maskedPan ?? null,
+        nipSessionId: input.nipSessionId ?? null, status: 'completed',
+        receiptData: { txId, amount: input.amountKobo, channel: input.channel, timestamp: new Date().toISOString() },
+      });
+      // Update terminal totals
+      await db.update(posTerminals).set({
+        totalTransactions: sql`total_transactions + 1`,
+        totalVolumeKobo: sql`total_volume_kobo + ${input.amountKobo}`,
+        updatedAt: new Date(),
+      }).where(eq(posTerminals.id, input.terminalId));
+      return { success: true, posTransactionId: posId, transactionId: txId, receiptUrl: `/api/pos/receipt/${posId}` };
+    }),
+
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { totalTerminals: 0, activeTerminals: 0, totalVolumeKobo: 0, totalTransactions: 0 };
+      const { posTerminals } = await import('../drizzle/schema');
+      const { eq, sum, count: countFn } = await import('drizzle-orm');
+      const rows = await db.select({
+        totalTerminals: countFn(),
+        totalVolumeKobo: sum(posTerminals.totalVolumeKobo),
+        totalTransactions: sum(posTerminals.totalTransactions),
+      }).from(posTerminals).where(eq(posTerminals.merchantId, merchant.id));
+      const activeRows = await db.select({ cnt: countFn() }).from(posTerminals)
+        .where(eq(posTerminals.merchantId, merchant.id));
+      return {
+        totalTerminals: Number(rows[0]?.totalTerminals ?? 0),
+        activeTerminals: Number(activeRows[0]?.cnt ?? 0),
+        totalVolumeKobo: Number(rows[0]?.totalVolumeKobo ?? 0),
+        totalTransactions: Number(rows[0]?.totalTransactions ?? 0),
+      };
+    }),
+});
+
 // ─── Root Router ─────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -2644,6 +2899,9 @@ export const appRouter = router({
   pushTokens: pushTokensRouter,
   qrPayments: qrPaymentsRouter,
   grpc: grpcRouter,
+  // Wave 28 — Subscriptions (Go scheduler) + POS Terminals
+  subscriptions: subscriptionsRouter,
+  pos: posRouter,
 });
 
 export type AppRouter = typeof appRouter;

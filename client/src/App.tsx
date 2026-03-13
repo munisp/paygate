@@ -39,6 +39,8 @@ import DeveloperPortal from "./pages/DeveloperPortal";
 import WorkflowObservability from "./pages/WorkflowObservability";
 import KeycloakRoleSync from "./pages/KeycloakRoleSync";
 import NIPBanks from "./pages/NIPBanks";
+import Subscriptions from "./pages/Subscriptions";
+import POSTerminals from "./pages/POSTerminals";
 
 function Router() {
   const [location] = useLocation();
@@ -99,6 +101,8 @@ function Router() {
         <Route path="/workflows" component={WorkflowObservability} />
         <Route path="/role-sync" component={KeycloakRoleSync} />
         <Route path="/nip-banks" component={NIPBanks} />
+        <Route path="/subscriptions" component={Subscriptions} />
+        <Route path="/pos-terminals" component={POSTerminals} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

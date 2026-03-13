@@ -683,3 +683,55 @@
 - [x] Admin portal: 72 tests passing
 - [x] USSD service: 15 tests passing
 - [x] Go relays: all tests passing
+
+## Wave 28 — Paytm Gap Closure (Nigerian Context) + Suggested Next Steps
+
+### 28a: BNPL Backend (Nigerian NBFC Credit Line)
+- [x] Add bnpl_applications table to merchant portal schema (credit_line_id, status, limit_ngn, outstanding_ngn, nbfc_partner)
+- [x] Add bnplRouter to merchant portal (apply, getStatus, repay, history)
+- [x] Wire BNPL.tsx to live trpc.bnpl.* procedures
+- [x] Simulate NBFC partner API (mock endpoint with realistic Nigerian NBFC response)
+- [x] Add BNPL eligibility check based on merchant monthly volume threshold
+
+### 28b: CSV/PDF Export (Transactions + Settlements)
+- [x] Add transactions.export tRPC procedure (returns CSV string, filtered by date/status)
+- [x] Add payouts.export tRPC procedure (returns CSV string)
+- [x] Add Download CSV button to Transactions.tsx
+- [x] Add Download CSV button to Payouts.tsx
+
+### 28c: Cashback/Rewards Ledger (Consumer Portal)
+- [x] Add consumer_rewards table to consumer portal schema (points_earned, points_redeemed, tx_ref, expires_at)
+- [x] Add rewardsRouter to consumer portal (getBalance, listHistory, redeem, earn) — Rust rewards_ledger service
+- [x] Add Rewards tab to consumer wallet bottom nav (/rewards)
+- [x] Auto-earn points on every completed wallet transaction (1 point per ₦100 spent)
+- [x] Redeem points at checkout (100 points = ₦10 discount, min 100 pts, max 5000 pts)
+
+### 28d: Recurring Payments / Subscriptions (Merchant Portal)
+- [x] Add subscriptions table to merchant portal schema (plan_name, amount_ngn, interval, next_run_at, status)
+- [x] Add subscriptionsRouter (create, list, pause, cancel, processdue)
+- [x] Add Subscriptions page to merchant portal sidebar
+- [x] Go scheduler: subscriptions_pos_handlers.go — SubscriptionScheduler runs every minute
+
+### 28e: Nigerian-Context POS Integration Layer
+- [x] Add pos_terminals table (terminal_id, merchant_id, model, serial, status, last_seen_at)
+- [x] Add posRouter (register, list, heartbeat, processPayment, getReceipt)
+- [x] Add POS Terminals page to merchant portal
+- [x] Go webhook handler: POSWebhookHandler in subscriptions_pos_handlers.go
+- [x] Audio language support: en/yo/ha/ig (English, Yoruba, Hausa, Igbo)
+
+### 28f: Push Budget Alerts (Consumer Portal)
+- [x] Wire budgetsRouter.progress to push notification when pct >= alertAt
+- [x] Python budget_alert_worker.py — polls budgets every 5 min, sends FCM push
+- [x] Deduplication via last_alert_sent_at field
+
+### 28g: AI Spend Insights (Consumer Portal)
+- [x] Python InsightsEngine: category breakdown, trend detection, anomaly detection, savings opportunities
+- [x] Nigerian-specific: airtime/data ratio insight, Lagos/Abuja/PH peer benchmarks
+- [x] insightsRouter: analyse + health procedures wired to Python service (port 8096)
+- [x] AIInsightsCard added to AnalyticsDashboard.tsx (expandable, severity-coded)
+
+### 28h: Vitest Tests
+- [x] wave28.test.ts: 52 tests passing (subscriptions, POS, rewards, insights)
+- [x] Rust rewards_ledger: 9 tests passing
+- [x] Python insights: 15 tests passing
+- [x] Total Wave 28: 76 tests across 3 languages
