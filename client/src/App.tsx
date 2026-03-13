@@ -34,6 +34,9 @@ import MakePayment from "./pages/consumer/MakePayment";
 import BillPay from "./pages/consumer/BillPay";
 import ConsumerProfile from "./pages/consumer/ConsumerProfile";
 import ConsumerHistory from "./pages/consumer/History";
+import ConsumerQuickPay from "./pages/consumer/ConsumerQuickPay";
+import ConsumerNotifications from "./pages/consumer/ConsumerNotifications";
+import ConsumerOnboarding from "./pages/consumer/ConsumerOnboarding";
 import CrossBorder from "./pages/CrossBorder";
 import DeveloperPortal from "./pages/DeveloperPortal";
 import WorkflowObservability from "./pages/WorkflowObservability";
@@ -61,6 +64,7 @@ import GoLiveChecklist from "./pages/GoLiveChecklist";
 import QuickPay from "./pages/QuickPay";
 import NotificationsCenter from "./pages/NotificationsCenter";
 import AuditLog from "./pages/AuditLog";
+import PurchaseOrders from "./pages/PurchaseOrders";
 
 function Router() {
   const [location] = useLocation();
@@ -87,6 +91,9 @@ function Router() {
           <Route path="/consumer/bills" component={BillPay} />
           <Route path="/consumer/profile" component={ConsumerProfile} />
           <Route path="/consumer/history" component={ConsumerHistory} />
+          <Route path="/consumer/quick-pay" component={ConsumerQuickPay} />
+          <Route path="/consumer/notifications" component={ConsumerNotifications} />
+          <Route path="/consumer/onboarding" component={ConsumerOnboarding} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -143,6 +150,7 @@ function Router() {
         <Route path="/quick-pay" component={QuickPay} />
         <Route path="/notifications" component={NotificationsCenter} />
         <Route path="/audit-log" component={AuditLog} />
+        <Route path="/purchase-orders" component={PurchaseOrders} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

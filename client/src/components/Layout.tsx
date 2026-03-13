@@ -38,7 +38,6 @@ const navItems = [
   { icon: QrCode, label: "QR Payments", path: "/qr-payments" },
   { icon: Globe, label: "Cross-Border", path: "/cross-border", badge: "New" },
   { icon: FileCheck, label: "Compliance & KYC", path: "/compliance" },
-  { icon: Smartphone, label: "Consumer App", path: "/consumer" },
   { icon: RefreshCw, label: "Subscriptions", path: "/subscriptions", badge: "New" },
   { icon: Monitor, label: "POS Terminals", path: "/pos-terminals", badge: "New" },
   { icon: Map, label: "Terminal Map", path: "/terminal-map" },
@@ -61,6 +60,7 @@ const navItems = [
   { icon: Zap, label: "Quick Pay", path: "/quick-pay", badge: "New" },
   { icon: Bell, label: "Notifications", path: "/notifications" },
   { icon: FileText, label: "Audit Log", path: "/audit-log", badge: "Admin" },
+  { icon: ShoppingCart, label: "Purchase Orders", path: "/purchase-orders", badge: "New" },
 ];
 
 const devItems = [

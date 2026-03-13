@@ -1726,3 +1726,75 @@ export async function cancelSubscription(id: string, merchantId: string) {
   );
   await pool.end();
 }
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+export async function logAuditEvent(params: {
+  merchantId: string;
+  actorId: string;
+  actorName: string;
+  action: string;
+  resource: string;
+  resourceId?: string | null;
+  metadata?: Record<string, unknown>;
+  ipAddress?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO audit_events (merchant_id, actor_id, actor_name, action, resource, resource_id, metadata, ip_address, created_at)
+      VALUES (
+        ${params.merchantId},
+        ${params.actorId},
+        ${params.actorName},
+        ${params.action},
+        ${params.resource},
+        ${params.resourceId ?? null},
+        ${JSON.stringify(params.metadata ?? {})}::jsonb,
+        ${params.ipAddress ?? null},
+        NOW()
+      )
+    `);
+  } catch (err) {
+    console.warn("[AuditLog] Failed to log event:", err);
+  }
+}
+
+export async function listAuditEvents(merchantId: string, opts: {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  resource?: string;
+  search?: string;
+}) {
+  const db = await getDb();
+  if (!db) return { events: [], total: 0 };
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  try {
+    const result = await db.execute(sql`
+      SELECT id, merchant_id, actor_id, actor_name, action, resource, resource_id, metadata, ip_address, created_at
+      FROM audit_events
+      WHERE merchant_id = ${merchantId}
+        ${opts.action ? sql`AND action = ${opts.action}` : sql``}
+        ${opts.resource ? sql`AND resource = ${opts.resource}` : sql``}
+        ${opts.search ? sql`AND (actor_name ILIKE ${'%' + opts.search + '%'} OR action ILIKE ${'%' + opts.search + '%'} OR resource ILIKE ${'%' + opts.search + '%'})` : sql``}
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+    const countResult = await db.execute(sql`
+      SELECT COUNT(*)::int as total FROM audit_events
+      WHERE merchant_id = ${merchantId}
+        ${opts.action ? sql`AND action = ${opts.action}` : sql``}
+        ${opts.resource ? sql`AND resource = ${opts.resource}` : sql``}
+    `);
+    return {
+      events: result.rows as any[],
+      total: Number((countResult.rows[0] as any)?.total ?? 0),
+    };
+  } catch (err) {
+    console.warn("[AuditLog] Failed to list events:", err);
+    return { events: [], total: 0 };
+  }
+}

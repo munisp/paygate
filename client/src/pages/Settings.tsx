@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff } from "lucide-react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff, Smartphone } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -562,6 +562,55 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground mt-0.5">"{sample}"</p>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Consumer Portal Launch Card */}
+      <div className="bg-gradient-to-br from-violet-500/10 to-indigo-500/10 rounded-xl border border-violet-500/20 p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
+            <Smartphone className="w-5 h-5 text-violet-400" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground">Consumer App Portal</h3>
+            <p className="text-xs text-muted-foreground">Separate app for your end-customers — wallets, QR pay, bill payments</p>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          The <strong>PayGate Consumer App</strong> is a standalone mobile-first portal your customers use to manage their wallet, send money, pay bills, and scan QR codes at your checkout. It is entirely separate from this merchant portal.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <a
+            href={`${window.location.origin}/consumer`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Open Consumer App
+          </a>
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}/consumer`;
+              navigator.clipboard.writeText(url);
+              toast.success("Consumer app URL copied to clipboard");
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-500/10 transition-colors"
+          >
+            <Globe className="w-4 h-4" />
+            Copy URL for customers
+          </button>
+        </div>
+        <div className="rounded-lg bg-muted/50 border border-border p-3">
+          <p className="text-xs font-medium text-muted-foreground mb-1">Consumer App Features</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+            {["Wallet & Balance", "Send Money", "QR Payments", "Bill Pay", "Quick Pay", "Notifications", "Transaction History", "KYC Onboarding"].map(f => (
+              <div key={f} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CheckCircle2 className="w-3 h-3 text-violet-400 flex-shrink-0" />
+                {f}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

@@ -597,6 +597,16 @@ const payoutsRouter = router({
 
       // Fallback: direct DB update (dev/sandbox or bridge unavailable)
       await updatePayout(input.id, { status: "pending", processedAt: new Date() });
+      const { logAuditEvent: logPayoutAudit } = await import('./db');
+      await logPayoutAudit({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? 'Unknown',
+        action: 'payout.approved',
+        resource: 'payout',
+        resourceId: input.id,
+        metadata: { amount: Number(payout.amount), currency: payout.currency, reason: input.reason },
+      });
       notifyPayoutApproved({
         merchantName: merchant.businessName ?? merchant.id,
         payoutId: input.id,
@@ -3641,7 +3651,19 @@ const inventoryRouter = router({
     type: z.enum(["restock", "consume", "waste", "adjust"]),
     note: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
     await adjustInventoryStock(input.itemId, input.quantity, input.type, input.note);
+    const { logAuditEvent } = await import('./db');
+    await logAuditEvent({
+      merchantId: merchant.id,
+      actorId: String(user.id),
+      actorName: user.name ?? 'Unknown',
+      action: `inventory.${input.type}`,
+      resource: 'inventory_item',
+      resourceId: input.itemId,
+      metadata: { quantity: input.quantity, type: input.type, note: input.note },
+    });
     return { ok: true };
   }),
   getRecipeCost: protectedProcedure.input(z.object({ menuItemId: z.string() })).query(async ({ ctx, input }) => {

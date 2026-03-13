@@ -3,19 +3,22 @@
  * Mobile-first bottom navigation layout for the consumer-facing PWA.
  */
 import { useLocation } from "wouter";
-import { Wallet, Send, QrCode, Phone, User, Clock } from "lucide-react";
+import { Wallet, Send, QrCode, Phone, User, Clock, Zap, Bell } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
+import { trpc } from "@/lib/trpc";
 
 const NAV_ITEMS = [
   { path: "/consumer", label: "Wallet", icon: Wallet },
   { path: "/consumer/send", label: "Send", icon: Send },
-  { path: "/consumer/history", label: "History", icon: Clock },
-  { path: "/consumer/bills", label: "Bills", icon: Phone },
+  { path: "/consumer/quick-pay", label: "Pay", icon: Zap },
+  { path: "/consumer/notifications", label: "Alerts", icon: Bell },
   { path: "/consumer/profile", label: "Profile", icon: User },
 ];
 
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
+  const { data: unreadData } = trpc.notifications.unreadCount.useQuery(undefined, { staleTime: 30_000, refetchInterval: 60_000 });
+  const unreadCount = unreadData?.count ?? 0;
 
   return (
     <div className="min-h-screen bg-background flex flex-col max-w-lg mx-auto relative">
@@ -36,7 +39,14 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
                   isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <item.icon className={`w-5 h-5 ${isActive ? "stroke-[2.5]" : ""}`} />
+                <div className="relative">
+                  <item.icon className={`w-5 h-5 ${isActive ? "stroke-[2.5]" : ""}`} />
+                  {item.label === "Alerts" && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[10px] font-medium">{item.label}</span>
               </button>
             );

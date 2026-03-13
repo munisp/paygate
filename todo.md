@@ -1099,3 +1099,22 @@
 - [x] Audit Log: "Audit Log" nav item added to sidebar (Admin badge)
 - [x] Consumer App menu: /consumer/* routes with ConsumerLayout, wallet, send, QR, bills, profile, history
 - [x] Tests: 613 passing (24 files), 0 regressions from Wave 39 changes
+
+## Wave 40 (March 2026) — Consumer App Separation, PayTM/Notifications in Consumer, Audit Logging, PO Workflow
+
+- [x] Remove "Consumer App" nav item from merchant sidebar (it's confusing — merchants are not consumers)
+- [x] Add Consumer Portal launch card to Settings page (external link, QR code to consumer URL)
+- [x] Consumer App: port PayTM-style Quick Pay screen (QR tab, shortcuts, recent transactions)
+- [x] Consumer App: port Notifications Center (in-app alerts, mark-read, dismiss)
+- [x] Consumer App: add bottom nav tab for Quick Pay and Notifications
+- [x] Audit: add logAuditEvent() server helper in server/db.ts
+- [x] Audit: wire logAuditEvent into purchaseOrders.create mutation
+- [x] Audit: wire logAuditEvent into inventory.adjustStock mutation
+- [x] Audit: wire logAuditEvent into payouts.approve mutation
+- [x] PO status workflow: status enum in purchase_orders table (pending/approved/received/cancelled)
+- [x] PO status: purchaseOrders.approve and purchaseOrders.cancel tRPC procedures
+- [x] PO status: /purchase-orders list page with status tabs and Approve/Cancel actions
+- [x] PO status: "Purchase Orders" nav item in sidebar (admin section)
+- [x] Consumer onboarding: 3-step flow at /consumer/onboarding (phone, PIN, KYC)
+- [x] Consumer onboarding: gate wallet/send screens behind onboarding completion
+- [x] Tests: 613 passing (24 files), 0 regressions from Wave 40 changes
