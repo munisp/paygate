@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +9,10 @@ import { trpc } from "@/lib/trpc";
 // ── Stripe Payment Section ──────────────────────────────────────────────────
 function StripeSection() {
   const { data: stripeData, isLoading: stripeLoading, refetch } = trpc.stripe.getKeyMode.useQuery(undefined, { staleTime: 30_000 });
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [keyForm, setKeyForm] = useState({ secretKey: '', publishableKey: '' });
+  const [showSk, setShowSk] = useState(false);
+  const [validationResult, setValidationResult] = useState<{ valid: boolean; mode: string; accountId: string; displayName?: string } | null>(null);
 
   const mode = stripeData?.mode ?? 'unconfigured';
   const sandboxClaimUrl = (stripeData as any)?.sandboxClaimUrl ?? 'https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ';
@@ -23,11 +27,43 @@ function StripeSection() {
 
   const ModeIcon = modeConfig.icon;
 
+  const validateMutation = trpc.stripe.validateKeys.useMutation({
+    onSuccess: (res) => {
+      setValidationResult(res as any);
+      toast.success(`Keys valid — ${res.mode} mode (${res.accountId})`);
+    },
+    onError: (e) => toast.error(`Validation failed: ${e.message}`),
+  });
+
+  const testChargeMutation = trpc.stripe.testCharge.useMutation({
+    onSuccess: (res) => toast.success(`Test charge created: ${res.intentId} (status: ${res.status})`),
+    onError: (e) => toast.error(`Test charge failed: ${e.message}`),
+  });
+
   return (
     <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <CreditCard className="w-4 h-4 text-primary" />
-        <h3 className="font-semibold">Payment Configuration</h3>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-4 h-4 text-primary" />
+          <h3 className="font-semibold">Payment Configuration</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {mode !== 'unconfigured' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+              disabled={testChargeMutation.isPending}
+              onClick={() => testChargeMutation.mutate()}
+            >
+              <Zap className="w-3 h-3 mr-1" />
+              {testChargeMutation.isPending ? 'Testing…' : 'Test Charge'}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs h-7">
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {stripeLoading ? (
@@ -45,8 +81,79 @@ function StripeSection() {
                 <p className="text-xs text-muted-foreground mt-0.5">{modeConfig.desc}</p>
               </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs h-7">
-              Refresh
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 shrink-0"
+              onClick={() => setShowKeyForm((v) => !v)}
+            >
+              <Key className="w-3 h-3 mr-1" />
+              {mode === 'live' ? 'Rotate Keys' : 'Swap to Live Keys'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Key swap form */}
+      {showKeyForm && (
+        <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+          <p className="text-sm font-semibold">Validate & Swap Stripe Keys</p>
+          <p className="text-xs text-muted-foreground">
+            Enter your new keys below to validate them against the Stripe API before updating them in Settings → Secrets.
+          </p>
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Secret Key (sk_live_… or sk_test_…)</label>
+              <div className="relative">
+                <input
+                  type={showSk ? 'text' : 'password'}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono pr-9"
+                  placeholder="sk_live_…"
+                  value={keyForm.secretKey}
+                  onChange={(e) => setKeyForm((f) => ({ ...f, secretKey: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowSk((v) => !v)}
+                >
+                  {showSk ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Publishable Key (pk_live_… or pk_test_…)</label>
+              <input
+                type="text"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+                placeholder="pk_live_…"
+                value={keyForm.publishableKey}
+                onChange={(e) => setKeyForm((f) => ({ ...f, publishableKey: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {validationResult && (
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-xs space-y-1">
+              <div className="flex items-center gap-1.5 text-green-700 font-semibold">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Keys validated successfully
+              </div>
+              <p className="text-green-600">Mode: <strong>{validationResult.mode}</strong> · Account: <code>{validationResult.accountId}</code>{validationResult.displayName ? ` · ${validationResult.displayName}` : ''}</p>
+              <p className="text-green-600">Now go to <strong>Settings → Secrets</strong> and update <code>STRIPE_SECRET_KEY</code> and <code>VITE_STRIPE_PUBLISHABLE_KEY</code> with these values.</p>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={!keyForm.secretKey || !keyForm.publishableKey || validateMutation.isPending}
+              onClick={() => validateMutation.mutate(keyForm)}
+            >
+              {validateMutation.isPending ? 'Validating…' : 'Validate Keys'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setShowKeyForm(false); setValidationResult(null); }}>
+              Cancel
             </Button>
           </div>
         </div>

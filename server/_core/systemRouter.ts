@@ -35,6 +35,12 @@ export const systemRouter = router({
 
   // Returns a full go-live checklist with real-time status for each prerequisite.
   goLiveChecklist: protectedProcedure.query(async () => {
+    // Microservice health (non-blocking — checked in parallel)
+    let microserviceStatus: Record<string, "ok" | "down"> = {};
+    try {
+      const { checkAllMicroservices } = await import("../microservices");
+      microserviceStatus = await checkAllMicroservices();
+    } catch { /* optional services — don't block checklist */ }
     const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
     const stripeWebhook = process.env.STRIPE_WEBHOOK_SECRET ?? "";
     const jwtSecret = process.env.JWT_SECRET ?? "";
@@ -59,8 +65,28 @@ export const systemRouter = router({
         { id: "jwt_secret", label: "JWT secret is strong (≥32 chars)", status: jwtSecret.length >= 32 ? "ok" : "warning", detail: jwtSecret.length >= 32 ? "JWT_SECRET is strong" : "JWT_SECRET is too short — rotate it", actionUrl: null, actionLabel: "Rotate in Settings → Secrets" },
         { id: "admin_user", label: "First admin user promoted", status: adminCount > 0 ? "ok" : "pending", detail: adminCount > 0 ? `${adminCount} admin user(s) exist` : "No admin users — use the Admin Setup wizard", actionUrl: "/admin-setup", actionLabel: "Open Admin Setup" },
         { id: "database", label: "Production database connected", status: dbUrl && !dbUrl.includes("localhost") && !dbUrl.includes("127.0.0.1") ? "ok" : "warning", detail: dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1") ? "Using local DB — switch to a managed cloud database" : "Production DB URL is set", actionUrl: null, actionLabel: "Update DATABASE_URL in Settings → Secrets" },
-        { id: "domain", label: "Custom domain bound", status: "info", detail: "Bind a custom domain in Settings → Domains", actionUrl: null, actionLabel: "Open Settings → Domains" },
-      ],
+       { id: "domain", label: "Custom domain bound", status: "info", detail: "Bind a custom domain in Settings \u2192 Domains", actionUrl: null, actionLabel: "Open Settings \u2192 Domains" },
+      {
+        id: "microservices",
+        label: "Microservices online (optional)",
+        status: (() => {
+          const total = Object.keys(microserviceStatus).length;
+          if (total === 0) return "info" as const;
+          const online = Object.values(microserviceStatus).filter((v) => v === "ok").length;
+          if (online === total) return "ok" as const;
+          if (online > 0) return "warning" as const;
+          return "info" as const;
+        })(),
+        detail: (() => {
+          const total = Object.keys(microserviceStatus).length;
+          if (total === 0) return "Microservice health not yet checked";
+          const online = Object.values(microserviceStatus).filter((v) => v === "ok").length;
+          return `${online}/${total} microservices online — platform runs in DB-fallback mode when offline`;
+        })(),
+        actionUrl: "/microservice-health",
+        actionLabel: "Open Microservice Health",
+      },
+    ],
     };
   }),
 });

@@ -2551,6 +2551,65 @@ const stripeRouter = router({
     }),
 
   // Returns whether Stripe is in test mode, live mode, or unconfigured.
+  // Validates that provided Stripe keys are well-formed and can reach the Stripe API.
+  validateKeys: protectedProcedure
+    .input(z.object({
+      secretKey: z.string().min(1),
+      publishableKey: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const { secretKey, publishableKey } = input;
+      // Prefix validation
+      const skMode = secretKey.startsWith('sk_live_') ? 'live' : secretKey.startsWith('sk_test_') ? 'test' : null;
+      const pkMode = publishableKey.startsWith('pk_live_') ? 'live' : publishableKey.startsWith('pk_test_') ? 'test' : null;
+      if (!skMode) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Secret key must start with sk_test_ or sk_live_' });
+      if (!pkMode) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Publishable key must start with pk_test_ or pk_live_' });
+      if (skMode !== pkMode) throw new TRPCError({ code: 'BAD_REQUEST', message: `Key mode mismatch: secret key is ${skMode} but publishable key is ${pkMode}` });
+      // Live connectivity test against Stripe API
+      try {
+        const res = await fetch('https://api.stripe.com/v1/account', {
+          headers: { Authorization: `Bearer ${secretKey}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as any;
+          throw new TRPCError({ code: 'BAD_REQUEST', message: body?.error?.message ?? `Stripe returned ${res.status}` });
+        }
+        const account = await res.json() as any;
+        return { valid: true, mode: skMode, accountId: account.id as string, displayName: account.display_name as string | undefined };
+      } catch (e: any) {
+        if (e instanceof TRPCError) throw e;
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Could not reach Stripe: ${e.message}` });
+      }
+    }),
+
+  // Fires a ₦50 test PaymentIntent to verify end-to-end connectivity.
+  testCharge: protectedProcedure.mutation(async ({ ctx }) => {
+    const key = process.env.STRIPE_SECRET_KEY ?? '';
+    if (!key) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'STRIPE_SECRET_KEY not configured' });
+    try {
+      const res = await fetch('https://api.stripe.com/v1/payment_intents', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          amount: '5000',
+          currency: 'ngn',
+          description: 'PayGate connectivity test',
+          'automatic_payment_methods[enabled]': 'true',
+          'automatic_payment_methods[allow_redirects]': 'never',
+        }).toString(),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: data?.error?.message ?? `Stripe error ${res.status}` });
+      return { ok: true, intentId: data.id as string, status: data.status as string, amountKobo: data.amount as number };
+    } catch (e: any) {
+      if (e instanceof TRPCError) throw e;
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: e.message });
+    }
+  }),
+
   // Used by the go-live checklist and Settings page.
   getKeyMode: publicProcedure.query(() => {
     const key = process.env.STRIPE_SECRET_KEY ?? '';

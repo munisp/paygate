@@ -1019,3 +1019,16 @@
 - [x] AgentBanking.tsx: full production UI — KPI cards, network health panel, search/filter/sort, agent detail drawer with status management, bulk commission disbursement
 - [x] TypeScript: 0 errors across all 35+ pages
 - [x] Tests: 613 passing (24 test files, no regressions)
+
+## Wave 36 (March 2026) — Production Launch Readiness
+
+- [x] Stripe: key validation endpoint (test pk_test_/sk_test_ vs pk_live_/sk_live_ prefix check)
+- [x] Stripe: live key swap tRPC procedure with Stripe API connectivity test
+- [x] Stripe: Settings page — enhanced swap UI with validation feedback, test-charge button, and key validation form
+- [x] Admin: first-admin gate — banner-driven flow with self-promotion card
+- [x] Admin: Admin Setup wizard — owner promotion, user search, bulk role assignment, select-all
+- [x] Admin: role-based sidebar — admin-only items gated by user.role in Layout.tsx
+- [x] Microservice: one-click copy startup commands per service in Health dashboard
+- [x] Microservice: environment variable checklist per service (required vs optional, expandable)
+- [x] Microservice: Go-Live Checklist — microservice health added as 8th prerequisite check
+- [x] Tests: 613 passing (24 test files) — no regressions from Wave 36 changes
