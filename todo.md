@@ -1032,3 +1032,24 @@
 - [x] Microservice: environment variable checklist per service (required vs optional, expandable)
 - [x] Microservice: Go-Live Checklist — microservice health added as 8th prerequisite check
 - [x] Tests: 613 passing (24 test files) — no regressions from Wave 36 changes
+
+## Wave 37 (March 2026) — PWA, Toast Center, PayTM Payments, Inventory
+
+- [x] PWA: manifest.json with icons, theme color, display standalone
+- [x] PWA: service worker (sw.js) with offline fallback and cache-first strategy
+- [x] PWA: install prompt banner in Layout.tsx (beforeinstallprompt event) — usePWA hook wired
+- [x] PWA: offline indicator badge in header — usePWA hook tracks online/offline
+- [x] Toast/Notification Center: /notifications page with real-time alert list
+- [x] Toast/Notification Center: read/unread state, dismiss, mark-all-read
+- [x] Toast/Notification Center: notification bell badge in header with unread count
+- [x] Toast/Notification Center: tRPC notifications router (list, markRead, dismiss, markAllRead)
+- [x] PayTM-style Quick Payment: /quick-pay page with QR code display, amount input
+- [x] PayTM-style Quick Payment: shortcut tiles (Send Money, Request, Split Bill, Top Up)
+- [x] PayTM-style Quick Payment: recent transactions list with status chips
+- [x] PayTM-style Quick Payment: payment link generator with copy/share
+- [x] Inventory: full CRUD (add/edit/delete items) with dialog forms
+- [x] Inventory: category filter tabs and search (tab filter + search with clear)
+- [x] Inventory: low-stock alert banner with reorder suggestions and quick-filter link
+- [x] Inventory: stock adjustment dialog with +/- preview and new-stock calculation
+- [x] Inventory: total inventory value card (stock × unit cost), Rust engine integration preserved
+- [x] Tests: 613 passing (24 files), 0 regressions from Wave 37 changes

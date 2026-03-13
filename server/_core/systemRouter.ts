@@ -65,8 +65,8 @@ export const systemRouter = router({
         { id: "jwt_secret", label: "JWT secret is strong (≥32 chars)", status: jwtSecret.length >= 32 ? "ok" : "warning", detail: jwtSecret.length >= 32 ? "JWT_SECRET is strong" : "JWT_SECRET is too short — rotate it", actionUrl: null, actionLabel: "Rotate in Settings → Secrets" },
         { id: "admin_user", label: "First admin user promoted", status: adminCount > 0 ? "ok" : "pending", detail: adminCount > 0 ? `${adminCount} admin user(s) exist` : "No admin users — use the Admin Setup wizard", actionUrl: "/admin-setup", actionLabel: "Open Admin Setup" },
         { id: "database", label: "Production database connected", status: dbUrl && !dbUrl.includes("localhost") && !dbUrl.includes("127.0.0.1") ? "ok" : "warning", detail: dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1") ? "Using local DB — switch to a managed cloud database" : "Production DB URL is set", actionUrl: null, actionLabel: "Update DATABASE_URL in Settings → Secrets" },
-       { id: "domain", label: "Custom domain bound", status: "info", detail: "Bind a custom domain in Settings \u2192 Domains", actionUrl: null, actionLabel: "Open Settings \u2192 Domains" },
-      {
+        { id: "domain", label: "Custom domain bound", status: "info", detail: "Bind a custom domain in Settings \u2192 Domains", actionUrl: null, actionLabel: "Open Settings \u2192 Domains" },
+        {
         id: "microservices",
         label: "Microservices online (optional)",
         status: (() => {

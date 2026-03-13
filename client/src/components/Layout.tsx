@@ -56,6 +56,8 @@ const navItems = [
   { icon: ChefHat, label: "Kitchen Display", path: "/kitchen-display" },
   { icon: Package, label: "Inventory", path: "/inventory" },
   { icon: DollarSign, label: "Payroll", path: "/payroll" },
+  { icon: Zap, label: "Quick Pay", path: "/quick-pay", badge: "New" },
+  { icon: Bell, label: "Notifications", path: "/notifications" },
 ];
 
 const devItems = [

@@ -58,6 +58,8 @@ import GeofenceAlerts from "./pages/GeofenceAlerts";
 import MicroserviceHealth from "./pages/MicroserviceHealth";
 import AdminSetup from "./pages/AdminSetup";
 import GoLiveChecklist from "./pages/GoLiveChecklist";
+import QuickPay from "./pages/QuickPay";
+import NotificationsCenter from "./pages/NotificationsCenter";
 
 function Router() {
   const [location] = useLocation();
@@ -137,6 +139,8 @@ function Router() {
       <Route path="/microservice-health" component={MicroserviceHealth} />
       <Route path="/admin-setup" component={AdminSetup} />
       <Route path="/go-live" component={GoLiveChecklist} />
+        <Route path="/quick-pay" component={QuickPay} />
+        <Route path="/notifications" component={NotificationsCenter} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>
