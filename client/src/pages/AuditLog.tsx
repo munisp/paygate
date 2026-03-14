@@ -32,7 +32,7 @@ import {
   Webhook,
   Zap,
 } from "lucide-react";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
 // ─── Action icon map ─────────────────────────────────────────────────────────
@@ -85,6 +85,12 @@ export default function AuditLog() {
   const [resourceFilter, setResourceFilter] = useState("all");
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Date range filter (ISO date strings YYYY-MM-DD, empty = no filter)
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  // Convert date strings to epoch ms for the tRPC input
+  const fromMs = dateFrom ? new Date(dateFrom + "T00:00:00").getTime() : undefined;
+  const toMs = dateTo ? new Date(dateTo + "T23:59:59").getTime() : undefined;
 
   const { data: filtersData } = trpc.auditLog.getActions.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -96,6 +102,8 @@ export default function AuditLog() {
       offset: page * PAGE_SIZE,
       action: actionFilter !== "all" ? actionFilter : undefined,
       resource: resourceFilter !== "all" ? resourceFilter : undefined,
+      from: fromMs,
+      to: toMs,
     },
     { enabled: isAuthenticated, refetchInterval: 30_000 }
   );
@@ -127,6 +135,8 @@ export default function AuditLog() {
       const result = await utils.auditLog.exportCsv.fetch({
         action: actionFilter !== "all" ? actionFilter : undefined,
         resource: resourceFilter !== "all" ? resourceFilter : undefined,
+        from: fromMs,
+        to: toMs,
       });
       if (!result.count) { toast.error("No events to export"); return; }
       const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
@@ -142,7 +152,7 @@ export default function AuditLog() {
     } finally {
       setIsExporting(false);
     }
-  }, [actionFilter, resourceFilter, utils]);
+  }, [actionFilter, resourceFilter, fromMs, toMs, utils]);
 
   return (
     <div className="space-y-5">
@@ -230,6 +240,34 @@ export default function AuditLog() {
             ))}
           </SelectContent>
         </Select>
+        {/* Date range */}
+        <div className="flex items-center gap-1.5">
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            className="h-9 w-36 text-sm"
+            title="From date"
+          />
+          <span className="text-xs text-muted-foreground">–</span>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            className="h-9 w-36 text-sm"
+            title="To date"
+          />
+          {(dateFrom || dateTo) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Event timeline */}

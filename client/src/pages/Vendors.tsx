@@ -4,10 +4,11 @@
  * Vendors can be selected from a dropdown when creating Purchase Orders.
  */
 import { useState, useMemo } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   Building2, Plus, Search, Edit2, Trash2, Phone, Mail, MapPin,
   Clock, CheckCircle2, XCircle, Loader2, Users, Package, FileText,
-  MoreVertical, ChevronDown,
+  MoreVertical, ChevronDown, QrCode, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -217,6 +218,69 @@ function VendorFormDialog({ open, onClose, vendor, onSaved }: VendorFormDialogPr
   );
 }
 
+// ─── QR Code Dialog ──────────────────────────────────────────────────────────
+function VendorQRDialog({ vendor, onClose }: { vendor: Vendor | null; onClose: () => void }) {
+  if (!vendor) return null;
+
+  // Build a vCard-style contact string for the QR code
+  const vcard = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    `FN:${vendor.name}`,
+    vendor.contactName ? `N:${vendor.contactName};;;` : "",
+    vendor.phone ? `TEL;TYPE=WORK:${vendor.phone}` : "",
+    vendor.email ? `EMAIL;TYPE=WORK:${vendor.email}` : "",
+    vendor.address ? `ADR;TYPE=WORK:;;${vendor.address};;;;` : "",
+    vendor.notes ? `NOTE:${vendor.notes}` : "",
+    "END:VCARD",
+  ].filter(Boolean).join("\n");
+
+  const handleDownload = () => {
+    const svg = document.getElementById(`vendor-qr-${vendor.id}`);
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svg);
+    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${vendor.name.replace(/\s+/g, "-").toLowerCase()}-contact-qr.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Dialog open={!!vendor} onOpenChange={onClose}>
+      <DialogContent className="max-w-xs">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <QrCode className="h-4 w-4 text-blue-600" />
+            {vendor.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-4 py-2">
+          <div className="p-3 bg-white rounded-xl border border-border shadow-sm">
+            <QRCodeSVG
+              id={`vendor-qr-${vendor.id}`}
+              value={vcard}
+              size={200}
+              level="M"
+              includeMargin={false}
+            />
+          </div>
+          <p className="text-xs text-center text-muted-foreground px-2">
+            Scan to save <strong>{vendor.name}</strong> as a contact. Contains name, phone, email, and address.
+          </p>
+          <Button variant="outline" size="sm" onClick={handleDownload} className="w-full">
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            Download QR (SVG)
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Delete Confirmation Dialog ───────────────────────────────────────────────
 function DeleteVendorDialog({
   vendor,
@@ -273,12 +337,22 @@ export default function Vendors() {
   const [showForm, setShowForm] = useState(false);
   const [editVendor, setEditVendor] = useState<Vendor | null>(null);
   const [deleteVendor, setDeleteVendor] = useState<Vendor | null>(null);
+  const [qrVendor, setQrVendor] = useState<Vendor | null>(null);
 
   const { data, isLoading, refetch } = trpc.vendors.list.useQuery(undefined, {
     staleTime: 30_000,
   });
+  const { data: statsData } = trpc.vendors.stats.useQuery(undefined, {
+    staleTime: 30_000,
+  });
 
   const vendors: Vendor[] = data?.vendors ?? [];
+  // Build a lookup map: vendorId -> { poCount, totalSpendKobo }
+  const statsMap = useMemo(() => {
+    const m: Record<string, { poCount: number; totalSpendKobo: number }> = {};
+    (statsData?.stats ?? []).forEach((s) => { m[s.vendorId] = s; });
+    return m;
+  }, [statsData]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return vendors;
@@ -400,6 +474,10 @@ export default function Vendors() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setQrVendor(vendor)}>
+                        <QrCode className="h-3.5 w-3.5 mr-2" />
+                        Show QR Code
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setEditVendor(vendor)}>
                         <Edit2 className="h-3.5 w-3.5 mr-2" />
                         Edit
@@ -463,6 +541,31 @@ export default function Vendors() {
                     <span className="line-clamp-2">{vendor.notes}</span>
                   </div>
                 )}
+
+                {/* Performance metrics */}
+                {(() => {
+                  const s = statsMap[vendor.id];
+                  const poCount = s?.poCount ?? 0;
+                  const spendNgn = ((s?.totalSpendKobo ?? 0) / 100).toLocaleString("en-NG", {
+                    style: "currency",
+                    currency: "NGN",
+                    maximumFractionDigits: 0,
+                  });
+                  return (
+                    <div className="flex items-center gap-3 pt-2 border-t border-border">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <Package className="h-3 w-3 text-muted-foreground" />
+                        <span className="font-semibold">{poCount}</span>
+                        <span className="text-muted-foreground">PO{poCount !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-muted-foreground">•</span>
+                        <span className="font-semibold text-emerald-700">{spendNgn}</span>
+                        <span className="text-muted-foreground">total spend</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           ))}
@@ -480,6 +583,10 @@ export default function Vendors() {
         vendor={deleteVendor}
         onClose={() => setDeleteVendor(null)}
         onDeleted={refetch}
+      />
+      <VendorQRDialog
+        vendor={qrVendor}
+        onClose={() => setQrVendor(null)}
       />
     </div>
   );

@@ -4135,9 +4135,37 @@ const vendorRouter = router({
       })).catch(() => {});
       return { ok: true };
     }),
-});
 
-// ─── Purchase Orders Router ──────────────────────────────────────────────────
+  // Returns PO count and total spend per vendor for the merchant
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const { getDb } = await import('./db');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return { stats: [] };
+    const result = await db.execute(
+      sql`SELECT
+            v.id AS vendor_id,
+            COUNT(po.id)::int AS po_count,
+            COALESCE(SUM(po.total_cost_kobo), 0)::bigint AS total_spend_kobo
+          FROM vendors v
+          LEFT JOIN purchase_orders po
+            ON po.vendor_name = v.name
+            AND po.merchant_id = v.merchant_id
+          WHERE v.merchant_id = ${merchant.id}
+          GROUP BY v.id`
+    );
+    return {
+      stats: (result.rows ?? []).map((r: any) => ({
+        vendorId: r.vendor_id as string,
+        poCount: Number(r.po_count),
+        totalSpendKobo: Number(r.total_spend_kobo),
+      })),
+    };
+  }),
+});
+// ─── Purchase Orders Router ───────────────────────────────────────────────────
 
 const purchaseOrdersRouter = router({
   create: protectedProcedure

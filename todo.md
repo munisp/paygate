@@ -1165,3 +1165,15 @@
 - [ ] Consumer deep link: QR code of the share URL (deferred — requires QR library)
 - [x] Consumer deep link: WhatsApp and SMS share buttons
 - [x] Tests: Wave 42 vitest coverage — 626 passing (25 files), 0 regressions
+
+## Wave 43 — Vendor QR Codes, Audit Log Date-Range Filter, Vendor Performance Metrics
+
+- [x] Consumer deep link: QR code of the share URL (qrcode.react installed and used in Vendor QR feature)
+- [x] Vendor QR code: "Show QR Code" option in vendor card dropdown → vCard QR dialog with SVG download
+- [x] Vendor QR code: vCard 3.0 format encodes name, phone, email, address, notes for mobile contact save
+- [x] Audit Log: date-range picker (from/to date inputs) added to filter bar
+- [x] Audit Log: from/to passed to auditLog.list query and auditLog.exportCsv (server-side filtering)
+- [x] Audit Log: "Clear" button resets date range; export filename includes current date
+- [x] Vendor performance metrics: vendors.stats tRPC procedure (LEFT JOIN purchase_orders by vendor name)
+- [x] Vendor performance metrics: PO count and total spend (₦) displayed on each vendor card
+- [x] Tests: Wave 43 vitest coverage — 648 passing (26 files), 0 regressions
