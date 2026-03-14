@@ -1177,3 +1177,14 @@
 - [x] Vendor performance metrics: vendors.stats tRPC procedure (LEFT JOIN purchase_orders by vendor name)
 - [x] Vendor performance metrics: PO count and total spend (₦) displayed on each vendor card
 - [x] Tests: Wave 43 vitest coverage — 648 passing (26 files), 0 regressions
+
+### Wave 44 — Settlements Page, SLA Breach Banner, Vendor Spend Trend Chart
+- [x] Settlements: /settlements page with status badges, SLA countdown timer, amount, bank details
+- [x] Settlements: Retry button for sla_breached and failed settlements
+- [x] Settlements: settlements.retry tRPC mutation (re-triggers middleware bridge, transitions → processing)
+- [x] Settlements: settlements.listBreached tRPC query (status=sla_breached, resolvedAt IS NULL)
+- [x] Settlements: /settlements route and "Settlements" sidebar nav item (Banknote icon)
+- [x] SLA breach banner: dismissible orange alert banner in Layout.tsx, polls every 60s, links to /settlements
+- [x] Vendor spend trend: vendors.spendHistory tRPC procedure (monthly spend last 6 months, grouped by month)
+- [x] Vendor spend trend: recharts AreaChart sparkline on each vendor card with hover tooltip
+- [x] Tests: Wave 44 vitest coverage — 666 passing (27 files), 0 regressions

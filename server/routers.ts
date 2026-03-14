@@ -2517,6 +2517,66 @@ const settlementsRouter = router({
       return settlement;
     }),
 
+  // Returns unresolved sla_breached settlements for the merchant (used by Dashboard banner)
+  listBreached: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const db = await getDb();
+    if (!db) return { breached: [] };
+    const { and: _and, eq: _eq, isNull: _isNull } = await import('drizzle-orm');
+    const { settlements: settlementsTable } = await import('../drizzle/schema');
+    const rows = await db
+      .select()
+      .from(settlementsTable)
+      .where(
+        _and(
+          _eq(settlementsTable.merchantId, merchant.id),
+          _eq(settlementsTable.status, 'sla_breached' as any),
+          _isNull(settlementsTable.resolvedAt),
+        )
+      )
+      .orderBy(settlementsTable.slaBreachedAt)
+      .limit(50);
+    return { breached: rows };
+  }),
+
+  // Retry a failed or sla_breached settlement by re-triggering the middleware bridge
+  retry: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const settlement = await getSettlementById(input.id);
+      if (!settlement || settlement.merchantId !== merchant.id)
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Settlement not found' });
+      if (!['failed', 'sla_breached'].includes(settlement.status))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only failed or sla_breached settlements can be retried' });
+      // Reset to processing
+      await updateSettlement(input.id, { status: 'processing', processedAt: new Date(), failureReason: null as any });
+      // Re-trigger middleware bridge
+      if (isBridgeAvailable()) {
+        try {
+          const resp = await triggerSettlementViaMiddleware({
+            settlementId: settlement.id,
+            merchantId: merchant.id,
+            amount: settlement.amount,
+            currency: settlement.currency ?? 'NGN',
+            bankCode: settlement.bankCode ?? '',
+            accountNumber: settlement.accountNumber ?? '',
+            accountName: settlement.accountName ?? '',
+            periodStart: settlement.initiatedAt ?? new Date(),
+            periodEnd: new Date(),
+          });
+          if (resp?.workflowId) {
+            await updateSettlement(input.id, { workflowId: resp.workflowId });
+          }
+        } catch (err) {
+          console.error('[settlements.retry] Bridge call failed (non-fatal):', err);
+        }
+      }
+      return { ok: true, id: input.id };
+    }),
+
   // SLA breach check: marks overdue settlements and sends owner alert
   checkSla: protectedProcedure
     .mutation(async ({ ctx }) => {
@@ -4162,6 +4222,41 @@ const vendorRouter = router({
         poCount: Number(r.po_count),
         totalSpendKobo: Number(r.total_spend_kobo),
       })),
+    };
+  }),
+
+  // Returns monthly spend per vendor for the last 6 months (for sparkline chart)
+  spendHistory: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const { getDb } = await import('./db');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) return { history: [] };
+    // Aggregate monthly spend per vendor for the last 6 months
+    const result = await db.execute(
+      sql`SELECT
+            v.id AS vendor_id,
+            TO_CHAR(DATE_TRUNC('month', po.created_at), 'YYYY-MM') AS month,
+            COALESCE(SUM(po.total_cost_kobo), 0)::bigint AS spend_kobo
+          FROM vendors v
+          LEFT JOIN purchase_orders po
+            ON po.vendor_name = v.name
+            AND po.merchant_id = v.merchant_id
+            AND po.created_at >= NOW() - INTERVAL '6 months'
+          WHERE v.merchant_id = ${merchant.id}
+          GROUP BY v.id, DATE_TRUNC('month', po.created_at)
+          ORDER BY v.id, month ASC`
+    );
+    // Group by vendorId
+    const grouped: Record<string, Array<{ month: string; spendKobo: number }>> = {};
+    for (const r of (result.rows ?? []) as any[]) {
+      if (!r.month) continue; // skip vendors with no POs
+      if (!grouped[r.vendor_id]) grouped[r.vendor_id] = [];
+      grouped[r.vendor_id].push({ month: r.month as string, spendKobo: Number(r.spend_kobo) });
+    }
+    return {
+      history: Object.entries(grouped).map(([vendorId, months]) => ({ vendorId, months })),
     };
   }),
 });

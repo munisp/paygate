@@ -66,6 +66,7 @@ import NotificationsCenter from "./pages/NotificationsCenter";
 import AuditLog from "./pages/AuditLog";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import Vendors from "./pages/Vendors";
+import Settlements from "./pages/Settlements";
 
 function Router() {
   const [location] = useLocation();
@@ -153,6 +154,7 @@ function Router() {
         <Route path="/audit-log" component={AuditLog} />
         <Route path="/purchase-orders" component={PurchaseOrders} />
         <Route path="/vendors" component={Vendors} />
+        <Route path="/settlements" component={Settlements} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

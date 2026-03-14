@@ -8,7 +8,7 @@ import {
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
-  Rocket, Crown, Server, FileText} from "lucide-react";
+  Rocket, Crown, Server, FileText, Banknote} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -62,6 +62,7 @@ const navItems = [
   { icon: FileText, label: "Audit Log", path: "/audit-log", badge: "Admin" },
   { icon: ShoppingCart, label: "Purchase Orders", path: "/purchase-orders", badge: "New" },
   { icon: Building2, label: "Vendor Directory", path: "/vendors" },
+  { icon: Banknote, label: "Settlements", path: "/settlements" },
 ];
 
 const devItems = [
@@ -110,6 +111,16 @@ export default function Layout({ children }: LayoutProps) {
 
   const visibleAlerts = (fraudData?.alerts ?? []).filter(
     (a: any) => !dismissedAlerts.has(a.id)
+  );
+
+  // ─── SLA Breach Banner ───────────────────────────────────────────────────
+  const [dismissedSlaIds, setDismissedSlaIds] = useState<Set<string>>(new Set());
+  const { data: slaData } = trpc.settlements.listBreached.useQuery(
+    undefined,
+    { refetchInterval: 60_000, staleTime: 30_000 }
+  );
+  const visibleSlaBreaches = (slaData?.breached ?? []).filter(
+    (s: any) => !dismissedSlaIds.has(s.id)
   );
 
   const inAppUnread = useNotificationCount();
@@ -330,6 +341,33 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         )}
 
+        {/* SLA Breach Banner — dismissible, orange */}
+        {visibleSlaBreaches.length > 0 && (
+          <div className="bg-orange-600 text-white px-4 py-2 flex items-center gap-3 flex-shrink-0 z-20">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 animate-pulse" />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-semibold">
+                {visibleSlaBreaches.length} Settlement SLA Breach{visibleSlaBreaches.length > 1 ? "es" : ""}
+              </span>
+              <span className="text-sm text-orange-100 ml-2 truncate hidden sm:inline">
+                {visibleSlaBreaches[0].reference} — {visibleSlaBreaches[0].severity === "critical" ? "CRITICAL" : "overdue"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link href="/settlements">
+                <a className="text-xs font-medium bg-white/20 hover:bg-white/30 px-3 py-1 rounded-md transition-colors">
+                  View Settlements
+                </a>
+              </Link>
+              <button
+                onClick={() => setDismissedSlaIds(prev => new Set(Array.from(prev).concat(visibleSlaBreaches[0].id)))}
+                className="p-1 hover:bg-white/20 rounded transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
         {/* PWA Install Banner */}
         {showPwaBanner && (
           <div className="flex items-center gap-3 px-6 py-2 bg-indigo-600 text-white text-sm">

@@ -4,6 +4,7 @@
  * Vendors can be selected from a dropdown when creating Purchase Orders.
  */
 import { useState, useMemo } from "react";
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Building2, Plus, Search, Edit2, Trash2, Phone, Mail, MapPin,
@@ -345,6 +346,9 @@ export default function Vendors() {
   const { data: statsData } = trpc.vendors.stats.useQuery(undefined, {
     staleTime: 30_000,
   });
+  const { data: historyData } = trpc.vendors.spendHistory.useQuery(undefined, {
+    staleTime: 60_000,
+  });
 
   const vendors: Vendor[] = data?.vendors ?? [];
   // Build a lookup map: vendorId -> { poCount, totalSpendKobo }
@@ -353,6 +357,12 @@ export default function Vendors() {
     (statsData?.stats ?? []).forEach((s) => { m[s.vendorId] = s; });
     return m;
   }, [statsData]);
+  // Build a lookup map: vendorId -> monthly spend array for sparkline
+  const historyMap = useMemo(() => {
+    const m: Record<string, Array<{ month: string; spendKobo: number }>> = {};
+    (historyData?.history ?? []).forEach((h: any) => { m[h.vendorId] = h.months; });
+    return m;
+  }, [historyData]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return vendors;
@@ -542,6 +552,49 @@ export default function Vendors() {
                   </div>
                 )}
 
+                {/* Spend Trend Sparkline */}
+                {(() => {
+                  const months = historyMap[vendor.id];
+                  if (!months || months.length < 2) return null;
+                  const chartData = months.map((m) => ({
+                    month: m.month,
+                    spend: Math.round(m.spendKobo / 100),
+                  }));
+                  const maxSpend = Math.max(...chartData.map((d) => d.spend));
+                  return maxSpend > 0 ? (
+                    <div className="pt-1">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">6-month spend trend</p>
+                      <ResponsiveContainer width="100%" height={36}>
+                        <AreaChart data={chartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id={`grad-${vendor.id}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <Tooltip
+                            content={({ active, payload }) =>
+                              active && payload?.[0] ? (
+                                <div className="bg-popover border border-border rounded px-2 py-1 text-xs shadow">
+                                  <span className="font-medium">{payload[0].payload.month}</span>:{" "}
+                                  <span className="text-emerald-600">₦{Number(payload[0].value).toLocaleString()}</span>
+                                </div>
+                              ) : null
+                            }
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="spend"
+                            stroke="#10b981"
+                            strokeWidth={1.5}
+                            fill={`url(#grad-${vendor.id})`}
+                            dot={false}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : null;
+                })()}
                 {/* Performance metrics */}
                 {(() => {
                   const s = statsMap[vendor.id];
