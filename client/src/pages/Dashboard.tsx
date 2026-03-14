@@ -32,6 +32,63 @@ const CHANNEL_COLORS: Record<string, string> = {
   card: "#4F46E5", bank_transfer: "#10B981", mobile_money: "#F59E0B", ussd: "#6366F1", qr: "#EC4899", bnpl: "#14B8A6",
 };
 
+function SettlementHealthWidget() {
+  const { data, isLoading } = trpc.settlements.summary.useQuery(undefined, { staleTime: 60_000, refetchInterval: 60_000 });
+  const hasBreaches = (data?.slaBreachCount ?? 0) > 0;
+  return (
+    <div className={`bg-card rounded-xl border p-6 ${
+      hasBreaches ? 'border-orange-300 bg-orange-50/30' : 'border-border'
+    }`}>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 className="font-semibold text-foreground" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Settlement Health</h3>
+          <p className="text-sm text-muted-foreground">Today's settlement activity</p>
+        </div>
+        <button onClick={() => window.location.href = '/settlements'} className="text-xs text-primary font-medium hover:underline">View all settlements →</button>
+      </div>
+      {isLoading ? (
+        <div className="grid grid-cols-3 gap-4">
+          {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-emerald-50 rounded-xl p-4 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-100 flex-shrink-0"><CheckCircle2 className="w-4 h-4 text-emerald-600" /></div>
+            <div>
+              <p className="text-xl font-bold text-foreground" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{fmt(data?.totalSettledToday ?? 0)}</p>
+              <p className="text-xs text-muted-foreground">Settled Today</p>
+            </div>
+          </div>
+          <div className="bg-amber-50 rounded-xl p-4 flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-100 flex-shrink-0"><Clock className="w-4 h-4 text-amber-600" /></div>
+            <div>
+              <p className="text-xl font-bold text-foreground" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{data?.pendingCount ?? 0}</p>
+              <p className="text-xs text-muted-foreground">Pending Batches</p>
+            </div>
+          </div>
+          <div className={`rounded-xl p-4 flex items-center gap-3 ${
+            hasBreaches ? 'bg-red-50' : 'bg-slate-50'
+          }`}>
+            <div className={`p-2.5 rounded-xl flex-shrink-0 ${
+              hasBreaches ? 'bg-red-100' : 'bg-slate-100'
+            }`}>
+              <AlertTriangle className={`w-4 h-4 ${
+                hasBreaches ? 'text-red-600' : 'text-slate-400'
+              }`} />
+            </div>
+            <div>
+              <p className={`text-xl font-bold ${
+                hasBreaches ? 'text-red-600' : 'text-foreground'
+              }`} style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{data?.slaBreachCount ?? 0}</p>
+              <p className="text-xs text-muted-foreground">SLA Breaches</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DisputeAnalyticsWidget() {
   const { data, isLoading } = trpc.disputes.analytics.useQuery({ days: 30 }, { staleTime: 120_000 });
   if (isLoading) return (
@@ -335,6 +392,8 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Settlement Health Widget */}
+      <SettlementHealthWidget />
       {/* Dispute Analytics Widget */}
       <DisputeAnalyticsWidget />
 

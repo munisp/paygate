@@ -2618,9 +2618,35 @@ const settlementsRouter = router({
       }
       return { breachedCount: breached.length, alertsSent };
     }),
+  // Returns today's settlement health metrics for the Dashboard widget
+  summary: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    const db = await getDb();
+    if (!db) return { totalSettledToday: 0, pendingCount: 0, slaBreachCount: 0, currency: 'NGN' };
+    const { and: _and, eq: _eq, gte: _gte, isNull: _isNull, sql: _sql } = await import('drizzle-orm');
+    const { settlements: settlementsTable } = await import('../drizzle/schema');
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const settledRows = await db
+      .select({ total: _sql<number>`COALESCE(SUM(amount), 0)` })
+      .from(settlementsTable)
+      .where(_and(_eq(settlementsTable.merchantId, merchant.id), _eq(settlementsTable.status, 'completed' as any), _gte(settlementsTable.processedAt, todayStart)));
+    const totalSettledToday = Number(settledRows[0]?.total ?? 0);
+    const pendingRows = await db
+      .select({ count: _sql<number>`COUNT(*)` })
+      .from(settlementsTable)
+      .where(_and(_eq(settlementsTable.merchantId, merchant.id), _eq(settlementsTable.status, 'pending' as any)));
+    const pendingCount = Number(pendingRows[0]?.count ?? 0);
+    const breachRows = await db
+      .select({ count: _sql<number>`COUNT(*)` })
+      .from(settlementsTable)
+      .where(_and(_eq(settlementsTable.merchantId, merchant.id), _eq(settlementsTable.status, 'sla_breached' as any), _isNull(settlementsTable.resolvedAt)));
+    const slaBreachCount = Number(breachRows[0]?.count ?? 0);
+    return { totalSettledToday, pendingCount, slaBreachCount, currency: 'NGN' };
+  }),
 });
-
-// ─── Notifications Router ──────────────────────────────────────────────────────────
+// ─── Notifications Routerr ──────────────────────────────────────────────────────────
 
 const notificationsRouter = router({
   list: protectedProcedure

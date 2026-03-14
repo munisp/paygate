@@ -384,6 +384,20 @@ export async function p2pTransferViaMiddleware(req: P2PTransferRequest): Promise
   });
 }
 
+export interface WalletBalanceRequest {
+  walletId: string; currency: string;
+}
+export interface WalletBalanceResponse {
+  walletId: string; balance: number; currency: string;
+}
+
+/** TigerBeetle LookupAccounts → returns credits_posted − debits_posted for the wallet account */
+export async function getWalletBalanceViaMiddleware(req: WalletBalanceRequest): Promise<WalletBalanceResponse | null> {
+  return safe<WalletBalanceResponse>("POST", "/v1/wallets/balance", {
+    wallet_id: req.walletId, currency: req.currency,
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // WEBHOOKS
 // ═══════════════════════════════════════════════════════════════════════════════
