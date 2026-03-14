@@ -147,10 +147,33 @@ export default function Transactions() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [exporting, setExporting] = useState(false);
+  const [exportingStatement, setExportingStatement] = useState(false);
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const limit = 20;
 
   const utils = trpc.useUtils();
+  const now = new Date();
+
+  const handleMonthlyStatement = async () => {
+    setExportingStatement(true);
+    try {
+      const result = await utils.export.monthlyStatement.fetch({ year: now.getFullYear(), month: now.getMonth() + 1 });
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `statement-${result.summary.period.replace(/\s/g, '-')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`${result.summary.period}: ${result.summary.totalTransactions} txns · ₦${result.summary.totalVolumeNgn.toLocaleString()}`);
+    } catch {
+      toast.error("Statement export failed");
+    } finally {
+      setExportingStatement(false);
+    }
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -192,6 +215,10 @@ export default function Transactions() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { refetch(); }} disabled={isFetching}>
             <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleMonthlyStatement} disabled={exportingStatement}>
+            <Download className={`w-4 h-4 mr-1.5 ${exportingStatement ? "animate-spin" : ""}`} />
+            {exportingStatement ? "Generating..." : "Monthly Statement"}
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
             <Download className={`w-4 h-4 mr-1.5 ${exporting ? "animate-spin" : ""}`} />

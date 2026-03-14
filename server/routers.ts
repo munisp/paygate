@@ -1835,6 +1835,40 @@ const exportRouter = router({
       ).join("\n");
       return { csv, count: rows.length };
     }),
+  monthlyStatement: protectedProcedure
+    .input(z.object({
+      year: z.number().int().min(2020).max(2100),
+      month: z.number().int().min(1).max(12),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const from = new Date(input.year, input.month - 1, 1);
+      const to = new Date(input.year, input.month, 0, 23, 59, 59, 999);
+      const rows = await getTransactionsForExport(merchant.id, from, to);
+      const totalVolumeKobo = rows.filter(r => r.status === 'completed').reduce((s, r) => s + r.amount, 0);
+      const successCount = rows.filter(r => r.status === 'completed').length;
+      const failedCount = rows.filter(r => r.status === 'failed').length;
+      const pendingCount = rows.filter(r => r.status === 'pending').length;
+      const header = "id,reference,amount_ngn,currency,status,channel,customerEmail,createdAt\n";
+      const csv = header + rows.map(r =>
+        [r.id, r.reference, (r.amount / 100).toFixed(2), r.currency,
+         r.status, r.channel ?? "", r.customerEmail ?? "", r.createdAt.toISOString()].join(",")
+      ).join("\n");
+      const monthName = from.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      return {
+        csv,
+        summary: {
+          period: monthName,
+          totalTransactions: rows.length,
+          successCount,
+          failedCount,
+          pendingCount,
+          totalVolumeNgn: totalVolumeKobo / 100,
+          merchantName: merchant.businessName,
+        },
+      };
+    }),
 });
 
 // ─── Wallet Router ──────────────────────────────────────────────────────────────
@@ -4417,6 +4451,31 @@ const purchaseOrdersRouter = router({
     }),
 });
 
+
+// ─── AI Router ────────────────────────────────────────────────────────────────
+
+const aiRouter = router({
+  chat: protectedProcedure
+    .input(z.object({
+      messages: z.array(z.object({
+        role: z.enum(["system", "user", "assistant"]),
+        content: z.string(),
+      })),
+      systemPrompt: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { invokeLLM } = await import("./_core/llm");
+      const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = input.systemPrompt
+        ? [{ role: "system", content: input.systemPrompt }, ...input.messages]
+        : input.messages;
+      const response = await invokeLLM({ messages });
+      return {
+        content: (response.choices?.[0]?.message?.content as string) ?? "",
+        usage: response.usage,
+      };
+    }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -4465,5 +4524,7 @@ export const appRouter = router({
   payroll: payrollRouter,
   // Wave 42
   vendors: vendorRouter,
+  // AI
+  ai: aiRouter,
 });
 export type AppRouter = typeof appRouter;

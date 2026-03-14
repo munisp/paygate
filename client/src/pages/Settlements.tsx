@@ -327,6 +327,44 @@ export default function Settlements() {
               <DialogDescription className="font-mono text-xs">{selected.reference}</DialogDescription>
             </DialogHeader>
             <div className="space-y-3 text-sm">
+              {/* Audit Trail Timeline */}
+              <div className="mb-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Audit Trail</p>
+                <ol className="relative border-l-2 border-border ml-2 space-y-3 pb-1">
+                  {[
+                    {
+                      label: "Initiated",
+                      ts: selected.initiatedAt ?? selected.createdAt,
+                      dot: "bg-blue-500",
+                      done: true,
+                    },
+                    {
+                      label: "Processing",
+                      ts: selected.status !== "pending" ? (selected.initiatedAt ?? selected.createdAt) : null,
+                      dot: selected.status !== "pending" ? "bg-yellow-500" : "bg-muted",
+                      done: selected.status !== "pending",
+                    },
+                    {
+                      label: selected.status === "completed" ? "Completed"
+                        : selected.status === "failed" ? "Failed"
+                        : selected.status === "sla_breached" ? "SLA Breached"
+                        : "Awaiting completion",
+                      ts: selected.completedAt ?? selected.slaBreachedAt ?? null,
+                      dot: selected.status === "completed" ? "bg-emerald-500"
+                        : selected.status === "failed" ? "bg-red-500"
+                        : selected.status === "sla_breached" ? "bg-orange-500"
+                        : "bg-muted",
+                      done: ["completed", "failed", "sla_breached"].includes(selected.status),
+                    },
+                  ].map((step, idx) => (
+                    <li key={idx} className="ml-4">
+                      <span className={`absolute -left-[7px] mt-0.5 h-3.5 w-3.5 rounded-full border-2 border-background ${step.dot}`} />
+                      <p className={`text-xs font-medium ${step.done ? "" : "text-muted-foreground"}`}>{step.label}</p>
+                      <p className="text-xs text-muted-foreground">{step.ts ? new Date(step.ts).toLocaleString() : "—"}</p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <div>
                   <p className="text-xs text-muted-foreground">Amount</p>

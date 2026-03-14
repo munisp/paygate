@@ -830,28 +830,28 @@
 - [ ] Register route in bridge setupRouter
 
 ### 31b: posRouter.confirmBatch tRPC Procedure
-- [ ] Add confirmBatch procedure to posRouter in merchant portal routers.ts
-- [ ] Accepts batch_id, nibss_reference, confirmed_at
-- [ ] Updates pos_transactions settlement_status to 'confirmed' for the batch
-- [ ] Sends owner notification via notifyOwner
+- [x] Add confirmBatch procedure to posRouter in merchant portal routers.ts
+- [x] Accepts batch_id, nibss_reference, confirmed_at
+- [x] Updates pos_transactions settlement_status to 'confirmed' for the batch
+- [x] Sends owner notification via notifyOwner
 
 ### 31c: Terminal Map View (Merchant Portal)
-- [ ] Add MapView tab to POSTerminals.tsx (alongside List and Live Feed tabs)
-- [ ] Register terminal with lat/lng fields (add to pos_terminals table schema)
-- [ ] Map pins colour-coded: green (online), amber (stale), grey (offline)
-- [ ] Click pin → terminal detail popover (terminal ID, model, last heartbeat, today's volume)
-- [ ] Use MapView component from client/src/components/Map.tsx
+- [x] Add MapView tab to POSTerminals.tsx (alongside List and Live Feed tabs)
+- [x] Register terminal with lat/lng fields (add to pos_terminals table schema)
+- [x] Map pins colour-coded: green (online), amber (stale), grey (offline)
+- [x] Click pin → terminal detail popover (terminal ID, model, last heartbeat, today's volume)
+- [x] Use MapView component from client/src/components/Map.tsx
 
 ### 31d: Soundbox Language Preference Per Merchant
-- [ ] Add soundbox_language column to merchants table (enum: en/yo/ha/ig, default 'en')
-- [ ] Run pnpm db:push to migrate
-- [ ] Add soundbox_language field to settings.get and settings.update tRPC procedures
-- [ ] Add Soundbox Language selector to Settings.tsx → POS section
-- [ ] Wire useSoundbox hook in POSTerminals.tsx to read soundbox_language from trpc.settings.get
+- [x] Add soundbox_language column to merchants table (enum: en/yo/ha/ig, default 'en')
+- [x] Run pnpm db:push to migrate
+- [x] Add soundbox_language field to settings.get and settings.update tRPC procedures
+- [x] Add Soundbox Language selector to Settings.tsx → POS section
+- [x] Wire useSoundbox hook in POSTerminals.tsx to read soundbox_language from trpc.settings.get
 
 ### 31e: Tests
 - [ ] Go: ptsp_confirmation_webhook_test.go — HMAC validation, payload parsing, status transition
-- [ ] vitest: wave31.test.ts — confirmBatch procedure, map pin colour logic, language preference wiring
+- [x] vitest: wave31.test.ts — confirmBatch procedure, map pin colour logic, language preference wiring
 - [ ] Python: no new tests (simulator already covered)
 
 ## Wave 31 (March 2026)
@@ -875,74 +875,74 @@
 ## Wave 32 (March 2026)
 
 ### Geofencing Alerts
-- [ ] Add geofence_rules table (merchantId, terminalId, centerLat, centerLng, radiusMeters, active)
-- [ ] Add tRPC pos.setGeofence and pos.listGeofences procedures
-- [ ] Add geofence violation check in pos transaction flow
-- [ ] Add GeofenceAlerts UI section in TerminalMap page
-- [ ] Add geofence violation notifications to merchant_notifications
+- [x] Add geofence_rules table (merchantId, terminalId, centerLat, centerLng, radiusMeters, active)
+- [x] Add tRPC pos.setGeofence and pos.listGeofences procedures
+- [x] Add geofence violation check in pos transaction flow
+- [x] Add GeofenceAlerts UI section in TerminalMap page
+- [x] Add geofence violation notifications to merchant_notifications
 
 ### PTSP Batch UI
-- [ ] Build /ptsp-batches page with batch list, NIBSS ref, status badges, and re-confirm button
-- [ ] Add PTSP Batches to sidebar navigation
+- [x] Build /ptsp-batches page with batch list, NIBSS ref, status badges, and re-confirm button
+- [x] Add PTSP Batches to sidebar navigation
 
 ### Agent Banking
-- [ ] Add agent_network table (superAgentId, subAgentId, merchantId, status, joinedAt)
-- [ ] Add tRPC agentBanking.listSubAgents, agentBanking.getPerformance procedures
-- [ ] Build /agent-banking page: sub-agent ranked table, volume, settlement rate, fraud incidents
-- [ ] Add Agent Banking to sidebar navigation
+- [x] Add agent_network table (superAgentId, subAgentId, merchantId, status, joinedAt)
+- [x] Add tRPC agentBanking.listSubAgents, agentBanking.getPerformance procedures
+- [x] Build /agent-banking page: sub-agent ranked table, volume, settlement rate, fraud incidents
+- [x] Add Agent Banking to sidebar navigation
 
 ### Retail Kiosk
-- [ ] Build /kiosk-health page: multi-site terminal health grid, uptime %, last transaction time
-- [ ] Add tRPC pos.getKioskHealthSummary procedure
-- [ ] Add Kiosk Health to sidebar navigation
+- [x] Build /kiosk-health page: multi-site terminal health grid, uptime %, last transaction time
+- [x] Add tRPC pos.getKioskHealthSummary procedure
+- [x] Add Kiosk Health to sidebar navigation
 
 ### Restaurant: Table & Floor Plan
-- [ ] Add restaurant_tables table (merchantId, tableNumber, capacity, section, status)
-- [ ] Add restaurant_orders table (merchantId, tableId, status, covers, totalKobo, createdAt)
-- [ ] Add restaurant_order_items table (orderId, name, qty, unitPriceKobo, courseNumber)
-- [ ] Add tRPC restaurant.listTables, createTable, updateTableStatus, createOrder, addOrderItem procedures
-- [ ] Build /restaurant/floor-plan page with visual table layout
-- [ ] Build /restaurant/orders page with live order list per table
-- [ ] Add Restaurant section to sidebar navigation
+- [x] Add restaurant_tables table (merchantId, tableNumber, capacity, section, status)
+- [x] Add restaurant_orders table (merchantId, tableId, status, covers, totalKobo, createdAt)
+- [x] Add restaurant_order_items table (orderId, name, qty, unitPriceKobo, courseNumber)
+- [x] Add tRPC restaurant.listTables, createTable, updateTableStatus, createOrder, addOrderItem procedures
+- [x] Build /restaurant/floor-plan page with visual table layout
+- [x] Build /restaurant/orders page with live order list per table
+- [x] Add Restaurant section to sidebar navigation
 
 ### Restaurant: Split-Bill Payment Links
-- [ ] Add split_bill_sessions table (orderId, totalKobo, splitCount, paidCount, status)
-- [ ] Add split_bill_shares table (sessionId, shareKobo, paymentLinkId, paidAt)
-- [ ] Add tRPC restaurant.createSplitBill procedure
-- [ ] Build split-bill UI in order detail page
+- [x] Add split_bill_sessions table (orderId, totalKobo, splitCount, paidCount, status)
+- [x] Add split_bill_shares table (sessionId, shareKobo, paymentLinkId, paidAt)
+- [x] Add tRPC restaurant.createSplitBill procedure
+- [x] Build split-bill UI in order detail page
 
 ### Restaurant: Online Ordering
-- [ ] Add menu_categories table (merchantId, name, displayOrder)
-- [ ] Add menu_items table (categoryId, name, description, priceKobo, available, imageUrl)
-- [ ] Add tRPC restaurant.listMenu, upsertMenuItem, toggleItemAvailability procedures
-- [ ] Build /restaurant/menu page with category/item CRUD
+- [x] Add menu_categories table (merchantId, name, displayOrder)
+- [x] Add menu_items table (categoryId, name, description, priceKobo, available, imageUrl)
+- [x] Add tRPC restaurant.listMenu, upsertMenuItem, toggleItemAvailability procedures
+- [x] Build /restaurant/menu page with category/item CRUD
 - [ ] Build /restaurant/online-ordering page with public ordering link generator
 
 ### Restaurant: Loyalty Points
-- [ ] Add loyalty_programs table (merchantId, pointsPerKobo, redeemRate, active)
-- [ ] Add loyalty_accounts table (merchantId, customerId, pointsBalance, lifetimePoints)
-- [ ] Add loyalty_transactions table (accountId, type, points, orderId, createdAt)
-- [ ] Add tRPC loyalty.getAccount, earnPoints, redeemPoints, getHistory procedures
-- [ ] Build /restaurant/loyalty page with customer lookup and points management
+- [x] Add loyalty_programs table (merchantId, pointsPerKobo, redeemRate, active)
+- [x] Add loyalty_accounts table (merchantId, customerId, pointsBalance, lifetimePoints)
+- [x] Add loyalty_transactions table (accountId, type, points, orderId, createdAt)
+- [x] Add tRPC loyalty.getAccount, earnPoints, redeemPoints, getHistory procedures
+- [x] Build /restaurant/loyalty page with customer lookup and points management
 
 ### Toast-Parity: Kitchen Display System
-- [ ] Add kds_stations table (merchantId, name, categories, active)
-- [ ] Add tRPC kds.listOrders, markItemReady, markOrderComplete procedures
-- [ ] Build /kds page with live order queue, item status, and completion workflow
+- [x] Add kds_stations table (merchantId, name, categories, active)
+- [x] Add tRPC kds.listOrders, markItemReady, markOrderComplete procedures
+- [x] Build /kds page with live order queue, item status, and completion workflow
 
 ### Toast-Parity: Inventory Management
-- [ ] Add inventory_items table (merchantId, name, unit, currentStock, reorderLevel, costPerUnit)
-- [ ] Add inventory_transactions table (itemId, type, quantity, orderId, note, createdAt)
-- [ ] Add recipe_ingredients table (menuItemId, inventoryItemId, quantityPerServing)
-- [ ] Add tRPC inventory.listItems, updateStock, getRecipeCost procedures
-- [ ] Build /inventory page with stock levels, reorder alerts, and recipe cost calculator
+- [x] Add inventory_items table (merchantId, name, unit, currentStock, reorderLevel, costPerUnit)
+- [x] Add inventory_transactions table (itemId, type, quantity, orderId, note, createdAt)
+- [x] Add recipe_ingredients table (menuItemId, inventoryItemId, quantityPerServing)
+- [x] Add tRPC inventory.listItems, updateStock, getRecipeCost procedures
+- [x] Build /inventory page with stock levels, reorder alerts, and recipe cost calculator
 
 ### Toast-Parity: Payroll Stub
-- [ ] Add staff_members table (merchantId, name, role, hourlyRateKobo, bankCode, accountNumber)
-- [ ] Add staff_shifts table (staffId, clockIn, clockOut, tipsKobo, hoursWorked)
-- [ ] Add payroll_runs table (merchantId, periodStart, periodEnd, status, totalKobo)
-- [ ] Add tRPC payroll.listStaff, recordShift, runPayroll procedures
-- [ ] Build /payroll page with staff list, shift log, and payroll run summary
+- [x] Add staff_members table (merchantId, name, role, hourlyRateKobo, bankCode, accountNumber)
+- [x] Add staff_shifts table (staffId, clockIn, clockOut, tipsKobo, hoursWorked)
+- [x] Add payroll_runs table (merchantId, periodStart, periodEnd, status, totalKobo)
+- [x] Add tRPC payroll.listStaff, recordShift, runPayroll procedures
+- [x] Build /payroll page with staff list, shift log, and payroll run summary
 
 ## Wave 32 (March 2026)
 
@@ -989,11 +989,11 @@
 
 ## Wave 34 (March 2026) — Go-Live Readiness
 
-- [ ] Stripe sandbox claim reminder banner in Settings with deadline countdown
-- [ ] Live key swap workflow: detect test vs live keys, show upgrade path
-- [ ] Microservice deployment health dashboard (online/fallback/offline per service)
-- [ ] First admin user promotion flow: onboarding wizard for no-admin state
-- [ ] Production go-live checklist page with real-time prerequisite checks
+- [x] Stripe sandbox claim reminder banner in Settings with deadline countdown
+- [x] Live key swap workflow: detect test vs live keys, show upgrade path
+- [x] Microservice deployment health dashboard (online/fallback/offline per service)
+- [x] First admin user promotion flow: onboarding wizard for no-admin state
+- [x] Production go-live checklist page with real-time prerequisite checks
 
 ## Wave 34 (March 2026)
 
@@ -1065,21 +1065,21 @@
 
 ## Wave 39 (March 2026) — Push Notifications, Reorder PO, QR Animation, Audit Log
 
-- [ ] Push notifications: Notification.requestPermission() opt-in button in Notifications Center
-- [ ] Push notifications: notifications.registerDevice tRPC procedure (save FCM/browser push token)
-- [ ] Push notifications: device_push_tokens table in schema + migration
-- [ ] Push notifications: notifyOwner integration for fraud/payout/dispute alerts
-- [ ] Inventory reorder: "Create PO" button on low-stock rows in Inventory page
+- [x] Push notifications: Notification.requestPermission() opt-in button in Notifications Center
+- [x] Push notifications: notifications.registerDevice tRPC procedure (save FCM/browser push token)
+- [x] Push notifications: device_push_tokens table in schema + migration
+- [x] Push notifications: notifyOwner integration for fraud/payout/dispute alerts
+- [x] Inventory reorder: "Create PO" button on low-stock rows in Inventory page
 - [ ] Inventory reorder: pre-filled Purchase Order dialog (vendor, qty, unit cost, total)
 - [ ] Inventory reorder: owner notification on PO creation
-- [ ] Inventory reorder: purchase_orders table + tRPC procedure
+- [x] Inventory reorder: purchase_orders table + tRPC procedure
 - [ ] Quick Pay QR: fade+scale animation on QR code reveal
-- [ ] Quick Pay QR: "Copy Link" button below QR with clipboard feedback
-- [ ] Audit log: audit_events table (actor, action, resource, metadata, timestamp)
-- [ ] Audit log: /audit-log page with filter by action type, actor, date range
-- [ ] Audit log: admin sidebar entry under ADMIN group
-- [ ] Audit log: auto-log key actions (login, payout, dispute, settings change)
-- [ ] Tests: Wave 39 vitest coverage
+- [x] Quick Pay QR: "Copy Link" button below QR with clipboard feedback
+- [x] Audit log: audit_events table (actor, action, resource, metadata, timestamp)
+- [x] Audit log: /audit-log page with filter by action type, actor, date range
+- [x] Audit log: admin sidebar entry under ADMIN group
+- [x] Audit log: auto-log key actions (login, payout, dispute, settings change)
+- [x] Tests: Wave 39 vitest coverage
 
 ## Wave 39 (March 2026) — Push Notifications, Inventory PO, QR Animation, Audit Log
 

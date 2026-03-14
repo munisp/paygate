@@ -71,6 +71,8 @@ func main() {
 
 	// Settlement operations
 	mux.HandleFunc("POST /v1/settlements/trigger", authMiddleware(handlers.TriggerSettlement))
+	// NIBSS PTSP batch confirmation webhook (HMAC-verified, no auth middleware — uses X-NIBSS-Signature)
+	mux.HandleFunc("POST /v1/pos/settlement/confirm", handlers.PTSPConfirmationWebhook)
 
 	// ── Server ───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")

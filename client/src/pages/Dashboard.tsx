@@ -32,6 +32,32 @@ const CHANNEL_COLORS: Record<string, string> = {
   card: "#4F46E5", bank_transfer: "#10B981", mobile_money: "#F59E0B", ussd: "#6366F1", qr: "#EC4899", bnpl: "#14B8A6",
 };
 
+function WalletBalanceCard() {
+  const { data, isLoading } = trpc.wallet.getWallet.useQuery(undefined, { staleTime: 30_000, refetchInterval: 60_000 });
+  const balance = parseFloat((data?.wallet?.balance ?? "0") as string);
+  const pending = parseFloat(((data?.wallet as any)?.pendingBalance ?? "0") as string);
+  return (
+    <div className="bg-card rounded-xl border border-border p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-foreground" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Wallet Balance</h3>
+          <p className="text-sm text-muted-foreground">Primary merchant wallet</p>
+        </div>
+        <div className="p-2 rounded-xl bg-primary/10"><DollarSign className="w-4 h-4 text-primary" /></div>
+      </div>
+      {isLoading ? (
+        <div className="space-y-2"><Skeleton className="h-8 w-32" /><Skeleton className="h-4 w-24" /></div>
+      ) : (
+        <div>
+          <p className="text-3xl font-bold text-foreground" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{fmt(balance)}</p>
+          <p className="text-xs text-muted-foreground mt-1">{fmt(pending)} pending</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{(data?.wallet as any)?.currency ?? 'NGN'} · {(data?.wallet as any)?.type ?? 'merchant'}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettlementHealthWidget() {
   const { data, isLoading } = trpc.settlements.summary.useQuery(undefined, { staleTime: 60_000, refetchInterval: 60_000 });
   const hasBreaches = (data?.slaBreachCount ?? 0) > 0;
@@ -392,8 +418,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Settlement Health Widget */}
-      <SettlementHealthWidget />
+      {/* Wallet Balance + Settlement Health */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <WalletBalanceCard />
+        <div className="md:col-span-2"><SettlementHealthWidget /></div>
+      </div>
       {/* Dispute Analytics Widget */}
       <DisputeAnalyticsWidget />
 

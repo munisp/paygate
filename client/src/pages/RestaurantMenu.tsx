@@ -10,8 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import {
   Plus, RefreshCw, UtensilsCrossed, Tag, Search,
-  Pencil, Trash2, ChevronDown, ChevronUp, GripVertical
+  Pencil, Trash2, ChevronDown, ChevronUp, GripVertical,
+  Link2, Copy, QrCode, ExternalLink
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 // ── Category Form Dialog ──────────────────────────────────────────────────────
 function CategoryDialog({
@@ -193,6 +195,50 @@ function ItemDialog({
   );
 }
 
+// ── Online Ordering Link Panel ───────────────────────────────────────────────
+function OnlineOrderingPanel({ merchantSlug }: { merchantSlug: string }) {
+  const [showQr, setShowQr] = useState(false);
+  const orderingUrl = `${window.location.origin}/order/${merchantSlug}`;
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(orderingUrl).then(() => toast.success("Link copied!"));
+  };
+
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Link2 className="w-4 h-4 text-green-600" />
+          <span className="text-sm font-semibold">Online Ordering Link</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowQr((v) => !v)}>
+            <QrCode className="w-3.5 h-3.5 mr-1" />
+            {showQr ? "Hide QR" : "Show QR"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={copyLink}>
+            <Copy className="w-3.5 h-3.5 mr-1" /> Copy
+          </Button>
+          <Button size="sm" asChild>
+            <a href={orderingUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="w-3.5 h-3.5 mr-1" /> Preview
+            </a>
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground font-mono bg-muted rounded px-2 py-1.5 break-all">
+        {orderingUrl}
+      </p>
+      {showQr && (
+        <div className="flex flex-col items-center gap-2 pt-1">
+          <QRCodeSVG value={orderingUrl} size={160} level="M" />
+          <p className="text-xs text-muted-foreground">Scan to order from your menu</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function RestaurantMenu() {
   const utils = trpc.useUtils();
@@ -204,6 +250,10 @@ export default function RestaurantMenu() {
   const { data, isLoading, refetch } = trpc.restaurant.listMenu.useQuery(undefined, {
     staleTime: 30_000,
   });
+  const { data: settingsData } = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
+  const merchantSlug = (settingsData as any)?.businessName
+    ? (settingsData as any).businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    : 'my-restaurant';
 
   const toggleItem = trpc.restaurant.toggleItemAvailability.useMutation({
     onMutate: async ({ id }) => {
@@ -275,6 +325,9 @@ export default function RestaurantMenu() {
           </Button>
         </div>
       </div>
+
+      {/* Online Ordering Link */}
+      <OnlineOrderingPanel merchantSlug={merchantSlug} />
 
       {/* Search */}
       <div className="relative max-w-sm">
