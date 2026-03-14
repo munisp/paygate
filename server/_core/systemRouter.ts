@@ -57,6 +57,50 @@ export const systemRouter = router({
 
     const stripeMode = stripeKey.startsWith("sk_live_") ? "live" : stripeKey.startsWith("sk_test_") ? "test" : "unconfigured";
 
+    // Check Go bridge connectivity
+    const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL ?? "";
+    let bridgeStatus: "ok" | "pending" | "warning" = "pending";
+    let bridgeDetail = "MIDDLEWARE_BRIDGE_URL not configured";
+    if (bridgeUrl) {
+      try {
+        const res = await Promise.race([
+          fetch(`${bridgeUrl}/health`),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+        ]) as Response;
+        if (res.ok) {
+          bridgeStatus = "ok";
+          bridgeDetail = `Go bridge reachable at ${bridgeUrl}`;
+        } else {
+          bridgeStatus = "warning";
+          bridgeDetail = `Go bridge returned HTTP ${res.status} — check logs`;
+        }
+      } catch (e: any) {
+        bridgeStatus = "warning";
+        bridgeDetail = `Go bridge unreachable: ${e.message ?? "connection refused"}`;
+      }
+    }
+
+    // Check pending DB migrations
+    let dbMigrationsOk = false;
+    let dbMigrationsDetail = "Unable to check migration status";
+    try {
+      const { Pool } = await import("pg");
+      const pool = new Pool({ connectionString: dbUrl });
+      // drizzle-kit tracks applied migrations in __drizzle_migrations table
+      const res = await pool.query(`
+        SELECT COUNT(*) as cnt FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = '__drizzle_migrations'
+      `);
+      const hasMigrationsTable = parseInt(res.rows[0]?.cnt ?? "0", 10) > 0;
+      if (hasMigrationsTable) {
+        dbMigrationsOk = true;
+        dbMigrationsDetail = "Database schema is up to date";
+      } else {
+        dbMigrationsDetail = "Run pnpm db:push to apply schema migrations";
+      }
+      await pool.end();
+    } catch { dbMigrationsDetail = "Could not connect to database to check migrations"; }
+
     return {
       items: [
         { id: "stripe_claimed", label: "Stripe sandbox claimed", status: stripeMode !== "unconfigured" ? "ok" : "pending", detail: stripeMode === "live" ? "Live keys active" : stripeMode === "test" ? "Test keys active — swap for live keys before go-live" : "Not configured", actionUrl: "https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ", actionLabel: "Claim Stripe Sandbox", sandboxExpiry: "2026-05-11T16:17:47.000Z" },
@@ -66,6 +110,8 @@ export const systemRouter = router({
         { id: "admin_user", label: "First admin user promoted", status: adminCount > 0 ? "ok" : "pending", detail: adminCount > 0 ? `${adminCount} admin user(s) exist` : "No admin users — use the Admin Setup wizard", actionUrl: "/admin-setup", actionLabel: "Open Admin Setup" },
         { id: "database", label: "Production database connected", status: dbUrl && !dbUrl.includes("localhost") && !dbUrl.includes("127.0.0.1") ? "ok" : "warning", detail: dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1") ? "Using local DB — switch to a managed cloud database" : "Production DB URL is set", actionUrl: null, actionLabel: "Update DATABASE_URL in Settings → Secrets" },
         { id: "domain", label: "Custom domain bound", status: "info", detail: "Bind a custom domain in Settings \u2192 Domains", actionUrl: null, actionLabel: "Open Settings \u2192 Domains" },
+        { id: "go_bridge", label: "Go middleware bridge reachable", status: bridgeStatus, detail: bridgeDetail, actionUrl: bridgeStatus !== "ok" ? "/microservice-health" : null, actionLabel: bridgeStatus !== "ok" ? "View Microservice Health" : null },
+        { id: "db_migrations", label: "Database migrations applied", status: dbMigrationsOk ? "ok" : "warning", detail: dbMigrationsDetail, actionUrl: null, actionLabel: dbMigrationsOk ? null : "Run: pnpm db:push" },
         {
         id: "microservices",
         label: "Microservices online (optional)",

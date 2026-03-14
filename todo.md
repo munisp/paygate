@@ -1188,3 +1188,36 @@
 - [x] Vendor spend trend: vendors.spendHistory tRPC procedure (monthly spend last 6 months, grouped by month)
 - [x] Vendor spend trend: recharts AreaChart sparkline on each vendor card with hover tooltip
 - [x] Tests: Wave 44 vitest coverage — 666 passing (27 files), 0 regressions
+
+## Wave 45 — TigerBeetle/Rust Implementation, Production Hardening
+
+- [x] Rust paygate-wallet-ffi: real extern "C" symbols (paygate_wallet_init, debit, credit, balance, p2p_transfer)
+- [x] Rust paygate-wallet-ffi: FNV-1a 128-bit deterministic transfer IDs for idempotency
+- [x] Rust paygate-wallet-ffi: mock TigerBeetle client for unit tests (8 tests pass)
+- [x] Go bridge: real tigerbeetle-go SDK with CreateAccounts, CreateTransfers, GetAccountBalances
+- [x] Go bridge: NIBSS confirmation webhook handler (POST /v1/nibss/confirmation)
+- [x] Go bridge: NIBSS webhook unit tests (5 Go tests pass)
+- [x] middlewareBridge.ts: getWalletBalanceViaMiddleware function wired
+- [x] Dashboard: WalletBalanceCard showing available and pending balances
+- [x] Dashboard: SettlementHealthWidget (today settled, pending batches, SLA breach count)
+- [x] Settlements: visual SLA audit trail timeline in detail dialog
+- [x] Transactions: Monthly Statement download button (export.monthlyStatement tRPC)
+- [x] RestaurantMenu: Online Ordering Link Generator with QR code
+- [x] All 43 routers confirmed wired to appRouter — zero orphans
+- [x] All 55 pages confirmed routed in App.tsx
+- [x] All sidebar nav items confirmed pointing to valid routes
+- [x] env.ts: all undocumented environment variables added
+- [x] Tests: Wave 45 vitest coverage — 695 passing (28 files), 0 regressions
+
+## Wave 46 — Production Go-Live Features
+
+- [x] Go bridge: health-check endpoint GET /health in go-bridge/cmd/bridge/main.go
+- [x] Go bridge: MIDDLEWARE_BRIDGE_URL + TIGERBEETLE_ADDRESS env wiring in Settings → Secrets
+- [x] Go bridge: in-portal deployment guide card in GoLiveChecklist page
+- [x] Go bridge: bridge connectivity status indicator in GoLiveChecklist (green/red)
+- [x] Stripe: live key switchover — validate STRIPE_SECRET_KEY prefix (sk_live_ vs sk_test_)
+- [x] Stripe: live/test mode banner in header (orange "Test Mode" → green "Live Mode")
+- [x] Stripe: GoLiveChecklist Stripe step shows claim sandbox + KYC status
+- [x] DB migrations: migration status tRPC procedure (checks pending drizzle migrations)
+- [x] DB migrations: GoLiveChecklist DB step shows migration status with Run Migrations button
+- [x] Tests: Wave 46 vitest coverage — 718 passing (29 files), 23 new tests, 0 regressions

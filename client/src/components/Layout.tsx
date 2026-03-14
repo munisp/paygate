@@ -113,6 +113,15 @@ export default function Layout({ children }: LayoutProps) {
     (a: any) => !dismissedAlerts.has(a.id)
   );
 
+  // ─── Stripe Mode Banner ─────────────────────────────────────────────────
+  const { data: checklistData } = trpc.system.goLiveChecklist.useQuery(undefined, {
+    refetchInterval: 300_000, // 5 min
+    staleTime: 240_000,
+  });
+  const stripeItem = checklistData?.items.find((i: any) => i.id === "stripe_live_keys");
+  const isTestMode = stripeItem?.status !== "ok"; // show banner if not on live keys
+  const [dismissedStripeBanner, setDismissedStripeBanner] = useState(false);
+
   // ─── SLA Breach Banner ───────────────────────────────────────────────────
   const [dismissedSlaIds, setDismissedSlaIds] = useState<Set<string>>(new Set());
   const { data: slaData } = trpc.settlements.listBreached.useQuery(
@@ -419,11 +428,34 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {/* Live indicator */}
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-medium text-emerald-700">Live</span>
-            </div>
+            {/* Stripe mode indicator */}
+            {checklistData && !dismissedStripeBanner && (
+              isTestMode ? (
+                <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-50 border border-orange-200">
+                  <div className="w-2 h-2 rounded-full bg-orange-400" />
+                  <span className="text-xs font-medium text-orange-700">Test Mode</span>
+                  <button
+                    onClick={() => setDismissedStripeBanner(true)}
+                    className="ml-1 text-orange-400 hover:text-orange-600"
+                    title="Dismiss"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs font-medium text-emerald-700">Live Mode</span>
+                </div>
+              )
+            )}
+            {/* Live indicator (fallback when checklist not loaded) */}
+            {!checklistData && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs font-medium text-emerald-700">Live</span>
+              </div>
+            )}
 
             {/* Fraud alert count badge on bell */}
             <button
