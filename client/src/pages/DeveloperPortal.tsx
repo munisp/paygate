@@ -14,7 +14,7 @@ import {
   Copy, Check, Code2, Key, BookOpen, Zap, Globe, Shield,
   Terminal, ChevronRight, Play, CheckCircle, XCircle, Loader2,
   ToggleLeft, ToggleRight, AlertTriangle, Webhook, RefreshCw,
-  ChevronDown, ChevronUp, Clock, AlertOctagon,
+  ChevronDown, ChevronUp, Clock, AlertOctagon, Star,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -656,6 +656,14 @@ function SandboxRunner({ mode }: { mode: EnvMode }) {
   const [amount, setAmount] = useState("5000");
   const [email, setEmail] = useState("sandbox@example.com");
   const [result, setResult] = useState<RunResult>({ status: "idle", message: "" });
+  const [redeemEnabled, setRedeemEnabled] = useState(false);
+  const [redeemPoints, setRedeemPoints] = useState("100");
+
+  // Fetch loyalty balance for the entered email
+  const { data: loyaltyBalance } = trpc.customers.getLoyaltyBalance.useQuery(
+    { customerId: email },
+    { enabled: redeemEnabled && email.includes("@"), staleTime: 30_000 }
+  );
 
   const createTest = trpc.transactions.createTest.useMutation({
     onSuccess: (data) => {
@@ -690,6 +698,7 @@ function SandboxRunner({ mode }: { mode: EnvMode }) {
       return;
     }
     setResult({ status: "running", message: "Sending test charge…" });
+    const pointsToRedeem = redeemEnabled ? Math.max(0, parseInt(redeemPoints) || 0) : 0;
     createTest.mutate({
       amount: amountInt,
       currency: "NGN",
@@ -697,6 +706,7 @@ function SandboxRunner({ mode }: { mode: EnvMode }) {
       customerName: "Sandbox Customer",
       description: "Developer Portal sandbox test",
       channel: "card",
+      ...(pointsToRedeem > 0 ? { redeemPoints: pointsToRedeem } : {}),
     });
   };
 
@@ -742,6 +752,46 @@ function SandboxRunner({ mode }: { mode: EnvMode }) {
               className="bg-slate-900 border-slate-600 text-white mt-1 h-8 text-sm"
             />
           </div>
+        </div>
+
+        {/* Loyalty Redemption Toggle */}
+        <div className="rounded-lg border border-slate-700 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Star className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-xs text-slate-300 font-medium">Redeem Loyalty Points</span>
+              {loyaltyBalance && (
+                <span className="text-xs text-amber-400 font-mono">
+                  ({loyaltyBalance.balance?.toLocaleString() ?? "—"} pts available)
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setRedeemEnabled(p => !p)}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                redeemEnabled ? "bg-amber-500/20 text-amber-400" : "bg-slate-700 text-slate-400"
+              }`}
+            >
+              {redeemEnabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+              {redeemEnabled ? "On" : "Off"}
+            </button>
+          </div>
+          {redeemEnabled && (
+            <div>
+              <Label className="text-slate-400 text-xs">Points to Redeem</Label>
+              <Input
+                type="number"
+                value={redeemPoints}
+                onChange={e => setRedeemPoints(e.target.value)}
+                min="1"
+                placeholder="100"
+                className="bg-slate-900 border-slate-600 text-white mt-1 h-8 text-sm"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Points will be deducted from the customer's loyalty balance and the equivalent value subtracted from the charge amount.
+              </p>
+            </div>
+          )}
         </div>
 
         <Button

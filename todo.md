@@ -1430,3 +1430,26 @@
 
 ### Tests
 - [x] Tests: Wave 51 vitest coverage — no regressions (768 tests passing, 31 files)
+
+## Wave 52 — Fraud Drill-Down, Inventory Badge, Loyalty Redemption
+
+### Fraud Signal Drill-Down Panel
+- [x] FraudRisk: clicking a row opens a side-sheet showing raw signals array from transaction metadata
+- [x] FraudRisk: side-sheet shows risk score bar, risk level badge, signals list, recommendation, and transaction link
+- [x] FraudRisk: fraudAlerts.getSignals tRPC procedure returns alert + linked transaction metadata
+- [x] FraudRisk: side-sheet handles missing metadata gracefully (no linked transaction)
+
+### Inventory Reservation Status Badge
+- [x] Transactions: Transaction Detail dialog shows "Reserved" / "Released" chip from metadata.inventoryReservationId
+- [x] Transactions: chip links to reservation ID for audit trail visibility
+- [x] Transactions: badge only shown when inventoryReservationId is present in metadata
+
+### Loyalty Redemption Checkout Flow
+- [x] Transactions: createTest input accepts optional redeemPoints (number) field
+- [x] Transactions: when redeemPoints > 0, call rustRedeemPoints before debit, reduce charged amount
+- [x] Transactions: store redeemedPoints + pointsValue in transaction metadata
+- [x] Transactions: fail-open when Loyalty Ledger unavailable (skip redemption, proceed at full price)
+- [x] Transactions: UI — "Redeem points" toggle in test transaction form with available balance shown
+
+### Tests
+- [x] Tests: Wave 52 vitest coverage — 800 tests passing, 32 files, 0 regressions

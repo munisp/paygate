@@ -310,6 +310,7 @@ const transactionsRouter = router({
       description: z.string().optional(),
       channel: z.string().default("card"),
       idempotencyKey: z.string().min(8).optional(),
+      redeemPoints: z.number().min(0).optional(),   // loyalty points to redeem (reduces charged amount)
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -387,8 +388,32 @@ const transactionsRouter = router({
         }
       }
 
+      // ── Loyalty Redemption ─────────────────────────────────────────────────
+      // If the caller requests point redemption, call the Loyalty Ledger before
+      // the debit to reduce the charged amount. Fail-open: if the service is
+      // unavailable we skip redemption and charge the full amount.
+      let redeemedPoints = 0;
+      let pointsKoboValue = 0;
+      if (input.redeemPoints && input.redeemPoints > 0 && input.customerEmail) {
+        try {
+          const redeemResult = await rustRedeemPoints({
+            merchant_id: merchant.id,
+            customer_id: input.customerEmail,
+            points: input.redeemPoints,
+            order_id: txnId,
+          });
+          if (redeemResult?.ok) {
+            redeemedPoints = input.redeemPoints;
+            pointsKoboValue = redeemResult.kobo_value;
+          }
+        } catch (e) {
+          console.warn("[loyalty] redemption service unavailable (fail-open):", (e as Error).message);
+        }
+      }
+
       const execute = async () => {
-        const feeAmount = Math.round(input.amount * 0.015);
+        const chargedAmount = Math.max(100, input.amount - pointsKoboValue);
+        const feeAmount = Math.round(chargedAmount * 0.015);
         let tx;
         try {
           tx = await createTransaction({
@@ -396,7 +421,7 @@ const transactionsRouter = router({
             merchantId: merchant.id,
             tenantId: merchant.tenantId ?? "ten_default",
             reference: txnRef,
-            amount: input.amount,
+            amount: chargedAmount,
             currency: input.currency,
             status: "completed",
             channel: input.channel as any,
@@ -404,11 +429,12 @@ const transactionsRouter = router({
             customerName: input.customerName,
             description: input.description,
             feeAmount,
-            netAmount: input.amount - feeAmount,
+            netAmount: chargedAmount - feeAmount,
             completedAt: new Date(),
             metadata: {
               ...(fraudResult ? { fraudScore: fraudResult.risk_score, fraudLevel: fraudResult.risk_level } : {}),
               ...(inventoryReservationId ? { inventoryReservationId } : {}),
+              ...(redeemedPoints > 0 ? { redeemedPoints, pointsValue: pointsKoboValue } : {}),
             },
           });
         } catch (err) {
@@ -542,6 +568,20 @@ const customersRouter = router({
          new Date(c.createdAt).toISOString()].join(",")
       ).join("\n");
       return { csv, count: all.total };
+    }),
+  // Returns loyalty balance for a customer identified by email (or any string ID)
+  // Calls the Rust Loyalty Ledger; fails-open (returns null) when service unavailable.
+  getLoyaltyBalance: protectedProcedure
+    .input(z.object({ customerId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const balance = await rustGetLoyaltyBalance(merchant.id, input.customerId);
+      if (!balance) return null;
+      // Derive loyalty tier from point balance
+      const pts = balance.points_balance;
+      const tier = pts >= 10000 ? "platinum" : pts >= 5000 ? "gold" : pts >= 1000 ? "silver" : "bronze";
+      return { ...balance, balance: pts, tier };
     }),
 });
 

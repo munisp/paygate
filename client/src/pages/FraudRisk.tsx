@@ -5,10 +5,12 @@ import {
   TrendingUp, Activity, Brain, Zap, RefreshCw, Filter,
   ChevronDown, ChevronRight, Plus, Trash2, ToggleLeft, ToggleRight,
   Globe, CreditCard, Smartphone, Clock, ArrowUpRight,
-  ArrowUpDown, ArrowUp, ArrowDown
+  ArrowUpDown, ArrowUp, ArrowDown, X, ExternalLink, Signal
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
 // --- Data generators ---
@@ -112,6 +114,11 @@ export default function FraudRisk() {
   const [dbSortField, setDbSortField] = useState<DbSortField>("riskScore");
   const [dbSortDir, setDbSortDir] = useState<DbSortDir>("desc");
   const [dbStatusFilter, setDbStatusFilter] = useState<string>("all");
+  const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
+  const selectedAlert = useMemo(
+    () => (dbAlerts?.rows ?? []).find(a => a.id === selectedAlertId) ?? null,
+    [dbAlerts, selectedAlertId]
+  );
 
   const sortedDbAlerts = useMemo(() => {
     let rows = [...(dbAlerts?.rows ?? [])];
@@ -135,6 +142,184 @@ export default function FraudRisk() {
   function SortIcon({ field }: { field: DbSortField }) {
     if (dbSortField !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
     return dbSortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1 text-primary" /> : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
+  }
+
+  // ── Signal Drill-Down Sheet ──────────────────────────────────────────────
+  function SignalDrillDownSheet() {
+    if (!selectedAlert) return null;
+    const meta = (selectedAlert.metadata ?? {}) as Record<string, any>;
+    const signals: string[] = Array.isArray(meta.signals) ? meta.signals : [];
+    const mlScore = typeof meta.fraudScore === "number" ? meta.fraudScore : null;
+    const mlLevel = meta.fraudLevel as string | undefined;
+    const invReservationId = meta.inventoryReservationId as string | undefined;
+    const scoreToShow = mlScore !== null ? Math.round(mlScore) : selectedAlert.riskScore;
+    const levelToShow = mlLevel ?? (scoreToShow >= 75 ? "critical" : scoreToShow >= 50 ? "high" : scoreToShow >= 25 ? "medium" : "low");
+    const levelCls = levelToShow === "critical" ? "bg-red-100 text-red-700 border-red-200" :
+      levelToShow === "high" ? "bg-orange-100 text-orange-700 border-orange-200" :
+      levelToShow === "medium" ? "bg-amber-100 text-amber-700 border-amber-200" :
+      "bg-emerald-100 text-emerald-700 border-emerald-200";
+    const barColor = scoreToShow >= 75 ? "bg-red-500" : scoreToShow >= 50 ? "bg-amber-500" : scoreToShow >= 25 ? "bg-yellow-400" : "bg-emerald-500";
+
+    // Known signal descriptions for analyst context
+    const SIGNAL_DESCRIPTIONS: Record<string, string> = {
+      "velocity_breach": "Transaction rate exceeded safe threshold within the rolling window",
+      "velocity spike": "Sudden increase in transaction volume from this entity",
+      "new device": "Payment initiated from a device not previously seen for this account",
+      "vpn detected": "IP address resolves to a known VPN or proxy exit node",
+      "card testing pattern": "Small sequential charges consistent with card enumeration attacks",
+      "unusual hour": "Transaction occurred outside the customer's typical activity hours",
+      "multiple declines": "Several recent declined attempts before this transaction",
+      "account_takeover": "Behavioural signals consistent with credential compromise",
+      "ip_blacklist": "Source IP appears on a threat intelligence blacklist",
+      "identity_mismatch": "Cardholder name or billing address does not match issuer records",
+      "device_fingerprint": "Device fingerprint linked to prior fraudulent activity",
+      "unusual_location": "Transaction origin is geographically inconsistent with account history",
+      "card_testing": "Pattern of micro-transactions used to validate stolen card numbers",
+    };
+
+    return (
+      <Sheet open={!!selectedAlertId} onOpenChange={open => !open && setSelectedAlertId(null)}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="flex items-center gap-2">
+              <Signal className="w-5 h-5 text-primary" />
+              Fraud Signal Drill-Down
+            </SheetTitle>
+          </SheetHeader>
+
+          {/* Alert identity */}
+          <div className="space-y-4">
+            <div className="bg-muted/50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground font-medium">Alert Type</p>
+                <span className="text-sm font-semibold capitalize">{selectedAlert.alertType.replace(/_/g, " ")}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground font-medium">Status</p>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+                  selectedAlert.status === "open" ? "bg-red-100 text-red-700" :
+                  selectedAlert.status === "investigating" ? "bg-amber-100 text-amber-700" :
+                  selectedAlert.status === "resolved" ? "bg-emerald-100 text-emerald-700" :
+                  "bg-muted text-muted-foreground"
+                }`}>{selectedAlert.status.replace("_", " ")}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground font-medium">Created</p>
+                <span className="text-xs tabular-nums">{new Date(selectedAlert.createdAt).toLocaleString()}</span>
+              </div>
+              {selectedAlert.transactionId && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground font-medium">Transaction</p>
+                  <span className="text-xs font-mono text-primary flex items-center gap-1">
+                    {selectedAlert.transactionId.slice(0, 16)}…
+                    <ExternalLink className="w-3 h-3" />
+                  </span>
+                </div>
+              )}
+              {invReservationId && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground font-medium">Inventory Reservation</p>
+                  <span className="text-xs font-mono text-blue-600">{invReservationId.slice(0, 16)}…</span>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Risk score */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">Risk Score</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${scoreToShow}%` }} />
+                </div>
+                <span className="text-2xl font-bold tabular-nums" style={{ fontFamily: "Space Grotesk, sans-serif" }}>{scoreToShow}</span>
+                <span className="text-muted-foreground text-sm">/100</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border capitalize ${levelCls}`}>{levelToShow}</span>
+                {mlScore !== null && mlScore !== selectedAlert.riskScore && (
+                  <span className="text-xs text-muted-foreground">DB score: {selectedAlert.riskScore} · ML score: {Math.round(mlScore)}</span>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Signals */}
+            <div className="space-y-3">
+              <p className="text-sm font-semibold flex items-center gap-2">
+                <Signal className="w-4 h-4 text-primary" />
+                Fraud Signals
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{signals.length > 0 ? `${signals.length} detected` : "No signals recorded"}</span>
+              </p>
+              {signals.length === 0 ? (
+                <div className="bg-muted/40 rounded-lg p-4 text-center">
+                  <p className="text-xs text-muted-foreground">No raw signals available for this alert.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Signals are recorded when the ML fraud scorer is invoked during transaction creation.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {signals.map((signal, idx) => {
+                    const desc = SIGNAL_DESCRIPTIONS[signal.toLowerCase()];
+                    return (
+                      <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                        <div className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium capitalize">{signal}</p>
+                          {desc && <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Description */}
+            {selectedAlert.description && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Description</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{selectedAlert.description}</p>
+                </div>
+              </>
+            )}
+
+            <Separator />
+
+            {/* Actions */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">Actions</p>
+              <div className="flex gap-2">
+                {selectedAlert.status === "open" && (
+                  <>
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => {
+                      updateDbAlert.mutate({ id: selectedAlert.id, status: "investigating" });
+                      setSelectedAlertId(null);
+                    }} disabled={updateDbAlert.isPending}>Investigate</Button>
+                    <Button size="sm" variant="outline" className="flex-1 text-muted-foreground" onClick={() => {
+                      updateDbAlert.mutate({ id: selectedAlert.id, status: "false_positive" });
+                      setSelectedAlertId(null);
+                    }} disabled={updateDbAlert.isPending}>Mark False Positive</Button>
+                  </>
+                )}
+                {selectedAlert.status === "investigating" && (
+                  <Button size="sm" className="flex-1" onClick={() => {
+                    updateDbAlert.mutate({ id: selectedAlert.id, status: "resolved" });
+                    setSelectedAlertId(null);
+                  }} disabled={updateDbAlert.isPending}>Resolve Alert</Button>
+                )}
+                {(selectedAlert.status === "resolved" || selectedAlert.status === "false_positive") && (
+                  <p className="text-xs text-muted-foreground">This alert has been closed.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
   }
   const [filter, setFilter] = useState<"all" | typeof RISK_LEVELS[number]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -620,8 +805,11 @@ export default function FraudRisk() {
                 const meta = (alert.metadata ?? {}) as Record<string, any>;
                 const mlLevel = meta.fraudLevel as string | undefined;
                 const mlScore = typeof meta.fraudScore === "number" ? meta.fraudScore : null;
+                const hasSignals = Array.isArray(meta.signals) && meta.signals.length > 0;
                 return (
-                  <div key={alert.id} className="grid grid-cols-[2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/30 transition-colors">
+                  <div key={alert.id}
+                    className={`grid grid-cols-[2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/30 transition-colors cursor-pointer ${selectedAlertId === alert.id ? "bg-primary/5" : ""}`}
+                    onClick={() => setSelectedAlertId(alert.id)}>
                     {/* Alert type + description */}
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground capitalize truncate">{alert.alertType.replace(/_/g, " ")}</p>
@@ -652,7 +840,12 @@ export default function FraudRisk() {
                     <span className="text-xs text-muted-foreground tabular-nums">{new Date(alert.createdAt).toLocaleDateString()}</span>
 
                     {/* Actions */}
-                    <div className="flex gap-1.5 shrink-0">
+                    <div className="flex gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      {hasSignals && (
+                        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-primary" onClick={e => { e.stopPropagation(); setSelectedAlertId(alert.id); }}>
+                          <Signal className="w-3 h-3 mr-1" />{(meta.signals as string[]).length}
+                        </Button>
+                      )}
                       {alert.status === "open" && (
                         <>
                           <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => updateDbAlert.mutate({ id: alert.id, status: "investigating" })} disabled={updateDbAlert.isPending}>Investigate</Button>
@@ -670,6 +863,8 @@ export default function FraudRisk() {
           )}
         </div>
       )}
+      {/* Fraud Signal Drill-Down Side Sheet */}
+      <SignalDrillDownSheet />
     </div>
   );
 }

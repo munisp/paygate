@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy, Package, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -79,6 +79,58 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               <span className="text-sm text-muted-foreground">Status</span>
               <StatusBadge status={tx.status} />
             </div>
+
+            {/* Inventory Reservation Badge */}
+            {(() => {
+              const meta = (tx.metadata ?? {}) as Record<string, any>;
+              const reservationId = meta.inventoryReservationId as string | undefined;
+              const reservationStatus = meta.inventoryReservationStatus as string | undefined;
+              if (!reservationId) return null;
+              const isReleased = reservationStatus === "released";
+              return (
+                <div className="flex items-center justify-between py-1.5 border-t border-border pt-3">
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Package className="w-3.5 h-3.5" />
+                    Inventory Reservation
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+                      isReleased ? "bg-red-50 text-red-700 border-red-200" : "bg-blue-50 text-blue-700 border-blue-200"
+                    }`}>
+                      {isReleased ? "Released" : "Reserved"}
+                    </span>
+                    <span className="text-xs font-mono text-muted-foreground" title={reservationId}>
+                      {reservationId.slice(0, 12)}…
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Loyalty Redemption Info */}
+            {(() => {
+              const meta = (tx.metadata ?? {}) as Record<string, any>;
+              const redeemedPoints = typeof meta.redeemedPoints === "number" ? meta.redeemedPoints : null;
+              const pointsValue = typeof meta.pointsValue === "number" ? meta.pointsValue : null;
+              if (redeemedPoints === null || redeemedPoints === 0) return null;
+              return (
+                <div className="flex items-center justify-between py-1.5 border-t border-border pt-3">
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Star className="w-3.5 h-3.5 text-amber-500" />
+                    Loyalty Redeemed
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-50 text-amber-700 border-amber-200">
+                      {redeemedPoints.toLocaleString()} pts
+                    </span>
+                    {pointsValue !== null && (
+                      <span className="text-xs text-muted-foreground">= {tx.currency} {pointsValue.toLocaleString()}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Refund section */}
             {tx.status === 'completed' && !showRefund && (
               <Button
