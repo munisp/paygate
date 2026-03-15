@@ -307,6 +307,7 @@ const transactionsRouter = router({
       currency: z.string().length(3).default("NGN"),
       customerEmail: z.string().email().optional(),
       customerName: z.string().optional(),
+      customerId: z.string().optional(),  // customer ID for loyalty earn/redeem
       description: z.string().optional(),
       channel: z.string().default("card"),
       idempotencyKey: z.string().min(8).optional(),
@@ -455,6 +456,30 @@ const transactionsRouter = router({
             riskScore: fraudResult.risk_score,
             description: `High-risk transaction flagged for review. Signals: ${fraudResult.signals.join(", ")}.`,
           }).catch(() => {});
+        }
+        // Auto-earn loyalty points after successful transaction.
+        // Rate: 1 point per ₦100 (10,000 kobo). Fail-open: never block the transaction.
+        if (tx) {
+          const loyaltyCustomerId = input.customerId ?? input.customerEmail ?? null;
+          const pointsToEarn = Math.floor(chargedAmount / 10000);
+          if (loyaltyCustomerId && pointsToEarn > 0) {
+            rustEarnPoints({
+              merchant_id: merchant.id,
+              customer_id: loyaltyCustomerId,
+              points: pointsToEarn,
+              order_id: tx.id,
+            }).then(earnResult => {
+              if (earnResult?.ok) {
+                // Patch metadata with earnedPoints for Transaction Detail badge
+                updateTransaction(tx.id, {
+                  metadata: {
+                    ...(tx.metadata as object ?? {}),
+                    earnedPoints: pointsToEarn,
+                  },
+                }).catch(() => {});
+              }
+            }).catch(e => console.warn("[loyalty] earn failed (non-fatal):", e.message));
+          }
         }
         return tx;
       };
@@ -1714,6 +1739,25 @@ const fraudRiskRouter = router({
         }).catch(e => console.error('[bridge] acknowledgeFraudAlert failed (non-fatal):', e));
       }
       return { success: true };
+    }),
+  // Bulk update multiple fraud alerts to a target status in one call.
+  // Used by the multi-select bulk action toolbar in FraudRisk page.
+  bulkUpdateAlerts: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.string()).min(1).max(100),
+      status: z.enum(['resolved', 'false_positive']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const resolvedAt = new Date();
+      const resolvedBy = ctx.user.openId;
+      await Promise.all(
+        input.ids.map(id =>
+          updateFraudAlert(id, merchant.id, { status: input.status, resolvedAt, resolvedBy })
+        )
+      );
+      return { updated: input.ids.length };
     }),
 });
 

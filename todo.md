@@ -1453,3 +1453,27 @@
 
 ### Tests
 - [x] Tests: Wave 52 vitest coverage — 800 tests passing, 32 files, 0 regressions
+
+## Wave 53 — Bulk Fraud Actions, Loyalty Earn, Reservation Expiry
+
+### Fraud Alert Bulk Actions
+- [x] FraudRisk: add checkbox column to alert table rows (select individual + select-all header)
+- [x] FraudRisk: fraudAlerts.bulkUpdateAlerts tRPC mutation — accepts array of IDs + target status
+- [x] FraudRisk: bulk action toolbar appears when ≥1 row selected (shows count + action buttons)
+- [x] FraudRisk: bulk actions: "Mark as False Positive" and "Mark as Resolved"
+- [x] FraudRisk: optimistic update — immediately remove/update rows on bulk action, rollback on error
+
+### Loyalty Earn on Completed Transactions
+- [x] Transactions: after createTest succeeds, call rustEarnPoints (1 pt per ₦100 = 1 pt per 10000 kobo)
+- [x] Transactions: store earnedPoints in transaction metadata for audit trail
+- [x] Transactions: fail-open — if Loyalty Ledger unavailable, transaction still completes
+- [x] Transactions: Transaction Detail dialog shows "Earned X pts" badge alongside loyalty redemption info
+
+### Reservation Expiry Background Job
+- [x] Server: reservationExpiryWorker — setInterval every 5 min, queries transactions with inventoryReservationId in metadata where status=completed and createdAt > 15 min ago
+- [x] Server: for each expired reservation, call rustReleaseInventory and update metadata.inventoryReservationStatus to "expired"
+- [x] Server: worker started in server/_core/index.ts alongside webhookRetryWorker
+- [x] Transactions: Transaction Detail dialog shows "Expired" (orange) chip when inventoryReservationStatus === "expired"
+
+### Tests
+- [x] Tests: Wave 53 vitest coverage — 838 tests passing, 33 files, 0 regressions

@@ -19,6 +19,7 @@ import { startIdempotencyCleanupWorker } from "../idempotencyCleanup";
 import { startNipBankRefreshWorker } from "../nipBankRefresh";
 import { startPushTokenCleanupWorker } from "../pushTokenCleanup";
 import { startNotificationPurgeWorker } from "../notificationPurge";
+import { startReservationExpiryWorker } from "../reservationExpiryWorker";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -972,5 +973,6 @@ startIdempotencyCleanupWorker();   // Purge expired idempotency keys every 6 hou
 startNipBankRefreshWorker();       // Refresh NIP bank directory every 24h
 startPushTokenCleanupWorker();     // Purge stale device push tokens every 7 days
 startNotificationPurgeWorker();    // Purge old merchant notifications every 24h
+startReservationExpiryWorker();    // Release expired inventory reservations every 5 min
 
 startServer().catch(console.error);

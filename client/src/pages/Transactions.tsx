@@ -87,6 +87,13 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               const reservationStatus = meta.inventoryReservationStatus as string | undefined;
               if (!reservationId) return null;
               const isReleased = reservationStatus === "released";
+              const isExpired = reservationStatus === "expired";
+              const badgeClass = isExpired
+                ? "bg-orange-50 text-orange-700 border-orange-200"
+                : isReleased
+                  ? "bg-red-50 text-red-700 border-red-200"
+                  : "bg-blue-50 text-blue-700 border-blue-200";
+              const badgeLabel = isExpired ? "Expired" : isReleased ? "Released" : "Reserved";
               return (
                 <div className="flex items-center justify-between py-1.5 border-t border-border pt-3">
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -94,15 +101,31 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                     Inventory Reservation
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
-                      isReleased ? "bg-red-50 text-red-700 border-red-200" : "bg-blue-50 text-blue-700 border-blue-200"
-                    }`}>
-                      {isReleased ? "Released" : "Reserved"}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
+                      {badgeLabel}
                     </span>
                     <span className="text-xs font-mono text-muted-foreground" title={reservationId}>
                       {reservationId.slice(0, 12)}…
                     </span>
                   </div>
+                </div>
+              );
+            })()}
+
+            {/* Loyalty Earned Badge */}
+            {(() => {
+              const meta = (tx.metadata ?? {}) as Record<string, any>;
+              const earnedPoints = typeof meta.earnedPoints === "number" ? meta.earnedPoints : null;
+              if (!earnedPoints || earnedPoints <= 0) return null;
+              return (
+                <div className="flex items-center justify-between py-1.5 border-t border-border pt-3">
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Star className="w-3.5 h-3.5 text-emerald-500" />
+                    Loyalty Earned
+                  </div>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
+                    +{earnedPoints.toLocaleString()} pts
+                  </span>
                 </div>
               );
             })()}

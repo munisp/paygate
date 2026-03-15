@@ -5,7 +5,8 @@ import {
   TrendingUp, Activity, Brain, Zap, RefreshCw, Filter,
   ChevronDown, ChevronRight, Plus, Trash2, ToggleLeft, ToggleRight,
   Globe, CreditCard, Smartphone, Clock, ArrowUpRight,
-  ArrowUpDown, ArrowUp, ArrowDown, X, ExternalLink, Signal
+  ArrowUpDown, ArrowUp, ArrowDown, X, ExternalLink, Signal,
+  CheckSquare, Square, CheckCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -111,10 +112,48 @@ export default function FraudRisk() {
   const { data: dbAlerts } = trpc.fraudRisk.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
   const { data: fraudStats } = trpc.fraudRisk.stats.useQuery(undefined, { staleTime: 60_000 });
   const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({ onSuccess: () => toast.success("Alert updated") });
+  const utils = trpc.useUtils();
+  const bulkUpdateAlerts = trpc.fraudRisk.bulkUpdateAlerts.useMutation({
+    onMutate: async ({ ids, status }) => {
+      // Optimistic update: remove resolved/false_positive rows from the list
+      await utils.fraudRisk.list.cancel();
+      const prev = utils.fraudRisk.list.getData({ limit: 100 });
+      utils.fraudRisk.list.setData({ limit: 100 }, (old: any) => {
+        if (!old) return old;
+        return { ...old, rows: old.rows.filter((r: any) => !ids.includes(r.id)) };
+      });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.fraudRisk.list.setData({ limit: 100 }, ctx.prev);
+      toast.error("Bulk update failed");
+    },
+    onSuccess: ({ updated }) => {
+      toast.success(`${updated} alert${updated !== 1 ? "s" : ""} updated`);
+      setSelectedBulkIds(new Set());
+    },
+    onSettled: () => utils.fraudRisk.list.invalidate(),
+  });
   const [dbSortField, setDbSortField] = useState<DbSortField>("riskScore");
   const [dbSortDir, setDbSortDir] = useState<DbSortDir>("desc");
   const [dbStatusFilter, setDbStatusFilter] = useState<string>("all");
   const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
+  const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
+
+  function toggleBulkSelect(id: string) {
+    setSelectedBulkIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    if (selectedBulkIds.size === sortedDbAlerts.length) {
+      setSelectedBulkIds(new Set());
+    } else {
+      setSelectedBulkIds(new Set(sortedDbAlerts.map(a => a.id)));
+    }
+  }
   const selectedAlert = useMemo(
     () => (dbAlerts?.rows ?? []).find(a => a.id === selectedAlertId) ?? null,
     [dbAlerts, selectedAlertId]
@@ -774,6 +813,35 @@ export default function FraudRisk() {
             <span className="ml-auto text-xs text-muted-foreground">{sortedDbAlerts.length} alert{sortedDbAlerts.length !== 1 ? "s" : ""}</span>
           </div>
 
+          {/* Bulk action toolbar — visible when ≥1 row selected */}
+          {selectedBulkIds.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-xl mb-2 animate-in fade-in slide-in-from-top-1 duration-200">
+              <CheckCheck className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium text-primary">{selectedBulkIds.size} alert{selectedBulkIds.size !== 1 ? "s" : ""} selected</span>
+              <div className="flex gap-2 ml-auto">
+                <Button
+                  size="sm" variant="outline"
+                  className="h-7 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                  disabled={bulkUpdateAlerts.isPending}
+                  onClick={() => bulkUpdateAlerts.mutate({ ids: Array.from(selectedBulkIds), status: "false_positive" })}
+                >
+                  <XCircle className="w-3 h-3 mr-1" /> Mark as False Positive
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={bulkUpdateAlerts.isPending}
+                  onClick={() => bulkUpdateAlerts.mutate({ ids: Array.from(selectedBulkIds), status: "resolved" })}
+                >
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Mark as Resolved
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedBulkIds(new Set())}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Sortable table */}
           {sortedDbAlerts.length === 0 ? (
             <div className="bg-card rounded-xl border border-border p-12 text-center">
@@ -783,7 +851,17 @@ export default function FraudRisk() {
           ) : (
             <div className="bg-card rounded-xl border border-border overflow-hidden">
               {/* Table header */}
-              <div className="grid grid-cols-[2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-2.5 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground">
+              <div className="grid grid-cols-[32px_2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-2.5 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground">
+                {/* Select-all checkbox */}
+                <button
+                  className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted transition-colors"
+                  onClick={toggleSelectAll}
+                  title={selectedBulkIds.size === sortedDbAlerts.length ? "Deselect all" : "Select all"}
+                >
+                  {selectedBulkIds.size === sortedDbAlerts.length && sortedDbAlerts.length > 0
+                    ? <CheckSquare className="w-4 h-4 text-primary" />
+                    : <Square className="w-4 h-4 text-muted-foreground" />}
+                </button>
                 <button className="flex items-center text-left hover:text-foreground transition-colors" onClick={() => toggleSort("alertType")}>
                   Alert Type <SortIcon field="alertType" />
                 </button>
@@ -806,10 +884,21 @@ export default function FraudRisk() {
                 const mlLevel = meta.fraudLevel as string | undefined;
                 const mlScore = typeof meta.fraudScore === "number" ? meta.fraudScore : null;
                 const hasSignals = Array.isArray(meta.signals) && meta.signals.length > 0;
+                const isChecked = selectedBulkIds.has(alert.id);
                 return (
                   <div key={alert.id}
-                    className={`grid grid-cols-[2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/30 transition-colors cursor-pointer ${selectedAlertId === alert.id ? "bg-primary/5" : ""}`}
+                    className={`grid grid-cols-[32px_2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/30 transition-colors cursor-pointer ${isChecked ? "bg-primary/5" : selectedAlertId === alert.id ? "bg-primary/5" : ""}`}
                     onClick={() => setSelectedAlertId(alert.id)}>
+                    {/* Row checkbox */}
+                    <button
+                      className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted transition-colors shrink-0"
+                      onClick={e => { e.stopPropagation(); toggleBulkSelect(alert.id); }}
+                      title={isChecked ? "Deselect" : "Select"}
+                    >
+                      {isChecked
+                        ? <CheckSquare className="w-4 h-4 text-primary" />
+                        : <Square className="w-4 h-4 text-muted-foreground" />}
+                    </button>
                     {/* Alert type + description */}
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground capitalize truncate">{alert.alertType.replace(/_/g, " ")}</p>
