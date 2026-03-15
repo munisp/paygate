@@ -94,6 +94,7 @@ import {
   listActiveWorkflowsViaMiddleware,
   forceTerminateWorkflowViaMiddleware,
   sendPayoutApprovalEmailViaMiddleware,
+  nipNameEnquiryViaMiddleware,
 } from "./middlewareBridge";
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -1825,14 +1826,53 @@ const fraudRiskRouter = router({
       if (!db) return [];
       const { fraudAlertComments } = await import('../drizzle/schema');
       const { asc, and: drizzleAnd, eq: drizzleEq } = await import('drizzle-orm');
-      return db
+       return db
         .select()
         .from(fraudAlertComments)
         .where(drizzleAnd(drizzleEq(fraudAlertComments.alertId, input.alertId), drizzleEq(fraudAlertComments.merchantId, merchant.id)))
         .orderBy(asc(fraudAlertComments.createdAt));
     }),
+  deleteComment: protectedProcedure
+    .input(z.object({ commentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { success: false };
+      const { fraudAlertComments: fac } = await import('../drizzle/schema');
+      const { and: dAnd, eq: dEq } = await import('drizzle-orm');
+      await db.delete(fac).where(dAnd(dEq(fac.id, input.commentId), dEq(fac.merchantId, merchant.id)));
+      return { success: true };
+    }),
+  editComment: protectedProcedure
+    .input(z.object({ commentId: z.string(), body: z.string().min(1).max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { success: false };
+      const { fraudAlertComments: fac } = await import('../drizzle/schema');
+      const { and: dAnd, eq: dEq } = await import('drizzle-orm');
+      await db.update(fac).set({ body: input.body }).where(dAnd(dEq(fac.id, input.commentId), dEq(fac.merchantId, merchant.id)));
+      return { success: true };
+    }),
+  snoozeAlerts: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1), hours: z.number().min(1).max(168).default(24) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { success: false, count: 0, snoozedUntil: new Date() };
+      const { fraudAlerts: fa } = await import('../drizzle/schema');
+      const { and: dAnd, eq: dEq } = await import('drizzle-orm');
+      const snoozedUntil = new Date(Date.now() + input.hours * 60 * 60 * 1000);
+      for (const id of input.ids) {
+        await db.update(fa).set({ metadata: JSON.stringify({ snoozedUntil: snoozedUntil.toISOString() }) })
+          .where(dAnd(dEq(fa.id, id), dEq(fa.merchantId, merchant.id)));
+      }
+      return { success: true, snoozedUntil, count: input.ids.length };
+    }),
 });
-
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
 const complianceKycRouter = router({
   list: protectedProcedure
@@ -1960,6 +2000,54 @@ const bnplRouter = router({
         }).catch(e => console.error('[bridge] createBNPLLoan failed (non-fatal):', e));
       }
       return loan;
+    }),
+  listPlans: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { listBnplPlans } = await import('./db');
+      return listBnplPlans(merchant.id);
+    }),
+  createPlan: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1),
+      instalments: z.number().min(2).max(24).default(3),
+      interestRate: z.number().min(0).max(100).default(0),
+      minAmount: z.number().positive().default(5000),
+      maxAmount: z.number().positive().default(500000),
+      currency: z.string().default('NGN'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { createBnplPlan } = await import('./db');
+      const id = 'bplan_' + crypto.randomBytes(8).toString('hex');
+      return createBnplPlan({
+        id, merchantId: merchant.id,
+        name: input.name,
+        installments: input.instalments,
+        interestRate: input.interestRate,
+        minAmount: input.minAmount,
+        maxAmount: input.maxAmount,
+        currency: input.currency,
+        active: true,
+      });
+    }),
+  togglePlan: protectedProcedure
+    .input(z.object({ planId: z.string(), active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { updateBnplPlan } = await import('./db');
+      return updateBnplPlan(input.planId, merchant.id, { active: input.active });
+    }),
+  sendReminder: protectedProcedure
+    .input(z.object({ loanId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      notifyOwner({ title: 'BNPL payment reminder sent', content: `Reminder sent for loan ${input.loanId} by merchant ${merchant.id}` }).catch(() => {});
+      return { success: true };
     }),
 });
 
@@ -2542,9 +2630,14 @@ const nipRouter = router({
       let sessionId: string | undefined;
 
       if (isBridgeAvailable()) {
-        // TODO: add nipNameEnquiryViaMiddleware to middlewareBridge.ts when NIBSS credentials are available
-        // For now, fall through to simulation
-        accountName = `ACCOUNT ${input.accountNumber.slice(-4)}`;
+        const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
+        if (nipResult) {
+          accountName = nipResult.accountName;
+          sessionId = nipResult.sessionId;
+        } else {
+          // Bridge unavailable — fall through to sandbox simulation
+          accountName = `ACCOUNT ${input.accountNumber.slice(-4)}`;
+        }
       } else {
         // Sandbox simulation: derive a deterministic name from account number
         const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
@@ -4050,6 +4143,59 @@ const restaurantRouter = router({
     if (!merchant) return { turnsToday: 0, avgDwellMinutes: 0, coversServed: 0 };
     const date = input.date ?? new Date().toISOString().slice(0, 10);
     return getRestaurantTableTurnStats(merchant.id, date);
+  }),
+  // ─── Online Ordering ─────────────────────────────────────────────────────
+  getOnlineOrderingLink: protectedProcedure.query(async ({ ctx }) => {
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
+    if (!merchant) throw new TRPCError({ code: 'NOT_FOUND' });
+    return { slug: merchant.id, active: true };
+  }),
+  getPublicMenu: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
+    const { getDb, schema } = await import('./db');
+    const { eq } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+    const [merchant] = await db.select().from(schema.merchants).where(eq(schema.merchants.id, input.slug)).limit(1);
+    if (!merchant) throw new TRPCError({ code: 'NOT_FOUND', message: 'Restaurant not found' });
+    const [categories, items] = await Promise.all([
+      db.select().from(schema.menuCategories).where(eq(schema.menuCategories.merchantId, merchant.id)),
+      db.select().from(schema.menuItems).where(eq(schema.menuItems.merchantId, merchant.id)),
+    ]);
+    return {
+      merchantName: merchant.businessName,
+      categories: (categories as any[]).filter((c) => c.active !== false),
+      items: (items as any[]).filter((i) => i.available !== false),
+    };
+  }),
+  placeOnlineOrder: publicProcedure.input(z.object({
+    slug: z.string(),
+    customerName: z.string().min(1),
+    customerPhone: z.string().min(7),
+    items: z.array(z.object({ menuItemId: z.string(), name: z.string(), qty: z.number().min(1), unitPriceKobo: z.number().min(0) })),
+    notes: z.string().optional(),
+    deliveryAddress: z.string().optional(),
+  })).mutation(async ({ input }) => {
+    const { getDb, schema } = await import('./db');
+    const { eq } = await import('drizzle-orm');
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+    const [merchant] = await db.select().from(schema.merchants).where(eq(schema.merchants.id, input.slug)).limit(1);
+    if (!merchant) throw new TRPCError({ code: 'NOT_FOUND', message: 'Restaurant not found' });
+    const totalKobo = input.items.reduce((s: number, i) => s + i.qty * i.unitPriceKobo, 0);
+    const orderId = await createRestaurantOrder({
+      merchantId: merchant.id,
+      tableId: null,
+      covers: 1,
+      notes: `Online order from ${input.customerName} (${input.customerPhone})${input.deliveryAddress ? ` — Deliver to: ${input.deliveryAddress}` : ''}${input.notes ? ` — ${input.notes}` : ''}`,
+    });
+    await Promise.all(input.items.map((item) =>
+      addOrderItem({ orderId: orderId!, name: item.name, qty: item.qty, unitPriceKobo: item.unitPriceKobo, courseNumber: 1 })
+    ));
+    notifyOwner({
+      title: `New Online Order — ${input.customerName}`,
+      content: `${input.items.length} item(s), total ₦${(totalKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}. Phone: ${input.customerPhone}${input.deliveryAddress ? `. Deliver to: ${input.deliveryAddress}` : ''}.`,
+    }).catch(() => {});
+    return { orderId, totalKobo };
   }),
 });
 

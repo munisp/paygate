@@ -54,6 +54,7 @@ import RestaurantFloorPlan from "./pages/RestaurantFloorPlan";
 import RestaurantOrders from "./pages/RestaurantOrders";
 import RestaurantMenu from "./pages/RestaurantMenu";
 import RestaurantLoyalty from "./pages/RestaurantLoyalty";
+import RestaurantOnlineOrdering, { PublicOrderPage } from "./pages/RestaurantOnlineOrdering";
 import KitchenDisplay from "./pages/KitchenDisplay";
 import Inventory from "./pages/Inventory";
 import Payroll from "./pages/Payroll";
@@ -72,6 +73,13 @@ function Router() {
   const [location] = useLocation();
   const isAuthPage = location === "/" || location === "/login" || location === "/onboarding";
   const isConsumerPage = location.startsWith("/consumer");
+
+  // Public ordering page — no auth required
+  const isOrderPage = location.startsWith("/order/");
+  if (isOrderPage) {
+    const slug = location.replace("/order/", "");
+    return <PublicOrderPage slug={slug} />;
+  }
 
   if (isAuthPage) {
     return (
@@ -142,6 +150,7 @@ function Router() {
         <Route path="/restaurant/orders" component={RestaurantOrders} />
         <Route path="/restaurant/menu" component={RestaurantMenu} />
         <Route path="/restaurant/loyalty" component={RestaurantLoyalty} />
+        <Route path="/restaurant/online-ordering" component={RestaurantOnlineOrdering} />
         <Route path="/kitchen-display" component={KitchenDisplay} />
         <Route path="/inventory" component={Inventory} />
         <Route path="/payroll" component={Payroll} />

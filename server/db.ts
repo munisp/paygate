@@ -22,6 +22,9 @@ import {
   loyaltyPrograms, loyaltyAccounts, loyaltyTransactions,
   kdsStations, inventoryItems, inventoryTransactions, recipeIngredients,
   staffMembers, staffShifts, payrollRuns,
+  bnplPlans, type BnplPlan, type InsertBnplPlan,
+  purchaseOrders, type PurchaseOrder, type InsertPurchaseOrder,
+  fraudAlertComments, type FraudAlertComment, type InsertFraudAlertComment,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import * as schema from "../drizzle/schema";
@@ -1844,4 +1847,20 @@ export async function getFraudTrend(
     console.warn("[FraudTrend] Failed to query:", err);
     return [];
   }
+}
+
+// ─── BNPL Plans ───────────────────────────────────────────────────────────────
+export async function listBnplPlans(merchantId: string): Promise<BnplPlan[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(bnplPlans).where(eq(bnplPlans.merchantId, merchantId)).orderBy(desc(bnplPlans.createdAt));
+}
+export async function createBnplPlan(data: InsertBnplPlan): Promise<BnplPlan> {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  const [r] = await db.insert(bnplPlans).values(data).returning();
+  return r;
+}
+export async function updateBnplPlan(id: string, merchantId: string, data: Partial<BnplPlan>): Promise<BnplPlan | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(bnplPlans).set({ ...data, updatedAt: new Date() }).where(and(eq(bnplPlans.id, id), eq(bnplPlans.merchantId, merchantId))).returning();
+  return r ?? null;
 }

@@ -615,3 +615,25 @@ export async function sendPayoutApprovalEmailViaMiddleware(req: SendApprovalEmai
     initiator_name: req.initiatorName,
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NIP / NIBSS NAME ENQUIRY
+// ═══════════════════════════════════════════════════════════════════════════════
+export interface NipNameEnquiryResult {
+  accountName: string;
+  bankCode: string;
+  accountNumber: string;
+  sessionId: string;
+}
+/** NIBSS NIP name enquiry via Go bridge (Redis-cached, 24h TTL) */
+export async function nipNameEnquiryViaMiddleware(
+  accountNumber: string,
+  bankCode: string,
+  merchantId: string,
+): Promise<NipNameEnquiryResult | null> {
+  return safe<NipNameEnquiryResult>("POST", "/v1/nibss/name-enquiry", {
+    account_number: accountNumber,
+    bank_code: bankCode,
+    merchant_id: merchantId,
+  });
+}

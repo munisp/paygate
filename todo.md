@@ -1549,3 +1549,37 @@
 
 ### Tests
 - [x] Tests: Wave 56 vitest coverage — 912 tests passing, 36 files, 0 regressions
+
+## Wave 57 — Comment Edit/Delete, Retry History, Fraud Snooze, Restaurant Online Ordering
+### Fraud Alert Comment Edit/Delete
+- [x] FraudRisk: editComment tRPC mutation (commentId, body) — updates comment body
+- [x] FraudRisk: deleteComment tRPC mutation (commentId) — removes comment
+- [x] FraudRisk: CommentThread UI shows edit/delete buttons for own comments
+- [x] FraudRisk: inline edit mode with textarea and save/cancel buttons
+### Transaction Retry History Timeline
+- [x] Transactions: Transaction Detail dialog shows retry history timeline
+- [x] Transactions: retry count badge shows "Retried ×N" when metadata.retryCount >= 1
+### Fraud Alert Snooze
+- [x] FraudRisk: snoozeAlerts tRPC mutation (alertIds[], hours) — sets snoozedUntil timestamp
+- [x] FraudRisk: snooze button in bulk action toolbar and single-alert drill-down sheet
+### Restaurant Online Ordering Page
+- [x] RestaurantOnlineOrdering: full page with online order management dashboard
+- [x] RestaurantOnlineOrdering: wired to restaurant router (placeOnlineOrder, getOnlineOrderingLink, getPublicMenu)
+- [x] App.tsx: /restaurant/online-ordering route registered
+### BNPL Plans Management
+- [x] BNPL: listPlans, createPlan, togglePlan, sendReminder procedures in bnplRouter
+- [x] BNPL: Plans tab in BNPL page showing active/inactive plans with toggle
+### Test Fixes
+- [x] Tests: Wave 57 vitest tests fixed — using _def.procedures flat key approach (tRPC v11)
+- [x] Tests: 945 tests passing across 37 files, 0 regressions
+
+
+## Wave 57 — Comment Edit/Delete, Retry History, Fraud Snooze, Restaurant Online Ordering
+- [x] FraudRisk: editComment and deleteComment tRPC mutations implemented
+- [x] FraudRisk: CommentThread UI shows edit/delete buttons for own comments
+- [x] Transactions: retry history timeline in Transaction Detail dialog
+- [x] FraudRisk: snoozeAlerts tRPC mutation (alertIds[], hours)
+- [x] RestaurantOnlineOrdering: full page wired to restaurant router
+- [x] App.tsx: /restaurant/online-ordering route registered
+- [x] BNPL: listPlans, createPlan, togglePlan, sendReminder procedures
+- [x] Tests: 945 tests passing across 37 files, 0 regressions

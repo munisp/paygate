@@ -54,6 +54,7 @@ const navItems = [
   { icon: UtensilsCrossed, label: "Orders", path: "/restaurant/orders" },
   { icon: UtensilsCrossed, label: "Menu", path: "/restaurant/menu" },
   { icon: Star, label: "Loyalty", path: "/restaurant/loyalty" },
+  { icon: Globe, label: "Online Ordering", path: "/restaurant/online-ordering", badge: "New" },
   { icon: ChefHat, label: "Kitchen Display", path: "/kitchen-display" },
   { icon: Package, label: "Inventory", path: "/inventory" },
   { icon: DollarSign, label: "Payroll", path: "/payroll" },

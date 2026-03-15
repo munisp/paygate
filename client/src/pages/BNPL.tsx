@@ -13,35 +13,7 @@ import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from "recharts";
 
-// --- Mock data ---
-const PLANS = [
-  { id: "plan_1", name: "Pay in 3", instalments: 3, frequency: "monthly", interestRate: 0, minAmount: 5000, maxAmount: 500000, currency: "NGN", active: true, merchants: 142, volume: 12400000 },
-  { id: "plan_2", name: "Pay in 6", instalments: 6, frequency: "monthly", interestRate: 2.5, minAmount: 20000, maxAmount: 2000000, currency: "NGN", active: true, merchants: 89, volume: 8700000 },
-  { id: "plan_3", name: "Pay in 12", instalments: 12, frequency: "monthly", interestRate: 5.0, minAmount: 50000, maxAmount: 5000000, currency: "NGN", active: true, merchants: 54, volume: 15200000 },
-  { id: "plan_4", name: "Flex Pay", instalments: 4, frequency: "weekly", interestRate: 1.5, minAmount: 2000, maxAmount: 100000, currency: "NGN", active: false, merchants: 0, volume: 0 },
-];
-
-const LOANS = Array.from({ length: 15 }, (_, i) => {
-  const plan = PLANS[i % 3];
-  const total = Math.floor(Math.random() * 400000) + 50000;
-  const paid = Math.floor(Math.random() * plan.instalments);
-  const status = paid === plan.instalments ? "completed" : paid === 0 ? "active" : Math.random() > 0.85 ? "overdue" : "active";
-  return {
-    id: `loan_${Math.random().toString(36).slice(2, 8)}`,
-    customer: `Customer ${i + 1}`,
-    email: `customer${i + 1}@example.com`,
-    plan: plan.name,
-    instalments: plan.instalments,
-    total,
-    paid,
-    remaining: plan.instalments - paid,
-    nextDue: new Date(Date.now() + (Math.random() * 30 - 5) * 86400000).toLocaleDateString(),
-    amountPerInstalment: Math.round(total / plan.instalments),
-    status,
-    startDate: new Date(Date.now() - paid * 30 * 86400000).toLocaleDateString(),
-  };
-});
-
+// --- Static reference data (not from DB) ---
 const MONTHLY_DATA = [
   { month: "Oct", disbursed: 8200000, repaid: 5100000, defaults: 120000 },
   { month: "Nov", disbursed: 9800000, repaid: 6400000, defaults: 98000 },
@@ -57,33 +29,52 @@ const PLAN_SPLIT = [
   { name: "Pay in 12", value: 42, color: "#f59e0b" },
 ];
 
-const STATUS_STYLES = {
+const STATUS_STYLES: Record<string, { bg: string; text: string; badge: string; icon: React.ReactNode }> = {
   active: { bg: "bg-blue-50", text: "text-blue-700", badge: "bg-blue-100 text-blue-700", icon: <Clock className="w-3.5 h-3.5 text-blue-600" /> },
   completed: { bg: "bg-emerald-50", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700", icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> },
   overdue: { bg: "bg-red-50", text: "text-red-700", badge: "bg-red-100 text-red-700", icon: <AlertTriangle className="w-3.5 h-3.5 text-red-600" /> },
+  defaulted: { bg: "bg-red-50", text: "text-red-700", badge: "bg-red-100 text-red-700", icon: <XCircle className="w-3.5 h-3.5 text-red-600" /> },
 };
 
 function fmt(n: number) { return (n / 1000000).toFixed(1) + "M"; }
 
 export default function BNPL() {
-  const [tab, setTab] = useState<"overview" | "loans" | "plans" | "db_loans">("overview");
+  const [tab, setTab] = useState<"overview" | "loans" | "plans">("overview");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "overdue" | "completed">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "overdue" | "completed" | "defaulted">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [plans, setPlans] = useState(PLANS);
   const [showNewPlan, setShowNewPlan] = useState(false);
   const [newPlan, setNewPlan] = useState({ name: "", instalments: 3, interestRate: 0, minAmount: 5000, maxAmount: 500000 });
 
-  const filteredLoans = LOANS.filter(l => {
-    const matchSearch = l.customer.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()) || l.id.includes(search);
-    const matchStatus = statusFilter === "all" || l.status === statusFilter;
-    return matchSearch && matchStatus;
+  // Real tRPC data
+  const { data: loansData, isLoading: loansLoading, refetch: refetchLoans } = trpc.bnpl.list.useQuery(
+    { limit: 50, status: statusFilter === "all" ? undefined : statusFilter },
+    { staleTime: 30_000 }
+  );
+  const { data: stats, refetch: refetchStats } = trpc.bnpl.stats.useQuery(undefined, { staleTime: 60_000 });
+  const { data: plansData, isLoading: plansLoading, refetch: refetchPlans } = trpc.bnpl.listPlans.useQuery(undefined, { staleTime: 60_000 });
+
+  const createPlanMutation = trpc.bnpl.createPlan.useMutation({
+    onSuccess: () => { toast.success("Plan created!"); setShowNewPlan(false); refetchPlans(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const togglePlanMutation = trpc.bnpl.togglePlan.useMutation({
+    onSuccess: (_, vars) => { toast.success(vars.active ? "Plan activated" : "Plan deactivated"); refetchPlans(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const sendReminderMutation = trpc.bnpl.sendReminder.useMutation({
+    onSuccess: () => toast.success("Payment reminder sent!"),
+    onError: (e) => toast.error(e.message),
   });
 
-  const totalDisbursed = LOANS.reduce((s, l) => s + l.total, 0);
-  const totalRepaid = LOANS.reduce((s, l) => s + l.paid * l.amountPerInstalment, 0);
-  const overdueCount = LOANS.filter(l => l.status === "overdue").length;
-  const defaultRate = ((overdueCount / LOANS.length) * 100).toFixed(1);
+  const loans = loansData?.rows ?? [];
+  const plans = plansData ?? [];
+
+  const totalDisbursed = stats?.totalVolume ? Number(stats.totalVolume) : 0;
+  const overdueCount = stats?.defaulted ?? 0;
+  const defaultRate = stats?.total ? ((overdueCount / Number(stats.total)) * 100).toFixed(1) : "0.0";
+
+  const handleRefresh = () => { refetchLoans(); refetchStats(); refetchPlans(); toast.success("Data refreshed"); };
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -94,7 +85,7 @@ export default function BNPL() {
           <p className="text-muted-foreground text-sm mt-0.5">Manage instalment plans, active loans, and repayment schedules</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" onClick={handleRefresh}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
           <Button size="sm" onClick={() => { setTab("plans"); setShowNewPlan(true); }}>
             <Plus className="w-4 h-4 mr-2" />New Plan
           </Button>
@@ -104,17 +95,17 @@ export default function BNPL() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Disbursed", value: "₦" + fmt(totalDisbursed), sub: "All time", icon: DollarSign, cls: "text-primary" },
-          { label: "Total Repaid", value: "₦" + fmt(totalRepaid), sub: `${((totalRepaid / totalDisbursed) * 100).toFixed(0)}% recovery rate`, icon: TrendingUp, cls: "text-emerald-600" },
-          { label: "Active Loans", value: LOANS.filter(l => l.status === "active").length, sub: "Currently running", icon: Users, cls: "text-blue-600" },
-          { label: "Default Rate", value: defaultRate + "%", sub: `${overdueCount} overdue loans`, icon: AlertTriangle, cls: overdueCount > 2 ? "text-red-600" : "text-amber-600" },
+          { label: "Total Disbursed", value: totalDisbursed ? "₦" + fmt(totalDisbursed) : "₦0", sub: "All time", icon: DollarSign, cls: "text-primary" },
+          { label: "Active Loans", value: stats?.active ?? "—", sub: "Currently running", icon: Users, cls: "text-blue-600" },
+          { label: "Total Loans", value: stats?.total ?? "—", sub: "All time", icon: CreditCard, cls: "text-emerald-600" },
+          { label: "Overdue / Default", value: overdueCount + " / " + (stats?.defaulted ?? 0), sub: defaultRate + "% default rate", icon: AlertTriangle, cls: overdueCount > 2 ? "text-red-600" : "text-amber-600" },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-muted-foreground">{s.label}</p>
               <s.icon className={`w-4 h-4 ${s.cls}`} />
             </div>
-            <p className={`text-2xl font-bold ${s.cls}`} style={{ fontFamily: "Space Grotesk, sans-serif" }}>{s.value}</p>
+            <p className={`text-2xl font-bold ${s.cls}`} style={{ fontFamily: "Space Grotesk, sans-serif" }}>{String(s.value)}</p>
             <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>
           </div>
         ))}
@@ -122,9 +113,9 @@ export default function BNPL() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted p-1 rounded-xl w-fit">
-        {(["overview", "loans", "plans", "db_loans"] as const).map(t => (
+        {(["overview", "loans", "plans"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${tab === t ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-            {t === "overview" ? "Overview" : t === "loans" ? "Active Loans" : t === "plans" ? "Instalment Plans" : "DB Loans"}
+            {t === "overview" ? "Overview" : t === "loans" ? "Active Loans" : "Instalment Plans"}
           </button>
         ))}
       </div>
@@ -203,7 +194,7 @@ export default function BNPL() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search loans..." className="w-full pl-9 pr-4 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <div className="flex gap-2">
-              {(["all", "active", "overdue", "completed"] as const).map(s => (
+              {(["all", "active", "overdue", "completed", "defaulted"] as const).map(s => (
                 <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all ${statusFilter === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
                   {s}
                 </button>
@@ -211,85 +202,102 @@ export default function BNPL() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            {filteredLoans.map(loan => {
-              const s = STATUS_STYLES[loan.status as keyof typeof STATUS_STYLES];
-              const progress = (loan.paid / loan.instalments) * 100;
-              const isExp = expanded === loan.id;
-              return (
-                <div key={loan.id} className={`rounded-xl border transition-all ${isExp ? `${s.bg} border-current` : "bg-card border-border"}`}>
-                  <div className="flex items-center gap-4 p-4 cursor-pointer" onClick={() => setExpanded(isExp ? null : loan.id)}>
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-3 items-center">
-                      <div>
-                        <p className="text-sm font-semibold">{loan.customer}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{loan.id}</p>
-                      </div>
-                      <div className="hidden md:block">
-                        <p className="text-xs text-muted-foreground">Plan</p>
-                        <p className="text-sm font-medium">{loan.plan}</p>
-                      </div>
-                      <div className="hidden md:block">
-                        <p className="text-xs text-muted-foreground">Progress</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
+          {loansLoading ? (
+            <div className="space-y-2">
+              {[1,2,3].map(i => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}
+            </div>
+          ) : loans.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No loans found</p>
+              <p className="text-sm mt-1">Loans will appear here once customers apply for BNPL</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {loans.map(loan => {
+                const status = loan.status as string;
+                const s = STATUS_STYLES[status] ?? STATUS_STYLES.active;
+                const paid = 0; // paidInstallments not tracked in schema
+                const total = Number(loan.installments ?? 1);
+                const progress = (paid / total) * 100;
+                const isExp = expanded === loan.id;
+                return (
+                  <div key={loan.id} className={`rounded-xl border transition-all ${isExp ? `${s.bg} border-current` : "bg-card border-border"}`}>
+                    <div className="flex items-center gap-4 p-4 cursor-pointer" onClick={() => setExpanded(isExp ? null : loan.id)}>
+                      <div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-3 items-center">
+                        <div>
+                          <p className="text-sm font-semibold">{loan.customerName ?? loan.customerEmail ?? "—"}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{loan.id.slice(0, 12)}</p>
+                        </div>
+                        <div className="hidden md:block">
+                          <p className="text-xs text-muted-foreground">Plan</p>
+                          <p className="text-sm font-medium">{loan.installments}x instalments</p>
+                        </div>
+                        <div className="hidden md:block">
+                          <p className="text-xs text-muted-foreground">Progress</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
+                            </div>
+                            <span className="text-xs font-mono">{paid}/{total}</span>
                           </div>
-                          <span className="text-xs font-mono">{loan.paid}/{loan.instalments}</span>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Principal</p>
+                          <p className="text-sm font-semibold amount">₦{Number(loan.principalAmount).toLocaleString()}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${s.badge}`}>
+                            {s.icon}{status}
+                          </span>
                         </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Total</p>
-                        <p className="text-sm font-semibold amount">₦{loan.total.toLocaleString()}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${s.badge}`}>
-                          {s.icon}{loan.status}
-                        </span>
-                      </div>
+                      {isExp ? <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
                     </div>
-                    {isExp ? <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
-                  </div>
 
-                  {isExp && (
-                    <div className="px-4 pb-4 space-y-4">
-                      <div className="h-px bg-border" />
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {[
-                          { label: "Email", value: loan.email },
-                          { label: "Start Date", value: loan.startDate },
-                          { label: "Next Due", value: loan.nextDue },
-                          { label: "Per Instalment", value: "₦" + loan.amountPerInstalment.toLocaleString() },
-                        ].map(f => (
-                          <div key={f.label}>
-                            <p className="text-xs text-muted-foreground">{f.label}</p>
-                            <p className="text-sm font-medium">{f.value}</p>
-                          </div>
-                        ))}
-                      </div>
-                      {/* Instalment timeline */}
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-2">Instalment Timeline</p>
-                        <div className="flex gap-1.5 flex-wrap">
-                          {Array.from({ length: loan.instalments }, (_, i) => (
-                            <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold ${i < loan.paid ? "bg-emerald-100 text-emerald-700" : i === loan.paid && loan.status === "overdue" ? "bg-red-100 text-red-700" : i === loan.paid ? "bg-blue-100 text-blue-700 ring-2 ring-blue-400" : "bg-muted text-muted-foreground"}`}>
-                              {i + 1}
+                    {isExp && (
+                      <div className="px-4 pb-4 space-y-4">
+                        <div className="h-px bg-border" />
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {[
+                            { label: "Email", value: loan.customerEmail ?? "—" },
+                            { label: "Start Date", value: new Date(loan.createdAt).toLocaleDateString() },
+                            { label: "Currency", value: loan.currency },
+                            { label: "Per Instalment", value: "₦" + Math.round(Number(loan.principalAmount) / total).toLocaleString() },
+                          ].map(f => (
+                            <div key={f.label}>
+                              <p className="text-xs text-muted-foreground">{f.label}</p>
+                              <p className="text-sm font-medium">{f.value}</p>
                             </div>
                           ))}
                         </div>
-                      </div>
-                      {loan.status === "overdue" && (
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={() => toast.success("Payment reminder sent!")}>Send Reminder</Button>
-                          <Button size="sm" variant="outline" onClick={() => toast.success("Loan restructured")}>Restructure Loan</Button>
-                          <Button size="sm" variant="destructive" onClick={() => toast.error("Loan flagged for collections")}>Flag for Collections</Button>
+                        {/* Instalment timeline */}
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-2">Instalment Timeline</p>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {Array.from({ length: total }, (_, i) => (
+                              <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold ${i < paid ? "bg-emerald-100 text-emerald-700" : i === paid && status === "overdue" ? "bg-red-100 text-red-700" : i === paid ? "bg-blue-100 text-blue-700 ring-2 ring-blue-400" : "bg-muted text-muted-foreground"}`}>
+                                {i + 1}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                        {(status === "overdue" || status === "defaulted") && (
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => sendReminderMutation.mutate({ loanId: loan.id })} disabled={sendReminderMutation.isPending}>
+                              Send Reminder
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => toast.info("Loan restructuring — contact support")}>Restructure Loan</Button>
+                            <Button size="sm" variant="destructive" onClick={() => toast.warning("Loan flagged for collections")}>Flag for Collections</Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -316,103 +324,65 @@ export default function BNPL() {
               <div className="flex gap-3">
                 <Button size="sm" onClick={() => {
                   if (!newPlan.name) { toast.error("Enter a plan name"); return; }
-                  setPlans(p => [...p, { id: `plan_${p.length + 1}`, ...newPlan, frequency: "monthly", currency: "NGN", active: true, merchants: 0, volume: 0 }]);
-                  setShowNewPlan(false);
-                  toast.success("Plan created!");
-                }}>Create Plan</Button>
+                  createPlanMutation.mutate({ ...newPlan, currency: "NGN" });
+                }} disabled={createPlanMutation.isPending}>
+                  {createPlanMutation.isPending ? "Creating…" : "Create Plan"}
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => setShowNewPlan(false)}>Cancel</Button>
               </div>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {plans.map(plan => (
-              <div key={plan.id} className={`bg-card rounded-xl border p-5 space-y-4 transition-all ${plan.active ? "border-border" : "border-border/50 opacity-60"}`}>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-lg" style={{ fontFamily: "Space Grotesk, sans-serif" }}>{plan.name}</p>
-                      <Badge className={`text-xs border-0 ${plan.active ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
-                        {plan.active ? "Active" : "Inactive"}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-0.5">{plan.instalments} {plan.frequency} instalments · {plan.interestRate === 0 ? "0% interest" : plan.interestRate + "% interest"}</p>
-                  </div>
-                  <button onClick={() => { setPlans(p => p.map(pl => pl.id === plan.id ? { ...pl, active: !pl.active } : pl)); toast.success(plan.active ? "Plan deactivated" : "Plan activated"); }} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${plan.active ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}>
-                    {plan.active ? "Deactivate" : "Activate"}
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: "Min Amount", value: "₦" + plan.minAmount.toLocaleString() },
-                    { label: "Max Amount", value: "₦" + plan.maxAmount.toLocaleString() },
-                    { label: "Merchants Using", value: plan.merchants },
-                  ].map(f => (
-                    <div key={f.label} className="bg-muted/50 rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground">{f.label}</p>
-                      <p className="text-sm font-semibold mt-0.5 amount">{f.value}</p>
-                    </div>
-                  ))}
-                </div>
-                {plan.volume > 0 && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <ArrowUpRight className="w-4 h-4 text-emerald-500" />
-                    <span>₦{fmt(plan.volume)} total volume processed</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DB Loans Tab */}
-      {tab === "db_loans" && (
-        <div className="space-y-4">
-          <BnplDbPanel />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BnplDbPanel() {
-  const { data, isLoading } = trpc.bnpl.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
-  const { data: stats } = trpc.bnpl.stats.useQuery(undefined, { staleTime: 60_000 });
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "Total Loans", value: stats?.total ?? "—" },
-          { label: "Active", value: stats?.active ?? "—" },
-          { label: "Total Disbursed", value: stats?.totalVolume ? `₦${Number(stats.totalVolume).toLocaleString()}` : "—" },
-          { label: "Defaulted", value: stats?.defaulted ?? "—" },
-        ].map(s => (
-          <div key={s.label} className="bg-card rounded-xl border border-border p-4">
-            <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
-            <p className="text-2xl font-bold text-foreground">{String(s.value)}</p>
-          </div>
-        ))}
-      </div>
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> :
-      (data?.rows ?? []).map(loan => (
-        <div key={loan.id} className="bg-card rounded-xl border border-border p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">{loan.customerName ?? loan.customerEmail ?? loan.id}</p>
-              <p className="text-xs text-muted-foreground">{loan.currency} {Number(loan.principalAmount).toLocaleString()} · {loan.installments} installments · {new Date(loan.createdAt).toLocaleDateString()}</p>
+          {plansLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[1,2].map(i => <div key={i} className="h-40 bg-muted rounded-xl animate-pulse" />)}
             </div>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
-              loan.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
-              loan.status === 'defaulted' ? 'bg-red-100 text-red-700' :
-              loan.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-              'bg-muted text-muted-foreground'
-            }`}>{loan.status}</span>
-          </div>
+          ) : plans.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Settings2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No instalment plans yet</p>
+              <Button size="sm" className="mt-3" onClick={() => setShowNewPlan(true)}>Create First Plan</Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {plans.map((plan: any) => (
+                <div key={plan.id} className={`bg-card rounded-xl border p-5 space-y-4 transition-all ${plan.active ? "border-border" : "border-border/50 opacity-60"}`}>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-lg" style={{ fontFamily: "Space Grotesk, sans-serif" }}>{plan.name}</p>
+                        <Badge className={`text-xs border-0 ${plan.active ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+                          {plan.active ? "Active" : "Inactive"}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-0.5">{plan.installments} monthly instalments · {plan.interestRate === 0 ? "0% interest" : plan.interestRate + "% interest"}</p>
+                    </div>
+                    <button
+                      onClick={() => togglePlanMutation.mutate({ planId: plan.id, active: !plan.active })}
+                      disabled={togglePlanMutation.isPending}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${plan.active ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"}`}
+                    >
+                      {plan.active ? "Deactivate" : "Activate"}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: "Min Amount", value: "₦" + Number(plan.minAmount).toLocaleString() },
+                      { label: "Max Amount", value: "₦" + Number(plan.maxAmount).toLocaleString() },
+                      { label: "Currency", value: plan.currency },
+                    ].map(f => (
+                      <div key={f.label} className="bg-muted/50 rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground">{f.label}</p>
+                        <p className="text-sm font-semibold mt-0.5 amount">{f.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      ))}
+      )}
     </div>
   );
-
 }

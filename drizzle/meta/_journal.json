@@ -148,6 +148,13 @@
       "when": 1773572959610,
       "tag": "0020_good_zarda",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1773576149624,
+      "tag": "0021_nosy_zodiak",
+      "breakpoints": true
     }
   ]
 }

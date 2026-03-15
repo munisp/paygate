@@ -163,20 +163,36 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               );
             })()}
 
-            {/* Retry count badge — shown when retryCount >= 1 */}
+            {/* Retry history timeline — shown when retryCount >= 1 */}
             {(() => {
               const meta = (tx.metadata ?? {}) as Record<string, any>;
               const retryCount = typeof meta.retryCount === "number" ? meta.retryCount : 0;
+              const retryHistory: Array<{ attempt: number; timestamp: string; status: string }> = Array.isArray(meta.retryHistory) ? meta.retryHistory : [];
               if (retryCount < 1) return null;
               return (
-                <div className="flex items-center justify-between py-1.5 border-t border-border pt-3">
-                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
-                    Retry History
+                <div className="border-t border-border pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
+                      Retry History
+                    </div>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-50 text-amber-700 border-amber-200">
+                      Retried ×{retryCount}
+                    </span>
                   </div>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-50 text-amber-700 border-amber-200">
-                    Retried ×{retryCount}
-                  </span>
+                  {retryHistory.length > 0 ? (
+                    <div className="space-y-1 pl-2 border-l-2 border-amber-200 ml-1.5">
+                      {retryHistory.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs text-muted-foreground pl-2">
+                          <span className="font-medium">Attempt #{r.attempt}</span>
+                          <span className={r.status === 'completed' ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>{r.status}</span>
+                          <span>{new Date(r.timestamp).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground pl-5">Retried {retryCount} time{retryCount !== 1 ? 's' : ''} — no detailed history recorded</p>
+                  )}
                 </div>
               );
             })()}

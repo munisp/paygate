@@ -1323,3 +1323,22 @@ export const fraudAlertComments = pgTable("fraud_alert_comments", {
 ]);
 export type FraudAlertComment = typeof fraudAlertComments.$inferSelect;
 export type InsertFraudAlertComment = typeof fraudAlertComments.$inferInsert;
+
+// ─── BNPL Plans ───────────────────────────────────────────────────────────────
+export const bnplPlans = pgTable("bnpl_plans", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  name: text("name").notNull(),
+  installments: integer("installments").notNull().default(3),
+  interestRate: integer("interest_rate").notNull().default(0),
+  minAmount: bigint("min_amount", { mode: "number" }).notNull().default(5000),
+  maxAmount: bigint("max_amount", { mode: "number" }).notNull().default(500000),
+  currency: text("currency").notNull().default("NGN"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bnpl_plan_merchant_idx").on(t.merchantId),
+]);
+export type BnplPlan = typeof bnplPlans.$inferSelect;
+export type InsertBnplPlan = typeof bnplPlans.$inferInsert;

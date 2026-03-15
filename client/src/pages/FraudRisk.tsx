@@ -113,6 +113,14 @@ export default function FraudRisk() {
   const { data: fraudStats } = trpc.fraudRisk.stats.useQuery(undefined, { staleTime: 60_000 });
   const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({ onSuccess: () => toast.success("Alert updated") });
   const utils = trpc.useUtils();
+  const snoozeAlerts = trpc.fraudRisk.snoozeAlerts.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Snoozed ${data.count} alert${data.count !== 1 ? "s" : ""} for 24 hours`);
+      setSelectedBulkIds(new Set());
+      utils.fraudRisk.list.invalidate();
+    },
+    onError: () => toast.error("Snooze failed"),
+  });
   const bulkUpdateAlerts = trpc.fraudRisk.bulkUpdateAlerts.useMutation({
     onMutate: async ({ ids, status }) => {
       // Optimistic update: remove resolved/false_positive rows from the list
@@ -215,11 +223,21 @@ export default function FraudRisk() {
   // ── Comment Thread Component ─────────────────────────────────────────────
   function CommentThread({ alertId }: { alertId: string }) {
     const [commentBody, setCommentBody] = useState("");
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editBody, setEditBody] = useState("");
     const utils = trpc.useUtils();
     const { data: comments = [], isLoading: commentsLoading } = trpc.fraudRisk.getComments.useQuery(
       { alertId },
       { staleTime: 30_000, retry: false }
     );
+    const deleteComment = trpc.fraudRisk.deleteComment.useMutation({
+      onSuccess: () => utils.fraudRisk.getComments.invalidate({ alertId }),
+      onError: () => toast.error("Delete failed"),
+    });
+    const editComment = trpc.fraudRisk.editComment.useMutation({
+      onSuccess: () => { utils.fraudRisk.getComments.invalidate({ alertId }); setEditingId(null); },
+      onError: () => toast.error("Edit failed"),
+    });
     const addComment = trpc.fraudRisk.addComment.useMutation({
       onMutate: async (vars) => {
         await utils.fraudRisk.getComments.cancel({ alertId: vars.alertId });
@@ -260,7 +278,31 @@ export default function FraudRisk() {
                   </div>
                   <span className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
                 </div>
-                <p className="text-sm text-foreground leading-relaxed pl-9">{c.body}</p>
+                {editingId === c.id ? (
+                  <div className="pl-9 flex gap-2 mt-1">
+                    <input
+                      type="text"
+                      value={editBody}
+                      onChange={e => setEditBody(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && editBody.trim()) editComment.mutate({ commentId: c.id, body: editBody.trim() });
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      className="flex-1 text-sm px-2 py-1 rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                      autoFocus
+                    />
+                    <Button size="sm" className="h-7 text-xs" disabled={!editBody.trim() || editComment.isPending} onClick={() => editComment.mutate({ commentId: c.id, body: editBody.trim() })}>Save</Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingId(null)}>Cancel</Button>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between pl-9 mt-1 gap-2">
+                    <p className="text-sm text-foreground leading-relaxed flex-1">{c.body}</p>
+                    <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="text-xs text-muted-foreground hover:text-foreground px-1" onClick={() => { setEditingId(c.id); setEditBody(c.body); }}>Edit</button>
+                      <button className="text-xs text-muted-foreground hover:text-red-600 px-1" onClick={() => deleteComment.mutate({ commentId: c.id })}>Delete</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -973,6 +1015,14 @@ export default function FraudRisk() {
                   }}
                 >
                   <Download className="w-3 h-3 mr-1" /> Download CSV
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  className="h-7 text-xs border-amber-500/40 text-amber-600 hover:bg-amber-50"
+                  disabled={snoozeAlerts.isPending}
+                  onClick={() => snoozeAlerts.mutate({ ids: Array.from(selectedBulkIds), hours: 24 })}
+                >
+                  <Clock className="w-3 h-3 mr-1" /> Snooze 24h
                 </Button>
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedBulkIds(new Set())}>
                   <X className="w-3 h-3" />
