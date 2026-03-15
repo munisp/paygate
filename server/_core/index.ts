@@ -5,6 +5,7 @@ import net from "net";
 import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { registerKeycloakRoutes } from "./keycloakRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -146,8 +147,9 @@ async function startServer() {
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-  // ─── OAuth ─────────────────────────────────────────────────────────────────
+  // ─── OAuth ─────────────────────────────────────────────────────────
   registerOAuthRoutes(app);
+  registerKeycloakRoutes(app);
 
   // ─── File Upload ───────────────────────────────────────────────────────────
   const upload = multer({

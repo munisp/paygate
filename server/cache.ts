@@ -167,9 +167,19 @@ export async function withCache<T>(
   ttlSeconds: number,
   factory: () => Promise<T>,
 ): Promise<T> {
-  const hit = await cache.get(namespace, key);
-  if (hit !== null) return hit as T;
+  // Fail-open: if Redis is unavailable, skip cache and call factory directly
+  try {
+    const hit = await cache.get(namespace, key);
+    if (hit !== null) return hit as T;
+  } catch (err) {
+    console.warn(`[cache] Redis unavailable for ${namespace}:${key} — falling through to factory:`, (err as Error).message);
+    return factory();
+  }
   const value = await factory();
-  await cache.set(namespace, key, value, ttlSeconds);
+  try {
+    await cache.set(namespace, key, value, ttlSeconds);
+  } catch (err) {
+    console.warn(`[cache] Redis set failed for ${namespace}:${key} (non-fatal):`, (err as Error).message);
+  }
   return value;
 }

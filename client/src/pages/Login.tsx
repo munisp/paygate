@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Zap, ArrowRight, Shield, Globe, Loader2 } from "lucide-react";
+import { Zap, ArrowRight, Shield, Globe, Loader2, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
 
 export default function Login() {
@@ -35,6 +36,12 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     loginMutation.mutate({ email, password });
+  };
+
+  /** Redirect to Keycloak SSO — the server handles the OIDC flow */
+  const handleSSOLogin = () => {
+    const returnPath = "/dashboard";
+    window.location.href = `/api/oauth/keycloak/login?returnPath=${encodeURIComponent(returnPath)}`;
   };
 
   return (
@@ -138,64 +145,84 @@ export default function Login() {
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="merchant@acme.ng"
-                  required
-                  autoComplete="email"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-
+            <div className="space-y-5">
+              {/* Enterprise SSO button */}
               <Button
-                type="submit"
-                className="w-full"
-                disabled={loginMutation.isPending}
+                type="button"
+                variant="outline"
+                className="w-full bg-background"
+                onClick={handleSSOLogin}
               >
-                {loginMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  <>
-                    Sign in
-                    <ArrowRight className="ml-2 w-4 h-4" />
-                  </>
-                )}
+                <Building2 className="mr-2 w-4 h-4 text-indigo-500" />
+                Sign in with Enterprise SSO (Keycloak)
               </Button>
 
-              {/* Demo credentials hint */}
-              <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                <p className="text-xs text-muted-foreground font-medium mb-1">Demo credentials (pre-filled)</p>
-                <p className="text-xs text-foreground/70">Email: <span className="font-mono text-primary">merchant@acme.ng</span></p>
-                <p className="text-xs text-foreground/70">Password: <span className="font-mono text-primary">merchant123</span></p>
+              <div className="relative">
+                <Separator />
+                <span className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-3 text-xs text-muted-foreground">
+                  or sign in with email
+                </span>
               </div>
-            </form>
+
+              <form onSubmit={handleSubmit} className="space-y-5">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="merchant@acme.ng"
+                    required
+                    autoComplete="email"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loginMutation.isPending}
+                >
+                  {loginMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing in…
+                    </>
+                  ) : (
+                    <>
+                      Sign in
+                      <ArrowRight className="ml-2 w-4 h-4" />
+                    </>
+                  )}
+                </Button>
+
+                {/* Demo credentials hint */}
+                <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                  <p className="text-xs text-muted-foreground font-medium mb-1">Demo credentials (pre-filled)</p>
+                  <p className="text-xs text-foreground/70">Email: <span className="font-mono text-primary">merchant@acme.ng</span></p>
+                  <p className="text-xs text-foreground/70">Password: <span className="font-mono text-primary">merchant123</span></p>
+                </div>
+              </form>
+            </div>
           )}
         </div>
       </div>

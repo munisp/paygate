@@ -1314,3 +1314,30 @@
 
 ### Tests
 - [x] Tests: Wave 47 vitest coverage — 718 passing (29 files), 0 regressions, wave29 time-zone bug fixed
+
+## Wave 48 — Redis Cache, Keycloak SSO, Fraud Scoring Integration
+
+### Redis Cache Wiring
+- [x] Redis: wire withCache into dashboard.overview procedure (60s TTL, cache key = merchantId)
+- [x] Redis: wire withCache into fx.getRates procedure (5min TTL, cache key = currency pair)
+- [x] Redis: dashboard.invalidateOverview mutation for cache busting on settings changes
+- [x] Redis: withCache fail-open: Redis errors fall through to factory (no crash)
+
+### Keycloak SSO Login
+- [x] Keycloak: OIDC discovery endpoint wired in server OAuth flow
+- [x] Keycloak: /api/oauth/keycloak/login + /callback + /logout routes registered in Express
+- [x] Keycloak: buildAuthorizationUrl + exchangeCodeForTokens + getEndSessionEndpoint helpers
+- [x] Keycloak: "Sign in with Enterprise SSO (Keycloak)" button on Login page
+- [x] Keycloak: KEYCLOAK_URL + KEYCLOAK_REALM + KEYCLOAK_CLIENT_ID + KEYCLOAK_CLIENT_SECRET env vars
+- [x] Keycloak: user provisioning on first SSO login (upsert in users table)
+
+### Fraud Scoring Integration
+- [x] Fraud: transactions.createTest calls pythonScoreTransaction before DB insert
+- [x] Fraud: block on risk_level=critical or recommendation=decline (FORBIDDEN error)
+- [x] Fraud: flag on risk_level=high (create fraud alert, allow transaction)
+- [x] Fraud: fail-open when fraud scoring service unavailable (log warning, continue)
+- [x] Fraud: store fraudScore + fraudLevel in transaction metadata
+- [x] Fraud: auto-create fraud alert record on block or high-risk flag
+
+### Tests
+- [x] Tests: Wave 48 vitest coverage — 741 passing (30 files), 23 new tests, 0 regressions

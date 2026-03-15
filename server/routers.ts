@@ -1,4 +1,5 @@
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
+import { withCache, TTL, cache } from "./cache";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -242,11 +243,24 @@ const dashboardRouter = router({
       const merchant = await requireMerchant(user.id);
       const to = input.to ?? new Date();
       const from = input.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const [overview, timeSeries] = await Promise.all([
-        getAnalyticsOverview(merchant.id, from, to),
-        getRevenueTimeSeries(merchant.id, from, to),
-      ]);
-      return { merchant, overview, timeSeries };
+      // Cache key includes merchant + date range rounded to minute for cache reuse
+      const cacheKey = `${merchant.id}:${Math.floor(from.getTime() / 60000)}:${Math.floor(to.getTime() / 60000)}`;
+      return withCache("dashboard:overview", cacheKey, TTL.DASHBOARD_OVERVIEW, async () => {
+        const [overview, timeSeries] = await Promise.all([
+          getAnalyticsOverview(merchant.id, from, to),
+          getRevenueTimeSeries(merchant.id, from, to),
+        ]);
+        return { merchant, overview, timeSeries };
+      });
+    }),
+  /** Invalidate the overview cache when merchant settings change */
+  invalidateOverview: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      await cache.flush("dashboard:overview");
+      console.log(`[cache] dashboard:overview flushed for merchant ${merchant.id}`);
+      return { success: true };
     }),
 });
 
@@ -302,10 +316,46 @@ const transactionsRouter = router({
       if (merchant.isLive) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot create test transactions in live mode" });
       }
+
+      // ── Fraud Scoring Gate ──────────────────────────────────────────────────
+      // Call the Python fraud-scoring microservice. Non-fatal: if the service is
+      // unavailable we log and continue (fail-open). Only block on "critical".
+      const txnId = nanoid("txn_");
+      let fraudResult: Awaited<ReturnType<typeof pythonScoreTransaction>> = null;
+      try {
+        fraudResult = await pythonScoreTransaction({
+          transaction_id: txnId,
+          merchant_id: merchant.id,
+          amount_kobo: input.amount,
+          customer_id: input.customerEmail,
+          channel: input.channel,
+          ip_address: ctx.req.ip ?? undefined,
+        });
+      } catch (e) {
+        console.warn("[fraud] scoring service unavailable (fail-open):", (e as Error).message);
+      }
+
+      if (fraudResult?.recommendation === "decline" || fraudResult?.risk_level === "critical") {
+        // Auto-create a fraud alert for audit trail
+        createFraudAlert({
+          id: nanoid("frd_"),
+          merchantId: merchant.id,
+          tenantId: merchant.tenantId ?? "ten_default",
+          transactionId: txnId,
+          alertType: "velocity_breach",
+          riskScore: fraudResult.risk_score,
+          description: `Fraud scoring blocked transaction: ${fraudResult.signals.join(", ")}.`,
+        }).catch(() => {});
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `Transaction declined by fraud risk engine (score: ${fraudResult?.risk_score ?? "?"}/100). Signals: ${fraudResult?.signals?.join(", ") ?? "unknown"}.`,
+        });
+      }
+
       const execute = async () => {
         const feeAmount = Math.round(input.amount * 0.015);
-        return createTransaction({
-          id: nanoid("txn_"),
+        const tx = await createTransaction({
+          id: txnId,
           merchantId: merchant.id,
           tenantId: merchant.tenantId ?? "ten_default",
           reference: "TEST_" + nanoid(),
@@ -319,7 +369,21 @@ const transactionsRouter = router({
           feeAmount,
           netAmount: input.amount - feeAmount,
           completedAt: new Date(),
+          metadata: fraudResult ? { fraudScore: fraudResult.risk_score, fraudLevel: fraudResult.risk_level } : undefined,
         });
+        // If high risk (but not critical), create a fraud alert for review
+        if (fraudResult?.risk_level === "high" && tx) {
+          createFraudAlert({
+            id: nanoid("frd_"),
+            merchantId: merchant.id,
+            tenantId: merchant.tenantId ?? "ten_default",
+            transactionId: tx.id,
+            alertType: "velocity_breach",
+            riskScore: fraudResult.risk_score,
+            description: `High-risk transaction flagged for review. Signals: ${fraudResult.signals.join(", ")}.`,
+          }).catch(() => {});
+        }
+        return tx;
       };
       if (input.idempotencyKey) {
         return withIdempotency({ key: input.idempotencyKey, merchantId: merchant.id, operation: "transactions.createTest", requestBody: input, execute });
@@ -1763,7 +1827,8 @@ const fxRouter = router({
   getRates: protectedProcedure
     .input(z.object({ base: z.string().default("USD") }))
     .query(async ({ input }) => {
-      return getLatestFxRates(input.base);
+      // Cache FX rates for 5 minutes — reduces external API calls under high load
+      return withCache("fx:rates", input.base, TTL.FX_RATES, () => getLatestFxRates(input.base));
     }),
   getHistory: protectedProcedure
     .input(z.object({ base: z.string(), target: z.string(), limit: z.number().min(1).max(200).default(48) }))
