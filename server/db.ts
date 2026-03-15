@@ -1798,3 +1798,50 @@ export async function listAuditEvents(merchantId: string, opts: {
     return { events: [], total: 0 };
   }
 }
+
+// ─── Fraud Trend Analytics ────────────────────────────────────────────────────
+export async function getFraudTrend(
+  merchantId: string,
+  days: number = 30,
+): Promise<Array<{
+  date: string;
+  total: number;
+  blocked: number;
+  flagged: number;
+  clean: number;
+  avgRiskScore: number;
+  blockRate: number;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        DATE_TRUNC('day', created_at)::date::text AS date,
+        COUNT(*)::int                              AS total,
+        SUM(CASE WHEN alert_type = 'transaction_blocked' THEN 1 ELSE 0 END)::int AS blocked,
+        SUM(CASE WHEN alert_type IN ('high_risk_transaction','velocity_breach','geo_mismatch') THEN 1 ELSE 0 END)::int AS flagged,
+        0::int                                     AS clean,
+        ROUND(AVG(risk_score)::numeric, 2)         AS avg_risk_score
+      FROM fraud_alerts
+      WHERE merchant_id = ${merchantId}
+        AND created_at >= NOW() - (${days} || ' days')::interval
+      GROUP BY DATE_TRUNC('day', created_at)::date
+      ORDER BY date ASC
+    `);
+    return (result.rows as any[]).map((r) => ({
+      date: r.date,
+      total: Number(r.total),
+      blocked: Number(r.blocked),
+      flagged: Number(r.flagged),
+      clean: Math.max(0, Number(r.total) - Number(r.blocked) - Number(r.flagged)),
+      avgRiskScore: Number(r.avg_risk_score),
+      blockRate: Number(r.total) > 0
+        ? Math.round((Number(r.blocked) / Number(r.total)) * 100)
+        : 0,
+    }));
+  } catch (err) {
+    console.warn("[FraudTrend] Failed to query:", err);
+    return [];
+  }
+}

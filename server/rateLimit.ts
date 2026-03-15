@@ -1,8 +1,9 @@
 /**
  * PayGate tRPC Rate Limiting Middleware
  *
- * Provides per-procedure, per-user rate limiting using a sliding window
- * algorithm backed by an in-process Map (dev) or Redis (production).
+ * Provides per-procedure, per-user rate limiting using a Redis-backed
+ * sliding window algorithm (ZADD + ZREMRANGEBYSCORE + ZCARD pipeline).
+ * Falls back to an in-process Map when Redis is unavailable (fail-open).
  *
  * Usage in routers.ts:
  *   const rateLimitedProcedure = protectedProcedure.use(rateLimit({ max: 100, windowMs: 60_000 }));
@@ -15,25 +16,111 @@
  */
 
 import { TRPCError } from "@trpc/server";
-import type { MiddlewareFunction } from "@trpc/server/unstable-core-do-not-import";
 
-// ─── Rate limit store ─────────────────────────────────────────────────────────
+// ─── In-process fallback store ────────────────────────────────────────────────
 
 interface WindowEntry {
   count: number;
   resetAt: number;
 }
 
-// In-process sliding window store (replaced by Redis in production via cache.ts)
-const store = new Map<string, WindowEntry>();
+const memoryStore = new Map<string, WindowEntry>();
 
 // Cleanup stale entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of Array.from(store.entries())) {
-    if (now > entry.resetAt) store.delete(key);
+  for (const [key, entry] of Array.from(memoryStore.entries())) {
+    if (now > entry.resetAt) memoryStore.delete(key);
   }
 }, 5 * 60 * 1000);
+
+// ─── Redis sliding window ─────────────────────────────────────────────────────
+
+/**
+ * Implements a Redis sorted-set sliding window counter.
+ * Each request is stored as a member with score = timestamp.
+ * Old entries outside the window are pruned on every call.
+ *
+ * Returns { count, allowed } — count is the number of requests in the current window.
+ */
+async function redisSlideWindow(
+  redisClient: any,
+  key: string,
+  max: number,
+  windowMs: number,
+): Promise<{ count: number; allowed: boolean; ttlMs: number }> {
+  const now = Date.now();
+  const windowStart = now - windowMs;
+  const member = `${now}-${Math.random().toString(36).slice(2)}`;
+  const redisKey = `paygate:ratelimit:${key}`;
+
+  // Pipeline: remove old, add new, count, expire
+  const pipeline = redisClient.pipeline();
+  pipeline.zremrangebyscore(redisKey, "-inf", windowStart);
+  pipeline.zadd(redisKey, now, member);
+  pipeline.zcard(redisKey);
+  pipeline.pexpire(redisKey, windowMs);
+
+  const results = await pipeline.exec();
+  // results[2] is the ZCARD result: [error, count]
+  const count: number = results?.[2]?.[1] ?? 1;
+  const ttlMs = windowMs - (now - windowStart);
+
+  return { count, allowed: count <= max, ttlMs };
+}
+
+// ─── In-process fallback ──────────────────────────────────────────────────────
+
+function memorySlideWindow(
+  key: string,
+  max: number,
+  windowMs: number,
+): { count: number; allowed: boolean; ttlMs: number } {
+  const now = Date.now();
+  const entry = memoryStore.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    memoryStore.set(key, { count: 1, resetAt: now + windowMs });
+    return { count: 1, allowed: true, ttlMs: windowMs };
+  }
+
+  entry.count += 1;
+  const ttlMs = entry.resetAt - now;
+  return { count: entry.count, allowed: entry.count <= max, ttlMs };
+}
+
+// ─── Lazy Redis client ────────────────────────────────────────────────────────
+
+let _redisClient: any = null;
+let _redisAttempted = false;
+
+async function getRedisClient(): Promise<any | null> {
+  if (_redisAttempted) return _redisClient;
+  _redisAttempted = true;
+
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) return null;
+
+  try {
+    const { default: Redis } = await import("ioredis" as any);
+    _redisClient = new Redis(redisUrl, {
+      maxRetriesPerRequest: 1,
+      enableReadyCheck: false,
+      lazyConnect: true,
+      connectTimeout: 2000,
+    });
+    _redisClient.on("error", () => {
+      // Suppress — we fail-open below
+    });
+    await _redisClient.connect().catch(() => {
+      _redisClient = null;
+    });
+  } catch {
+    _redisClient = null;
+  }
+
+  return _redisClient;
+}
 
 // ─── Rate limit options ───────────────────────────────────────────────────────
 
@@ -50,7 +137,11 @@ export interface RateLimitOptions {
 
 /**
  * rateLimit returns a tRPC middleware that enforces a sliding window rate limit.
- * The key is: `${keyPrefix}:${userId}` — one window per user per procedure.
+ *
+ * Key format: `${keyPrefix || path}:${userId || ip}`
+ *
+ * When Redis is available, uses a sorted-set sliding window (accurate across replicas).
+ * When Redis is unavailable, falls back to an in-process counter (fail-open).
  */
 export function rateLimit(opts: RateLimitOptions = {}) {
   const max = opts.max ?? 100;
@@ -58,37 +149,37 @@ export function rateLimit(opts: RateLimitOptions = {}) {
 
   return async function rateLimitMiddleware({ ctx, next, path }: any) {
     const userId = (ctx as any).user?.id;
-    if (!userId) {
-      // Unauthenticated requests — apply a stricter global limit
-      const ip = (ctx as any).req?.ip ?? "unknown";
-      const key = `ratelimit:anon:${opts.keyPrefix ?? path}:${ip}`;
-      checkLimit(key, Math.min(max, 20), windowMs);
-      return next({ ctx });
+    const ip = (ctx as any).req?.ip ?? "unknown";
+    const subject = userId ? `user:${userId}` : `anon:${ip}`;
+    const effectiveMax = userId ? max : Math.min(max, 20);
+    const key = `${opts.keyPrefix ?? path}:${subject}`;
+
+    try {
+      const redis = await getRedisClient();
+
+      let result: { count: number; allowed: boolean; ttlMs: number };
+      if (redis) {
+        result = await redisSlideWindow(redis, key, effectiveMax, windowMs);
+      } else {
+        result = memorySlideWindow(key, effectiveMax, windowMs);
+      }
+
+      if (!result.allowed) {
+        const retryAfterSec = Math.ceil(result.ttlMs / 1000);
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Rate limit exceeded. Retry after ${retryAfterSec}s. (${result.count}/${effectiveMax} in ${windowMs / 1000}s window)`,
+        });
+      }
+    } catch (err) {
+      // Re-throw TRPCErrors (rate limit exceeded)
+      if (err instanceof TRPCError) throw err;
+      // For any other error (Redis pipeline failure, etc.) — fail-open
+      console.warn("[rateLimit] Redis error — failing open:", (err as Error).message);
     }
 
-    const key = `ratelimit:${opts.keyPrefix ?? path}:${userId}`;
-    checkLimit(key, max, windowMs);
     return next({ ctx });
   };
-}
-
-function checkLimit(key: string, max: number, windowMs: number) {
-  const now = Date.now();
-  const entry = store.get(key);
-
-  if (!entry || now > entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + windowMs });
-    return;
-  }
-
-  entry.count += 1;
-  if (entry.count > max) {
-    const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message: `Rate limit exceeded. Retry after ${retryAfterSec}s.`,
-    });
-  }
 }
 
 // ─── Pre-configured limiters ──────────────────────────────────────────────────

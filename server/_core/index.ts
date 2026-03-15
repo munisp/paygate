@@ -16,6 +16,9 @@ import rateLimit from "express-rate-limit";
 import { startSlaEscalationScheduler } from "../slaEscalation";
 import { startWebhookRetryWorker } from "../webhookRetry";
 import { startIdempotencyCleanupWorker } from "../idempotencyCleanup";
+import { startNipBankRefreshWorker } from "../nipBankRefresh";
+import { startPushTokenCleanupWorker } from "../pushTokenCleanup";
+import { startNotificationPurgeWorker } from "../notificationPurge";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -966,5 +969,8 @@ validateEnv();
 startSlaEscalationScheduler();
 startWebhookRetryWorker();         // Exponential backoff retry (7 attempts, 30s poll)
 startIdempotencyCleanupWorker();   // Purge expired idempotency keys every 6 hours
+startNipBankRefreshWorker();       // Refresh NIP bank directory every 24h
+startPushTokenCleanupWorker();     // Purge stale device push tokens every 7 days
+startNotificationPurgeWorker();    // Purge old merchant notifications every 24h
 
 startServer().catch(console.error);

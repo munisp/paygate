@@ -8,7 +8,7 @@ import {
   createTeamMember, createTransaction, createVirtualCard, createWebhook,
   deleteTeamMember, deleteWebhook, getAnalyticsOverview, getCustomerById,
   getDisputeById, getMerchantByOwnerId, getPaymentLinkById, getPayoutById,
-  getRevenueTimeSeries, getTransactionById, getTransactionStats,
+  getRevenueTimeSeries, getTransactionById, getTransactionStats, getFraudTrend,
   listApiKeys, listCustomers, listDisputes, listPaymentLinks, listPayouts,
   listTeamMembers, listTransactions, listVirtualCards, listWebhooks,
   listWebhookDeliveries, getWebhookById, updateWebhook,
@@ -1384,15 +1384,21 @@ const analyticsRouter = router({
       return getAnalyticsOverview(merchant.id, input.from, input.to);
     }),
 
-  timeSeries: protectedProcedure
+   timeSeries: protectedProcedure
     .input(z.object({ from: z.date(), to: z.date() }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       return getRevenueTimeSeries(merchant.id, input.from, input.to);
     }),
+  fraudTrend: protectedProcedure
+    .input(z.object({ days: z.number().int().min(7).max(90).default(30) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getFraudTrend(merchant.id, input.days);
+    }),
 });
-
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
