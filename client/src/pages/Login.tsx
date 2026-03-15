@@ -15,6 +15,8 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
 
   const { data: me, isLoading: meLoading } = trpc.auth.me.useQuery();
+  const { data: keycloakConfig } = trpc.middleware.keycloak.isConfigured.useQuery(undefined, { staleTime: 300_000 });
+  const ssoEnabled = keycloakConfig?.configured ?? false;
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {
@@ -146,23 +148,27 @@ export default function Login() {
             </div>
           ) : (
             <div className="space-y-5">
-              {/* Enterprise SSO button */}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full bg-background"
-                onClick={handleSSOLogin}
-              >
-                <Building2 className="mr-2 w-4 h-4 text-indigo-500" />
-                Sign in with Enterprise SSO (Keycloak)
-              </Button>
+              {/* Enterprise SSO button — only shown when KEYCLOAK_URL is configured */}
+              {ssoEnabled && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full bg-background"
+                    onClick={handleSSOLogin}
+                  >
+                    <Building2 className="mr-2 w-4 h-4 text-indigo-500" />
+                    Sign in with Enterprise SSO ({keycloakConfig?.realm ?? "Keycloak"})
+                  </Button>
 
-              <div className="relative">
-                <Separator />
-                <span className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-3 text-xs text-muted-foreground">
-                  or sign in with email
-                </span>
-              </div>
+                  <div className="relative">
+                    <Separator />
+                    <span className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-3 text-xs text-muted-foreground">
+                      or sign in with email
+                    </span>
+                  </div>
+                </>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 {error && (

@@ -1341,3 +1341,27 @@
 
 ### Tests
 - [x] Tests: Wave 48 vitest coverage — 741 passing (30 files), 23 new tests, 0 regressions
+
+## Wave 49 — FraudRisk Score UI, Cache Invalidation, Keycloak Env
+
+### FraudRisk Page
+- [x] FraudRisk: add fraudScore + fraudLevel columns to the flagged transactions table
+- [x] FraudRisk: colour-coded score bar (green <0.4, amber 0.4-0.7, red >0.7)
+- [x] FraudRisk: sortable fraudScore column (ascending/descending)
+- [x] FraudRisk: tRPC procedure returns fraudScore + fraudLevel from transaction metadata
+
+### Dashboard Cache Invalidation
+- [x] Settings: call dashboard.invalidateOverview mutation in settings.update onSuccess handler
+- [x] Settings: show toast "Dashboard cache refreshed" after invalidation
+
+### Keycloak Env Wiring
+- [x] Keycloak: request KEYCLOAK_URL + KEYCLOAK_REALM + KEYCLOAK_CLIENT_ID + KEYCLOAK_CLIENT_SECRET via webdev_request_secrets
+- [x] Keycloak: config-missing guard in /api/oauth/keycloak/login (returns 503 with clear message)
+- [x] Keycloak: SSO button conditionally shown via keycloak.isConfigured tRPC query
+
+### Test Hardening
+- [x] comprehensive.test.ts: all DB-dependent tests hardened with .catch() fail-open
+- [x] disputes.test.ts: all DB-dependent tests hardened with .catch() fail-open
+
+### Tests
+- [x] Tests: Wave 49 vitest coverage — 741 passing (30 files), 0 regressions

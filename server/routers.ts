@@ -1485,6 +1485,11 @@ const middlewareRouter = router({
       }),
   }),
   keycloak: router({
+    // Check if Keycloak SSO is configured (public — used to show/hide SSO button on Login page)
+    isConfigured: publicProcedure.query(() => ({
+      configured: !!(process.env.KEYCLOAK_URL && process.env.KEYCLOAK_CLIENT_ID),
+      realm: process.env.KEYCLOAK_REALM ?? "paygate",
+    })),
     // Sync a single user's Keycloak roles to Permify
     syncRoles: protectedProcedure
       .input(z.object({ userId: z.string() }))

@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Shield, AlertTriangle, XCircle, CheckCircle2, Eye, Ban,
   TrendingUp, Activity, Brain, Zap, RefreshCw, Filter,
   ChevronDown, ChevronRight, Plus, Trash2, ToggleLeft, ToggleRight,
-  Globe, CreditCard, Smartphone, Clock, ArrowUpRight
+  Globe, CreditCard, Smartphone, Clock, ArrowUpRight,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +64,32 @@ const STATUS_ICONS = {
   cleared: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />,
 };
 
+type DbSortField = "riskScore" | "createdAt" | "alertType" | "status";
+type DbSortDir = "asc" | "desc";
+
+function DbScoreBar({ score }: { score: number }) {
+  const pct = Math.min(100, Math.max(0, score));
+  const color = pct >= 75 ? "bg-red-500" : pct >= 50 ? "bg-amber-500" : pct >= 25 ? "bg-yellow-400" : "bg-emerald-500";
+  const textColor = pct >= 75 ? "text-red-700" : pct >= 50 ? "text-amber-700" : pct >= 25 ? "text-yellow-700" : "text-emerald-700";
+  return (
+    <div className="flex items-center gap-2 min-w-[110px]">
+      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-300 ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={`text-xs font-mono font-bold w-6 text-right tabular-nums ${textColor}`}>{score}</span>
+    </div>
+  );
+}
+
+function DbLevelBadge({ score, metaLevel }: { score: number; metaLevel?: string }) {
+  const level = metaLevel ?? (score >= 75 ? "critical" : score >= 50 ? "high" : score >= 25 ? "medium" : "low");
+  const cls = level === "critical" ? "bg-red-100 text-red-700 border-red-200" :
+              level === "high" ? "bg-orange-100 text-orange-700 border-orange-200" :
+              level === "medium" ? "bg-amber-100 text-amber-700 border-amber-200" :
+              "bg-emerald-100 text-emerald-700 border-emerald-200";
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border capitalize ${cls}`}>{level}</span>;
+}
+
 function ScoreBar({ score, risk }: { score: number; risk: typeof RISK_LEVELS[number] }) {
   const c = RISK_COLORS[risk];
   return (
@@ -79,9 +106,36 @@ export default function FraudRisk() {
   const [transactions, setTransactions] = useState(INITIAL_TXS);
   const [rules, setRules] = useState(RULES);
   const [tab, setTab] = useState<"feed" | "rules" | "models" | "insights" | "db_alerts">("feed");
-  const { data: dbAlerts } = trpc.fraudRisk.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
+  const { data: dbAlerts } = trpc.fraudRisk.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
   const { data: fraudStats } = trpc.fraudRisk.stats.useQuery(undefined, { staleTime: 60_000 });
   const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({ onSuccess: () => toast.success("Alert updated") });
+  const [dbSortField, setDbSortField] = useState<DbSortField>("riskScore");
+  const [dbSortDir, setDbSortDir] = useState<DbSortDir>("desc");
+  const [dbStatusFilter, setDbStatusFilter] = useState<string>("all");
+
+  const sortedDbAlerts = useMemo(() => {
+    let rows = [...(dbAlerts?.rows ?? [])];
+    if (dbStatusFilter !== "all") rows = rows.filter(r => r.status === dbStatusFilter);
+    rows.sort((a, b) => {
+      let av: any = a[dbSortField as keyof typeof a];
+      let bv: any = b[dbSortField as keyof typeof b];
+      if (dbSortField === "createdAt") { av = new Date(av as string).getTime(); bv = new Date(bv as string).getTime(); }
+      if (av < bv) return dbSortDir === "asc" ? -1 : 1;
+      if (av > bv) return dbSortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return rows;
+  }, [dbAlerts, dbSortField, dbSortDir, dbStatusFilter]);
+
+  function toggleSort(field: DbSortField) {
+    if (dbSortField === field) setDbSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setDbSortField(field); setDbSortDir("desc"); }
+  }
+
+  function SortIcon({ field }: { field: DbSortField }) {
+    if (dbSortField !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
+    return dbSortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1 text-primary" /> : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
+  }
   const [filter, setFilter] = useState<"all" | typeof RISK_LEVELS[number]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(true);
@@ -506,9 +560,10 @@ export default function FraudRisk() {
       {/* DB Alerts Tab — live data from PostgreSQL */}
       {tab === "db_alerts" && (
         <div className="space-y-4">
+          {/* KPI summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
-              { label: "Total", value: fraudStats?.total ?? "—" },
+              { label: "Total Alerts", value: fraudStats?.total ?? "—" },
               { label: "Open", value: fraudStats?.open ?? "—" },
               { label: "Investigating", value: fraudStats?.investigating ?? "—" },
               { label: "Avg Risk Score", value: fraudStats?.avgRiskScore ? Math.round(Number(fraudStats.avgRiskScore)) : "—" },
@@ -519,46 +574,100 @@ export default function FraudRisk() {
               </div>
             ))}
           </div>
-          <div className="space-y-2">
-            {(dbAlerts?.rows ?? []).length === 0 ? (
-              <div className="bg-card rounded-xl border border-border p-12 text-center">
-                <CheckCircle2 className="w-8 h-8 mx-auto mb-3 text-emerald-500 opacity-60" />
-                <p className="text-muted-foreground">No database alerts found</p>
-              </div>
-            ) : (dbAlerts?.rows ?? []).map((alert) => (
-              <div key={alert.id} className="bg-card rounded-xl border border-border p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
-                        alert.status === 'open' ? 'bg-red-100 text-red-700' :
-                        alert.status === 'investigating' ? 'bg-amber-100 text-amber-700' :
-                        alert.status === 'resolved' ? 'bg-emerald-100 text-emerald-700' :
-                        'bg-muted text-muted-foreground'
-                      }`}>{alert.status.replace('_', ' ')}</span>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        alert.riskScore >= 75 ? 'bg-red-100 text-red-700' :
-                        alert.riskScore >= 50 ? 'bg-amber-100 text-amber-700' :
-                        'bg-emerald-100 text-emerald-700'
-                      }`}>Score: {alert.riskScore}</span>
-                      <span className="text-xs font-medium text-foreground">{alert.alertType.replace('_', ' ')}</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{alert.description}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{new Date(alert.createdAt).toLocaleString()}</p>
-                  </div>
-                  {alert.status === 'open' && (
-                    <div className="flex gap-2 shrink-0">
-                      <Button size="sm" variant="outline" onClick={() => updateDbAlert.mutate({ id: alert.id, status: 'investigating' })} disabled={updateDbAlert.isPending}>Investigate</Button>
-                      <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => updateDbAlert.mutate({ id: alert.id, status: 'false_positive' })} disabled={updateDbAlert.isPending}>False Positive</Button>
-                    </div>
-                  )}
-                  {alert.status === 'investigating' && (
-                    <Button size="sm" onClick={() => updateDbAlert.mutate({ id: alert.id, status: 'resolved' })} disabled={updateDbAlert.isPending}>Resolve</Button>
-                  )}
-                </div>
-              </div>
+
+          {/* Controls: status filter */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium">Status:</span>
+            {["all", "open", "investigating", "resolved", "false_positive"].map(s => (
+              <button key={s} onClick={() => setDbStatusFilter(s)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition-all ${
+                  dbStatusFilter === s ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70 text-muted-foreground"
+                }`}>
+                {s.replace("_", " ")}
+              </button>
             ))}
+            <span className="ml-auto text-xs text-muted-foreground">{sortedDbAlerts.length} alert{sortedDbAlerts.length !== 1 ? "s" : ""}</span>
           </div>
+
+          {/* Sortable table */}
+          {sortedDbAlerts.length === 0 ? (
+            <div className="bg-card rounded-xl border border-border p-12 text-center">
+              <CheckCircle2 className="w-8 h-8 mx-auto mb-3 text-emerald-500 opacity-60" />
+              <p className="text-muted-foreground">No alerts match the current filter</p>
+            </div>
+          ) : (
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              {/* Table header */}
+              <div className="grid grid-cols-[2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-2.5 bg-muted/50 border-b border-border text-xs font-semibold text-muted-foreground">
+                <button className="flex items-center text-left hover:text-foreground transition-colors" onClick={() => toggleSort("alertType")}>
+                  Alert Type <SortIcon field="alertType" />
+                </button>
+                <button className="flex items-center text-left hover:text-foreground transition-colors" onClick={() => toggleSort("status")}>
+                  Status <SortIcon field="status" />
+                </button>
+                <button className="flex items-center text-left hover:text-foreground transition-colors" onClick={() => toggleSort("riskScore")}>
+                  Risk Score <SortIcon field="riskScore" />
+                </button>
+                <span>ML Level</span>
+                <button className="flex items-center text-left hover:text-foreground transition-colors" onClick={() => toggleSort("createdAt")}>
+                  Created <SortIcon field="createdAt" />
+                </button>
+                <span>Actions</span>
+              </div>
+
+              {/* Table rows */}
+              {sortedDbAlerts.map((alert) => {
+                const meta = (alert.metadata ?? {}) as Record<string, any>;
+                const mlLevel = meta.fraudLevel as string | undefined;
+                const mlScore = typeof meta.fraudScore === "number" ? meta.fraudScore : null;
+                return (
+                  <div key={alert.id} className="grid grid-cols-[2fr_1fr_140px_120px_100px_auto] gap-3 px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/30 transition-colors">
+                    {/* Alert type + description */}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground capitalize truncate">{alert.alertType.replace(/_/g, " ")}</p>
+                      {alert.description && <p className="text-xs text-muted-foreground truncate mt-0.5">{alert.description}</p>}
+                      {alert.transactionId && <p className="text-xs text-muted-foreground font-mono truncate">txn: {alert.transactionId}</p>}
+                    </div>
+
+                    {/* Status badge */}
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize w-fit ${
+                      alert.status === "open" ? "bg-red-100 text-red-700" :
+                      alert.status === "investigating" ? "bg-amber-100 text-amber-700" :
+                      alert.status === "resolved" ? "bg-emerald-100 text-emerald-700" :
+                      "bg-muted text-muted-foreground"
+                    }`}>{alert.status.replace("_", " ")}</span>
+
+                    {/* Score bar — uses ML score if available, otherwise DB riskScore */}
+                    <div className="space-y-1">
+                      <DbScoreBar score={mlScore !== null ? Math.round(mlScore) : alert.riskScore} />
+                      {mlScore !== null && mlScore !== alert.riskScore && (
+                        <p className="text-xs text-muted-foreground">DB: {alert.riskScore} · ML: {Math.round(mlScore)}</p>
+                      )}
+                    </div>
+
+                    {/* ML level badge */}
+                    <DbLevelBadge score={mlScore !== null ? Math.round(mlScore) : alert.riskScore} metaLevel={mlLevel} />
+
+                    {/* Created at */}
+                    <span className="text-xs text-muted-foreground tabular-nums">{new Date(alert.createdAt).toLocaleDateString()}</span>
+
+                    {/* Actions */}
+                    <div className="flex gap-1.5 shrink-0">
+                      {alert.status === "open" && (
+                        <>
+                          <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => updateDbAlert.mutate({ id: alert.id, status: "investigating" })} disabled={updateDbAlert.isPending}>Investigate</Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs px-2 text-muted-foreground" onClick={() => updateDbAlert.mutate({ id: alert.id, status: "false_positive" })} disabled={updateDbAlert.isPending}>FP</Button>
+                        </>
+                      )}
+                      {alert.status === "investigating" && (
+                        <Button size="sm" className="h-7 text-xs px-2" onClick={() => updateDbAlert.mutate({ id: alert.id, status: "resolved" })} disabled={updateDbAlert.isPending}>Resolve</Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

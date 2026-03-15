@@ -237,8 +237,16 @@ export default function Settings() {
   const { data, isLoading } = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
   const { data: settlementData, isLoading: settlementLoading } = trpc.settings.getSettlementSchedule.useQuery(undefined, { staleTime: 60_000 });
 
+  const invalidateDashboard = trpc.dashboard.invalidateOverview.useMutation();
   const updateMerchant = trpc.settings.updateMerchant.useMutation({
-    onSuccess: () => { toast.success("Settings saved"); utils.settings.get.invalidate(); },
+    onSuccess: () => {
+      toast.success("Settings saved");
+      utils.settings.get.invalidate();
+      // Flush dashboard cache so KPIs reflect the updated merchant profile immediately
+      invalidateDashboard.mutate(undefined, {
+        onSuccess: () => toast.success("Dashboard cache refreshed", { duration: 2000 }),
+      });
+    },
     onError: (e) => toast.error(e.message),
   });
   const updateNotifPrefs = trpc.settings.updateNotificationPrefs.useMutation({
