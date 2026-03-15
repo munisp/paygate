@@ -1308,3 +1308,18 @@ export const purchaseOrders = pgTable("purchase_orders", {
 ]);
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type InsertPurchaseOrder = typeof purchaseOrders.$inferInsert;
+
+// ─── Fraud Alert Comments ─────────────────────────────────────────────────────
+export const fraudAlertComments = pgTable("fraud_alert_comments", {
+  id: text("id").primaryKey(),
+  alertId: text("alert_id").notNull().references(() => fraudAlerts.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  authorName: text("author_name").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("fac_alert_idx").on(t.alertId),
+  index("fac_merchant_idx").on(t.merchantId),
+]);
+export type FraudAlertComment = typeof fraudAlertComments.$inferSelect;
+export type InsertFraudAlertComment = typeof fraudAlertComments.$inferInsert;

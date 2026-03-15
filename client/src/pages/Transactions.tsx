@@ -25,6 +25,15 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
   const [refundReason, setRefundReason] = useState("");
   const utils = trpc.useUtils();
 
+  const retryMutation = trpc.transactions.createTest.useMutation({
+    onSuccess: () => {
+      toast.success("Transaction retried — new transaction created");
+      utils.transactions.list.invalidate();
+      onClose();
+    },
+    onError: (err) => toast.error(`Retry failed: ${err.message}`),
+  });
+
   const refundMutation = trpc.transactions.refund.useMutation({
     onSuccess: () => {
       toast.success("Refund initiated successfully");
@@ -153,6 +162,27 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                 </div>
               );
             })()}
+
+            {/* Retry button — only for failed transactions */}
+            {tx.status === 'failed' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-2 border-blue-200 text-blue-600 hover:bg-blue-50"
+                disabled={retryMutation.isPending}
+                onClick={() => retryMutation.mutate({
+                  amount: Number(tx.amount),
+                  currency: tx.currency ?? "NGN",
+                  customerEmail: tx.customerEmail ?? undefined,
+                  customerName: tx.customerName ?? undefined,
+                  description: tx.description ?? undefined,
+                  channel: tx.channel ?? "card",
+                })}
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                {retryMutation.isPending ? "Retrying…" : "Retry Transaction"}
+              </Button>
+            )}
 
             {/* Refund section */}
             {tx.status === 'completed' && !showRefund && (

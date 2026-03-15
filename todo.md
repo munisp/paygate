@@ -1501,3 +1501,31 @@
 
 ### Tests
 - [x] Tests: Wave 54 vitest coverage — 860 tests passing, 34 files, 0 regressions
+
+## Wave 55 — Loyalty Tier Notifications, Fraud Comments, Transaction Retry
+
+### Loyalty Tier Upgrade Notifications
+- [x] Transactions: after rustEarnPoints succeeds, compare new balance against tier thresholds
+- [x] Transactions: if customer crosses into Silver (500), Gold (2000), or Platinum (10000), call notifyOwner
+- [x] Transactions: notification title: "Customer loyalty tier upgrade"
+- [x] Transactions: notification body includes customer ID, new tier, and new point balance
+- [x] Transactions: tier check is fail-open (never blocks transaction return)
+
+### Fraud Alert Comment Thread
+- [x] DB: fraud_alert_comments table (id, alertId, merchantId, authorName, body, createdAt)
+- [x] DB: schema appended; migration generated; table created via webdev_execute_sql
+- [x] Server: fraudAlerts.addComment tRPC mutation (alertId, body)
+- [x] Server: fraudAlerts.getComments tRPC query (alertId)
+- [x] FraudRisk: CommentThread component at bottom of signal drill-down sheet
+- [x] FraudRisk: comment thread renders author, timestamp, and body
+- [x] FraudRisk: optimistic update adds comment immediately before server confirms
+
+### Transaction Retry Flow
+- [x] Transactions: "Retry" button in Transaction Detail dialog (only visible for failed transactions)
+- [x] Transactions: retry calls createTest with same amount, currency, channel, customerEmail, customerName, description
+- [x] Transactions: retry shows loading spinner and disables button while in-flight
+- [x] Transactions: on success, show toast, invalidate transactions list, and close dialog
+- [x] Transactions: on failure, show error toast without closing dialog
+
+### Tests
+- [x] Tests: Wave 55 vitest coverage — 883 tests passing, 35 files, 0 regressions

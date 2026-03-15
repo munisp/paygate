@@ -183,6 +183,77 @@ export default function FraudRisk() {
     return dbSortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1 text-primary" /> : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
   }
 
+  // ── Comment Thread Component ─────────────────────────────────────────────
+  function CommentThread({ alertId }: { alertId: string }) {
+    const [commentBody, setCommentBody] = useState("");
+    const utils = trpc.useUtils();
+    const { data: comments = [], isLoading: commentsLoading } = trpc.fraudRisk.getComments.useQuery(
+      { alertId },
+      { staleTime: 30_000, retry: false }
+    );
+    const addComment = trpc.fraudRisk.addComment.useMutation({
+      onMutate: async (vars) => {
+        await utils.fraudRisk.getComments.cancel({ alertId: vars.alertId });
+        const prev = utils.fraudRisk.getComments.getData({ alertId: vars.alertId });
+        utils.fraudRisk.getComments.setData({ alertId: vars.alertId }, (old) => [
+          ...(old ?? []),
+          { id: `opt_${Date.now()}`, alertId: vars.alertId, merchantId: "", authorName: "You", body: vars.body, createdAt: new Date() },
+        ]);
+        return { prev };
+      },
+      onError: (_err, vars, ctx) => {
+        utils.fraudRisk.getComments.setData({ alertId: vars.alertId }, ctx?.prev);
+      },
+      onSettled: (_data, _err, vars) => {
+        utils.fraudRisk.getComments.invalidate({ alertId: vars.alertId });
+      },
+    });
+    return (
+      <div className="space-y-3">
+        <p className="text-sm font-semibold">Investigation Notes</p>
+        {commentsLoading ? (
+          <div className="space-y-2">{Array(2).fill(0).map((_, i) => <div key={i} className="h-12 bg-muted/50 rounded animate-pulse" />)}</div>
+        ) : comments.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">No notes yet. Add one below.</p>
+        ) : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {comments.map((c: any) => (
+              <div key={c.id} className="p-2.5 rounded-lg bg-muted/40 border border-border">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-foreground">{c.authorName}</span>
+                  <span className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
+                </div>
+                <p className="text-sm text-foreground leading-relaxed">{c.body}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={commentBody}
+            onChange={e => setCommentBody(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && commentBody.trim()) {
+                addComment.mutate({ alertId, body: commentBody.trim() });
+                setCommentBody("");
+              }
+            }}
+            placeholder="Add a note… (Enter to submit)"
+            className="flex-1 text-sm px-3 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <Button
+            size="sm"
+            disabled={!commentBody.trim() || addComment.isPending}
+            onClick={() => { addComment.mutate({ alertId, body: commentBody.trim() }); setCommentBody(""); }}
+          >
+            Post
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Signal Drill-Down Sheet ──────────────────────────────────────────────
   function SignalDrillDownSheet() {
     if (!selectedAlert) return null;
@@ -327,7 +398,9 @@ export default function FraudRisk() {
             )}
 
             <Separator />
-
+            {/* Comment Thread */}
+            <CommentThread alertId={selectedAlert.id} />
+            <Separator />
             {/* Actions */}
             <div className="space-y-2">
               <p className="text-sm font-semibold">Actions</p>

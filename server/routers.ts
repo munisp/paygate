@@ -468,7 +468,7 @@ const transactionsRouter = router({
               customer_id: loyaltyCustomerId,
               points: pointsToEarn,
               order_id: tx.id,
-            }).then(earnResult => {
+            }).then(async earnResult => {
               if (earnResult?.ok) {
                 // Patch metadata with earnedPoints for Transaction Detail badge
                 updateTransaction(tx.id, {
@@ -477,6 +477,27 @@ const transactionsRouter = router({
                     earnedPoints: pointsToEarn,
                   },
                 }).catch(() => {});
+
+                // Tier upgrade notification — check if customer crossed a tier boundary
+                // Fail-open: any error is swallowed
+                try {
+                  const TIER_THRESHOLDS = [
+                    { name: "Platinum", min: 10000 },
+                    { name: "Gold",     min: 5000 },
+                    { name: "Silver",   min: 1000 },
+                  ];
+                  const newBalance = earnResult.new_balance ?? 0;
+                  const oldBalance = newBalance - pointsToEarn;
+                  const crossedTier = TIER_THRESHOLDS.find(
+                    t => newBalance >= t.min && oldBalance < t.min
+                  );
+                  if (crossedTier) {
+                    notifyOwner({
+                      title: `Customer reached ${crossedTier.name} tier`,
+                      content: `Customer ${loyaltyCustomerId} has crossed into the ${crossedTier.name} loyalty tier with ${newBalance.toLocaleString()} points (transaction ${tx.id}).`,
+                    }).catch(() => {});
+                  }
+                } catch (_) { /* fail-open */ }
               }
             }).catch(e => console.warn("[loyalty] earn failed (non-fatal):", e.message));
           }
@@ -1769,6 +1790,45 @@ const fraudRiskRouter = router({
         )
       );
       return { updated: input.ids.length };
+    }),
+
+  addComment: protectedProcedure
+    .input(z.object({
+      alertId: z.string(),
+      body: z.string().min(1).max(2000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const id = `fac_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const { fraudAlertComments } = await import('../drizzle/schema');
+      await db.insert(fraudAlertComments).values({
+        id,
+        alertId: input.alertId,
+        merchantId: merchant.id,
+        authorName: user.name ?? ctx.user.openId,
+        body: input.body,
+        createdAt: new Date(),
+      });
+      return { id, alertId: input.alertId, authorName: user.name ?? ctx.user.openId, body: input.body, createdAt: new Date() };
+    }),
+
+  getComments: protectedProcedure
+    .input(z.object({ alertId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return [];
+      const { fraudAlertComments } = await import('../drizzle/schema');
+      const { asc, and: drizzleAnd, eq: drizzleEq } = await import('drizzle-orm');
+      return db
+        .select()
+        .from(fraudAlertComments)
+        .where(drizzleAnd(drizzleEq(fraudAlertComments.alertId, input.alertId), drizzleEq(fraudAlertComments.merchantId, merchant.id)))
+        .orderBy(asc(fraudAlertComments.createdAt));
     }),
 });
 
