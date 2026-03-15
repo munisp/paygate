@@ -1,0 +1,252 @@
+version: "3.9"
+
+# =============================================================================
+# PayGate Production Docker Compose
+# Includes: Portal (2 replicas), Go Bridge (2 replicas), Redis, APISIX,
+#           TigerBeetle cluster, Kafka, Temporal, Prometheus, Grafana
+#
+# Usage:
+#   docker compose -f infra/docker-compose.prod.yml up -d
+#   docker compose -f infra/docker-compose.prod.yml ps
+#   docker compose -f infra/docker-compose.prod.yml logs -f paygate-bridge
+# =============================================================================
+
+x-portal-base: &portal-base
+  image: paygate/portal:${PORTAL_VERSION:-latest}
+  restart: unless-stopped
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: ${DATABASE_URL}
+    JWT_SECRET: ${JWT_SECRET}
+    VITE_APP_ID: ${VITE_APP_ID}
+    OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
+    VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
+    OWNER_OPEN_ID: ${OWNER_OPEN_ID}
+    OWNER_NAME: ${OWNER_NAME}
+    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
+    MIDDLEWARE_BRIDGE_URL: ${MIDDLEWARE_BRIDGE_URL:-http://bridge-lb:8080}
+    MIDDLEWARE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+    BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+    BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    OTEL_SERVICE_NAME: paygate-portal
+  depends_on:
+    redis:
+      condition: service_healthy
+  networks:
+    - paygate-net
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+
+x-bridge-base: &bridge-base
+  image: paygate/bridge:${BRIDGE_VERSION:-latest}
+  restart: unless-stopped
+  environment:
+    BRIDGE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+    TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+    KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    TEMPORAL_ADDRESS: temporal:7233
+    TEMPORAL_NAMESPACE: paygate
+    PERMIFY_URL: ${PERMIFY_URL:-}
+    PERMIFY_API_KEY: ${PERMIFY_API_KEY:-}
+    FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-}
+    NIBSS_BASE_URL: ${NIBSS_BASE_URL:-}
+    NIBSS_HMAC_SECRET: ${NIBSS_HMAC_SECRET:-}
+    MOJALOOP_API_URL: ${MOJALOOP_API_URL:-}
+    MOJALOOP_API_KEY: ${MOJALOOP_API_KEY:-}
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    OTEL_SERVICE_NAME: paygate-bridge
+  networks:
+    - paygate-net
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 20s
+
+services:
+  # ─── Portal replicas ─────────────────────────────────────────────────────────
+  portal-1:
+    <<: *portal-base
+    container_name: paygate-portal-1
+    ports:
+      - "3001:3000"
+
+  portal-2:
+    <<: *portal-base
+    container_name: paygate-portal-2
+    ports:
+      - "3002:3000"
+
+  # ─── Go Bridge replicas ───────────────────────────────────────────────────────
+  bridge-1:
+    <<: *bridge-base
+    container_name: paygate-bridge-1
+    ports:
+      - "8081:8080"
+
+  bridge-2:
+    <<: *bridge-base
+    container_name: paygate-bridge-2
+    ports:
+      - "8082:8080"
+
+  # ─── APISIX (load balancer + API gateway) ─────────────────────────────────────
+  apisix:
+    image: apache/apisix:3.9-debian
+    container_name: paygate-apisix
+    restart: unless-stopped
+    ports:
+      - "80:9080"
+      - "443:9443"
+      - "9091:9091"
+    volumes:
+      - ./apisix/routes.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+      - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+    networks:
+      - paygate-net
+    depends_on:
+      portal-1:
+        condition: service_healthy
+      portal-2:
+        condition: service_healthy
+
+  # ─── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: paygate-redis
+    restart: unless-stopped
+    command: redis-server /etc/redis/redis.conf --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+      - redis-data:/data
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ─── TigerBeetle cluster (3 nodes) ────────────────────────────────────────────
+  tb-1:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate-tb-1
+    restart: unless-stopped
+    command: start --addresses=tb-1:3902,tb-2:3902,tb-3:3902 /data/1_0.tigerbeetle
+    volumes:
+      - tb-data-1:/data
+    networks:
+      - paygate-net
+
+  tb-2:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate-tb-2
+    restart: unless-stopped
+    command: start --addresses=tb-1:3902,tb-2:3902,tb-3:3902 /data/1_1.tigerbeetle
+    volumes:
+      - tb-data-2:/data
+    networks:
+      - paygate-net
+
+  tb-3:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate-tb-3
+    restart: unless-stopped
+    command: start --addresses=tb-1:3902,tb-2:3902,tb-3:3902 /data/1_2.tigerbeetle
+    volumes:
+      - tb-data-3:/data
+    networks:
+      - paygate-net
+
+  # ─── Temporal ─────────────────────────────────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: paygate-temporal
+    restart: unless-stopped
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${TEMPORAL_DB_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD}
+      POSTGRES_SEEDS: ${TEMPORAL_DB_HOST}
+    ports:
+      - "7233:7233"
+    networks:
+      - paygate-net
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: paygate-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - paygate-net
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: paygate-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "https://grafana.paygate.internal"
+    volumes:
+      - ./grafana/paygate-dashboard.json:/var/lib/grafana/dashboards/paygate.json:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3100:3000"
+    networks:
+      - paygate-net
+    depends_on:
+      - prometheus
+
+  # ─── OpenTelemetry Collector ──────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.99.0
+    container_name: paygate-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9411:9411"   # Zipkin
+    networks:
+      - paygate-net
+
+volumes:
+  redis-data:
+  tb-data-1:
+  tb-data-2:
+  tb-data-3:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  paygate-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -72,19 +73,39 @@ var (
 )
 
 // Init initialises the global TigerBeetle client.
-// address should be in the form "host:port" (e.g. "127.0.0.1:3902").
-// clusterID is the TigerBeetle cluster ID (usually 0 for single-node dev).
-func Init(address string, clusterID uint64) error {
+// addresses is a comma-separated list of cluster node addresses
+// (e.g. "10.0.0.1:3902,10.0.0.2:3902,10.0.0.3:3902" for a 3-node cluster,
+// or "127.0.0.1:3902" for a single-node dev setup).
+// clusterID is the TigerBeetle cluster ID (usually 0).
+func Init(addresses string, clusterID uint64) error {
 	once.Do(func() {
-		c, err := tb.NewClient(tb_types.ToUint128(clusterID), []string{address})
+		nodes := parseAddresses(addresses)
+		c, err := tb.NewClient(tb_types.ToUint128(clusterID), nodes)
 		if err != nil {
-			initErr = fmt.Errorf("tigerbeetle.NewClient(%q): %w", address, err)
+			initErr = fmt.Errorf("tigerbeetle.NewClient(%v): %w", nodes, err)
 			return
 		}
 		globalClient = &Client{inner: c}
 		activeClient = globalClient
 	})
 	return initErr
+}
+
+// parseAddresses splits a comma-separated address string into a slice.
+// Whitespace around each address is trimmed.
+func parseAddresses(addresses string) []string {
+	parts := strings.Split(addresses, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	if len(result) == 0 {
+		return []string{"127.0.0.1:3902"}
+	}
+	return result
 }
 
 // Get returns the global client.  Panics if Init has not been called.

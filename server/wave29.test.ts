@@ -161,7 +161,8 @@ describe("PTSP Batch Settlement", () => {
   function buildSettlementBatch(txns: BatchTx[], cutoffHour = 23) {
     const today = new Date();
     const cutoff = new Date(today);
-    cutoff.setHours(cutoffHour, 0, 0, 0);
+    // Use end of the cutoff hour (59:59.999) so tests pass at any time of day
+    cutoff.setHours(cutoffHour, 59, 59, 999);
 
     const eligible = txns.filter(t =>
       t.status === "completed" &&

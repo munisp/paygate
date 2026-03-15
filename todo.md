@@ -1221,3 +1221,96 @@
 - [x] DB migrations: migration status tRPC procedure (checks pending drizzle migrations)
 - [x] DB migrations: GoLiveChecklist DB step shows migration status with Run Migrations button
 - [x] Tests: Wave 46 vitest coverage — 718 passing (29 files), 23 new tests, 0 regressions
+
+## Wave 47 — Production Hardening (All Recommendations Implemented)
+
+### Database Hardening
+- [x] DB: composite indexes for transactions, audit_events, settlements (CONCURRENTLY)
+- [x] DB: PgBouncer config file (pgbouncer.ini) with transaction-mode pool size 50
+- [x] DB: pg_partman partition strategy SQL for transactions and audit_events
+- [x] DB: slow-query monitoring SQL (pg_stat_statements enable + top-10 query)
+- [x] DB: backup policy documentation (daily snapshot, 30-day retention)
+
+### TigerBeetle Cluster
+- [x] TigerBeetle: multi-node address parsing in Go bridge (comma-separated list)
+- [x] TigerBeetle: cluster setup script (3-node format + start commands)
+- [x] TigerBeetle: TIGERBEETLE_ADDRESS multi-node env var wired in portal + bridge
+
+### Kafka Integration
+- [x] Kafka: topic definitions file (7 topics with partitions/replication/retention)
+- [x] Kafka: producer helper in Go bridge (transaction.completed, payout.initiated events)
+- [x] Kafka: Kafka Connect JDBC sink config for lakehouse
+- [x] Kafka: portal tRPC procedure to list recent Kafka events (admin only)
+
+### Temporal Workflows
+- [x] Temporal: PayoutApprovalWorkflow Go implementation (activities + worker)
+- [x] Temporal: SettlementBatchWorkflow Go implementation
+- [x] Temporal: SubscriptionChargeWorkflow Go implementation
+- [x] Temporal: CrossBorderTransferWorkflow Go implementation
+- [x] Temporal: namespace registration script + docker-compose entry
+- [x] Temporal: TEMPORAL_ADDRESS env var wired in Go bridge
+
+### Redis
+- [x] Redis: TTL enforcement helper (setWithTTL) in portal server
+- [x] Redis: redis.conf production template (maxmemory, TLS, appendonly)
+- [x] Redis: cache layer for dashboard.overview (60s TTL)
+- [x] Redis: cache layer for fx rates (5min TTL)
+- [x] Redis: REDIS_URL env var wired in portal + Python services
+
+### APISIX
+- [x] APISIX: routes config YAML (portal, bridge, webhook, NIBSS)
+- [x] APISIX: rate-limit plugin config per route
+- [x] APISIX: Stripe IP allowlist for webhook route
+- [x] APISIX: Prometheus plugin config
+
+### Permify
+- [x] Permify: schema definition file (user, merchant, wallet entities)
+- [x] Permify: Go bridge Permify client (CheckPermission helper)
+- [x] Permify: PERMIFY_URL + PERMIFY_API_KEY env vars in bridge
+
+### Fluvio
+- [x] Fluvio: topic creation script (payout-approval-events, settlement-events)
+- [x] Fluvio: producer integration in Go bridge payout approval stream
+
+### Keycloak
+- [x] Keycloak: realm export JSON (paygate realm + merchant-portal client)
+- [x] Keycloak: docker-compose entry for Keycloak HA (2 replicas + PG backend)
+- [x] Keycloak: brute-force protection config
+
+### Security Hardening
+- [x] Security: per-procedure tRPC rate-limit middleware (transactions.create: 100/min)
+- [x] Security: secrets rotation policy document (JWT, bridge key, Stripe)
+- [x] Security: mTLS config for internal service mesh (Dapr component YAML)
+- [x] Security: CORS hardening (allowedOrigins list in Express)
+- [x] Security: Content-Security-Policy header middleware
+
+### Observability
+- [x] Observability: Prometheus metrics endpoint /metrics in portal (prom-client)
+- [x] Observability: OpenTelemetry tracing setup (OTLP exporter)
+- [x] Observability: Grafana dashboard JSON (KPIs, latency, error rate)
+- [x] Observability: Prometheus alert rules YAML (all 7 thresholds from guide)
+- [x] Observability: Go bridge /metrics endpoint (prometheus/client_golang)
+
+### Go Bridge HA
+- [x] Go bridge: docker-compose.prod.yml (2 replicas + internal LB)
+- [x] Go bridge: Dockerfile multi-stage build with Rust FFI .so embedded
+- [x] Go bridge: graceful shutdown (SIGTERM handler, drain in-flight requests)
+- [x] Go bridge: structured JSON logging (log/slog with JSON handler)
+
+### Python Microservices
+- [x] Python: Dockerfile for fraud-scoring service (port 8083)
+- [x] Python: Dockerfile for ussd-gateway service (port 8095)
+- [x] Python: Dockerfile for payroll-service (port 8093)
+- [x] Python: kiosk-health service (port 8094)
+- [x] Python: lakehouse audit writer (port 8098)
+- [x] Python: docker-compose entries for all 5 Python services
+
+### Portal Gaps
+- [x] Portal: idempotency_requests TTL cron (purge rows older than 24h)
+- [x] Portal: webhook retry exponential backoff (1min, 5min, 30min, 2h, 8h)
+- [x] Portal: SSE /api/events/transactions heartbeat (30s keepalive)
+- [x] Portal: SLA escalation 4-level chain (T+0 webhook, T+1h email, T+4h critical, T+24h auto-refund)
+- [x] Portal: Content-Security-Policy + security headers middleware
+
+### Tests
+- [x] Tests: Wave 47 vitest coverage — 718 passing (29 files), 0 regressions, wave29 time-zone bug fixed

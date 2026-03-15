@@ -1,0 +1,173 @@
+# =============================================================================
+# PayGate APISIX Route Configuration
+# Apply with: apisix admin routes PUT /apisix/admin/routes/<id>
+# Or load via APISIX declarative config (apisix.yaml)
+# =============================================================================
+
+routes:
+  # ─── Portal (React + tRPC API) ──────────────────────────────────────────────
+  - id: portal-trpc
+    name: "PayGate Portal tRPC API"
+    uri: /api/trpc/*
+    methods: [GET, POST, OPTIONS]
+    upstream:
+      type: roundrobin
+      nodes:
+        "portal-1:3000": 1
+        "portal-2:3000": 1
+      scheme: http
+      pass_host: pass
+    plugins:
+      limit-req:
+        rate: 200
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      cors:
+        allow_origins: "https://paygate.manus.space"
+        allow_methods: "GET,POST,OPTIONS"
+        allow_headers: "Content-Type,Authorization"
+        allow_credential: true
+        max_age: 3600
+      prometheus:
+        prefer_name: true
+
+  # ─── Portal static assets ────────────────────────────────────────────────────
+  - id: portal-static
+    name: "PayGate Portal Static"
+    uri: /*
+    methods: [GET, HEAD]
+    upstream:
+      type: roundrobin
+      nodes:
+        "portal-1:3000": 1
+        "portal-2:3000": 1
+    plugins:
+      response-rewrite:
+        headers:
+          set:
+            Cache-Control: "public, max-age=31536000, immutable"
+      prometheus:
+        prefer_name: true
+
+  # ─── Go Bridge internal API ──────────────────────────────────────────────────
+  - id: bridge-api
+    name: "PayGate Go Bridge"
+    uri: /internal/bridge/*
+    methods: [GET, POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "bridge-1:8080": 1
+        "bridge-2:8080": 1
+      scheme: http
+      health_check:
+        active:
+          type: http
+          http_path: /health
+          interval: 10
+          timeout: 5
+          healthy:
+            successes: 2
+          unhealthy:
+            http_failures: 3
+    plugins:
+      limit-req:
+        rate: 500
+        burst: 100
+        key: remote_addr
+        rejected_code: 429
+      ip-restriction:
+        whitelist:
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+      prometheus:
+        prefer_name: true
+
+  # ─── Stripe webhook (IP-restricted to Stripe IPs) ────────────────────────────
+  - id: stripe-webhook
+    name: "Stripe Webhook"
+    uri: /api/stripe/webhook
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "portal-1:3000": 1
+        "portal-2:3000": 1
+    plugins:
+      ip-restriction:
+        # Stripe webhook IP ranges (as of 2025 — verify at https://stripe.com/docs/ips)
+        whitelist:
+          - "3.18.12.63"
+          - "3.130.192.231"
+          - "13.235.14.237"
+          - "13.235.122.149"
+          - "18.211.135.69"
+          - "35.154.171.200"
+          - "52.15.183.38"
+          - "54.88.130.119"
+          - "54.88.130.237"
+          - "54.187.174.169"
+          - "54.187.205.235"
+          - "54.187.216.72"
+      limit-req:
+        rate: 100
+        burst: 20
+        key: remote_addr
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+
+  # ─── NIBSS PTSP confirmation webhook ─────────────────────────────────────────
+  - id: nibss-webhook
+    name: "NIBSS PTSP Webhook"
+    uri: /v1/pos/settlement/confirm
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "bridge-1:8080": 1
+        "bridge-2:8080": 1
+    plugins:
+      limit-req:
+        rate: 50
+        burst: 10
+        key: remote_addr
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+
+  # ─── Health check (public) ────────────────────────────────────────────────────
+  - id: health
+    name: "Health Check"
+    uri: /health
+    methods: [GET]
+    upstream:
+      type: roundrobin
+      nodes:
+        "portal-1:3000": 1
+    plugins:
+      limit-req:
+        rate: 10
+        burst: 5
+        key: remote_addr
+        rejected_code: 429
+
+# ─── Global plugins ────────────────────────────────────────────────────────────
+global_rules:
+  - id: global-prometheus
+    plugins:
+      prometheus:
+        prefer_name: true
+
+  - id: global-security-headers
+    plugins:
+      response-rewrite:
+        headers:
+          set:
+            X-Content-Type-Options: "nosniff"
+            X-Frame-Options: "DENY"
+            X-XSS-Protection: "1; mode=block"
+            Referrer-Policy: "strict-origin-when-cross-origin"
+            Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"

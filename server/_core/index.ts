@@ -13,6 +13,8 @@ import { storagePut } from "../storage";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { startSlaEscalationScheduler } from "../slaEscalation";
+import { startWebhookRetryWorker } from "../webhookRetry";
+import { startIdempotencyCleanupWorker } from "../idempotencyCleanup";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -957,8 +959,10 @@ function validateEnv() {
   });
 }
 
-// ─── Background Schedulers ─────────────────────────────────────────────
+// ─── Background Schedulers ───────────────────────────────────────────────────────────────
 validateEnv();
 startSlaEscalationScheduler();
+startWebhookRetryWorker();         // Exponential backoff retry (7 attempts, 30s poll)
+startIdempotencyCleanupWorker();   // Purge expired idempotency keys every 6 hours
 
 startServer().catch(console.error);

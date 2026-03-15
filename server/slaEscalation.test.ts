@@ -9,9 +9,14 @@ vi.mock("./db", () => ({
   getDb: vi.fn(),
 }));
 
-// ─── Mock notifyOwner ──────────────────────────────────────────────────────────
+// ─── Mock notifyOwner ──────────────────────────────────────────────
 vi.mock("./_core/notification", () => ({
   notifyOwner: vi.fn().mockResolvedValue(true),
+}));
+
+// ─── Mock webhookDispatch ────────────────────────────────────────────
+vi.mock("./webhookDispatch", () => ({
+  dispatchSlaBreachWebhook: vi.fn().mockResolvedValue({ dispatched: 0, failed: 0 }),
 }));
 
 // ─── Mock drizzle-orm ─────────────────────────────────────────────────────────

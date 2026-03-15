@@ -1,0 +1,80 @@
+version: "3.9"
+
+# =============================================================================
+# PayGate TigerBeetle 3-Node Cluster
+# Usage: docker compose -f infra/tigerbeetle/docker-compose.yml up -d
+# =============================================================================
+
+x-tb-common: &tb-common
+  image: ghcr.io/tigerbeetle/tigerbeetle:latest
+  restart: unless-stopped
+  volumes:
+    - type: bind
+      source: ./data
+      target: /var/lib/tigerbeetle
+  environment:
+    TIGERBEETLE_CLUSTER_ID: "0"
+    TIGERBEETLE_DATA_SIZE: "8GB"
+    TIGERBEETLE_ADDRESSES: "tb-0:3902,tb-1:3902,tb-2:3902"
+  networks:
+    - tb-cluster
+
+services:
+  tb-0:
+    <<: *tb-common
+    container_name: paygate-tb-0
+    environment:
+      TIGERBEETLE_CLUSTER_ID: "0"
+      TIGERBEETLE_DATA_SIZE: "8GB"
+      TIGERBEETLE_ADDRESSES: "tb-0:3902,tb-1:3902,tb-2:3902"
+      NODE_INDEX: "0"
+    entrypoint: ["/bin/sh", "/setup/cluster-setup.sh"]
+    volumes:
+      - tb-data-0:/var/lib/tigerbeetle
+      - ./cluster-setup.sh:/setup/cluster-setup.sh:ro
+    ports:
+      - "3902:3902"
+    healthcheck:
+      test: ["CMD-SHELL", "tigerbeetle version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tb-1:
+    <<: *tb-common
+    container_name: paygate-tb-1
+    environment:
+      TIGERBEETLE_CLUSTER_ID: "0"
+      TIGERBEETLE_DATA_SIZE: "8GB"
+      TIGERBEETLE_ADDRESSES: "tb-0:3902,tb-1:3902,tb-2:3902"
+      NODE_INDEX: "1"
+    entrypoint: ["/bin/sh", "/setup/cluster-setup.sh"]
+    volumes:
+      - tb-data-1:/var/lib/tigerbeetle
+      - ./cluster-setup.sh:/setup/cluster-setup.sh:ro
+    ports:
+      - "3903:3902"
+
+  tb-2:
+    <<: *tb-common
+    container_name: paygate-tb-2
+    environment:
+      TIGERBEETLE_CLUSTER_ID: "0"
+      TIGERBEETLE_DATA_SIZE: "8GB"
+      TIGERBEETLE_ADDRESSES: "tb-0:3902,tb-1:3902,tb-2:3902"
+      NODE_INDEX: "2"
+    entrypoint: ["/bin/sh", "/setup/cluster-setup.sh"]
+    volumes:
+      - tb-data-2:/var/lib/tigerbeetle
+      - ./cluster-setup.sh:/setup/cluster-setup.sh:ro
+    ports:
+      - "3904:3902"
+
+volumes:
+  tb-data-0:
+  tb-data-1:
+  tb-data-2:
+
+networks:
+  tb-cluster:
+    driver: bridge

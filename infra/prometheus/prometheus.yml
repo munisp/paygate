@@ -1,0 +1,80 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+  external_labels:
+    environment: production
+    project: paygate
+
+rule_files:
+  - alert-rules.yaml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ─── PayGate Portal (Node.js) ─────────────────────────────────────────────
+  - job_name: paygate-portal
+    static_configs:
+      - targets: ["portal-1:3000", "portal-2:3000"]
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # ─── PayGate Go Bridge ────────────────────────────────────────────────────
+  - job_name: paygate-bridge
+    static_configs:
+      - targets: ["bridge-1:8080", "bridge-2:8080"]
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # ─── PostgreSQL (via postgres_exporter) ───────────────────────────────────
+  - job_name: postgresql
+    static_configs:
+      - targets: ["pg-exporter:9187"]
+    scrape_interval: 30s
+
+  # ─── Redis (via redis_exporter) ───────────────────────────────────────────
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    scrape_interval: 30s
+
+  # ─── Kafka (via kafka_exporter) ───────────────────────────────────────────
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+    scrape_interval: 30s
+
+  # ─── Python microservices ─────────────────────────────────────────────────
+  - job_name: paygate-fraud-scoring
+    static_configs:
+      - targets: ["fraud-scoring:8083"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: paygate-ussd-gateway
+    static_configs:
+      - targets: ["ussd-gateway:8095"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: paygate-payroll
+    static_configs:
+      - targets: ["payroll-service:8093"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # ─── APISIX ───────────────────────────────────────────────────────────────
+  - job_name: apisix
+    static_configs:
+      - targets: ["apisix:9091"]
+    metrics_path: /apisix/prometheus/metrics
+    scrape_interval: 15s
+
+  # ─── Temporal ─────────────────────────────────────────────────────────────
+  - job_name: temporal
+    static_configs:
+      - targets: ["temporal:8000"]
+    metrics_path: /metrics
+    scrape_interval: 30s

@@ -1,0 +1,181 @@
+groups:
+  - name: paygate.critical
+    interval: 30s
+    rules:
+      # ─── API availability ────────────────────────────────────────────────────
+      - alert: PayGateAPIDown
+        expr: up{job="paygate-portal"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PayGate portal is down"
+          description: "The PayGate portal has been unreachable for more than 1 minute."
+          runbook: "https://wiki.paygate.internal/runbooks/portal-down"
+
+      - alert: PayGateBridgeDown
+        expr: up{job="paygate-bridge"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PayGate Go bridge is down"
+          description: "The PayGate Go bridge has been unreachable for more than 1 minute."
+          runbook: "https://wiki.paygate.internal/runbooks/bridge-down"
+
+      # ─── Error rate ──────────────────────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(paygate_http_request_duration_seconds_count{status_code=~"5.."}[5m])
+            /
+            rate(paygate_http_request_duration_seconds_count[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High HTTP 5xx error rate (>5%)"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # ─── tRPC error rate ─────────────────────────────────────────────────────
+      - alert: HighTRPCErrorRate
+        expr: |
+          (
+            rate(paygate_trpc_calls_total{status="error"}[5m])
+            /
+            rate(paygate_trpc_calls_total[5m])
+          ) > 0.02
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High tRPC error rate (>2%)"
+          description: "tRPC error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # ─── Latency ─────────────────────────────────────────────────────────────
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            rate(paygate_http_request_duration_seconds_bucket[5m])
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "P99 latency exceeds 2s"
+          description: "P99 request latency is {{ $value | humanizeDuration }} over the last 5 minutes."
+
+      # ─── Database ────────────────────────────────────────────────────────────
+      - alert: HighDBQueryLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(paygate_db_query_duration_seconds_bucket[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "P95 DB query latency exceeds 500ms"
+          description: "P95 database query latency is {{ $value | humanizeDuration }}."
+
+      - alert: DBConnectionPoolExhausted
+        expr: |
+          pg_stat_activity_count{state="idle in transaction"}
+          / pg_settings_max_connections > 0.8
+        for: 2m
+        labels:
+          severity: critical
+          team: dba
+        annotations:
+          summary: "Database connection pool >80% utilised"
+          description: "{{ $value | humanizePercentage }} of max_connections are in use."
+
+      # ─── TigerBeetle ─────────────────────────────────────────────────────────
+      - alert: TigerBeetleUnreachable
+        expr: up{job="paygate-bridge"} == 1 and paygate_tigerbeetle_connected == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "TigerBeetle cluster unreachable from bridge"
+          description: "The Go bridge cannot reach TigerBeetle. Wallet operations will fail."
+
+      # ─── Settlement SLA ──────────────────────────────────────────────────────
+      - alert: SettlementSLABreach
+        expr: paygate_settlements_sla_breached_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: finance
+        annotations:
+          summary: "Settlement SLA breached"
+          description: "{{ $value }} settlement(s) have breached the 2-hour SLA."
+
+      # ─── Fraud ───────────────────────────────────────────────────────────────
+      - alert: HighFraudAlertRate
+        expr: |
+          rate(paygate_fraud_alerts_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: risk
+        annotations:
+          summary: "High fraud alert rate (>10/15min)"
+          description: "{{ $value | humanize }} fraud alerts generated in the last 15 minutes."
+
+      # ─── Memory ──────────────────────────────────────────────────────────────
+      - alert: HighMemoryUsage
+        expr: |
+          paygate_node_process_resident_memory_bytes
+          / paygate_node_process_heap_size_total_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Node.js heap usage >90%"
+          description: "Heap utilisation is {{ $value | humanizePercentage }}. Consider scaling."
+
+      # ─── Event loop lag ──────────────────────────────────────────────────────
+      - alert: HighEventLoopLag
+        expr: paygate_node_eventloop_lag_seconds > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Node.js event loop lag >100ms"
+          description: "Event loop lag is {{ $value | humanizeDuration }}. CPU-bound work may be blocking."
+
+      # ─── Kafka consumer lag ──────────────────────────────────────────────────
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_group_lag{group="paygate-lakehouse-sink"} > 10000
+        for: 10m
+        labels:
+          severity: warning
+          team: data
+        annotations:
+          summary: "Kafka consumer lag >10k messages"
+          description: "Consumer group {{ $labels.group }} is {{ $value }} messages behind."
+
+  - name: paygate.info
+    interval: 60s
+    rules:
+      # ─── Stripe mode ─────────────────────────────────────────────────────────
+      - alert: StripeTestModeInProduction
+        expr: paygate_stripe_test_mode == 1
+        for: 0m
+        labels:
+          severity: info
+          team: finance
+        annotations:
+          summary: "Stripe is in test mode"
+          description: "The portal is using Stripe test keys. Switch to live keys before processing real payments."
