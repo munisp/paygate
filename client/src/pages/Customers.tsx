@@ -205,14 +205,33 @@ function AddCustomerDialog({
   );
 }
 
+const LOYALTY_TIERS = [
+  { name: "Platinum", min: 10000, color: "bg-purple-100 text-purple-700" },
+  { name: "Gold",     min: 5000,  color: "bg-yellow-100 text-yellow-700" },
+  { name: "Silver",  min: 1000,  color: "bg-slate-100 text-slate-700" },
+  { name: "Bronze",  min: 0,     color: "bg-orange-100 text-orange-700" },
+];
+
+function getLoyaltyTier(points: number) {
+  return LOYALTY_TIERS.find(t => points >= t.min) ?? LOYALTY_TIERS[LOYALTY_TIERS.length - 1];
+}
+
 function CustomerDrawer({ customerId, onClose }: { customerId: string | null; onClose: () => void }) {
   const { data, isLoading } = trpc.customers.get.useQuery(
     { id: customerId! },
     { enabled: !!customerId, staleTime: 30_000 }
   );
 
+  const numericId = customerId ? parseInt(customerId, 10) : null;
+  const { data: loyaltyData, isLoading: loyaltyLoading } = trpc.restaurant.getLoyaltyBalance.useQuery(
+    { customerId: numericId! },
+    { enabled: !!numericId && !isNaN(numericId!), staleTime: 60_000, retry: false }
+  );
+
   const customer = data?.customer;
   const txs = data?.recentTransactions ?? [];
+  const loyaltyPoints = loyaltyData?.points_balance ?? null;
+  const loyaltyTier = loyaltyPoints !== null ? getLoyaltyTier(loyaltyPoints) : null;
 
   return (
     <Sheet open={!!customerId} onOpenChange={(open) => !open && onClose()}>
@@ -281,6 +300,60 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
                   <p className="font-semibold text-foreground">₦{(customer.totalSpend / 100).toLocaleString()}</p>
                 </div>
               </div>
+            </div>
+
+            <Separator />
+
+            {/* Loyalty Balance Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Loyalty</p>
+                {loyaltyTier && (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${loyaltyTier.color}`}>
+                    {loyaltyTier.name}
+                  </span>
+                )}
+              </div>
+              {loyaltyLoading ? (
+                <Skeleton className="h-16 w-full" />
+              ) : loyaltyPoints !== null ? (
+                <div className="bg-muted/40 rounded-lg p-3">
+                  <div className="flex items-end justify-between mb-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-0.5">Points Balance</p>
+                      <p className="text-2xl font-bold text-foreground">{loyaltyPoints.toLocaleString()}</p>
+                    </div>
+                    {loyaltyData && (
+                      <div className="text-right text-xs text-muted-foreground">
+                        <p>Earned: {loyaltyData.lifetime_earned.toLocaleString()}</p>
+                        <p>Redeemed: {loyaltyData.lifetime_redeemed.toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                  {/* Progress bar toward next tier */}
+                  {loyaltyTier && (() => {
+                    const nextTierIdx = LOYALTY_TIERS.findIndex(t => t.name === loyaltyTier.name) - 1;
+                    const nextTier = nextTierIdx >= 0 ? LOYALTY_TIERS[nextTierIdx] : null;
+                    if (!nextTier) return <p className="text-xs text-purple-600 font-medium">Max tier reached</p>;
+                    const progress = Math.min(100, ((loyaltyPoints - loyaltyTier.min) / (nextTier.min - loyaltyTier.min)) * 100);
+                    return (
+                      <div>
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                          <span>{loyaltyTier.name}</span>
+                          <span>{(nextTier.min - loyaltyPoints).toLocaleString()} pts to {nextTier.name}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-1.5">
+                          <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-sm text-muted-foreground bg-muted/30 rounded-lg">
+                  Loyalty service unavailable
+                </div>
+              )}
             </div>
 
             <Separator />

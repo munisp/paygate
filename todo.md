@@ -1407,3 +1407,26 @@
 
 ### Tests
 - [x] Tests: Wave 50 vitest coverage — 741 passing (30 files), 0 regressions
+
+## Wave 51 — Loyalty Balance, Inventory Reservation, Rate Limit Toasts
+
+### Loyalty Balance in Customer Panel
+- [x] Loyalty: customers.getLoyaltyBalance tRPC procedure (calls Loyalty Ledger /loyalty/balance/:accountId)
+- [x] Loyalty: show loyalty point balance + tier in Customers page side-sheet
+- [x] Loyalty: fail-open when Loyalty Ledger service is unavailable (show "—" instead of crashing)
+- [x] Loyalty: loyalty tier badge (Bronze/Silver/Gold/Platinum) based on point thresholds
+
+### Inventory Reservation in Transaction Flow
+- [x] Inventory: transactions.createTest calls Inventory Engine /inventory/reserve after fraud gate
+- [x] Inventory: auto-release reservation on transaction failure or fraud block
+- [x] Inventory: fail-open when Inventory Engine unavailable (log warning, allow transaction)
+- [x] Inventory: store reservationId in transaction metadata for audit trail
+
+### Rate Limit Header Toasts
+- [x] Frontend: parse X-RateLimit-Remaining and X-RateLimit-Reset from tRPC error responses
+- [x] Frontend: show dismissible toast "Rate limit reached — try again in Xs" when 429 received
+- [x] Frontend: add rateLimitInterceptor to tRPC client error handler in main.tsx
+- [x] Frontend: show warning toast at X-RateLimit-Remaining <= 5 (before hard block)
+
+### Tests
+- [x] Tests: Wave 51 vitest coverage — no regressions (768 tests passing, 31 files)

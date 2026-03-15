@@ -98,6 +98,7 @@ import {
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
+  rustReserveInventory, rustReleaseInventory,
   pythonRunPayroll, pythonGetPayrollHistory, pythonGetPayrollStub, pythonScoreTransaction,
   pythonGetKioskHealth, pythonGetKioskAnomaly, pythonHandleUSSD, pythonGetUSSDBalance,
   checkAllMicroservices,
@@ -352,25 +353,71 @@ const transactionsRouter = router({
         });
       }
 
+      // ── Inventory Reservation Gate ─────────────────────────────────────────
+      // Attempt to reserve inventory for any items attached to this transaction.
+      // Fail-open: if the Inventory Engine is unavailable, we continue without
+      // reservation so that card-not-present flows are not blocked by infra.
+      // Auto-release on any downstream failure.
+      const txnRef = "TEST_" + txnId;
+      let inventoryReservationId: string | null = null;
+      const inventoryItems = (input as any).inventoryItems as Array<{ item_id: string; quantity: number }> | undefined;
+      if (inventoryItems && inventoryItems.length > 0) {
+        try {
+          const reserveResult = await rustReserveInventory({
+            merchant_id: merchant.id,
+            transaction_ref: txnRef,
+            items: inventoryItems,
+          });
+          if (reserveResult && reserveResult.all_reserved) {
+            inventoryReservationId = reserveResult.reservation_id;
+          } else if (reserveResult && !reserveResult.all_reserved) {
+            // Partial reservation — release and block transaction
+            if (reserveResult.reservation_id) {
+              rustReleaseInventory(reserveResult.reservation_id).catch(() => {});
+            }
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `Insufficient inventory for one or more items. Reservation failed.`,
+            });
+          }
+        } catch (e) {
+          if ((e as any)?.code === "CONFLICT") throw e;
+          // Inventory Engine unavailable — fail-open, log warning
+          console.warn("[inventory] reservation service unavailable (fail-open):", (e as Error).message);
+        }
+      }
+
       const execute = async () => {
         const feeAmount = Math.round(input.amount * 0.015);
-        const tx = await createTransaction({
-          id: txnId,
-          merchantId: merchant.id,
-          tenantId: merchant.tenantId ?? "ten_default",
-          reference: "TEST_" + nanoid(),
-          amount: input.amount,
-          currency: input.currency,
-          status: "completed",
-          channel: input.channel as any,
-          customerEmail: input.customerEmail,
-          customerName: input.customerName,
-          description: input.description,
-          feeAmount,
-          netAmount: input.amount - feeAmount,
-          completedAt: new Date(),
-          metadata: fraudResult ? { fraudScore: fraudResult.risk_score, fraudLevel: fraudResult.risk_level } : undefined,
-        });
+        let tx;
+        try {
+          tx = await createTransaction({
+            id: txnId,
+            merchantId: merchant.id,
+            tenantId: merchant.tenantId ?? "ten_default",
+            reference: txnRef,
+            amount: input.amount,
+            currency: input.currency,
+            status: "completed",
+            channel: input.channel as any,
+            customerEmail: input.customerEmail,
+            customerName: input.customerName,
+            description: input.description,
+            feeAmount,
+            netAmount: input.amount - feeAmount,
+            completedAt: new Date(),
+            metadata: {
+              ...(fraudResult ? { fraudScore: fraudResult.risk_score, fraudLevel: fraudResult.risk_level } : {}),
+              ...(inventoryReservationId ? { inventoryReservationId } : {}),
+            },
+          });
+        } catch (err) {
+          // Transaction creation failed — release any held inventory reservation
+          if (inventoryReservationId) {
+            rustReleaseInventory(inventoryReservationId).catch(() => {});
+          }
+          throw err;
+        }
         // If high risk (but not critical), create a fraud alert for review
         if (fraudResult?.risk_level === "high" && tx) {
           createFraudAlert({

@@ -221,6 +221,33 @@ export async function pythonGetUSSDBalance(msisdn: string, merchantId: string): 
   return svcFetch(`${ENV.ussdGatewayUrl}/ussd/balance/${merchantId}/${msisdn}`);
 }
 
+// ─── Inventory Reservation ──────────────────────────────────────────────────
+export interface RustReservationResult {
+  reservation_id: string;
+  merchant_id: string;
+  transaction_ref: string;
+  items: Array<{ item_id: string; quantity: number; reserved: boolean }>;
+  all_reserved: boolean;
+}
+
+export async function rustReserveInventory(payload: {
+  merchant_id: string;
+  transaction_ref: string;
+  items: Array<{ item_id: string; quantity: number }>;
+}): Promise<RustReservationResult | null> {
+  return svcFetch<RustReservationResult>(`${ENV.inventoryEngineUrl}/inventory/reserve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function rustReleaseInventory(reservationId: string): Promise<{ ok: boolean } | null> {
+  return svcFetch<{ ok: boolean }>(`${ENV.inventoryEngineUrl}/inventory/release`, {
+    method: "POST",
+    body: JSON.stringify({ reservation_id: reservationId }),
+  });
+}
+
 // ─── Health check for all microservices ─────────────────────────────────────
 export async function checkAllMicroservices(): Promise<Record<string, "ok" | "down">> {
   const checks = await Promise.allSettled([
