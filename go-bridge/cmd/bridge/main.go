@@ -23,8 +23,12 @@ import (
 	"syscall"
 	"time"
 
-	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/handlers"
+	"github.com/paygate/go-bridge/internal/kafka"
+	"github.com/paygate/go-bridge/internal/permify"
+	"github.com/paygate/go-bridge/internal/redis"
+	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
 )
 
 func main() {
@@ -54,6 +58,22 @@ func main() {
 	defer tb.Close()
 	slog.Info("TigerBeetle client ready", "address", tbAddress)
 
+	// Redis init
+	redis.Init()
+	slog.Info("Redis client initialised")
+
+	// Kafka init
+	kafka.GetProducer()
+	slog.Info("Kafka producer initialised")
+
+	// Fluvio init
+	fluvio.Init()
+	slog.Info("Fluvio producer initialised")
+
+	// Permify init
+	permify.Init()
+	slog.Info("Permify client initialised")
+
 	// ── HTTP router ──────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
@@ -71,8 +91,61 @@ func main() {
 
 	// Settlement operations
 	mux.HandleFunc("POST /v1/settlements/trigger", authMiddleware(handlers.TriggerSettlement))
-	// NIBSS PTSP batch confirmation webhook (HMAC-verified, no auth middleware — uses X-NIBSS-Signature)
+	// NIBSS PTSP batch confirmation webhook (HMAC-verified, no auth middleware)
 	mux.HandleFunc("POST /v1/pos/settlement/confirm", handlers.PTSPConfirmationWebhook)
+
+	// Transaction operations
+	mux.HandleFunc("POST /v1/transactions/record", authMiddleware(handlers.RecordTransaction))
+	mux.HandleFunc("POST /v1/transactions/refund", authMiddleware(handlers.RefundTransaction))
+
+	// Dispute operations
+	mux.HandleFunc("POST /v1/disputes/submit", authMiddleware(handlers.SubmitDispute))
+	mux.HandleFunc("POST /v1/disputes/resolve", authMiddleware(handlers.ResolveDispute))
+
+	// FX operations
+	mux.HandleFunc("POST /v1/fx/convert", authMiddleware(handlers.RecordFXConversion))
+
+	// Fraud operations
+	mux.HandleFunc("POST /v1/fraud/score", authMiddleware(handlers.ScoreFraud))
+	mux.HandleFunc("POST /v1/fraud/alerts/{id}/acknowledge", authMiddleware(handlers.AcknowledgeFraudAlert))
+
+	// KYC operations
+	mux.HandleFunc("POST /v1/kyc/start", authMiddleware(handlers.StartKYCWorkflow))
+	mux.HandleFunc("POST /v1/kyc/{id}/update-status", authMiddleware(handlers.UpdateKYCStatus))
+
+	// BNPL operations
+	mux.HandleFunc("POST /v1/bnpl/loans/create", authMiddleware(handlers.CreateBNPLLoan))
+	mux.HandleFunc("POST /v1/bnpl/loans/{id}/instalment", authMiddleware(handlers.ProcessBNPLInstalment))
+
+	// Virtual card operations
+	mux.HandleFunc("POST /v1/virtual-cards/issue", authMiddleware(handlers.IssueVirtualCard))
+	mux.HandleFunc("POST /v1/virtual-cards/{id}/freeze", authMiddleware(handlers.FreezeVirtualCard))
+	mux.HandleFunc("POST /v1/virtual-cards/{id}/unfreeze", authMiddleware(handlers.UnfreezeVirtualCard))
+	mux.HandleFunc("POST /v1/virtual-cards/{id}/terminate", authMiddleware(handlers.TerminateVirtualCard))
+
+	// Payment link operations
+	mux.HandleFunc("POST /v1/payment-links/create", authMiddleware(handlers.CreatePaymentLink))
+
+	// Webhook delivery operations
+	mux.HandleFunc("POST /v1/webhooks/deliver", authMiddleware(handlers.DeliverWebhook))
+	mux.HandleFunc("POST /v1/webhooks/deliveries/{id}/retry", authMiddleware(handlers.RetryWebhookDelivery))
+
+	// Mobile money reconciliation
+	mux.HandleFunc("POST /v1/mobile-money/reconcile", authMiddleware(handlers.ReconcileMoMo))
+
+	// Auth / role sync
+	mux.HandleFunc("POST /v1/auth/sync-roles", authMiddleware(handlers.SyncRolesToPermify))
+
+	// Temporal workflow observability
+	mux.HandleFunc("GET /v1/workflows/active", authMiddleware(handlers.ListActiveWorkflows))
+	mux.HandleFunc("GET /v1/workflows/{id}/status", authMiddleware(handlers.GetWorkflowStatus))
+	mux.HandleFunc("POST /v1/workflows/{id}/terminate", authMiddleware(handlers.TerminateWorkflow))
+
+	// Notifications
+	mux.HandleFunc("POST /v1/notifications/payout-approval-email", authMiddleware(handlers.SendPayoutApprovalEmail))
+
+	// NIP / NIBSS name enquiry
+	mux.HandleFunc("POST /v1/nibss/name-enquiry", authMiddleware(handlers.NIPNameEnquiry))
 
 	// ── Server ───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")

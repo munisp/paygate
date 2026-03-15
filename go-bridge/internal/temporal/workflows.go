@@ -9,12 +9,12 @@
 package temporal
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
@@ -349,67 +349,67 @@ func CrossBorderTransferWorkflow(ctx workflow.Context, input CrossBorderInput) e
 // These are registered with the worker and called by the workflows above.
 // Replace the log-only implementations with real business logic.
 
-func CheckPayoutThresholdActivity(ctx activity.Context, payoutID string) (bool, error) {
+func CheckPayoutThresholdActivity(ctx context.Context, payoutID string) (bool, error) {
 	slog.Info("[temporal:activity] CheckPayoutThreshold", "payout_id", payoutID)
 	return true, nil
 }
 
-func NotifyApproversActivity(ctx activity.Context, input PayoutApprovalInput) error {
+func NotifyApproversActivity(ctx context.Context, input PayoutApprovalInput) error {
 	slog.Info("[temporal:activity] NotifyApprovers", "payout_id", input.PayoutID, "approver", input.ApproverID)
 	return nil
 }
 
-func ExecutePayoutActivity(ctx activity.Context, payoutID string) error {
+func ExecutePayoutActivity(ctx context.Context, payoutID string) error {
 	slog.Info("[temporal:activity] ExecutePayout", "payout_id", payoutID)
 	return nil
 }
 
-func RejectPayoutActivity(ctx activity.Context, payoutID, reason string) error {
+func RejectPayoutActivity(ctx context.Context, payoutID, reason string) error {
 	slog.Info("[temporal:activity] RejectPayout", "payout_id", payoutID, "reason", reason)
 	return nil
 }
 
-func SubmitNIBSSBatchActivity(ctx activity.Context, input SettlementBatchInput) error {
+func SubmitNIBSSBatchActivity(ctx context.Context, input SettlementBatchInput) error {
 	slog.Info("[temporal:activity] SubmitNIBSSBatch", "settlement_id", input.SettlementID, "batch_ref", input.BatchRef)
 	return nil
 }
 
-func ConfirmNIBSSBatchActivity(ctx activity.Context, batchRef string) error {
+func ConfirmNIBSSBatchActivity(ctx context.Context, batchRef string) error {
 	slog.Info("[temporal:activity] ConfirmNIBSSBatch", "batch_ref", batchRef)
 	return nil
 }
 
-func UpdateSettlementStatusActivity(ctx activity.Context, settlementID, status string) error {
+func UpdateSettlementStatusActivity(ctx context.Context, settlementID, status string) error {
 	slog.Info("[temporal:activity] UpdateSettlementStatus", "settlement_id", settlementID, "status", status)
 	return nil
 }
 
-func ChargeSubscriptionActivity(ctx activity.Context, input SubscriptionChargeInput) error {
+func ChargeSubscriptionActivity(ctx context.Context, input SubscriptionChargeInput) error {
 	slog.Info("[temporal:activity] ChargeSubscription", "subscription_id", input.SubscriptionID)
 	return nil
 }
 
-func SendDunningEmailActivity(ctx activity.Context, input SubscriptionChargeInput, attempt int) error {
+func SendDunningEmailActivity(ctx context.Context, input SubscriptionChargeInput, attempt int) error {
 	slog.Info("[temporal:activity] SendDunningEmail", "subscription_id", input.SubscriptionID, "attempt", attempt)
 	return nil
 }
 
-func CancelSubscriptionActivity(ctx activity.Context, subscriptionID, reason string) error {
+func CancelSubscriptionActivity(ctx context.Context, subscriptionID, reason string) error {
 	slog.Info("[temporal:activity] CancelSubscription", "subscription_id", subscriptionID, "reason", reason)
 	return nil
 }
 
-func GetCrossBorderQuoteActivity(ctx activity.Context, input CrossBorderInput) (string, error) {
+func GetCrossBorderQuoteActivity(ctx context.Context, input CrossBorderInput) (string, error) {
 	slog.Info("[temporal:activity] GetCrossBorderQuote", "transfer_id", input.TransferID, "corridor", input.Corridor)
 	return "quote_" + input.TransferID, nil
 }
 
-func ExecuteMojalloopTransferActivity(ctx activity.Context, input CrossBorderInput) error {
+func ExecuteMojalloopTransferActivity(ctx context.Context, input CrossBorderInput) error {
 	slog.Info("[temporal:activity] ExecuteMojalloopTransfer", "transfer_id", input.TransferID, "quote_id", input.QuoteID)
 	return nil
 }
 
-func UpdateTransferStatusActivity(ctx activity.Context, transferID, status string) error {
+func UpdateTransferStatusActivity(ctx context.Context, transferID, status string) error {
 	slog.Info("[temporal:activity] UpdateTransferStatus", "transfer_id", transferID, "status", status)
 	return nil
 }

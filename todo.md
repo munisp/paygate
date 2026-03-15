@@ -1583,3 +1583,24 @@
 - [x] App.tsx: /restaurant/online-ordering route registered
 - [x] BNPL: listPlans, createPlan, togglePlan, sendReminder procedures
 - [x] Tests: 945 tests passing across 37 files, 0 regressions
+
+## Go Bridge — Full Handler Implementation (Wave 58)
+
+- [x] Implement transactions handler (RecordTransaction, RefundTransaction) with TigerBeetle ledger entries and Kafka events
+- [x] Implement disputes handler (SubmitDispute two-phase reserve, ResolveDispute won/lost/partial commit/void) with TigerBeetle
+- [x] Implement FX handler (RecordFXConversion) with dual-ledger TigerBeetle transfers and Kafka events
+- [x] Implement fraud handler (ScoreFraud, AcknowledgeFraudAlert) with Redis cache and Kafka publishing
+- [x] Implement KYC handler (StartKYCWorkflow, UpdateKYCStatus) with Temporal workflow start and Permify role sync
+- [x] Implement BNPL handler (CreateBNPLLoan, ProcessBNPLInstalment) with TigerBeetle principal reservation and instalment commits
+- [x] Implement virtual cards handler (IssueVirtualCard, FreezeVirtualCard, UnfreezeVirtualCard, TerminateVirtualCard) with TigerBeetle spending limit reservation
+- [x] Implement payment links handler (CreatePaymentLink) with Kafka publishing
+- [x] Implement webhooks handler (DeliverWebhook, RetryWebhookDelivery) with Redis state and Kafka events
+- [x] Implement mobile money handler (ReconcileMoMo) with TigerBeetle reconciliation entries
+- [x] Implement auth handler (SyncRolesToPermify) with Permify role sync
+- [x] Implement workflow observability handlers (ListActiveWorkflows, GetWorkflowStatus, TerminateWorkflow) with Temporal client
+- [x] Implement notifications handler (SendPayoutApprovalEmail) with SMTP integration
+- [x] Implement NIP/NIBSS name enquiry handler with Redis 24h cache
+- [x] Add Redis idempotency client (CheckAndSetIdempotency, GetJSON, SetJSON, GetString, Del)
+- [x] Register all 14 new routes in main.go with auth middleware
+- [x] Write 47 Go handler tests — all passing
+- [x] TypeScript test suite: 945 tests passing (37 files, 0 failures)
