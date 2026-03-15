@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Plus, Trash2, ToggleLeft, ToggleRight,
   Globe, CreditCard, Smartphone, Clock, ArrowUpRight,
   ArrowUpDown, ArrowUp, ArrowDown, X, ExternalLink, Signal,
-  CheckSquare, Square, CheckCheck
+  CheckSquare, Square, CheckCheck, Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -834,6 +834,35 @@ export default function FraudRisk() {
                   onClick={() => bulkUpdateAlerts.mutate({ ids: Array.from(selectedBulkIds), status: "resolved" })}
                 >
                   <CheckCircle2 className="w-3 h-3 mr-1" /> Mark as Resolved
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  className="h-7 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
+                  onClick={() => {
+                    const selected = sortedDbAlerts.filter(a => selectedBulkIds.has(a.id));
+                    const header = "id,alertType,riskScore,riskLevel,signals,status,createdAt";
+                    const rows = selected.map(a => [
+                      a.id,
+                      a.alertType ?? "",
+                      a.riskScore ?? "",
+                      (a as any).riskLevel ?? "",
+                      JSON.stringify((a as any).signals ?? (a.metadata as any)?.signals ?? []).replace(/,/g, ";"),
+                      a.status ?? "",
+                      new Date(a.createdAt).toISOString(),
+                    ].join(","));
+                    const csv = [header, ...rows].join("\n");
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    const dateStr = new Date().toISOString().slice(0, 10);
+                    a.href = url;
+                    a.download = `fraud-alerts-${dateStr}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast.success(`Exported ${selected.length} alert${selected.length !== 1 ? "s" : ""} to CSV`);
+                  }}
+                >
+                  <Download className="w-3 h-3 mr-1" /> Download CSV
                 </Button>
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedBulkIds(new Set())}>
                   <X className="w-3 h-3" />

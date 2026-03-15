@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, UserPlus, Download, X, CreditCard, ArrowUpRight, Phone, Mail, Calendar } from "lucide-react";
+import { Search, UserPlus, Download, X, CreditCard, ArrowUpRight, Phone, Mail, Calendar, TrendingUp, TrendingDown, Clock, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -216,7 +216,16 @@ function getLoyaltyTier(points: number) {
   return LOYALTY_TIERS.find(t => points >= t.min) ?? LOYALTY_TIERS[LOYALTY_TIERS.length - 1];
 }
 
+const LOYALTY_EVENT_ICONS: Record<string, React.ReactNode> = {
+  earn:   <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />,
+  redeem: <TrendingDown className="w-3.5 h-3.5 text-amber-600" />,
+  expire: <Clock className="w-3.5 h-3.5 text-red-500" />,
+  adjust: <Gift className="w-3.5 h-3.5 text-blue-500" />,
+};
+
 function CustomerDrawer({ customerId, onClose }: { customerId: string | null; onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<"overview" | "history">("overview");
+
   const { data, isLoading } = trpc.customers.get.useQuery(
     { id: customerId! },
     { enabled: !!customerId, staleTime: 30_000 }
@@ -226,6 +235,12 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
   const { data: loyaltyData, isLoading: loyaltyLoading } = trpc.restaurant.getLoyaltyBalance.useQuery(
     { customerId: numericId! },
     { enabled: !!numericId && !isNaN(numericId!), staleTime: 60_000, retry: false }
+  );
+
+  // Points history — uses the new customers.getLoyaltyHistory procedure
+  const { data: loyaltyHistory, isLoading: historyLoading } = trpc.customers.getLoyaltyHistory.useQuery(
+    { customerId: customerId! },
+    { enabled: !!customerId && activeTab === "history", staleTime: 60_000, retry: false }
   );
 
   const customer = data?.customer;
@@ -243,12 +258,74 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
           </Button>
         </SheetHeader>
 
+        {/* Tab navigation */}
+        <div className="flex gap-1 mb-4 border-b border-border">
+          {(["overview", "history"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
+                activeTab === tab
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab === "history" ? "Points History" : "Overview"}
+            </button>
+          ))}
+        </div>
+
         {isLoading ? (
           <div className="space-y-4">
             {Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
           </div>
         ) : !customer ? (
           <div className="text-center py-12 text-muted-foreground">Customer not found</div>
+        ) : activeTab === "history" ? (
+          /* ── Points History Tab ─────────────────────────────────────────── */
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Loyalty Transaction History</p>
+            {historyLoading ? (
+              <div className="space-y-2">
+                {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+              </div>
+            ) : !loyaltyHistory || loyaltyHistory.length === 0 ? (
+              <div className="text-center py-12 bg-muted/30 rounded-lg">
+                <Gift className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No loyalty history yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Points will appear here after transactions</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {loyaltyHistory.map((event: any, idx: number) => {
+                  const isEarn = event.transaction_type === "earn" || event.points_delta > 0;
+                  const isRedeem = event.transaction_type === "redeem";
+                  const isExpire = event.transaction_type === "expire";
+                  const delta = event.points_delta ?? event.points ?? 0;
+                  const deltaSign = delta > 0 ? "+" : "";
+                  return (
+                    <div key={event.id ?? idx} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                        isEarn ? "bg-emerald-100" : isRedeem ? "bg-amber-100" : isExpire ? "bg-red-100" : "bg-blue-100"
+                      }`}>
+                        {LOYALTY_EVENT_ICONS[event.transaction_type] ?? <Gift className="w-3.5 h-3.5 text-blue-500" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground capitalize">{(event.transaction_type ?? "adjust").replace(/_/g, " ")}</p>
+                        {event.order_id && <p className="text-xs text-muted-foreground truncate">Order: {event.order_id}</p>}
+                        <p className="text-xs text-muted-foreground">{event.created_at ? new Date(event.created_at).toLocaleString() : "—"}</p>
+                      </div>
+                      <span className={`text-sm font-semibold tabular-nums ${
+                        isEarn ? "text-emerald-600" : isRedeem || isExpire ? "text-red-600" : "text-blue-600"
+                      }`}>
+                        {deltaSign}{Math.abs(delta).toLocaleString()} pts
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         ) : (
           <div className="space-y-6">
             <div className="flex items-start gap-4">

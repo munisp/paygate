@@ -608,6 +608,17 @@ const customersRouter = router({
       const tier = pts >= 10000 ? "platinum" : pts >= 5000 ? "gold" : pts >= 1000 ? "silver" : "bronze";
       return { ...balance, balance: pts, tier };
     }),
+
+  // Returns loyalty transaction history for a customer.
+  // Calls the Rust Loyalty Ledger; falls back to local DB; fails-open (returns []) when unavailable.
+  getLoyaltyHistory: protectedProcedure
+    .input(z.object({ customerId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const history = await rustGetLoyaltyHistory(merchant.id, input.customerId);
+      return history ?? [];
+    }),
 });
 
 // ─── Payouts Router ───────────────────────────────────────────────────────────

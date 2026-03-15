@@ -16,6 +16,7 @@ import { getDb } from "./db";
 import { transactions } from "../drizzle/schema";
 import { and, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { rustReleaseInventory } from "./microservices";
+import { notifyOwner } from "./_core/notification";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
 const EXPIRY_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
@@ -74,6 +75,14 @@ export function startReservationExpiryWorker(): void {
               updatedAt: new Date(),
             })
             .where(eq(transactions.id, row.id));
+
+          // Notify owner — fire-and-forget, never blocks expiry processing
+          const amountKobo = (meta.amount ?? 0) as number;
+          const amountNaira = (amountKobo / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" });
+          notifyOwner({
+            title: "Inventory reservation expired",
+            content: `Reservation ${reservationId} for transaction ${row.id} (${amountNaira}) has expired and been released. Check the transaction for details.`,
+          }).catch((e: Error) => console.warn("[reservationExpiry] notifyOwner failed (non-fatal):", e.message));
         })
       );
     } catch (err) {

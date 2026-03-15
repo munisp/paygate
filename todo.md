@@ -1477,3 +1477,27 @@
 
 ### Tests
 - [x] Tests: Wave 53 vitest coverage — 838 tests passing, 33 files, 0 regressions
+
+## Wave 54 — Loyalty History Tab, Fraud CSV Export, Expiry Notifications
+
+### Loyalty Points History Tab
+- [x] Customers: customers.getLoyaltyHistory tRPC procedure (calls rustGetLoyaltyHistory, returns timeline of earn/redeem/expire events)
+- [x] Customers: "Points History" tab added to Customer side-sheet alongside existing tabs
+- [x] Customers: timeline shows event type icon, points delta, order ID, and timestamp
+- [x] Customers: empty state when no loyalty history available
+- [x] Customers: fail-open when Loyalty Ledger unavailable (show empty state, no crash)
+
+### Bulk Fraud Alert CSV Export
+- [x] FraudRisk: "Download CSV" button in bulk action toolbar (only visible when ≥1 row selected)
+- [x] FraudRisk: CSV includes columns: id, alertType, riskScore, riskLevel, signals, status, createdAt
+- [x] FraudRisk: CSV filename includes date stamp (fraud-alerts-{date}.csv)
+- [x] FraudRisk: export is client-side (no server round-trip needed — data already in memory)
+
+### Reservation Expiry Owner Notifications
+- [x] Server: reservationExpiryWorker calls notifyOwner for each expired reservation
+- [x] Server: notification title: "Inventory reservation expired"
+- [x] Server: notification body includes transaction reference, amount, and reservation ID
+- [x] Server: notification is fire-and-forget (fail-open — never blocks expiry processing)
+
+### Tests
+- [x] Tests: Wave 54 vitest coverage — 860 tests passing, 34 files, 0 regressions
