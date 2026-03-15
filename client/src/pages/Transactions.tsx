@@ -163,6 +163,24 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               );
             })()}
 
+            {/* Retry count badge — shown when retryCount >= 1 */}
+            {(() => {
+              const meta = (tx.metadata ?? {}) as Record<string, any>;
+              const retryCount = typeof meta.retryCount === "number" ? meta.retryCount : 0;
+              if (retryCount < 1) return null;
+              return (
+                <div className="flex items-center justify-between py-1.5 border-t border-border pt-3">
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
+                    Retry History
+                  </div>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-50 text-amber-700 border-amber-200">
+                    Retried ×{retryCount}
+                  </span>
+                </div>
+              );
+            })()}
+
             {/* Retry button — only for failed transactions */}
             {tx.status === 'failed' && (
               <Button
@@ -170,14 +188,19 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                 size="sm"
                 className="w-full mt-2 border-blue-200 text-blue-600 hover:bg-blue-50"
                 disabled={retryMutation.isPending}
-                onClick={() => retryMutation.mutate({
-                  amount: Number(tx.amount),
-                  currency: tx.currency ?? "NGN",
-                  customerEmail: tx.customerEmail ?? undefined,
-                  customerName: tx.customerName ?? undefined,
-                  description: tx.description ?? undefined,
-                  channel: tx.channel ?? "card",
-                })}
+                onClick={() => {
+                  const meta = (tx.metadata ?? {}) as Record<string, any>;
+                  const currentRetryCount = typeof meta.retryCount === "number" ? meta.retryCount : 0;
+                  retryMutation.mutate({
+                    amount: Number(tx.amount),
+                    currency: tx.currency ?? "NGN",
+                    customerEmail: tx.customerEmail ?? undefined,
+                    customerName: tx.customerName ?? undefined,
+                    description: tx.description ?? undefined,
+                    channel: tx.channel ?? "card",
+                    retryCount: currentRetryCount + 1,
+                  });
+                }}
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
                 {retryMutation.isPending ? "Retrying…" : "Retry Transaction"}

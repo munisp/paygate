@@ -312,6 +312,7 @@ const transactionsRouter = router({
       channel: z.string().default("card"),
       idempotencyKey: z.string().min(8).optional(),
       redeemPoints: z.number().min(0).optional(),   // loyalty points to redeem (reduces charged amount)
+      retryCount: z.number().min(0).optional(),      // incremented on each retry for audit trail
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);

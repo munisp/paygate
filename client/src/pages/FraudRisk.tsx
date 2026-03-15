@@ -136,7 +136,18 @@ export default function FraudRisk() {
   });
   const [dbSortField, setDbSortField] = useState<DbSortField>("riskScore");
   const [dbSortDir, setDbSortDir] = useState<DbSortDir>("desc");
-  const [dbStatusFilter, setDbStatusFilter] = useState<string>("all");
+  const [dbStatusFilter, setDbStatusFilter] = useState<string>(() => {
+    try { return localStorage.getItem("fraudRisk.statusFilter") ?? "all"; }
+    catch { return "all"; }
+  });
+
+  // Persist filter to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      if (dbStatusFilter === "all") localStorage.removeItem("fraudRisk.statusFilter");
+      else localStorage.setItem("fraudRisk.statusFilter", dbStatusFilter);
+    } catch { /* ignore */ }
+  }, [dbStatusFilter]);
   const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
 
@@ -183,6 +194,24 @@ export default function FraudRisk() {
     return dbSortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1 text-primary" /> : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
   }
 
+  // ── Avatar helpers ─────────────────────────────────────────────────────────
+  function getInitials(name: string): string {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  const AVATAR_COLORS = [
+    "bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500",
+    "bg-rose-500", "bg-cyan-500", "bg-orange-500", "bg-teal-500",
+  ];
+
+  function getAvatarColor(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffffffff;
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  }
+
   // ── Comment Thread Component ─────────────────────────────────────────────
   function CommentThread({ alertId }: { alertId: string }) {
     const [commentBody, setCommentBody] = useState("");
@@ -219,11 +248,19 @@ export default function FraudRisk() {
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {comments.map((c: any) => (
               <div key={c.id} className="p-2.5 rounded-lg bg-muted/40 border border-border">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-foreground">{c.authorName}</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 ${getAvatarColor(c.authorName)}`}
+                      title={c.authorName}
+                    >
+                      {getInitials(c.authorName)}
+                    </div>
+                    <span className="text-xs font-semibold text-foreground">{c.authorName}</span>
+                  </div>
                   <span className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
                 </div>
-                <p className="text-sm text-foreground leading-relaxed">{c.body}</p>
+                <p className="text-sm text-foreground leading-relaxed pl-9">{c.body}</p>
               </div>
             ))}
           </div>

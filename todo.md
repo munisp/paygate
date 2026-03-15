@@ -1529,3 +1529,23 @@
 
 ### Tests
 - [x] Tests: Wave 55 vitest coverage — 883 tests passing, 35 files, 0 regressions
+
+## Wave 56 — Comment Avatars, Filter Persistence, Retry Count Badge
+
+### Comment Author Avatars
+- [x] FraudRisk: initials-based avatar chip next to each comment (2-letter initials from authorName)
+- [x] FraudRisk: avatar uses a deterministic color based on author name (consistent per author)
+- [x] FraudRisk: avatar chip is circular, 28px, with white initials on colored background
+
+### Fraud Alert Filter Persistence
+- [x] FraudRisk: active status filter (All / Active / Resolved / False Positive) saved to localStorage key "fraudRisk.statusFilter"
+- [x] FraudRisk: filter restored from localStorage on component mount
+- [x] FraudRisk: filter cleared from localStorage when user explicitly selects "All"
+
+### Retry Count Badge
+- [x] Transactions: createTest input accepts optional retryCount field (incremented by UI on each retry)
+- [x] Transactions: Transaction Detail dialog shows "Retried ×N" amber badge when metadata.retryCount >= 1
+- [x] Transactions: retry button passes currentRetryCount + 1 to createTest for audit trail
+
+### Tests
+- [x] Tests: Wave 56 vitest coverage — 912 tests passing, 36 files, 0 regressions
