@@ -25,9 +25,11 @@ package temporal
 // reference, so we also expose package-level aliases for backward compatibility.
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/smtp"
 	"os"
 	"time"
@@ -515,3 +517,133 @@ func (a *ActivitySet) UpdateTransferStatus(ctx context.Context, transferID, stat
 }
 
 // DisputeResolutionInput is defined in workflows.go (shared input types).
+
+// ─── PollNIBSSBatchStatus ─────────────────────────────────────────────────────
+// PollNIBSSBatchStatus polls the NIBSS gateway every 30 seconds until the batch
+// reaches a terminal state (success or failure) or the maximum poll attempts
+// are exhausted (240 × 30s = 2 hours).
+//
+// Unlike ConfirmNIBSSBatch (which relies on Temporal's built-in retry policy),
+// this activity owns its own polling loop using time.After so that:
+//   - The workflow timeline shows each poll attempt as a distinct heartbeat.
+//   - The 2-hour SLA window is enforced inside the activity rather than via
+//     a separate signal channel.
+//   - Operators can observe progress in the Temporal UI without waiting for
+//     the full retry backoff.
+//
+// Return values:
+//   - nil      → batch confirmed successfully; caller should set status "completed"
+//   - non-nil  → batch failed or timed out; caller should set status "failed"
+func (a *ActivitySet) PollNIBSSBatchStatus(ctx context.Context, batchRef string, settlementID string) error {
+const (
+pollInterval    = 30 * time.Second
+maxPollAttempts = 240 // 240 × 30s = 2 hours
+)
+
+slog.Info("[activity] PollNIBSSBatchStatus: starting",
+"batch_ref", batchRef, "settlement_id", settlementID)
+
+client, err := nibss.New()
+if err != nil {
+// NIBSS not configured — assume confirmed in sandbox/staging environments.
+slog.Warn("[activity] PollNIBSSBatchStatus: NIBSS not configured — simulating success",
+"batch_ref", batchRef)
+return nil
+}
+
+for attempt := 1; attempt <= maxPollAttempts; attempt++ {
+if attempt > 1 {
+// Sleep between polls (skip on the first attempt to query immediately).
+select {
+case <-ctx.Done():
+slog.Info("[activity] PollNIBSSBatchStatus: context cancelled",
+"batch_ref", batchRef, "attempt", attempt)
+return fmt.Errorf("PollNIBSSBatchStatus: context cancelled after %d attempts (batch_ref=%s)",
+attempt-1, batchRef)
+case <-time.After(pollInterval):
+}
+}
+
+resp, queryErr := client.QueryTransactionStatus(ctx, batchRef)
+if queryErr == nil {
+// Terminal success: ResponseCode == "00"
+slog.Info("[activity] PollNIBSSBatchStatus: confirmed",
+"batch_ref", batchRef, "attempt", attempt,
+"response_code", resp.ResponseCode, "response_message", resp.ResponseMessage)
+a.notifySettlementOutcome(settlementID, batchRef, "completed", resp.ResponseMessage)
+return nil
+}
+
+if queryErr == nibss.ErrPending {
+// Still processing — log and continue polling.
+slog.Info("[activity] PollNIBSSBatchStatus: still pending",
+"batch_ref", batchRef, "attempt", attempt, "max_attempts", maxPollAttempts)
+continue
+}
+
+// Non-pending error: terminal failure.
+slog.Error("[activity] PollNIBSSBatchStatus: terminal failure",
+"batch_ref", batchRef, "attempt", attempt, "err", queryErr)
+a.notifySettlementOutcome(settlementID, batchRef, "failed", queryErr.Error())
+return fmt.Errorf("PollNIBSSBatchStatus: terminal failure after %d attempts (batch_ref=%s): %w",
+attempt, batchRef, queryErr)
+}
+
+// Max attempts exhausted — treat as SLA breach.
+slog.Warn("[activity] PollNIBSSBatchStatus: max poll attempts exhausted",
+"batch_ref", batchRef, "max_attempts", maxPollAttempts)
+a.notifySettlementOutcome(settlementID, batchRef, "sla_breached",
+fmt.Sprintf("max poll attempts (%d) exhausted", maxPollAttempts))
+return fmt.Errorf("PollNIBSSBatchStatus: max poll attempts (%d) exhausted (batch_ref=%s)",
+maxPollAttempts, batchRef)
+}
+
+// notifySettlementOutcome fires a portal owner notification after a settlement
+// reaches a terminal state.  This is best-effort: errors are logged but not
+// propagated so they do not affect the workflow outcome.
+func (a *ActivitySet) notifySettlementOutcome(settlementID, batchRef, outcome, detail string) {
+portalURL := os.Getenv("PORTAL_TRPC_URL")
+internalKey := os.Getenv("MIDDLEWARE_INTERNAL_KEY")
+if portalURL == "" || internalKey == "" {
+slog.Debug("[activity] notifySettlementOutcome: PORTAL_TRPC_URL not set — skipping",
+"settlement_id", settlementID, "outcome", outcome)
+return
+}
+
+msgTitle := fmt.Sprintf("Settlement %s %s", settlementID, outcome)
+msgContent := fmt.Sprintf(
+"NIBSS batch %s for settlement %s reached terminal state: %s.\nDetail: %s",
+batchRef, settlementID, outcome, detail,
+)
+
+// tRPC batch envelope for system.notifyOwner
+bodyJSON := fmt.Sprintf(`{"0":{"json":{"title":%q,"content":%q}}}`, msgTitle, msgContent)
+
+url := portalURL + "/api/trpc/system.notifyOwner?batch=1"
+req, err := http.NewRequestWithContext(
+context.Background(),
+http.MethodPost,
+url,
+bytes.NewReader([]byte(bodyJSON)),
+)
+if err != nil {
+slog.Warn("[activity] notifySettlementOutcome: build request failed", "err", err)
+return
+}
+req.Header.Set("Content-Type", "application/json")
+req.Header.Set("X-Internal-Key", internalKey)
+
+httpClient := &http.Client{Timeout: 10 * time.Second}
+resp, callErr := httpClient.Do(req)
+if callErr != nil {
+slog.Warn("[activity] notifySettlementOutcome: HTTP call failed", "err", callErr)
+return
+}
+defer resp.Body.Close()
+if resp.StatusCode >= 400 {
+slog.Warn("[activity] notifySettlementOutcome: portal returned error", "status", resp.StatusCode)
+return
+}
+slog.Info("[activity] notifySettlementOutcome: notification sent",
+"settlement_id", settlementID, "outcome", outcome)
+}

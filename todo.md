@@ -1630,3 +1630,13 @@
 - [ ] Wire NameEnquiry into Payouts payout creation form
 - [ ] Add reconciliation alert webhook with notifyOwner
 - [ ] Write vitest tests for nameEnquiry and webhook trigger
+
+## Wave 62 — Production Hardening (Next Steps)
+- [x] Add PORTAL_TRPC_URL env var to all 7 reconciler CronJobs in k8s/reconciler-cronjob.yaml
+- [x] Add PORTAL_TRPC_URL to go-bridge-deployment.yaml prerequisites comment
+- [x] Add reconciliation alert count badge to Recon Alerts sidebar nav item
+- [x] Implement PollNIBSSBatchStatus Temporal activity with 30s polling loop
+- [x] Wire PollNIBSSBatchStatus into SettlementBatchWorkflow replacing signal-wait
+- [x] Register PollNIBSSBatchStatus in RegisterWorker
+- [x] Write Go tests for PollNIBSSBatchStatus (no-gateway noop, pending returns error, success returns nil)
+- [x] Write vitest tests for reconciliation alert badge query

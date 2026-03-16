@@ -16,7 +16,12 @@
 #     --from-literal=NIBSS_SECRET_KEY='...' \
 #     --from-literal=NIBSS_INSTITUTION_CODE='...' \
 #     --from-literal=NIBSS_ORIGINATOR_ACCOUNT='...' \
-#     --from-literal=MIDDLEWARE_INTERNAL_KEY='...'
+#     --from-literal=MIDDLEWARE_INTERNAL_KEY='...' \
+#     --from-literal=PORTAL_TRPC_URL='http://paygate-portal-svc:3000'
+#
+# PORTAL_TRPC_URL is the internal cluster URL of the PayGate portal service.
+# The Go reconciler uses it to POST alerts to /api/trpc/reconciliation.createAlert.
+# Set it to the ClusterIP service name + port of the portal deployment.
 #
 # Build & push the image before applying:
 #   docker build -t your-registry/paygate-go-bridge:latest ./go-bridge

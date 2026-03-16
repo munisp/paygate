@@ -84,6 +84,20 @@ spec:
                   value: "NGN"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"
@@ -157,6 +171,20 @@ spec:
                   value: "USD"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"
@@ -228,6 +256,20 @@ spec:
                   value: "GHS"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"
@@ -300,6 +342,20 @@ spec:
                   value: "KES"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"
@@ -372,6 +428,20 @@ spec:
                   value: "ZAR"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"
@@ -444,6 +514,20 @@ spec:
                   value: "EUR"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"
@@ -516,6 +600,20 @@ spec:
                   value: "GBP"
                 - name: LOG_LEVEL
                   value: "info"
+                # ── Portal callback ───────────────────────────────────────────
+                # PORTAL_TRPC_URL: internal cluster URL of the PayGate portal.
+                # The reconciler POSTs alerts to /api/trpc/reconciliation.createAlert.
+                # Example: http://paygate-portal-svc:3000
+                - name: PORTAL_TRPC_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PORTAL_TRPC_URL
+                - name: MIDDLEWARE_INTERNAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MIDDLEWARE_INTERNAL_KEY
               resources:
                 requests:
                   cpu: "50m"

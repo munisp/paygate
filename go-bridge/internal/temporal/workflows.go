@@ -67,6 +67,7 @@ func RegisterWorker(c client.Client) worker.Worker {
 	w.RegisterActivity(acts.RejectPayout)
 	w.RegisterActivity(acts.SubmitNIBSSBatch)
 	w.RegisterActivity(acts.ConfirmNIBSSBatch)
+	w.RegisterActivity(acts.PollNIBSSBatchStatus)
 	w.RegisterActivity(acts.UpdateSettlementStatus)
 	w.RegisterActivity(acts.RecordSettlement)
 	w.RegisterActivity(acts.UpdateDisputeStatus)

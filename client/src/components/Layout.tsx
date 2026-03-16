@@ -134,6 +134,14 @@ export default function Layout({ children }: LayoutProps) {
     (s: any) => !dismissedSlaIds.has(s.id)
   );
 
+  // ─── Reconciliation Alert Badge ──────────────────────────────────────────
+  // Polls every 60 s so operators notice open balance discrepancies on login.
+  const { data: reconStats } = trpc.reconciliation.getStats.useQuery(
+    { merchantId: undefined },
+    { refetchInterval: 60_000, staleTime: 50_000 }
+  );
+  const openReconCount = reconStats?.open ?? 0;
+
   const inAppUnread = useNotificationCount();
   const { isInstallable, promptInstall, isOnline, dismissInstall } = usePWA();
   const showPwaBanner = isInstallable;
@@ -181,6 +189,8 @@ export default function Layout({ children }: LayoutProps) {
         )}
         {navItems.map((item) => {
           const isActive = location === item.path || (location === "/" && item.path === "/dashboard");
+          // Dynamic alert count badge for the Reconciliation Alerts nav item
+          const isReconItem = item.path === "/reconciliation-alerts";
           return (
             <Link
               key={item.path}
@@ -192,7 +202,18 @@ export default function Layout({ children }: LayoutProps) {
               {!collapsed && (
                 <>
                   <span className="flex-1">{item.label}</span>
-                  {item.badge && (
+                  {/* Dynamic open-alert count badge for Recon Alerts */}
+                  {isReconItem && openReconCount > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="text-xs px-1.5 py-0 bg-red-500/20 text-red-400 border-0 min-w-[1.25rem] text-center"
+                      title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? 's' : ''}`}
+                    >
+                      {openReconCount > 99 ? '99+' : openReconCount}
+                    </Badge>
+                  )}
+                  {/* Static label badges for other nav items */}
+                  {!isReconItem && item.badge && (
                     <Badge
                       variant="secondary"
                       className={`text-xs px-1.5 py-0 ${
@@ -207,6 +228,10 @@ export default function Layout({ children }: LayoutProps) {
                     </Badge>
                   )}
                 </>
+              )}
+              {/* Collapsed sidebar: show red dot indicator when there are open recon alerts */}
+              {collapsed && isReconItem && openReconCount > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
               )}
             </Link>
           );
