@@ -154,6 +154,9 @@ export const merchants = pgTable("merchants", {
   merchantCode: text("merchant_code").unique(),  // Short code for USSD pay-merchant (e.g. PG-1234)
   ussdPin: text("ussd_pin"),                      // bcrypt hash of 4-digit USSD PIN
   soundboxLanguage: text("soundbox_language").default("en").notNull(), // en | yo | ha | ig
+  // Reconciliation alert badge threshold — sidebar badge shows when open alert count >= this value
+  reconAlertBadgeEnabled: boolean("recon_alert_badge_enabled").default(true).notNull(),
+  reconAlertThreshold: integer("recon_alert_threshold").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

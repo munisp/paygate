@@ -1517,6 +1517,26 @@ const settingsRouter = router({
       const merchant = await requireMerchant(user.id);
       return updateMerchant(merchant.id, { soundboxLanguage: input.soundboxLanguage });
     }),
+  // Reconciliation alert badge threshold config.
+  // The sidebar badge shows when open alert count >= reconAlertThreshold.
+  getReconAlertSettings: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await getMerchantByOwnerId(user.id);
+    return {
+      reconAlertBadgeEnabled: merchant?.reconAlertBadgeEnabled ?? true,
+      reconAlertThreshold: merchant?.reconAlertThreshold ?? 1,
+    };
+  }),
+  updateReconAlertSettings: protectedProcedure
+    .input(z.object({
+      reconAlertBadgeEnabled: z.boolean().optional(),
+      reconAlertThreshold: z.number().int().min(1).max(100).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return updateMerchant(merchant.id, input);
+    }),
 });
 
 // ─── Analytics Router ─────────────────────────────────────────────────────────

@@ -136,11 +136,19 @@ export default function Layout({ children }: LayoutProps) {
 
   // ─── Reconciliation Alert Badge ──────────────────────────────────────────
   // Polls every 60 s so operators notice open balance discrepancies on login.
+  // Badge only shows when open alert count >= merchant-configured threshold.
   const { data: reconStats } = trpc.reconciliation.getStats.useQuery(
     { merchantId: undefined },
     { refetchInterval: 60_000, staleTime: 50_000 }
   );
+  const { data: reconAlertSettings } = trpc.settings.getReconAlertSettings.useQuery(
+    undefined,
+    { staleTime: 5 * 60_000 }
+  );
   const openReconCount = reconStats?.open ?? 0;
+  const reconBadgeEnabled = reconAlertSettings?.reconAlertBadgeEnabled ?? true;
+  const reconBadgeThreshold = reconAlertSettings?.reconAlertThreshold ?? 1;
+  const showReconBadge = reconBadgeEnabled && openReconCount >= reconBadgeThreshold;
 
   const inAppUnread = useNotificationCount();
   const { isInstallable, promptInstall, isOnline, dismissInstall } = usePWA();
@@ -203,7 +211,7 @@ export default function Layout({ children }: LayoutProps) {
                 <>
                   <span className="flex-1">{item.label}</span>
                   {/* Dynamic open-alert count badge for Recon Alerts */}
-                  {isReconItem && openReconCount > 0 && (
+                  {isReconItem && showReconBadge && (
                     <Badge
                       variant="secondary"
                       className="text-xs px-1.5 py-0 bg-red-500/20 text-red-400 border-0 min-w-[1.25rem] text-center"
@@ -230,7 +238,7 @@ export default function Layout({ children }: LayoutProps) {
                 </>
               )}
               {/* Collapsed sidebar: show red dot indicator when there are open recon alerts */}
-              {collapsed && isReconItem && openReconCount > 0 && (
+              {collapsed && isReconItem && showReconBadge && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
               )}
             </Link>

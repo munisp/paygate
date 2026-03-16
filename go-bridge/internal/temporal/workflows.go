@@ -227,27 +227,23 @@ func SettlementBatchWorkflow(ctx workflow.Context, input SettlementBatchInput) e
 		return fmt.Errorf("SubmitNIBSSBatchActivity: %w", err)
 	}
 
-	// Step 4: Wait for NIBSS confirmation signal (4h timeout)
-	confirmCh := workflow.GetSignalChannel(ctx, "nibss-confirmed")
-	var confirmed bool
+	// Step 4: Poll NIBSS for confirmation using the self-contained polling activity.
+	// The activity polls every 30 seconds for up to 2 hours (240 attempts).
+	// We give it 2h10m at the workflow level so Temporal does not pre-empt it.
+	pollAo := workflow.ActivityOptions{
+		StartToCloseTimeout: 2*time.Hour + 10*time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 1, // The activity manages its own retry loop internally.
+		},
+	}
+	pollCtx := workflow.WithActivityOptions(ctx, pollAo)
+	pollErr := workflow.ExecuteActivity(pollCtx, acts.PollNIBSSBatchStatus, input.BatchRef, input.SettlementID).Get(ctx, nil)
 
-	selector := workflow.NewSelector(ctx)
-	selector.AddReceive(confirmCh, func(c workflow.ReceiveChannel, more bool) {
-		c.Receive(ctx, &confirmed)
-	})
-
-	timerCtx, cancelTimer := workflow.WithCancel(ctx)
-	timer := workflow.NewTimer(timerCtx, 4*time.Hour)
-	selector.AddFuture(timer, func(f workflow.Future) {
-		confirmed = false
-	})
-	defer cancelTimer()
-
-	selector.Select(ctx)
-
-	// Step 5: Update settlement status
+	// Step 5: Update settlement status based on polling outcome.
 	status := "completed"
-	if !confirmed {
+	if pollErr != nil {
+		logger.Warn("SettlementBatchWorkflow: polling failed — marking sla_breached",
+			"settlement_id", input.SettlementID, "err", pollErr)
 		status = "sla_breached"
 	}
 	if err := workflow.ExecuteActivity(ctx, acts.UpdateSettlementStatus, input.SettlementID, status).Get(ctx, nil); err != nil {

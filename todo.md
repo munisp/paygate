@@ -1626,7 +1626,7 @@
 
 ## Wave 61
 - [ ] Add GHS, KES, ZAR, EUR, GBP CronJobs to k8s/reconciler-cronjob.yaml
-- [ ] Add nibss.nameEnquiry tRPC procedure
+- [x] Add nibss.nameEnquiry tRPC procedure (already implemented as nip.resolveAccount)
 - [ ] Wire NameEnquiry into Payouts payout creation form
 - [ ] Add reconciliation alert webhook with notifyOwner
 - [ ] Write vitest tests for nameEnquiry and webhook trigger
@@ -1640,3 +1640,12 @@
 - [x] Register PollNIBSSBatchStatus in RegisterWorker
 - [x] Write Go tests for PollNIBSSBatchStatus (no-gateway noop, pending returns error, success returns nil)
 - [x] Write vitest tests for reconciliation alert badge query
+
+## Wave 63 — Suggested Next Steps
+- [x] Wire PollNIBSSBatchStatus into SettlementBatchWorkflow replacing ConfirmNIBSSBatch
+- [x] Add nibss.nameEnquiry tRPC procedure (already implemented as nip.resolveAccount)
+- [x] Wire nameEnquiry into Payouts payout creation form (bank account name lookup)
+- [x] Add reconciliation createAlert notifyOwner webhook trigger (already implemented)
+- [x] Add per-merchant reconciliation alert badge threshold config to Settings page
+- [x] Write vitest tests for nameEnquiry, createAlert webhook, and threshold config
+- [x] Write Go tests for updated SettlementBatchWorkflow with PollNIBSSBatchStatus

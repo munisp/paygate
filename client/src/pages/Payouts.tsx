@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2, UserCheck, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,6 +58,9 @@ export default function Payouts() {
   const [form, setForm] = useState({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
   const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [nameFromCache, setNameFromCache] = useState(false);
+  const { data: banksData } = trpc.nip.listBanks.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const bankOptions = useMemo(() => banksData?.banks ?? [], [banksData]);
+  const selectedBank = useMemo(() => bankOptions.find(b => b.bankCode === form.bankCode), [bankOptions, form.bankCode]);
   const resolveAccount = trpc.nip.resolveAccount.useMutation({
     onSuccess: (data) => {
       setResolvedName(data.accountName);
@@ -287,10 +290,19 @@ export default function Payouts() {
           <h3 className="font-semibold mb-4">Initiate Payout</h3>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank Code *</label>
-              <input value={form.bankCode}
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank *</label>
+              <select
+                value={form.bankCode}
                 onChange={(e) => { setForm(f => ({ ...f, bankCode: e.target.value })); setResolvedName(null); }}
-                placeholder="e.g. 044" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+                className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
+                <option value="">— Select bank —</option>
+                {bankOptions.map(b => (
+                  <option key={b.bankCode} value={b.bankCode}>{b.bankName} ({b.bankCode})</option>
+                ))}
+              </select>
+              {selectedBank && (
+                <p className="mt-1 text-xs text-muted-foreground">{selectedBank.shortName} · {selectedBank.bankCode}</p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Number *</label>

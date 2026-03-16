@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff, Smartphone, Share2, MessageCircle, Copy, QrCode, Link } from "lucide-react";
+import { Save, Building2, Globe, Bell, Shield, CalendarClock, Banknote, Volume2, CreditCard, ExternalLink, AlertTriangle, CheckCircle2, Clock, Key, Zap, Eye, EyeOff, Smartphone, Share2, MessageCircle, Copy, QrCode, Link, Scale } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -224,6 +224,7 @@ export default function Settings() {
     notifyOnPayout: true,
     notifyOnDispute: true,
   });
+  const [reconAlertForm, setReconAlertForm] = useState({ reconAlertBadgeEnabled: true, reconAlertThreshold: 1 });
   const [soundboxLang, setSoundboxLang] = useState<"en" | "yo" | "ha" | "ig">("en");
 
   const [settlementForm, setSettlementForm] = useState({
@@ -262,6 +263,11 @@ export default function Settings() {
     onSuccess: () => { toast.success("Settlement schedule saved"); utils.settings.getSettlementSchedule.invalidate(); },
     onError: (e) => toast.error(e.message),
   });
+  const { data: reconAlertSettingsData } = trpc.settings.getReconAlertSettings.useQuery(undefined, { staleTime: 60_000 });
+  const updateReconAlertSettings = trpc.settings.updateReconAlertSettings.useMutation({
+    onSuccess: () => { toast.success("Reconciliation alert settings saved"); utils.settings.getReconAlertSettings.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   useEffect(() => {
     if (data?.merchant) {
@@ -280,6 +286,14 @@ export default function Settings() {
     }
   }, [data]);
 
+  useEffect(() => {
+    if (reconAlertSettingsData) {
+      setReconAlertForm({
+        reconAlertBadgeEnabled: reconAlertSettingsData.reconAlertBadgeEnabled ?? true,
+        reconAlertThreshold: reconAlertSettingsData.reconAlertThreshold ?? 1,
+      });
+    }
+  }, [reconAlertSettingsData]);
   useEffect(() => {
     if (settlementData) {
       setSettlementForm({
@@ -399,6 +413,64 @@ export default function Settings() {
                 </button>
               </div>
             ))}
+          </div>
+          {/* Reconciliation Alert Badge Settings */}
+          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Scale className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold">Reconciliation Alert Badge</h3>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Control when the sidebar badge appears on the Recon Alerts nav item. The badge shows when the number of open (unresolved) reconciliation alerts meets or exceeds the threshold you set.
+            </p>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+              <div>
+                <p className="text-sm font-medium">Enable Badge</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Show a count badge on the Recon Alerts nav item</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = { ...reconAlertForm, reconAlertBadgeEnabled: !reconAlertForm.reconAlertBadgeEnabled };
+                  setReconAlertForm(updated);
+                  updateReconAlertSettings.mutate(updated);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                  reconAlertForm.reconAlertBadgeEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  reconAlertForm.reconAlertBadgeEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+            {reconAlertForm.reconAlertBadgeEnabled && (
+              <div className="flex items-center gap-4 p-3 rounded-xl bg-muted/50">
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Alert Threshold</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Badge appears when open alerts ≥ this number (1–100)</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={reconAlertForm.reconAlertThreshold}
+                    onChange={(e) => setReconAlertForm(f => ({ ...f, reconAlertThreshold: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) }))}
+                    className="w-20 px-3 py-1.5 text-sm bg-background rounded-lg border border-border focus:ring-2 focus:ring-primary outline-none text-center"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateReconAlertSettings.mutate(reconAlertForm)}
+                    disabled={updateReconAlertSettings.isPending}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-card rounded-xl border border-border p-6">
