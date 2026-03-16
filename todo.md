@@ -1614,12 +1614,19 @@
 - [x] TypeScript tests: 945 pass (0 failures)
 
 ## Wave 60 — Reconciliation Alerts UI + NIBSS Disbursement + K8s Manifests
-- [ ] Add reconciliation_alerts table to drizzle/schema.ts
-- [ ] Run pnpm db:push to push migration
-- [ ] Add reconciliation tRPC procedures (listAlerts, dismissAlert, getStats)
-- [ ] Build ReconciliationAlerts portal page (/reconciliation)
-- [ ] Register /reconciliation route in App.tsx and sidebar nav
-- [ ] Implement NIBSS NIP 2.0 HTTP disbursement in DisburseFundsActivity
-- [ ] Write Kubernetes manifests (Deployment + CronJob + ConfigMap + Secret)
-- [ ] Write vitest tests for new reconciliation procedures
-- [ ] Write Go tests for NIBSS disbursement activity
+- [x] Add reconciliation_alerts table to drizzle/schema.ts
+- [x] Run pnpm db:push to push migration
+- [x] Add reconciliation tRPC procedures (listAlerts, dismissAlert, getStats)
+- [x] Build ReconciliationAlerts portal page (/reconciliation)
+- [x] Register /reconciliation route in App.tsx and sidebar nav
+- [x] Implement NIBSS NIP 2.0 HTTP disbursement in DisburseFundsActivity
+- [x] Write Kubernetes manifests (Deployment + CronJob + ConfigMap + Secret)
+- [x] Write vitest tests for new reconciliation procedures
+- [x] Write Go tests for NIBSS disbursement activity
+
+## Wave 61
+- [ ] Add GHS, KES, ZAR, EUR, GBP CronJobs to k8s/reconciler-cronjob.yaml
+- [ ] Add nibss.nameEnquiry tRPC procedure
+- [ ] Wire NameEnquiry into Payouts payout creation form
+- [ ] Add reconciliation alert webhook with notifyOwner
+- [ ] Write vitest tests for nameEnquiry and webhook trigger

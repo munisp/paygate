@@ -20,6 +20,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"context"
 	"fmt"
 	"log/slog"
@@ -172,6 +175,8 @@ func runReconciliation(toleranceKobo int64) error {
 				"merchant_id", row.MerchantID, "err", alertErr)
 		} else {
 			totalAlerted++
+			// Notify portal via tRPC createAlert — triggers owner push notification.
+			notifyPortal(row.MerchantID, row.Currency, pgBalance, tbBalanceSigned, delta, toleranceKobo)
 		}
 
 		// Publish Kafka audit event.
@@ -198,4 +203,55 @@ func runReconciliation(toleranceKobo int64) error {
 		return fmt.Errorf("reconciliation found %d mismatches (tolerance: %d kobo)", totalMismatch, toleranceKobo)
 	}
 	return nil
+}
+
+// notifyPortal calls the tRPC reconciliation.createAlert mutation on the portal
+// so the portal can persist the alert and push an owner notification.
+// This is fire-and-forget — the alert is already in PostgreSQL at this point.
+func notifyPortal(merchantID, currency string, pgBalance, tbBalance, delta, threshold int64) {
+portalURL := os.Getenv("PORTAL_TRPC_URL")
+internalKey := os.Getenv("MIDDLEWARE_INTERNAL_KEY")
+if portalURL == "" || internalKey == "" {
+slog.Debug("[reconciler] PORTAL_TRPC_URL or MIDDLEWARE_INTERNAL_KEY not set — skipping portal notification")
+return
+}
+payload := map[string]any{
+"0": map[string]any{
+"json": map[string]any{
+"internalKey":         internalKey,
+"merchantId":          merchantID,
+"currency":            currency,
+"tbBalance":           tbBalance,
+"pgBalance":           pgBalance,
+"delta":               delta,
+"thresholdMinorUnits": threshold,
+"notes":               fmt.Sprintf("Auto-detected by reconciler at %s", time.Now().UTC().Format(time.RFC3339)),
+},
+},
+}
+body, err := json.Marshal(payload)
+if err != nil {
+slog.Warn("[reconciler] notifyPortal: marshal failed", "err", err)
+return
+}
+url := portalURL + "/api/trpc/reconciliation.createAlert?batch=1"
+req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
+if err != nil {
+slog.Warn("[reconciler] notifyPortal: request build failed", "err", err)
+return
+}
+req.Header.Set("Content-Type", "application/json")
+client := &http.Client{Timeout: 10 * time.Second}
+resp, err := client.Do(req)
+if err != nil {
+slog.Warn("[reconciler] notifyPortal: HTTP call failed", "err", err)
+return
+}
+defer resp.Body.Close()
+if resp.StatusCode >= 400 {
+slog.Warn("[reconciler] notifyPortal: portal returned error", "status", resp.StatusCode)
+return
+}
+slog.Info("[reconciler] notifyPortal: owner notification triggered",
+"merchant_id", merchantID, "currency", currency, "delta", delta)
 }

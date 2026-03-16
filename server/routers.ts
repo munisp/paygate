@@ -4969,6 +4969,51 @@ const reconciliationRouter = router({
       const { getReconciliationStats } = await import('./db');
       return getReconciliationStats(input.merchantId ?? null);
     }),
+
+  // Internal procedure called by the Go reconciler worker (via MIDDLEWARE_INTERNAL_KEY)
+  // to insert a new alert AND push an owner notification in one atomic step.
+  createAlert: publicProcedure
+    .input(z.object({
+      internalKey: z.string(),
+      merchantId: z.string(),
+      currency: z.string().length(3),
+      tbBalance: z.number(),
+      pgBalance: z.number(),
+      delta: z.number(),
+      thresholdMinorUnits: z.number(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+      if (!expectedKey || input.internalKey !== expectedKey) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
+      }
+      const { insertReconciliationAlert } = await import('./db');
+      const alert = await insertReconciliationAlert({
+        id: nanoid("recon_"),
+        merchantId: input.merchantId,
+        currency: input.currency,
+        tbBalance: input.tbBalance.toString(),
+        pgBalance: input.pgBalance.toString(),
+        delta: input.delta.toString(),
+        thresholdMinorUnits: input.thresholdMinorUnits,
+        status: "open",
+        notes: input.notes ?? null,
+        resolvedAt: null,
+        resolvedBy: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      // Push owner notification — fire-and-forget (alert is already persisted)
+      const absDelta = Math.abs(input.delta);
+      const formatted = (absDelta / 100).toFixed(2);
+      const direction = input.delta > 0 ? "surplus" : "shortfall";
+      notifyOwner({
+        title: `Reconciliation Alert — ${input.currency} ${direction}`,
+        content: `Merchant ${input.merchantId}: TigerBeetle balance differs from PostgreSQL by ${input.currency} ${formatted} (${direction}). Alert ID: ${alert.id}. Review at /reconciliation.`,
+      }).catch(() => { /* non-critical */ });
+      return { id: alert.id, notified: true };
+    }),
 });
 
 export const appRouter = router({

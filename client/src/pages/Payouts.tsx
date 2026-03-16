@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2 } from "lucide-react";
+import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2, UserCheck, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -56,6 +56,19 @@ export default function Payouts() {
   const [showBulk, setShowBulk] = useState(false);
   const [showApprovalSettings, setShowApprovalSettings] = useState(false);
   const [form, setForm] = useState({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
+  const [resolvedName, setResolvedName] = useState<string | null>(null);
+  const [nameFromCache, setNameFromCache] = useState(false);
+  const resolveAccount = trpc.nip.resolveAccount.useMutation({
+    onSuccess: (data) => {
+      setResolvedName(data.accountName);
+      setNameFromCache(data.fromCache);
+      toast.success(`Account verified: ${data.accountName}${data.fromCache ? " (cached)" : ""}`);
+    },
+    onError: (e) => {
+      setResolvedName(null);
+      toast.error(`Account verification failed: ${e.message}`);
+    },
+  });
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
   const [bulkResults, setBulkResults] = useState<BulkResult[] | null>(null);
@@ -70,6 +83,8 @@ export default function Payouts() {
       toast.success("Payout initiated successfully");
       setShowForm(false);
       setForm({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
+      setResolvedName(null);
+      setNameFromCache(false);
       utils.payouts.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -111,9 +126,18 @@ export default function Payouts() {
   const total = data?.total ?? 0;
   const pendingApprovalRows = rows.filter(r => r.status === "pending_approval");
 
+  const handleVerifyAccount = () => {
+    if (!form.bankCode || form.accountNumber.length !== 10) {
+      return toast.error("Enter a valid 3-digit bank code and 10-digit account number first");
+    }
+    setResolvedName(null);
+    resolveAccount.mutate({ bankCode: form.bankCode, accountNumber: form.accountNumber });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.bankCode || !form.accountNumber || !form.amount) return toast.error("Fill all required fields");
+    if (!resolvedName) return toast.error("Please verify the account holder name before initiating the payout");
     createPayout.mutate({
       bankCode: form.bankCode,
       accountNumber: form.accountNumber,
@@ -264,13 +288,38 @@ export default function Payouts() {
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank Code *</label>
-              <input value={form.bankCode} onChange={(e) => setForm(f => ({ ...f, bankCode: e.target.value }))}
+              <input value={form.bankCode}
+                onChange={(e) => { setForm(f => ({ ...f, bankCode: e.target.value })); setResolvedName(null); }}
                 placeholder="e.g. 044" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Number *</label>
-              <input value={form.accountNumber} onChange={(e) => setForm(f => ({ ...f, accountNumber: e.target.value }))}
-                placeholder="10-digit account number" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+              <div className="flex gap-2">
+                <input value={form.accountNumber}
+                  onChange={(e) => { setForm(f => ({ ...f, accountNumber: e.target.value })); setResolvedName(null); }}
+                  placeholder="10-digit account number" className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+                <Button type="button" variant="outline" size="sm" onClick={handleVerifyAccount}
+                  disabled={resolveAccount.isPending || form.accountNumber.length !== 10 || !form.bankCode}
+                  className="shrink-0 gap-1.5">
+                  {resolveAccount.isPending
+                    ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    : <UserCheck className="w-3.5 h-3.5" />}
+                  {resolveAccount.isPending ? "Verifying..." : "Verify"}
+                </Button>
+              </div>
+              {resolvedName && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span className="font-medium">{resolvedName}</span>
+                  {nameFromCache && <span className="text-muted-foreground">(cached)</span>}
+                </div>
+              )}
+              {!resolvedName && form.accountNumber.length === 10 && form.bankCode && !resolveAccount.isPending && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-600">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>Account not verified — click Verify before submitting</span>
+                </div>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Amount *</label>
@@ -290,10 +339,10 @@ export default function Payouts() {
                 placeholder="Payment description" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div className="sm:col-span-2 flex gap-3">
-              <Button type="submit" disabled={createPayout.isPending}>
+              <Button type="submit" disabled={createPayout.isPending || !resolvedName}>
                 {createPayout.isPending ? "Processing..." : "Initiate Payout"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setShowForm(false); setResolvedName(null); }}>Cancel</Button>
             </div>
           </form>
         </div>

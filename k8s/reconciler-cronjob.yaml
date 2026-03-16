@@ -171,6 +171,367 @@ spec:
                 allowPrivilegeEscalation: false
 
 ---
+# ─── GHS Reconciler CronJob ──────────────────────────────────────────────────
+# Offset: +2 min from NGN to avoid concurrent TigerBeetle queries.
+# Threshold: 1 pesewa (GHS minor unit = kobo equivalent).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-reconciler-ghs
+  namespace: paygate
+  labels:
+    app: paygate-reconciler
+    component: reconciliation
+    currency: GHS
+spec:
+  schedule: "2,17,32,47 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: paygate-reconciler
+            component: reconciliation
+            currency: GHS
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: reconciler
+              image: your-registry/paygate-reconciler:latest
+              imagePullPolicy: Always
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: DATABASE_URL
+                - name: TIGERBEETLE_ADDRESS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: TIGERBEETLE_ADDRESS
+                - name: KAFKA_BROKERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: KAFKA_BROKERS
+                - name: RECONCILE_THRESHOLD_MINOR_UNITS
+                  value: "1"
+                - name: RECONCILE_CURRENCY
+                  value: "GHS"
+                - name: LOG_LEVEL
+                  value: "info"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+          securityContext:
+            fsGroup: 1000
+
+---
+# ─── KES Reconciler CronJob ──────────────────────────────────────────────────
+# Offset: +4 min. Threshold: 100 cents (1 KES).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-reconciler-kes
+  namespace: paygate
+  labels:
+    app: paygate-reconciler
+    component: reconciliation
+    currency: KES
+spec:
+  schedule: "4,19,34,49 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: paygate-reconciler
+            component: reconciliation
+            currency: KES
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: reconciler
+              image: your-registry/paygate-reconciler:latest
+              imagePullPolicy: Always
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: DATABASE_URL
+                - name: TIGERBEETLE_ADDRESS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: TIGERBEETLE_ADDRESS
+                - name: KAFKA_BROKERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: KAFKA_BROKERS
+                - name: RECONCILE_THRESHOLD_MINOR_UNITS
+                  value: "100"
+                - name: RECONCILE_CURRENCY
+                  value: "KES"
+                - name: LOG_LEVEL
+                  value: "info"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+          securityContext:
+            fsGroup: 1000
+
+---
+# ─── ZAR Reconciler CronJob ──────────────────────────────────────────────────
+# Offset: +6 min. Threshold: 1 cent (ZAR minor unit).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-reconciler-zar
+  namespace: paygate
+  labels:
+    app: paygate-reconciler
+    component: reconciliation
+    currency: ZAR
+spec:
+  schedule: "6,21,36,51 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: paygate-reconciler
+            component: reconciliation
+            currency: ZAR
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: reconciler
+              image: your-registry/paygate-reconciler:latest
+              imagePullPolicy: Always
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: DATABASE_URL
+                - name: TIGERBEETLE_ADDRESS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: TIGERBEETLE_ADDRESS
+                - name: KAFKA_BROKERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: KAFKA_BROKERS
+                - name: RECONCILE_THRESHOLD_MINOR_UNITS
+                  value: "1"
+                - name: RECONCILE_CURRENCY
+                  value: "ZAR"
+                - name: LOG_LEVEL
+                  value: "info"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+          securityContext:
+            fsGroup: 1000
+
+---
+# ─── EUR Reconciler CronJob ──────────────────────────────────────────────────
+# Offset: +9 min. Threshold: 1 euro-cent.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-reconciler-eur
+  namespace: paygate
+  labels:
+    app: paygate-reconciler
+    component: reconciliation
+    currency: EUR
+spec:
+  schedule: "9,24,39,54 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: paygate-reconciler
+            component: reconciliation
+            currency: EUR
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: reconciler
+              image: your-registry/paygate-reconciler:latest
+              imagePullPolicy: Always
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: DATABASE_URL
+                - name: TIGERBEETLE_ADDRESS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: TIGERBEETLE_ADDRESS
+                - name: KAFKA_BROKERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: KAFKA_BROKERS
+                - name: RECONCILE_THRESHOLD_MINOR_UNITS
+                  value: "1"
+                - name: RECONCILE_CURRENCY
+                  value: "EUR"
+                - name: LOG_LEVEL
+                  value: "info"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+          securityContext:
+            fsGroup: 1000
+
+---
+# ─── GBP Reconciler CronJob ──────────────────────────────────────────────────
+# Offset: +11 min. Threshold: 1 penny.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-reconciler-gbp
+  namespace: paygate
+  labels:
+    app: paygate-reconciler
+    component: reconciliation
+    currency: GBP
+spec:
+  schedule: "11,26,41,56 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: paygate-reconciler
+            component: reconciliation
+            currency: GBP
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 60
+          containers:
+            - name: reconciler
+              image: your-registry/paygate-reconciler:latest
+              imagePullPolicy: Always
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: DATABASE_URL
+                - name: TIGERBEETLE_ADDRESS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: TIGERBEETLE_ADDRESS
+                - name: KAFKA_BROKERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: KAFKA_BROKERS
+                - name: RECONCILE_THRESHOLD_MINOR_UNITS
+                  value: "1"
+                - name: RECONCILE_CURRENCY
+                  value: "GBP"
+                - name: LOG_LEVEL
+                  value: "info"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+          securityContext:
+            fsGroup: 1000
+
+---
 # ─── Namespace (create if not already present) ───────────────────────────────
 apiVersion: v1
 kind: Namespace
