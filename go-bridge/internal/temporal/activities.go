@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/paygate/go-bridge/internal/kafka"
+	"github.com/paygate/go-bridge/internal/nibss"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
 )
@@ -182,44 +183,40 @@ func (a *ActivitySet) RejectPayout(ctx context.Context, payoutID, reason string)
 func (a *ActivitySet) SubmitNIBSSBatch(ctx context.Context, input SettlementBatchInput) error {
 	slog.Info("[activity] SubmitNIBSSBatch",
 		"settlement_id", input.SettlementID, "batch_ref", input.BatchRef, "amount", input.Amount)
-
-	gatewayURL := os.Getenv("NIBSS_GATEWAY_URL")
-	if gatewayURL == "" {
-		slog.Warn("[activity] SubmitNIBSSBatch: NIBSS_GATEWAY_URL not set — simulating submission")
+	client, err := nibss.New()
+	if err != nil {
+		// NIBSS not configured — log and continue (non-blocking in sandbox/staging)
+		slog.Warn("[activity] SubmitNIBSSBatch: NIBSS not configured — simulating submission", "err", err)
 		return nil
 	}
-
-	// Build NIBSS NIP single credit transfer payload.
-	// The gateway adapter translates this JSON to the NIBSS SOAP envelope.
-	payload := fmt.Sprintf(`{
-		"SessionID":"%s",
-		"DestinationInstitutionCode":"%s",
-		"ChannelCode":"2",
-		"BeneficiaryAccountName":"%s",
-		"BeneficiaryAccountNumber":"%s",
-		"BeneficiaryBankVerificationNumber":"",
-		"BeneficiaryKYCLevel":"1",
-		"OriginatorAccountName":"PayGate Settlement",
-		"OriginatorAccountNumber":"0000000000",
-		"OriginatorBankVerificationNumber":"",
-		"OriginatorKYCLevel":"3",
-		"TransactionLocation":"6.5244,3.3792",
-		"Narration":"PayGate Settlement %s",
-		"PaymentReference":"%s",
-		"Amount":"%d"
-	}`,
-		input.BatchRef,
-		input.BankCode,
-		input.AccountName,
-		input.AccountNumber,
-		input.SettlementID,
-		input.BatchRef,
-		input.Amount,
+	req := nibss.SingleCreditRequest{
+		SessionID:                  input.BatchRef,
+		DestinationInstitutionCode: input.BankCode,
+		ChannelCode:                "2",
+		BeneficiaryAccountName:     input.AccountName,
+		BeneficiaryAccountNumber:   input.AccountNumber,
+		BeneficiaryBankVerificationNumber: "",
+		BeneficiaryKYCLevel:        "1",
+		OriginatorAccountName:      "PayGate Settlement",
+		OriginatorAccountNumber:    os.Getenv("NIBSS_ORIGINATOR_ACCOUNT"),
+		OriginatorBankVerificationNumber: "",
+		OriginatorKYCLevel:         "3",
+		TransactionLocation:        "6.5244,3.3792",
+		Narration:                  fmt.Sprintf("PayGate Settlement %s", input.SettlementID),
+		PaymentReference:           input.BatchRef,
+		Amount:                     fmt.Sprintf("%d", input.Amount),
+	}
+	resp, err := client.SingleCreditTransfer(ctx, req)
+	if err != nil {
+		slog.Error("[activity] SubmitNIBSSBatch: transfer failed",
+			"batch_ref", input.BatchRef, "err", err)
+		return fmt.Errorf("SubmitNIBSSBatch: %w", err)
+	}
+	slog.Info("[activity] SubmitNIBSSBatch: transfer submitted",
+		"session_id", resp.SessionID,
+		"transaction_id", resp.TransactionID,
+		"batch_ref", input.BatchRef,
 	)
-	slog.Info("[activity] SubmitNIBSSBatch: payload prepared",
-		"gateway", gatewayURL, "batch_ref", input.BatchRef, "payload_len", len(payload))
-	// TODO(production): POST payload to gatewayURL with NIBSS credentials
-	// and store the returned SessionID for ConfirmNIBSSBatch polling.
 	return nil
 }
 
@@ -227,13 +224,23 @@ func (a *ActivitySet) SubmitNIBSSBatch(ctx context.Context, input SettlementBatc
 // Returns a retryable error when the batch is still pending.
 func (a *ActivitySet) ConfirmNIBSSBatch(ctx context.Context, batchRef string) error {
 	slog.Info("[activity] ConfirmNIBSSBatch", "batch_ref", batchRef)
-	gatewayURL := os.Getenv("NIBSS_GATEWAY_URL")
-	if gatewayURL == "" {
-		slog.Warn("[activity] ConfirmNIBSSBatch: NIBSS_GATEWAY_URL not set — simulating confirmation")
+	client, err := nibss.New()
+	if err != nil {
+		// NIBSS not configured — assume confirmed in sandbox/staging
+		slog.Warn("[activity] ConfirmNIBSSBatch: NIBSS not configured — simulating confirmation", "err", err)
 		return nil
 	}
-	// TODO(production): GET /transactions/{batchRef}/status from NIBSS gateway.
-	// Return a retryable error if status is "pending" so Temporal retries.
+	_, err = client.QueryTransactionStatus(ctx, batchRef)
+	if err == nibss.ErrPending {
+		// Return a retryable error so Temporal retries this activity
+		slog.Info("[activity] ConfirmNIBSSBatch: still pending — will retry", "batch_ref", batchRef)
+		return fmt.Errorf("ConfirmNIBSSBatch: transaction still pending (batch_ref=%s)", batchRef)
+	}
+	if err != nil {
+		slog.Error("[activity] ConfirmNIBSSBatch: status query failed",
+			"batch_ref", batchRef, "err", err)
+		return fmt.Errorf("ConfirmNIBSSBatch: %w", err)
+	}
 	slog.Info("[activity] ConfirmNIBSSBatch: confirmed", "batch_ref", batchRef)
 	return nil
 }

@@ -4901,6 +4901,76 @@ const aiRouter = router({
     }),
 });
 
+
+// ─── Reconciliation Alerts Router ─────────────────────────────────────────────
+const reconciliationRouter = router({
+  listAlerts: protectedProcedure
+    .input(z.object({
+      merchantId: z.string().optional(),
+      status: z.enum(["open", "investigating", "resolved", "dismissed"]).optional(),
+      limit: z.number().min(1).max(200).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ input }) => {
+      const { listReconciliationAlerts, countReconciliationAlerts } = await import('./db');
+      const [alerts, total] = await Promise.all([
+        listReconciliationAlerts(input.merchantId ?? null, input.status ?? null, input.limit, input.offset),
+        countReconciliationAlerts(input.merchantId ?? null, input.status ?? null),
+      ]);
+      return { alerts, total };
+    }),
+
+  getAlert: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ input }) => {
+      const { getReconciliationAlertById } = await import('./db');
+      const alert = await getReconciliationAlertById(input.id);
+      if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Alert not found" });
+      return alert;
+    }),
+
+  updateAlert: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      status: z.enum(["open", "investigating", "resolved", "dismissed"]),
+      notes: z.string().optional(),
+      resolvedBy: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { updateReconciliationAlert } = await import('./db');
+      const updates: Record<string, unknown> = { status: input.status };
+      if (input.notes !== undefined) updates.notes = input.notes;
+      if (input.status === "resolved" || input.status === "dismissed") {
+        updates.resolvedAt = new Date();
+        updates.resolvedBy = input.resolvedBy ?? ctx.user?.name ?? "system";
+      }
+      const alert = await updateReconciliationAlert(input.id, updates as any);
+      if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Alert not found" });
+      return alert;
+    }),
+
+  dismissAlert: protectedProcedure
+    .input(z.object({ id: z.string(), notes: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { updateReconciliationAlert } = await import('./db');
+      const alert = await updateReconciliationAlert(input.id, {
+        status: "dismissed",
+        resolvedAt: new Date(),
+        resolvedBy: ctx.user?.name ?? "system",
+        notes: input.notes,
+      } as any);
+      if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Alert not found" });
+      return alert;
+    }),
+
+  getStats: protectedProcedure
+    .input(z.object({ merchantId: z.string().optional() }))
+    .query(async ({ input }) => {
+      const { getReconciliationStats } = await import('./db');
+      return getReconciliationStats(input.merchantId ?? null);
+    }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -4951,5 +5021,6 @@ export const appRouter = router({
   vendors: vendorRouter,
   // AI
   ai: aiRouter,
+  reconciliation: reconciliationRouter,
 });
 export type AppRouter = typeof appRouter;

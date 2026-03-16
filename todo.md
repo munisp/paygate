@@ -1612,3 +1612,14 @@
 - [x] Build TigerBeetle↔PostgreSQL reconciliation worker (cmd/reconciler)
 - [x] Write 71 Go tests (handlers: 47, temporal: 20, reconciler: 4) — all pass
 - [x] TypeScript tests: 945 pass (0 failures)
+
+## Wave 60 — Reconciliation Alerts UI + NIBSS Disbursement + K8s Manifests
+- [ ] Add reconciliation_alerts table to drizzle/schema.ts
+- [ ] Run pnpm db:push to push migration
+- [ ] Add reconciliation tRPC procedures (listAlerts, dismissAlert, getStats)
+- [ ] Build ReconciliationAlerts portal page (/reconciliation)
+- [ ] Register /reconciliation route in App.tsx and sidebar nav
+- [ ] Implement NIBSS NIP 2.0 HTTP disbursement in DisburseFundsActivity
+- [ ] Write Kubernetes manifests (Deployment + CronJob + ConfigMap + Secret)
+- [ ] Write vitest tests for new reconciliation procedures
+- [ ] Write Go tests for NIBSS disbursement activity

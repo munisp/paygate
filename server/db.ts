@@ -25,6 +25,7 @@ import {
   bnplPlans, type BnplPlan, type InsertBnplPlan,
   purchaseOrders, type PurchaseOrder, type InsertPurchaseOrder,
   fraudAlertComments, type FraudAlertComment, type InsertFraudAlertComment,
+  reconciliationAlerts, type ReconciliationAlert, type InsertReconciliationAlert,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import * as schema from "../drizzle/schema";
@@ -1863,4 +1864,75 @@ export async function updateBnplPlan(id: string, merchantId: string, data: Parti
   const db = await getDb(); if (!db) return null;
   const [r] = await db.update(bnplPlans).set({ ...data, updatedAt: new Date() }).where(and(eq(bnplPlans.id, id), eq(bnplPlans.merchantId, merchantId))).returning();
   return r ?? null;
+}
+
+// ─── Reconciliation Alerts ────────────────────────────────────────────────────
+export async function listReconciliationAlerts(
+  merchantId: string | null,
+  status: string | null,
+  limit = 50,
+  offset = 0,
+): Promise<ReconciliationAlert[]> {
+  const db = await getDb(); if (!db) return [];
+  let q = db.select().from(reconciliationAlerts).$dynamic();
+  if (merchantId) q = q.where(eq(reconciliationAlerts.merchantId, merchantId));
+  if (status) q = q.where(eq(reconciliationAlerts.status, status as any));
+  return q.orderBy(desc(reconciliationAlerts.createdAt)).limit(limit).offset(offset);
+}
+
+export async function countReconciliationAlerts(
+  merchantId: string | null,
+  status: string | null,
+): Promise<number> {
+  const db = await getDb(); if (!db) return 0;
+  let q = db.select({ n: count() }).from(reconciliationAlerts).$dynamic();
+  if (merchantId) q = q.where(eq(reconciliationAlerts.merchantId, merchantId));
+  if (status) q = q.where(eq(reconciliationAlerts.status, status as any));
+  const [r] = await q;
+  return Number(r?.n ?? 0);
+}
+
+export async function getReconciliationAlertById(id: string): Promise<ReconciliationAlert | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.select().from(reconciliationAlerts).where(eq(reconciliationAlerts.id, id)).limit(1);
+  return r ?? null;
+}
+
+export async function updateReconciliationAlert(
+  id: string,
+  data: Partial<ReconciliationAlert>,
+): Promise<ReconciliationAlert | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db
+    .update(reconciliationAlerts)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(reconciliationAlerts.id, id))
+    .returning();
+  return r ?? null;
+}
+
+export async function createReconciliationAlert(
+  data: InsertReconciliationAlert,
+): Promise<ReconciliationAlert> {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  const [r] = await db.insert(reconciliationAlerts).values(data).returning();
+  return r;
+}
+
+export async function getReconciliationStats(merchantId: string | null): Promise<{
+  open: number; investigating: number; resolved: number; dismissed: number; totalDelta: number;
+}> {
+  const db = await getDb();
+  if (!db) return { open: 0, investigating: 0, resolved: 0, dismissed: 0, totalDelta: 0 };
+  const rows = await db
+    .select({ status: reconciliationAlerts.status, n: count(), delta: sum(reconciliationAlerts.delta) })
+    .from(reconciliationAlerts)
+    .groupBy(reconciliationAlerts.status);
+  const stats = { open: 0, investigating: 0, resolved: 0, dismissed: 0, totalDelta: 0 };
+  for (const row of rows) {
+    const s = row.status as keyof typeof stats;
+    if (s in stats) (stats as any)[s] = Number(row.n);
+    stats.totalDelta += Number(row.delta ?? 0);
+  }
+  return stats;
 }

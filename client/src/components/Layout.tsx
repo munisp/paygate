@@ -8,7 +8,7 @@ import {
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
-  Rocket, Crown, Server, FileText, Banknote} from "lucide-react";
+  Rocket, Crown, Server, FileText, Banknote, Scale} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,6 +31,7 @@ const navItems = [
   { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
   { icon: Link2, label: "Payment Links", path: "/payment-links" },
   { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
+  { icon: Scale, label: "Recon Alerts", path: "/reconciliation-alerts" },
   { icon: BNPLIcon, label: "BNPL", path: "/bnpl" },
   { icon: Globe, label: "FX & Rates", path: "/fx" },
   { icon: Users, label: "Team & Roles", path: "/team" },

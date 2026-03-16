@@ -19,6 +19,7 @@ import Disputes from "./pages/Disputes";
 import Onboarding from "./pages/Onboarding";
 import PaymentLinks from "./pages/PaymentLinks";
 import FraudRisk from "./pages/FraudRisk";
+import ReconciliationAlerts from "./pages/ReconciliationAlerts";
 import BNPL from "./pages/BNPL";
 import FXDashboard from "./pages/FXDashboard";
 import TeamRoles from "./pages/TeamRoles";
@@ -124,6 +125,7 @@ function Router() {
         <Route path="/disputes/:id" component={DisputeWorkflow} />
         <Route path="/payment-links" component={PaymentLinks} />
         <Route path="/fraud-risk" component={FraudRisk} />
+        <Route path="/reconciliation-alerts" component={ReconciliationAlerts} />
         <Route path="/bnpl" component={BNPL} />
         <Route path="/fx" component={FXDashboard} />
         <Route path="/team" component={TeamRoles} />

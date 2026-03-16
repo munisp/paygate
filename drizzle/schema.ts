@@ -1342,3 +1342,30 @@ export const bnplPlans = pgTable("bnpl_plans", {
 ]);
 export type BnplPlan = typeof bnplPlans.$inferSelect;
 export type InsertBnplPlan = typeof bnplPlans.$inferInsert;
+
+// ─── Reconciliation Alerts ────────────────────────────────────────────────────
+// Records balance mismatches detected by the TigerBeetle↔PostgreSQL reconciliation
+// worker (go-bridge/cmd/reconciler). Each row represents a single mismatch event
+// for a merchant+currency pair at a point in time.
+export const reconciliationAlerts = pgTable("reconciliation_alerts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  currency: text("currency").notNull(),
+  pgBalance: bigint("pg_balance", { mode: "number" }).notNull(),
+  tbBalance: bigint("tb_balance", { mode: "number" }).notNull(),
+  delta: bigint("delta", { mode: "number" }).notNull(),
+  status: text("status", { enum: ["open", "investigating", "resolved", "dismissed"] })
+    .notNull()
+    .default("open"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: text("resolved_by"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("recon_alert_merchant_idx").on(t.merchantId),
+  index("recon_alert_status_idx").on(t.status),
+  index("recon_alert_created_idx").on(t.createdAt),
+]);
+export type ReconciliationAlert = typeof reconciliationAlerts.$inferSelect;
+export type InsertReconciliationAlert = typeof reconciliationAlerts.$inferInsert;
