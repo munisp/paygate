@@ -4988,15 +4988,14 @@ const reconciliationRouter = router({
       if (!expectedKey || input.internalKey !== expectedKey) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
       }
-      const { insertReconciliationAlert } = await import('./db');
-      const alert = await insertReconciliationAlert({
+      const { createReconciliationAlert } = await import("./db");
+      const alert = await createReconciliationAlert({
         id: nanoid("recon_"),
         merchantId: input.merchantId,
         currency: input.currency,
-        tbBalance: input.tbBalance.toString(),
-        pgBalance: input.pgBalance.toString(),
-        delta: input.delta.toString(),
-        thresholdMinorUnits: input.thresholdMinorUnits,
+        tbBalance: input.tbBalance,
+        pgBalance: input.pgBalance,
+        delta: input.delta,
         status: "open",
         notes: input.notes ?? null,
         resolvedAt: null,
