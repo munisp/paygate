@@ -9,7 +9,6 @@
 package temporal
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -59,20 +58,25 @@ func RegisterWorker(c client.Client) worker.Worker {
 	w.RegisterWorkflow(SubscriptionChargeWorkflow)
 	w.RegisterWorkflow(CrossBorderTransferWorkflow)
 
-	// Activities
-	w.RegisterActivity(CheckPayoutThresholdActivity)
-	w.RegisterActivity(NotifyApproversActivity)
-	w.RegisterActivity(ExecutePayoutActivity)
-	w.RegisterActivity(RejectPayoutActivity)
-	w.RegisterActivity(SubmitNIBSSBatchActivity)
-	w.RegisterActivity(ConfirmNIBSSBatchActivity)
-	w.RegisterActivity(UpdateSettlementStatusActivity)
-	w.RegisterActivity(ChargeSubscriptionActivity)
-	w.RegisterActivity(SendDunningEmailActivity)
-	w.RegisterActivity(CancelSubscriptionActivity)
-	w.RegisterActivity(GetCrossBorderQuoteActivity)
-	w.RegisterActivity(ExecuteMojalloopTransferActivity)
-	w.RegisterActivity(UpdateTransferStatusActivity)
+	// Activities — use real implementations when infrastructure is available,
+	// otherwise fall back to the log-only stubs in this file.
+	acts := NewActivitySet()
+	w.RegisterActivity(acts.CheckPayoutThreshold)
+	w.RegisterActivity(acts.NotifyApprovers)
+	w.RegisterActivity(acts.ExecutePayout)
+	w.RegisterActivity(acts.RejectPayout)
+	w.RegisterActivity(acts.SubmitNIBSSBatch)
+	w.RegisterActivity(acts.ConfirmNIBSSBatch)
+	w.RegisterActivity(acts.UpdateSettlementStatus)
+	w.RegisterActivity(acts.RecordSettlement)
+	w.RegisterActivity(acts.UpdateDisputeStatus)
+	w.RegisterActivity(acts.DisburseFunds)
+	w.RegisterActivity(acts.ChargeSubscription)
+	w.RegisterActivity(acts.SendDunningEmail)
+	w.RegisterActivity(acts.CancelSubscription)
+	w.RegisterActivity(acts.GetCrossBorderQuote)
+	w.RegisterActivity(acts.ExecuteMojalloopTransfer)
+	w.RegisterActivity(acts.UpdateTransferStatus)
 
 	return w
 }
@@ -113,7 +117,8 @@ func PayoutApprovalWorkflow(ctx workflow.Context, input PayoutApprovalInput) (Pa
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
 	// Step 1: Notify approvers
-	if err := workflow.ExecuteActivity(ctx, NotifyApproversActivity, input).Get(ctx, nil); err != nil {
+	notifyActs := NewActivitySet()
+	if err := workflow.ExecuteActivity(ctx, notifyActs.NotifyApprovers, input).Get(ctx, nil); err != nil {
 		logger.Error("NotifyApproversActivity failed", "err", err)
 		// Non-fatal — continue waiting for signal
 	}
@@ -153,12 +158,13 @@ func PayoutApprovalWorkflow(ctx workflow.Context, input PayoutApprovalInput) (Pa
 	selector.Select(ctx)
 
 	// Step 3: Execute or reject
+	acts := NewActivitySet()
 	if result.Approved {
-		if err := workflow.ExecuteActivity(ctx, ExecutePayoutActivity, input.PayoutID).Get(ctx, nil); err != nil {
+		if err := workflow.ExecuteActivity(ctx, acts.ExecutePayout, input.PayoutID).Get(ctx, nil); err != nil {
 			return result, fmt.Errorf("ExecutePayoutActivity: %w", err)
 		}
 	} else {
-		if err := workflow.ExecuteActivity(ctx, RejectPayoutActivity, input.PayoutID, result.Reason).Get(ctx, nil); err != nil {
+		if err := workflow.ExecuteActivity(ctx, acts.RejectPayout, input.PayoutID, result.Reason).Get(ctx, nil); err != nil {
 			return result, fmt.Errorf("RejectPayoutActivity: %w", err)
 		}
 	}
@@ -174,10 +180,14 @@ func PayoutApprovalWorkflow(ctx workflow.Context, input PayoutApprovalInput) (Pa
 
 // SettlementBatchInput is the input to SettlementBatchWorkflow.
 type SettlementBatchInput struct {
-	SettlementID string `json:"settlement_id"`
-	MerchantID   string `json:"merchant_id"`
-	BatchRef     string `json:"batch_ref"`
-	Amount       int64  `json:"amount_kobo"`
+	SettlementID  string `json:"settlement_id"`
+	MerchantID    string `json:"merchant_id"`
+	BatchRef      string `json:"batch_ref"`
+	Amount        int64  `json:"amount_kobo"`
+	Currency      string `json:"currency"`
+	BankCode      string `json:"bank_code"`
+	AccountNumber string `json:"account_number"`
+	AccountName   string `json:"account_name"`
 }
 
 // SettlementBatchWorkflow orchestrates NIBSS batch submission and confirmation.
@@ -197,12 +207,26 @@ func SettlementBatchWorkflow(ctx workflow.Context, input SettlementBatchInput) e
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Step 1: Submit NIBSS batch
-	if err := workflow.ExecuteActivity(ctx, SubmitNIBSSBatchActivity, input).Get(ctx, nil); err != nil {
+	acts := NewActivitySet()
+
+	// Step 1: Mark processing
+	if err := workflow.ExecuteActivity(ctx, acts.UpdateSettlementStatus, input.SettlementID, "processing").Get(ctx, nil); err != nil {
+		return fmt.Errorf("UpdateSettlementStatus(processing): %w", err)
+	}
+
+	// Step 2: Lock funds in TigerBeetle
+	if err := workflow.ExecuteActivity(ctx, acts.RecordSettlement, input).Get(ctx, nil); err != nil {
+		_ = workflow.ExecuteActivity(ctx, acts.UpdateSettlementStatus, input.SettlementID, "failed").Get(ctx, nil)
+		return fmt.Errorf("RecordSettlementActivity: %w", err)
+	}
+
+	// Step 3: Submit NIBSS batch
+	if err := workflow.ExecuteActivity(ctx, acts.SubmitNIBSSBatch, input).Get(ctx, nil); err != nil {
+		_ = workflow.ExecuteActivity(ctx, acts.UpdateSettlementStatus, input.SettlementID, "failed").Get(ctx, nil)
 		return fmt.Errorf("SubmitNIBSSBatchActivity: %w", err)
 	}
 
-	// Step 2: Wait for NIBSS confirmation signal (4h timeout)
+	// Step 4: Wait for NIBSS confirmation signal (4h timeout)
 	confirmCh := workflow.GetSignalChannel(ctx, "nibss-confirmed")
 	var confirmed bool
 
@@ -220,12 +244,12 @@ func SettlementBatchWorkflow(ctx workflow.Context, input SettlementBatchInput) e
 
 	selector.Select(ctx)
 
-	// Step 3: Update settlement status
-	status := "settled"
+	// Step 5: Update settlement status
+	status := "completed"
 	if !confirmed {
 		status = "sla_breached"
 	}
-	if err := workflow.ExecuteActivity(ctx, UpdateSettlementStatusActivity, input.SettlementID, status).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, acts.UpdateSettlementStatus, input.SettlementID, status).Get(ctx, nil); err != nil {
 		return fmt.Errorf("UpdateSettlementStatusActivity: %w", err)
 	}
 
@@ -264,18 +288,19 @@ func SubscriptionChargeWorkflow(ctx workflow.Context, input SubscriptionChargeIn
 	maxAttempts := 3
 	retryIntervals := []time.Duration{0, 24 * time.Hour, 72 * time.Hour}
 
+	acts := NewActivitySet()
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			// Wait before retry
 			_ = workflow.Sleep(ctx, retryIntervals[attempt])
 			// Send dunning email
-			if err := workflow.ExecuteActivity(ctx, SendDunningEmailActivity, input, attempt).Get(ctx, nil); err != nil {
+			if err := workflow.ExecuteActivity(ctx, acts.SendDunningEmail, input, attempt).Get(ctx, nil); err != nil {
 				logger.Error("SendDunningEmailActivity failed", "err", err)
 			}
 		}
 
 		var chargeErr error
-		if err := workflow.ExecuteActivity(ctx, ChargeSubscriptionActivity, input).Get(ctx, &chargeErr); err == nil && chargeErr == nil {
+		if err := workflow.ExecuteActivity(ctx, acts.ChargeSubscription, input).Get(ctx, &chargeErr); err == nil && chargeErr == nil {
 			logger.Info("SubscriptionChargeWorkflow: charge succeeded", "attempt", attempt+1)
 			return nil
 		}
@@ -283,7 +308,7 @@ func SubscriptionChargeWorkflow(ctx workflow.Context, input SubscriptionChargeIn
 	}
 
 	// All attempts exhausted — cancel subscription
-	if err := workflow.ExecuteActivity(ctx, CancelSubscriptionActivity, input.SubscriptionID, "payment_failed").Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, acts.CancelSubscription, input.SubscriptionID, "payment_failed").Get(ctx, nil); err != nil {
 		return fmt.Errorf("CancelSubscriptionActivity: %w", err)
 	}
 
@@ -323,21 +348,23 @@ func CrossBorderTransferWorkflow(ctx workflow.Context, input CrossBorderInput) e
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
+	acts := NewActivitySet()
+
 	// Step 1: Get or refresh quote (30s expiry)
 	var quoteID string
-	if err := workflow.ExecuteActivity(ctx, GetCrossBorderQuoteActivity, input).Get(ctx, &quoteID); err != nil {
+	if err := workflow.ExecuteActivity(ctx, acts.GetCrossBorderQuote, input).Get(ctx, &quoteID); err != nil {
 		return fmt.Errorf("GetCrossBorderQuoteActivity: %w", err)
 	}
 	input.QuoteID = quoteID
 
 	// Step 2: Execute Mojaloop transfer
-	if err := workflow.ExecuteActivity(ctx, ExecuteMojalloopTransferActivity, input).Get(ctx, nil); err != nil {
-		_ = workflow.ExecuteActivity(ctx, UpdateTransferStatusActivity, input.TransferID, "failed").Get(ctx, nil)
+	if err := workflow.ExecuteActivity(ctx, acts.ExecuteMojalloopTransfer, input).Get(ctx, nil); err != nil {
+		_ = workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "failed").Get(ctx, nil)
 		return fmt.Errorf("ExecuteMojalloopTransferActivity: %w", err)
 	}
 
 	// Step 3: Update status to completed
-	if err := workflow.ExecuteActivity(ctx, UpdateTransferStatusActivity, input.TransferID, "completed").Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "completed").Get(ctx, nil); err != nil {
 		return fmt.Errorf("UpdateTransferStatusActivity: %w", err)
 	}
 
@@ -345,71 +372,15 @@ func CrossBorderTransferWorkflow(ctx workflow.Context, input CrossBorderInput) e
 	return nil
 }
 
-// ─── Activity stubs ───────────────────────────────────────────────────────────
-// These are registered with the worker and called by the workflows above.
-// Replace the log-only implementations with real business logic.
-
-func CheckPayoutThresholdActivity(ctx context.Context, payoutID string) (bool, error) {
-	slog.Info("[temporal:activity] CheckPayoutThreshold", "payout_id", payoutID)
-	return true, nil
+// DisputeResolutionInput is the input to the DisburseFunds activity.
+type DisputeResolutionInput struct {
+	DisputeID  string `json:"dispute_id"`
+	MerchantID string `json:"merchant_id"`
+	Amount     int64  `json:"amount"`
+	Currency   string `json:"currency"`
+	Resolution string `json:"resolution"` // "won" | "lost" | "partial"
+	ReviewerID string `json:"reviewer_id"`
 }
 
-func NotifyApproversActivity(ctx context.Context, input PayoutApprovalInput) error {
-	slog.Info("[temporal:activity] NotifyApprovers", "payout_id", input.PayoutID, "approver", input.ApproverID)
-	return nil
-}
-
-func ExecutePayoutActivity(ctx context.Context, payoutID string) error {
-	slog.Info("[temporal:activity] ExecutePayout", "payout_id", payoutID)
-	return nil
-}
-
-func RejectPayoutActivity(ctx context.Context, payoutID, reason string) error {
-	slog.Info("[temporal:activity] RejectPayout", "payout_id", payoutID, "reason", reason)
-	return nil
-}
-
-func SubmitNIBSSBatchActivity(ctx context.Context, input SettlementBatchInput) error {
-	slog.Info("[temporal:activity] SubmitNIBSSBatch", "settlement_id", input.SettlementID, "batch_ref", input.BatchRef)
-	return nil
-}
-
-func ConfirmNIBSSBatchActivity(ctx context.Context, batchRef string) error {
-	slog.Info("[temporal:activity] ConfirmNIBSSBatch", "batch_ref", batchRef)
-	return nil
-}
-
-func UpdateSettlementStatusActivity(ctx context.Context, settlementID, status string) error {
-	slog.Info("[temporal:activity] UpdateSettlementStatus", "settlement_id", settlementID, "status", status)
-	return nil
-}
-
-func ChargeSubscriptionActivity(ctx context.Context, input SubscriptionChargeInput) error {
-	slog.Info("[temporal:activity] ChargeSubscription", "subscription_id", input.SubscriptionID)
-	return nil
-}
-
-func SendDunningEmailActivity(ctx context.Context, input SubscriptionChargeInput, attempt int) error {
-	slog.Info("[temporal:activity] SendDunningEmail", "subscription_id", input.SubscriptionID, "attempt", attempt)
-	return nil
-}
-
-func CancelSubscriptionActivity(ctx context.Context, subscriptionID, reason string) error {
-	slog.Info("[temporal:activity] CancelSubscription", "subscription_id", subscriptionID, "reason", reason)
-	return nil
-}
-
-func GetCrossBorderQuoteActivity(ctx context.Context, input CrossBorderInput) (string, error) {
-	slog.Info("[temporal:activity] GetCrossBorderQuote", "transfer_id", input.TransferID, "corridor", input.Corridor)
-	return "quote_" + input.TransferID, nil
-}
-
-func ExecuteMojalloopTransferActivity(ctx context.Context, input CrossBorderInput) error {
-	slog.Info("[temporal:activity] ExecuteMojalloopTransfer", "transfer_id", input.TransferID, "quote_id", input.QuoteID)
-	return nil
-}
-
-func UpdateTransferStatusActivity(ctx context.Context, transferID, status string) error {
-	slog.Info("[temporal:activity] UpdateTransferStatus", "transfer_id", transferID, "status", status)
-	return nil
-}
+// Activity implementations have been moved to activities.go (ActivitySet methods).
+// The ActivitySet is registered in RegisterWorker() above.

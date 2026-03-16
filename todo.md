@@ -1604,3 +1604,11 @@
 - [x] Register all 14 new routes in main.go with auth middleware
 - [x] Write 47 Go handler tests — all passing
 - [x] TypeScript test suite: 945 tests passing (37 files, 0 failures)
+
+## Wave 59 — Temporal Activities + Reconciliation Worker
+- [x] Implement all Temporal activity bodies (settlement, dispute, KYC, BNPL, payout, cross-border, subscription)
+- [x] Add pgdb package (PostgreSQL client for Go bridge activities)
+- [x] Add pgdb.InitNoop() for test isolation
+- [x] Build TigerBeetle↔PostgreSQL reconciliation worker (cmd/reconciler)
+- [x] Write 71 Go tests (handlers: 47, temporal: 20, reconciler: 4) — all pass
+- [x] TypeScript tests: 945 pass (0 failures)
