@@ -5547,6 +5547,7 @@ const consumerBillsRouter = router({
       customerReference: z.string().min(1).max(50),
       amountKobo: z.number().int().positive().max(1_000_000_00),
       currency: z.string().length(3).default('NGN'),
+      variationCode: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -5567,7 +5568,22 @@ const consumerBillsRouter = router({
       const newBalance = wallet.balanceKobo - input.amountKobo;
       await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
       const billId = nanoid('bp_');
-      const providerRef = nanoid('vtpass_');
+      // Call VTpass live API (graceful fallback to simulation when no credentials)
+      const { vtpassPay } = await import('./vtpass');
+      const vtResult = await vtpassPay({
+        billerCode: input.billerCode,
+        customerReference: input.customerReference,
+        amountNaira: input.amountKobo / 100,
+        requestId: billId,
+        variationCode: input.variationCode,
+      });
+      // If VTpass hard-fails (not a graceful fallback), refund the wallet
+      if (!vtResult.success) {
+        await db.update(consumerWallets).set({ balanceKobo: wallet.balanceKobo, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+        throw new TRPCError({ code: 'BAD_REQUEST', message: vtResult.message ?? 'Bill payment failed at provider' });
+      }
+      const providerRef = vtResult.providerRef;
+      const billStatus = vtResult.status;
       await db.insert(billPayments).values({
         id: billId,
         userId: user.id,
@@ -5579,8 +5595,8 @@ const consumerBillsRouter = router({
         amountKobo: input.amountKobo,
         currency: input.currency,
         providerRef,
-        status: 'completed',
-        completedAt: new Date(),
+        status: billStatus,
+        completedAt: billStatus === 'completed' ? new Date() : null,
       });
       await db.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
@@ -5593,7 +5609,7 @@ const consumerBillsRouter = router({
         description: `${biller.name} — ${input.customerReference}`,
         reference: providerRef,
         counterpartyName: biller.name,
-        status: 'completed',
+        status: billStatus,
       });
       // Fire-and-forget push notification to payer
       const billAmtNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
@@ -5612,7 +5628,13 @@ const consumerBillsRouter = router({
           data: { billId, providerRef, amountKobo: String(input.amountKobo) },
         });
       }).catch(() => {/* silent */});
-      return { success: true, billId, providerRef, newBalanceKobo: newBalance };
+      return { success: true, billId, providerRef, status: billStatus, newBalanceKobo: newBalance };
+    }),
+  verify: protectedProcedure
+    .input(z.object({ billerCode: z.string(), customerReference: z.string().min(1).max(50) }))
+    .mutation(async ({ input }) => {
+      const { vtpassVerify } = await import('./vtpass');
+      return vtpassVerify({ billerCode: input.billerCode, customerReference: input.customerReference });
     }),
   history: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(20), offset: z.number().int().default(0) }))

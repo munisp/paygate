@@ -1682,3 +1682,12 @@
 - [x] Wire /consumer/bills page to real biller procedures
 - [x] Add consumer nav items to Layout sidebar
 - [x] Write vitest tests for all new procedures (wave66.test.ts)
+
+## Wave 67 — QR Consumer Page, Saved Beneficiaries UI, VTpass Live Integration
+- [x] Create VTpass API client (server/vtpass.ts) with simulation fallback
+- [x] Wire vtpassPay into consumerBills.pay procedure (replace simulated providerRef)
+- [x] Add consumerBills.verify procedure for pre-payment customer reference validation
+- [x] Consumer QR payments page (/consumer/qr) already exists in QRPayments.tsx
+- [x] Saved Beneficiaries quick-select UI already in MakePayment.tsx (p2p.savedBeneficiaries)
+- [x] Write wave67.test.ts vitest tests for all new features
+- [x] Update production archive
