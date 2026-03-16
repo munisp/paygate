@@ -1540,3 +1540,210 @@ export const consumerWalletTxns = pgTable("consumer_wallet_txns", {
 ]);
 export type ConsumerWalletTxn = typeof consumerWalletTxns.$inferSelect;
 export type InsertConsumerWalletTxn = typeof consumerWalletTxns.$inferInsert;
+
+// ─── Wave 68: Money Requests (Request Money / Pay-Me Links) ──────────────────
+export const moneyRequests = pgTable("money_requests", {
+  id: text("id").primaryKey(),
+  requesterId: integer("requester_id").notNull().references(() => users.id),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  note: text("note"),
+  status: text("status", { enum: ["pending", "paid", "cancelled", "expired"] }).notNull().default("pending"),
+  payerUserId: integer("payer_user_id").references(() => users.id),
+  payerName: text("payer_name"),
+  paidAt: timestamp("paid_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("mr_requester_idx").on(t.requesterId),
+  index("mr_status_idx").on(t.status),
+]);
+export type MoneyRequest = typeof moneyRequests.$inferSelect;
+
+// ─── Wave 68: Consumer Contacts / Friends ────────────────────────────────────
+export const consumerContacts = pgTable("consumer_contacts", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactUserId: integer("contact_user_id").references(() => users.id),
+  nickname: text("nickname"),
+  phone: text("phone"),
+  accountNumber: text("account_number"),
+  bankCode: text("bank_code"),
+  bankName: text("bank_name"),
+  isFavorite: boolean("is_favorite").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cc_user_idx").on(t.userId),
+]);
+
+// ─── Wave 68: Consumer Loyalty ────────────────────────────────────────────────
+export const consumerLoyaltyAccounts = pgTable("consumer_loyalty_accounts", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id).unique(),
+  pointsBalance: integer("points_balance").notNull().default(0),
+  lifetimePoints: integer("lifetime_points").notNull().default(0),
+  tier: text("tier", { enum: ["bronze", "silver", "gold", "platinum"] }).notNull().default("bronze"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type ConsumerLoyaltyAccount = typeof consumerLoyaltyAccounts.$inferSelect;
+
+export const consumerLoyaltyTxns = pgTable("consumer_loyalty_txns", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  type: text("type", { enum: ["earn", "redeem", "expire", "bonus"] }).notNull(),
+  points: integer("points").notNull(),
+  description: text("description"),
+  referenceId: text("reference_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("clt_user_idx").on(t.userId),
+]);
+
+// ─── Wave 68: Coupons / Vouchers ─────────────────────────────────────────────
+export const coupons = pgTable("coupons", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  type: text("type", { enum: ["percent", "fixed", "free_transfer"] }).notNull(),
+  value: integer("value").notNull(),
+  minAmountKobo: bigint("min_amount_kobo", { mode: "number" }).notNull().default(0),
+  maxDiscountKobo: bigint("max_discount_kobo", { mode: "number" }),
+  usageLimit: integer("usage_limit"),
+  usageCount: integer("usage_count").notNull().default(0),
+  perUserLimit: integer("per_user_limit").notNull().default(1),
+  validFrom: timestamp("valid_from").notNull(),
+  validUntil: timestamp("valid_until").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type Coupon = typeof coupons.$inferSelect;
+
+export const couponRedemptions = pgTable("coupon_redemptions", {
+  id: text("id").primaryKey(),
+  couponId: text("coupon_id").notNull().references(() => coupons.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  amountSavedKobo: bigint("amount_saved_kobo", { mode: "number" }).notNull(),
+  referenceId: text("reference_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cr_coupon_idx").on(t.couponId),
+  index("cr_user_idx").on(t.userId),
+]);
+
+// ─── Wave 68: Consumer Virtual Cards ─────────────────────────────────────────
+export const consumerCards = pgTable("consumer_cards", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  walletId: text("wallet_id").notNull().references(() => consumerWallets.id),
+  maskedPan: text("masked_pan").notNull(),
+  cardBrand: text("card_brand", { enum: ["visa", "mastercard"] }).notNull().default("visa"),
+  expiryMonth: text("expiry_month").notNull(),
+  expiryYear: text("expiry_year").notNull(),
+  cardholderName: text("cardholder_name").notNull(),
+  spendingLimitKobo: bigint("spending_limit_kobo", { mode: "number" }),
+  isActive: boolean("is_active").notNull().default(true),
+  isFrozen: boolean("is_frozen").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cc_card_user_idx").on(t.userId),
+]);
+export type ConsumerCard = typeof consumerCards.$inferSelect;
+
+// ─── Wave 68: Consumer Recurring Payments ────────────────────────────────────
+export const consumerRecurringPayments = pgTable("consumer_recurring_payments", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  type: text("type", { enum: ["bill", "p2p"] }).notNull(),
+  billerCode: text("biller_code"),
+  customerReference: text("customer_reference"),
+  recipientAccountNumber: text("recipient_account_number"),
+  recipientBankCode: text("recipient_bank_code"),
+  recipientName: text("recipient_name"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  frequency: text("frequency", { enum: ["daily", "weekly", "monthly"] }).notNull(),
+  nextRunAt: timestamp("next_run_at").notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  runCount: integer("run_count").notNull().default(0),
+  maxRuns: integer("max_runs"),
+  isActive: boolean("is_active").notNull().default(true),
+  label: text("label"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("crp_user_idx").on(t.userId),
+  index("crp_next_run_idx").on(t.nextRunAt),
+]);
+export type ConsumerRecurringPayment = typeof consumerRecurringPayments.$inferSelect;
+
+// ─── Wave 68: Consumer Split Bill ────────────────────────────────────────────
+export const consumerSplitSessions = pgTable("consumer_split_sessions", {
+  id: text("id").primaryKey(),
+  creatorId: integer("creator_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status", { enum: ["open", "settled", "cancelled"] }).notNull().default("open"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("css_creator_idx").on(t.creatorId),
+]);
+export type ConsumerSplitSession = typeof consumerSplitSessions.$inferSelect;
+
+export const consumerSplitParticipants = pgTable("consumer_split_participants", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => consumerSplitSessions.id),
+  userId: integer("user_id").references(() => users.id),
+  name: text("name").notNull(),
+  shareAmountKobo: bigint("share_amount_kobo", { mode: "number" }).notNull(),
+  status: text("status", { enum: ["pending", "paid", "declined"] }).notNull().default("pending"),
+  paidAt: timestamp("paid_at"),
+  walletTxnId: text("wallet_txn_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("csp_session_idx").on(t.sessionId),
+]);
+export type ConsumerSplitParticipant = typeof consumerSplitParticipants.$inferSelect;
+
+// ─── Wave 68: Consumer OTP / Phone Verification ──────────────────────────────
+export const consumerPhoneVerifications = pgTable("consumer_phone_verifications", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  phone: text("phone").notNull(),
+  otpHash: text("otp_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  verified: boolean("verified").notNull().default(false),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cpv_user_idx").on(t.userId),
+]);
+
+// ─── Wave 68: Consumer PIN (server-side bcrypt) ───────────────────────────────
+export const consumerPins = pgTable("consumer_pins", {
+  userId: integer("user_id").primaryKey().references(() => users.id),
+  pinHash: text("pin_hash").notNull(),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── Wave 68: Consumer KYC Records ───────────────────────────────────────────
+export const consumerKycRecords = pgTable("consumer_kyc_records", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id).unique(),
+  phone: text("phone"),
+  bvn: text("bvn"),
+  nin: text("nin"),
+  selfieUrl: text("selfie_url"),
+  idDocUrl: text("id_doc_url"),
+  status: text("status", { enum: ["pending", "approved", "rejected", "manual_review"] }).notNull().default("pending"),
+  providerRef: text("provider_ref"),
+  rejectionReason: text("rejection_reason"),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("ckr_user_idx").on(t.userId),
+]);
+export type ConsumerKycRecord = typeof consumerKycRecords.$inferSelect;

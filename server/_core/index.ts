@@ -119,6 +119,57 @@ async function startServer() {
           case "checkout.session.completed": {
             const session = event.data.object as any;
             console.log(`[Stripe] Checkout completed: ${session.id} — ${session.amount_total} ${session.currency}`);
+            // ── Consumer wallet top-up ──────────────────────────────────────
+            if (session.metadata?.type === "consumer_wallet_topup") {
+              try {
+                const amountKobo = parseInt(session.metadata.amount_kobo ?? "0", 10);
+                const currency = session.metadata.currency ?? "NGN";
+                const userOpenId = session.metadata.user_open_id;
+                if (amountKobo > 0 && userOpenId) {
+                  const { getDb } = await import("../db");
+                  const db = await getDb();
+                  if (db) {
+                    const { consumerWallets, consumerWalletTxns, users } = await import("../../drizzle/schema");
+                    const { eq, and, sql } = await import("drizzle-orm");
+                    const [user] = await db.select().from(users).where(eq(users.openId, userOpenId)).limit(1);
+                    if (user) {
+                      let [wallet] = await db.select().from(consumerWallets)
+                        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, currency)))
+                        .limit(1);
+                      if (!wallet) {
+                        const [created] = await db.insert(consumerWallets).values({
+                          id: `cw_${Date.now()}`,
+                          userId: user.id,
+                          currency,
+                          balanceKobo: 0,
+                          isActive: true,
+                        }).returning();
+                        wallet = created;
+                      }
+                      const newBalance = wallet.balanceKobo + amountKobo;
+                      await db.update(consumerWallets)
+                        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${amountKobo}`, updatedAt: new Date() })
+                        .where(eq(consumerWallets.id, wallet.id));
+                      await db.insert(consumerWalletTxns).values({
+                        walletId: wallet.id,
+                        userId: user.id,
+                        type: "topup",
+                        amountKobo,
+                        currency,
+                        balanceAfterKobo: newBalance,
+                        reference: session.id,
+                        description: `Stripe wallet top-up — session ${session.id}`,
+                        status: "completed",
+                      });
+                      console.log(`[Stripe] Consumer wallet credited: userId=${user.id}, +${amountKobo} kobo ${currency}`);
+                    }
+                  }
+                }
+              } catch (topUpErr: any) {
+                console.error("[Stripe] Consumer wallet top-up failed:", topUpErr.message);
+              }
+            }
+            // ── Merchant checkout broadcast ─────────────────────────────────
             const merchantId = session.metadata?.merchant_id;
             if (merchantId) {
               (app as any)._sseBroadcast?.(merchantId, "checkout_completed", {

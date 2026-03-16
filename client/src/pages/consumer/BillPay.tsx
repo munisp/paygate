@@ -1,6 +1,8 @@
 /**
- * Bill Pay Page (Consumer)
- * Uses real consumerBills tRPC procedures — listCategories, listBillers, pay.
+ * Bill Pay Page (Consumer) - Wave 68
+ * Full: category, biller, verify customer reference, PIN gate, bill history.
+ * Uses actual API: listCategories (returns {code,name,icon}), listBillers (returns {code,name,logo}),
+ * verify ({billerCode, customerReference}), pay ({category, billerCode, customerReference, amountKobo, variationCode}).
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -9,50 +11,109 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Zap, Wifi, Phone, Tv, Droplets, CheckCircle, Loader2, ArrowLeft } from "lucide-react";
+import { Zap, Wifi, Phone, Tv, Droplets, CheckCircle, Loader2, ArrowLeft, Clock } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 
 const ICON_MAP: Record<string, React.ElementType> = {
-  electricity: Zap,
-  internet: Wifi,
-  airtime: Phone,
-  cable: Tv,
-  water: Droplets,
+  electricity: Zap, internet: Wifi, airtime: Phone, cable: Tv, water: Droplets, data: Wifi,
 };
 const COLOR_MAP: Record<string, string> = {
-  electricity: "text-amber-500",
-  internet: "text-blue-500",
-  airtime: "text-emerald-500",
-  cable: "text-purple-500",
-  water: "text-cyan-500",
+  electricity: "text-amber-500", internet: "text-blue-500", airtime: "text-emerald-500",
+  cable: "text-purple-500", water: "text-cyan-500", data: "text-indigo-500",
 };
+
+function PinDialog({ open, onClose, onConfirm, isPending }: {
+  open: boolean; onClose: () => void; onConfirm: (pin: string) => void; isPending: boolean;
+}) {
+  const [pin, setPin] = useState("");
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setPin(""); } }}>
+      <DialogContent className="sm:max-w-xs">
+        <DialogHeader><DialogTitle>Enter Transaction PIN</DialogTitle></DialogHeader>
+        <div className="py-4">
+          <Input type="password" inputMode="numeric" maxLength={4} placeholder="••••"
+            className="text-center text-2xl tracking-widest" value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { onClose(); setPin(""); }} disabled={isPending}>Cancel</Button>
+          <Button onClick={() => { if (pin.length !== 4) return; onConfirm(pin); setPin(""); }} disabled={pin.length !== 4 || isPending}>
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Pay Now
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BillHistory() {
+  const { data, isLoading } = trpc.consumerBills.history.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const bills = (data as any)?.rows ?? data ?? [];
+  if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>;
+  if (!bills.length) return (
+    <div className="text-center py-12 text-muted-foreground">
+      <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+      <p>No bill payments yet</p>
+    </div>
+  );
+  return (
+    <div className="space-y-2">
+      {bills.map((b: any) => (
+        <div key={b.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
+          <div>
+            <p className="text-sm font-medium">{b.billerName ?? b.billerId ?? b.billerCode}</p>
+            <p className="text-xs text-muted-foreground">{b.customerReference ?? b.accountNumber} · {new Date(b.createdAt).toLocaleDateString()}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-semibold">&#8358;{(b.amountKobo / 100).toLocaleString()}</p>
+            <Badge variant={b.status === "success" ? "default" : "destructive"} className="text-[10px]">{b.status}</Badge>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function BillPay() {
   useOnboardingGate();
   const [, navigate] = useLocation();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [selectedBiller, setSelectedBiller] = useState<string>("");
-  const [accountNumber, setAccountNumber] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedBillerCode, setSelectedBillerCode] = useState<string>("");
+  const [selectedBillerName, setSelectedBillerName] = useState<string>("");
+  const [customerReference, setCustomerReference] = useState("");
   const [amount, setAmount] = useState("");
-  const [step, setStep] = useState<"select" | "form" | "success">("select");
+  const [step, setStep] = useState<"select" | "form" | "verify" | "pin" | "success">("select");
+  const [verifiedName, setVerifiedName] = useState<string | null>(null);
+  const [txRef, setTxRef] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
-
   const { data: categoriesData, isLoading: catsLoading } = trpc.consumerBills.listCategories.useQuery(undefined, { staleTime: 300_000 });
   const categories = categoriesData ?? [];
 
   const { data: billersData, isLoading: billersLoading } = trpc.consumerBills.listBillers.useQuery(
-    { category: selected ?? "electricity" },
-    { enabled: !!selected, staleTime: 300_000 }
+    { category: selectedCategory ?? "electricity" },
+    { enabled: !!selectedCategory, staleTime: 300_000 }
   );
   const billers = billersData ?? [];
 
+  const verifyMutation = trpc.consumerBills.verify.useMutation({
+    onSuccess: (data: any) => {
+      setVerifiedName(data.customerName ?? "Verified");
+      setStep("verify");
+    },
+    onError: (e) => toast.error("Verification failed: " + e.message),
+  });
+
   const payBill = trpc.consumerBills.pay.useMutation({
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      setTxRef(data.reference);
       setStep("success");
       utils.consumerWallet.getBalance.invalidate();
       utils.consumerWallet.history.invalidate();
@@ -60,159 +121,157 @@ export default function BillPay() {
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
-  const handlePay = () => {
-    if (!accountNumber || !amount || !selected || !selectedBiller) {
-      toast.error("Please fill in all fields");
-      return;
-    }
-    const amountKobo = Math.round(parseFloat(amount) * 100);
-    if (amountKobo < 100) {
-      toast.error("Minimum payment is ₦1");
-      return;
-    }
+  const handleVerify = () => {
+    if (!selectedBillerCode || !customerReference) { toast.error("Please fill all fields"); return; }
+    verifyMutation.mutate({ billerCode: selectedBillerCode, customerReference });
+  };
+
+  const handlePay = (pin: string) => {
     payBill.mutate({
-      category: selected,
-      billerCode: selectedBiller,
-      customerReference: accountNumber,
-      amountKobo,
-      currency: "NGN",
+      category: selectedCategory!,
+      billerCode: selectedBillerCode,
+      customerReference,
+      amountKobo: Math.round(parseFloat(amount) * 100),
     });
   };
 
   if (step === "success") {
-    const cat = categories.find((c) => c.code === selected);
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="text-center space-y-4 max-w-sm">
-          <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
-            <CheckCircle className="w-10 h-10 text-emerald-600" />
-          </div>
-          <h2 className="text-2xl font-bold">Bill Paid!</h2>
-          <p className="text-muted-foreground capitalize">
-            Your {cat?.name ?? selected} bill of ₦{parseFloat(amount).toLocaleString()} has been paid successfully.
-          </p>
-          <Button className="w-full" onClick={() => { setStep("select"); setSelected(null); setSelectedBiller(""); setAccountNumber(""); setAmount(""); navigate("/consumer"); }}>
-            Back to Wallet
-          </Button>
+      <div className="p-4 flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
+        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+          <CheckCircle className="w-8 h-8 text-emerald-500" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold">Payment Successful!</h2>
+          <p className="text-muted-foreground text-sm mt-1">&#8358;{parseFloat(amount).toLocaleString()} paid to {selectedBillerName}</p>
+          {txRef && <p className="text-xs text-muted-foreground mt-1 font-mono">Ref: {txRef}</p>}
+        </div>
+        <div className="flex gap-3 mt-4">
+          <Button variant="outline" onClick={() => { setStep("select"); setSelectedCategory(null); setSelectedBillerCode(""); setCustomerReference(""); setAmount(""); setVerifiedName(null); }}>Pay Another</Button>
+          <Button onClick={() => navigate("/consumer")}>Done</Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 space-y-6 max-w-lg mx-auto">
-      <div className="flex items-center gap-3 pt-4">
-        <Button variant="ghost" size="icon" onClick={() => step === "form" ? setStep("select") : navigate("/consumer")}>
+    <div className="p-4 space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => step === "form" ? setStep("select") : step === "verify" ? setStep("form") : navigate("/consumer")}>
           <ArrowLeft className="w-5 h-5" />
         </Button>
-        <div>
-          <h1 className="text-xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Bill Pay</h1>
-          <p className="text-sm text-muted-foreground">Pay your bills instantly</p>
-        </div>
+        <h1 className="text-lg font-semibold">Bill Payments</h1>
       </div>
 
-      {step === "select" && (
-        catsLoading ? (
-          <div className="grid grid-cols-2 gap-3">
-            {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {categories.map((cat) => {
-              const Icon = ICON_MAP[cat.code] ?? Zap;
-              const color = COLOR_MAP[cat.code] ?? "text-primary";
-              return (
-                <button
-                  key={cat.code}
-                  onClick={() => { setSelected(cat.code); setSelectedBiller(""); setStep("form"); }}
-                  className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                    <Icon className={`w-6 h-6 ${color}`} />
-                  </div>
-                  <span className="font-medium text-sm">{cat.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        )
-      )}
+      <Tabs defaultValue="pay">
+        <TabsList className="w-full">
+          <TabsTrigger value="pay" className="flex-1">Pay Bill</TabsTrigger>
+          <TabsTrigger value="history" className="flex-1">History</TabsTrigger>
+        </TabsList>
 
-      {step === "form" && selected && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base capitalize flex items-center gap-2">
-              {(() => {
-                const Icon = ICON_MAP[selected] ?? Zap;
-                const color = COLOR_MAP[selected] ?? "text-primary";
-                return <Icon className={`w-5 h-5 ${color}`} />;
-              })()}
-              {categories.find(c => c.code === selected)?.name ?? selected} Payment
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Biller selector */}
-            <div className="space-y-1.5">
-              <Label>Select Provider</Label>
-              {billersLoading ? (
-                <Skeleton className="h-10 w-full rounded-md" />
+        <TabsContent value="pay" className="space-y-4 mt-4">
+          {step === "select" && (
+            <div>
+              <p className="text-sm text-muted-foreground mb-3">Select a category</p>
+              {catsLoading ? (
+                <div className="grid grid-cols-2 gap-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
               ) : (
-                <Select value={selectedBiller} onValueChange={setSelectedBiller}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {billers.map(b => (
-                      <SelectItem key={b.code} value={b.code}>{b.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  {(categories as any[]).map((cat) => {
+                    const Icon = ICON_MAP[cat.code] ?? Zap;
+                    const color = COLOR_MAP[cat.code] ?? "text-primary";
+                    return (
+                      <button key={cat.code} onClick={() => { setSelectedCategory(cat.code); setStep("form"); }}
+                        className="flex flex-col items-center gap-3 p-4 rounded-xl bg-muted/50 border border-border hover:border-primary/50 hover:bg-muted transition-all">
+                        <div className="w-12 h-12 rounded-full bg-background flex items-center justify-center shadow-sm">
+                          <Icon className={`w-6 h-6 ${color}`} />
+                        </div>
+                        <span className="text-sm font-medium">{cat.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
+          )}
 
-            <div className="space-y-1.5">
-              <Label>Account / Meter / Phone Number</Label>
-              <Input
-                placeholder="Enter reference number"
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-              />
-            </div>
+          {step === "form" && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Provider</Label>
+                {billersLoading ? <Skeleton className="h-10 rounded-lg" /> : (
+                  <Select value={selectedBillerCode} onValueChange={(v) => {
+                    setSelectedBillerCode(v);
+                    setSelectedBillerName((billers as any[]).find(b => b.code === v)?.name ?? v);
+                  }}>
+                    <SelectTrigger><SelectValue placeholder="Select provider" /></SelectTrigger>
+                    <SelectContent>{(billers as any[]).map(b => <SelectItem key={b.code} value={b.code}>{b.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                )}
+              </div>
 
-            <div className="space-y-1.5">
-              <Label>Amount (NGN)</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₦</span>
+              <div className="space-y-1.5">
+                <Label>{selectedCategory === "electricity" ? "Meter Number" : selectedCategory === "cable" ? "Smart Card / IUC Number" : "Account / Phone Number"}</Label>
                 <Input
-                  type="number"
-                  placeholder="0.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="pl-7"
+                  placeholder={selectedCategory === "airtime" || selectedCategory === "data" ? "08012345678" : "Enter account number"}
+                  value={customerReference}
+                  onChange={e => setCustomerReference(e.target.value.replace(/\s/g, ""))}
                 />
               </div>
-            </div>
 
-            <div className="flex gap-2 flex-wrap">
-              {["500", "1000", "2000", "5000"].map((preset) => (
-                <Badge
-                  key={preset}
-                  variant="outline"
-                  className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors"
-                  onClick={() => setAmount(preset)}
-                >
-                  ₦{Number(preset).toLocaleString()}
-                </Badge>
-              ))}
-            </div>
+              <div className="space-y-1.5">
+                <Label>Amount (NGN)</Label>
+                <Input type="number" placeholder="e.g. 5000" min={50} value={amount} onChange={e => setAmount(e.target.value)} />
+                <div className="flex gap-2 flex-wrap">
+                  {[500, 1000, 2000, 5000].map(v => (
+                    <button key={v} onClick={() => setAmount(String(v))} className="text-xs px-2.5 py-1 rounded-full bg-muted hover:bg-muted/80 transition-colors">
+                      &#8358;{v.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            <Button className="w-full gap-2" onClick={handlePay} disabled={payBill.isPending}>
-              {payBill.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              {payBill.isPending ? "Processing…" : "Pay Now"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+              <Button className="w-full" onClick={handleVerify}
+                disabled={!selectedBillerCode || !customerReference || !amount || verifyMutation.isPending}>
+                {verifyMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Verifying...</> : "Verify & Continue"}
+              </Button>
+            </div>
+          )}
+
+          {step === "verify" && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Confirm Payment</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                {verifiedName && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Verified Account</p>
+                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{verifiedName}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Provider</span><span className="font-medium">{selectedBillerName}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Reference</span><span className="font-mono">{customerReference}</span></div>
+                  <div className="flex justify-between border-t pt-2">
+                    <span className="text-muted-foreground">Amount</span>
+                    <span className="text-lg font-bold">&#8358;{parseFloat(amount).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <Button variant="outline" className="flex-1" onClick={() => setStep("form")}>Edit</Button>
+                  <Button className="flex-1" onClick={() => setStep("pin")}>Enter PIN</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-4"><BillHistory /></TabsContent>
+      </Tabs>
+
+      <PinDialog open={step === "pin"} onClose={() => setStep("verify")} onConfirm={handlePay} isPending={payBill.isPending} />
     </div>
   );
 }

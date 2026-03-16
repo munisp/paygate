@@ -1,8 +1,9 @@
 /**
  * Consumer Profile Page
- * Shows user info, security settings, biometric auth registration.
+ * Shows user info, links to all account features, security settings, biometric auth.
  */
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,10 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BiometricAuth } from "@/components/BiometricAuth";
 import { toast } from "sonner";
-import { Shield, Bell, HelpCircle, LogOut, ChevronRight } from "lucide-react";
+import {
+  Shield, Bell, HelpCircle, LogOut, ChevronRight,
+  CreditCard, Users, RefreshCw, Star, Lock, BadgeCheck,
+} from "lucide-react";
 
 function NotificationsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
@@ -94,6 +98,7 @@ function SupportDialog({ open, onClose }: { open: boolean; onClose: () => void }
 
 export default function ConsumerProfile() {
   const { user, logout } = useAuth();
+  const [, navigate] = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
@@ -103,7 +108,7 @@ export default function ConsumerProfile() {
     : "U";
 
   return (
-    <div className="p-4 space-y-6 max-w-lg mx-auto pt-8">
+    <div className="p-4 space-y-5 max-w-lg mx-auto pt-4 pb-8">
       {/* Profile Header */}
       <div className="flex flex-col items-center gap-3 py-4">
         <Avatar className="w-20 h-20">
@@ -133,13 +138,71 @@ export default function ConsumerProfile() {
         </CardContent>
       </Card>
 
+      {/* Account Features */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Account Features</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border">
+          {[
+            { icon: CreditCard, label: "Virtual Card",      sub: "Online payments & e-commerce",  path: "/consumer/card" },
+            { icon: Users,      label: "Contacts",           sub: "Saved recipients & friends",    path: "/consumer/contacts" },
+            { icon: RefreshCw,  label: "Recurring Payments", sub: "Scheduled standing orders",     path: "/consumer/recurring" },
+            { icon: Star,       label: "Loyalty Points",     sub: "Earn & redeem rewards",         path: "/consumer/loyalty" },
+          ].map((item) => (
+            <button
+              key={item.label}
+              onClick={() => navigate(item.path)}
+              className="flex items-center justify-between w-full py-3 hover:text-primary transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <item.icon className="w-5 h-5 text-muted-foreground" />
+                <div className="text-left">
+                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.sub}</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Security */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Security</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border">
+          {[
+            { icon: Lock,       label: "Set / Change PIN",  sub: "Secure your transactions",       path: "/consumer/pin" },
+            { icon: BadgeCheck, label: "Verify Identity",   sub: "KYC — unlock higher limits",     path: "/consumer/kyc" },
+          ].map((item) => (
+            <button
+              key={item.label}
+              onClick={() => navigate(item.path)}
+              className="flex items-center justify-between w-full py-3 hover:text-primary transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <item.icon className="w-5 h-5 text-muted-foreground" />
+                <div className="text-left">
+                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.sub}</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* Settings Menu */}
       <Card>
         <CardContent className="pt-4 divide-y divide-border">
           {[
-            { icon: Bell, label: "Notifications", action: () => setNotifOpen(true) },
-            { icon: Shield, label: "Security & Privacy", action: () => setSecurityOpen(true) },
-            { icon: HelpCircle, label: "Help & Support", action: () => setSupportOpen(true) },
+            { icon: Bell,       label: "Notifications",     action: () => setNotifOpen(true) },
+            { icon: Shield,     label: "Security & Privacy",action: () => setSecurityOpen(true) },
+            { icon: HelpCircle, label: "Help & Support",    action: () => setSupportOpen(true) },
           ].map((item) => (
             <button
               key={item.label}

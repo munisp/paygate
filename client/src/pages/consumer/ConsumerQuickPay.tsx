@@ -13,11 +13,11 @@ import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 const SHORTCUTS = [
   { icon: Send,        label: "Send Money",   color: "bg-blue-500/15 text-blue-400",    action: "/consumer/send" },
   { icon: Phone,       label: "Pay Bills",    color: "bg-green-500/15 text-green-400",  action: "/consumer/bills" },
-  { icon: QrCode,      label: "Scan QR",      color: "bg-violet-500/15 text-violet-400", action: null },
-  { icon: Repeat,      label: "Top Up",       color: "bg-amber-500/15 text-amber-400",  action: null },
-  { icon: ShoppingCart,label: "Checkout",     color: "bg-pink-500/15 text-pink-400",    action: null },
-  { icon: Users,       label: "Split Bill",   color: "bg-teal-500/15 text-teal-400",    action: null },
-  { icon: Zap,         label: "Airtime",      color: "bg-orange-500/15 text-orange-400",action: null },
+  { icon: QrCode,      label: "Scan QR",      color: "bg-violet-500/15 text-violet-400", action: "/consumer/qr-scan" },
+  { icon: Repeat,      label: "Recurring",    color: "bg-amber-500/15 text-amber-400",  action: "/consumer/recurring" },
+  { icon: ShoppingCart,label: "Request $",    color: "bg-pink-500/15 text-pink-400",    action: "/consumer/request-money" },
+  { icon: Users,       label: "Split Bill",   color: "bg-teal-500/15 text-teal-400",    action: "/consumer/split-bill" },
+  { icon: Zap,         label: "Red Envelope", color: "bg-orange-500/15 text-orange-400",action: "/consumer/red-envelope" },
   { icon: Wallet,      label: "My Wallet",    color: "bg-indigo-500/15 text-indigo-400",action: "/consumer" },
 ];
 
@@ -126,7 +126,6 @@ export default function ConsumerQuickPay() {
                     key={s.label}
                     onClick={() => {
                       if (s.action) window.location.href = s.action;
-                      else toast.info(`${s.label} — coming soon`);
                     }}
                     className="flex flex-col items-center gap-2"
                   >

@@ -1,4 +1,18 @@
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
+import {
+  moneyRequestRouter,
+  consumerQrPayRouter,
+  contactsRouter,
+  loyaltyRouter,
+  couponsRouter,
+  consumerCardRouter,
+  recurringRouter,
+  splitBillConsumerRouter,
+  consumerPinRouter,
+  consumerKycRouter,
+  consumerOtpRouter,
+  consumerStripeTopUpRouter,
+} from "./wave68Router";
 import { withCache, TTL, cache } from "./cache";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
@@ -5708,5 +5722,22 @@ export const appRouter = router({
   p2p: p2pRouter,
   redEnvelope: redEnvelopeRouter,
   consumerBills: consumerBillsRouter,
+  // Wave 68 — Full WeChat-parity consumer features
+  moneyRequest: moneyRequestRouter,
+  consumerQrPay: consumerQrPayRouter,
+  contacts: contactsRouter,
+  loyalty: loyaltyRouter,
+  coupons: couponsRouter,
+  consumerCard: consumerCardRouter,
+  recurring: recurringRouter,
+  splitBill: splitBillConsumerRouter,
+  consumerPin: consumerPinRouter,
+  consumerKyc: consumerKycRouter,
+  consumerOtp: consumerOtpRouter,
+  consumerStripeTopUp: consumerStripeTopUpRouter,
 });
 export type AppRouter = typeof appRouter;
+
+// ─── Wave 68 router imports ───────────────────────────────────────────────────
+// NOTE: appRouter is already exported above; we extend it by re-exporting a merged type.
+// The actual routers are registered via a separate import at the bottom of this file.

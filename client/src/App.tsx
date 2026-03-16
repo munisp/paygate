@@ -39,6 +39,18 @@ import ConsumerQuickPay from "./pages/consumer/ConsumerQuickPay";
 import ConsumerNotifications from "./pages/consumer/ConsumerNotifications";
 import ConsumerOnboarding from "./pages/consumer/ConsumerOnboarding";
 import RedEnvelope from "./pages/consumer/RedEnvelope";
+// Wave 68 Consumer Pages
+import QRScanPay from "./pages/consumer/QRScanPay";
+import RequestMoney from "./pages/consumer/RequestMoney";
+import Contacts from "./pages/consumer/Contacts";
+import Loyalty from "./pages/consumer/Loyalty";
+import Coupons from "./pages/consumer/Coupons";
+import ConsumerCard from "./pages/consumer/ConsumerCard";
+import RecurringPayments from "./pages/consumer/RecurringPayments";
+import SplitBill from "./pages/consumer/SplitBill";
+import PINSetup from "./pages/consumer/PINSetup";
+import ConsumerKYC from "./pages/consumer/ConsumerKYC";
+import Discover from "./pages/consumer/Discover";
 import CrossBorder from "./pages/CrossBorder";
 import DeveloperPortal from "./pages/DeveloperPortal";
 import WorkflowObservability from "./pages/WorkflowObservability";
@@ -108,6 +120,18 @@ function Router() {
           <Route path="/consumer/onboarding" component={ConsumerOnboarding} />
           <Route path="/consumer/red-envelope/:id" component={RedEnvelope} />
           <Route path="/consumer/red-envelope" component={RedEnvelope} />
+          {/* Wave 68 Consumer Routes */}
+          <Route path="/consumer/qr-scan" component={QRScanPay} />
+          <Route path="/consumer/request-money" component={RequestMoney} />
+          <Route path="/consumer/contacts" component={Contacts} />
+          <Route path="/consumer/loyalty" component={Loyalty} />
+          <Route path="/consumer/coupons" component={Coupons} />
+          <Route path="/consumer/card" component={ConsumerCard} />
+          <Route path="/consumer/recurring" component={RecurringPayments} />
+          <Route path="/consumer/split-bill" component={SplitBill} />
+          <Route path="/consumer/pin" component={PINSetup} />
+          <Route path="/consumer/kyc" component={ConsumerKYC} />
+          <Route path="/consumer/discover" component={Discover} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>

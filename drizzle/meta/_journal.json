@@ -183,6 +183,13 @@
       "when": 1773662116909,
       "tag": "0025_plain_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1773674640155,
+      "tag": "0026_hard_maverick",
+      "breakpoints": true
     }
   ]
 }

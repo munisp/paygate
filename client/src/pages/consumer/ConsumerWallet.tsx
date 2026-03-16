@@ -35,50 +35,69 @@ function QuickAction({ icon: Icon, label, onClick }: { icon: React.ElementType; 
 
 function TopUpDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
   const [amount, setAmount] = useState("");
-  const [channel, setChannel] = useState<"bank_transfer" | "card" | "ussd">("bank_transfer");
-  const topUp = trpc.consumerWallet.topUp.useMutation({
+  const checkout = trpc.consumerStripeTopUp.createCheckout.useMutation({
     onSuccess: (data) => {
-      toast.success(`Wallet topped up! New balance: ₦${(data.newBalanceKobo / 100).toLocaleString()}`);
-      onSuccess();
+      toast.success("Redirecting to secure payment...");
       onClose();
       setAmount("");
+      window.open(data.checkoutUrl, "_blank");
     },
     onError: (e) => toast.error(e.message),
   });
+  const handleTopUp = () => {
+    const amountKobo = Math.round(parseFloat(amount) * 100);
+    if (amountKobo < 5000) { toast.error("Minimum top-up is ₦50"); return; }
+    checkout.mutate({ amountKobo, currency: "NGN", origin: window.location.origin });
+  };
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>Top Up Wallet</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>Top Up Wallet</DialogTitle>
+          <p className="text-xs text-muted-foreground mt-1">Secure payment via Stripe. Funds credited after confirmation.</p>
+        </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label>Amount (NGN)</Label>
-            <Input
-              type="number"
-              placeholder="e.g. 5000"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              min={1}
-            />
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">₦</span>
+              <Input
+                type="number"
+                placeholder="e.g. 5000"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                min={50}
+                className="pl-7"
+              />
+            </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {[1000, 2000, 5000, 10000].map(v => (
+            {[1000, 2000, 5000, 10000, 20000].map(v => (
               <button
                 key={v}
                 onClick={() => setAmount(String(v))}
-                className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                  amount === String(v) ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80 border-transparent"
+                }`}
               >
                 ₦{v.toLocaleString()}
               </button>
             ))}
           </div>
+          <div className="flex items-center gap-2 p-3 bg-blue-500/10 rounded-xl text-xs text-blue-600">
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>Payments are processed securely by Stripe. Use test card <strong>4242 4242 4242 4242</strong>.</span>
+          </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={topUp.isPending}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} disabled={checkout.isPending}>Cancel</Button>
           <Button
-            disabled={!amount || parseFloat(amount) < 1 || topUp.isPending}
-            onClick={() => topUp.mutate({ amountKobo: Math.round(parseFloat(amount) * 100), currency: "NGN" })}
+            disabled={!amount || parseFloat(amount) < 50 || checkout.isPending}
+            onClick={handleTopUp}
           >
-            {topUp.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</> : "Top Up"}
+            {checkout.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Opening Checkout...</> : "Pay with Card"}
           </Button>
         </DialogFooter>
       </DialogContent>
