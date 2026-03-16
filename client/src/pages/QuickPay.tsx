@@ -362,7 +362,10 @@ export default function QuickPay() {
     if (id === "send" || id === "bulk") { window.location.href = "/payouts"; return; }
     if (id === "bills") { window.location.href = "/consumer/bills"; return; }
     if (id === "airtime") { window.location.href = "/consumer/bills"; return; }
-    // Remaining shortcuts (request, split, topup) show the coming soon dialog
+    // Route remaining shortcuts to real pages
+    if (id === "request") { window.location.href = "/consumer/request-money"; return; }
+    if (id === "split") { window.location.href = "/consumer/split-bill"; return; }
+    if (id === "topup") { window.location.href = "/consumer"; return; }
     setActiveShortcut(id);
   };
 

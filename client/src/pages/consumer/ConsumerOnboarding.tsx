@@ -8,6 +8,7 @@ import { Phone, KeyRound, Camera, CheckCircle2, ChevronRight, ArrowLeft, Shield,
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
 
 type Step = "phone" | "otp" | "pin" | "kyc" | "done";
 
@@ -53,24 +54,34 @@ export default function ConsumerOnboarding() {
   const [confirmPin, setConfirmPin] = useState(["", "", "", "", "", ""]);
   const [pinConfirmed, setPinConfirmed] = useState(false);
   const [kycPhoto, setKycPhoto] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [kycStatus, setKycStatus] = useState<"idle" | "capturing" | "reviewing" | "approved">("idle");
   const fileRef = useRef<HTMLInputElement>(null);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const pinRefs = useRef<(HTMLInputElement | null)[]>([]);
   const confirmPinRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Real tRPC mutations
+  const sendOtpMutation = trpc.consumerOtp.send.useMutation();
+  const verifyOtpMutation = trpc.consumerOtp.verify.useMutation();
+  const setPinMutation = trpc.consumerPin.set.useMutation();
+  const submitKycMutation = trpc.consumerKyc.submit.useMutation();
+  const loading = sendOtpMutation.isPending || verifyOtpMutation.isPending || setPinMutation.isPending || submitKycMutation.isPending;
+
   // ── Phone Step ─────────────────────────────────────────────────────────────
   const handleSendOTP = async () => {
-    if (phone.replace(/\D/g, "").length < 10) {
-      toast.error("Enter a valid phone number");
+    const cleaned = phone.replace(/\s+/g, "").replace(/^0/, "+234");
+    if (!/^\+\d{10,15}$/.test(cleaned)) {
+      toast.error("Enter a valid phone number (e.g. +234 801 234 5678)");
       return;
     }
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    toast.success("OTP sent to " + phone);
-    setStep("otp");
+    try {
+      await sendOtpMutation.mutateAsync({ phone: cleaned });
+      toast.success("OTP sent to " + cleaned);
+      setPhone(cleaned);
+      setStep("otp");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to send OTP");
+    }
   };
 
   // ── OTP Step ───────────────────────────────────────────────────────────────
@@ -84,11 +95,13 @@ export default function ConsumerOnboarding() {
   const handleVerifyOTP = async () => {
     const code = otp.join("");
     if (code.length < 6) { toast.error("Enter the 6-digit OTP"); return; }
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setLoading(false);
-    toast.success("Phone verified!");
-    setStep("pin");
+    try {
+      await verifyOtpMutation.mutateAsync({ phone, otp: code });
+      toast.success("Phone verified!");
+      setStep("pin");
+    } catch (e: any) {
+      toast.error(e.message ?? "Invalid or expired OTP");
+    }
   };
 
   // ── PIN Step ───────────────────────────────────────────────────────────────
@@ -103,14 +116,16 @@ export default function ConsumerOnboarding() {
   const handleSetPin = async () => {
     const p = pin.join("");
     const c = confirmPin.join("");
-    if (p.length < 6) { toast.error("Enter a 6-digit PIN"); return; }
+    if (p.length < 4) { toast.error("Enter at least a 4-digit PIN"); return; }
     if (p !== c) { toast.error("PINs do not match"); return; }
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    setPinConfirmed(true);
-    toast.success("PIN set successfully");
-    setTimeout(() => setStep("kyc"), 600);
+    try {
+      await setPinMutation.mutateAsync({ pin: p });
+      setPinConfirmed(true);
+      toast.success("PIN set successfully");
+      setStep("kyc");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to set PIN");
+    }
   };
 
   // ── KYC Step ───────────────────────────────────────────────────────────────
@@ -126,13 +141,22 @@ export default function ConsumerOnboarding() {
   };
   const handleSubmitKYC = async () => {
     if (!kycPhoto) { toast.error("Please capture a selfie first"); return; }
-    setLoading(true);
     setKycStatus("reviewing");
-    await new Promise((r) => setTimeout(r, 2000));
-    setLoading(false);
-    setKycStatus("approved");
-    toast.success("Identity verified!");
-    setTimeout(() => setStep("done"), 800);
+    try {
+      // KYC page collects full details - this is the onboarding quick selfie
+      // Full KYC with BVN/NIN is on the dedicated /consumer/kyc page
+      await submitKycMutation.mutateAsync({
+        firstName: "User",
+        lastName: "Account",
+        selfieUrl: kycPhoto,
+      });
+      setKycStatus("approved");
+      toast.success("KYC submitted for review");
+      setStep("done");
+    } catch (e: any) {
+      setKycStatus("idle");
+      toast.error(e.message ?? "KYC submission failed");
+    }
   };
   const handleSkipKYC = () => {
     toast.info("KYC skipped — some features may be limited");

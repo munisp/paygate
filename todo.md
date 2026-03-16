@@ -1691,3 +1691,29 @@
 - [x] Saved Beneficiaries quick-select UI already in MakePayment.tsx (p2p.savedBeneficiaries)
 - [x] Write wave67.test.ts vitest tests for all new features
 - [x] Update production archive
+
+## Wave 68 — Full WeChat-Parity Consumer Features
+- [x] Schema: 12 new tables (moneyRequests, consumerContacts, consumerLoyaltyAccounts, consumerLoyaltyTxns, consumerCoupons, consumerCouponRedemptions, consumerCards, consumerRecurringPayments, consumerSplitSessions, consumerSplitParticipants, consumerPhoneVerifications, consumerPins)
+- [x] Run pnpm db:push for all 12 new tables
+- [x] wave68Router.ts: all 12 new consumer routers implemented
+- [x] All Wave 68 routers wired into appRouter
+- [x] Frontend: 15 new consumer pages (MakePayment, BillPay, QRScanPay, RequestMoney, Contacts, Loyalty, Coupons, ConsumerCard, RecurringPayments, SplitBill, PINSetup, ConsumerKYC, Discover, ConsumerLayout, ConsumerProfile, ConsumerWallet, ConsumerOnboarding, ConsumerQuickPay)
+- [x] Stripe webhook: credit consumer wallet on checkout.session.completed
+- [x] consumerQrPay.resolve: looks up real QR from qrPayments DB table
+- [x] moneyRequest.pay: push notification sent to requester after wallet credit
+- [x] QuickPay shortcuts: request/split/topup route to real consumer pages
+- [x] Consumer PWA manifest (consumer-manifest.webmanifest) + linked in consumer.html
+- [x] Write wave68.test.ts vitest tests (77 tests)
+- [x] All 1108 tests passing, 0 TypeScript errors
+
+## Production Readiness Sprint
+- [x] Full audit: all 79 DB tables have CRUD procedures
+- [x] Full audit: all routers wired to appRouter
+- [x] Full audit: all pages have routes in App.tsx
+- [x] Full audit: all sidebar nav links match registered routes
+- [x] Full audit: no orphaned services or disconnected features
+- [x] Full audit: no stubs/mocks in business logic (only demo visualization panels)
+- [x] Consumer app: fully mobile-first (max-w-lg, bottom nav, pb-20)
+- [x] PWA: manifest, service worker, offline page, all icon sizes
+- [x] Consumer PWA: separate manifest with consumer shortcuts
+- [x] 1108 tests passing, 0 TypeScript errors

@@ -30,9 +30,9 @@ export default function ConsumerQuickPay() {
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<"pay" | "receive">("pay");
 
-  const { data: txData } = trpc.transactions.list.useQuery({ limit: 5, offset: 0 }, { staleTime: 30_000 });
-
-  const balance = 0; // consumer wallet balance — shown from wallet page
+  const { data: walletData } = trpc.consumerWallet.getBalance.useQuery({}, { staleTime: 30_000 });
+  const { data: txData } = trpc.consumerWallet.history.useQuery({ limit: 5, offset: 0 }, { staleTime: 30_000 });
+  const balance = walletData?.balanceKobo ?? 0;
   const transactions = txData?.rows ?? [];
 
   const paymentUrl = `${window.location.origin}/consumer/pay?amount=${amount}&ref=${Date.now()}`;
