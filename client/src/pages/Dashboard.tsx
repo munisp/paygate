@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
-import { TrendingUp, DollarSign, ArrowLeftRight, Users, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Zap, Globe, Shield, Radio, AlertTriangle, CheckCircle2, Trophy, Clock } from "lucide-react";
+import { TrendingUp, DollarSign, ArrowLeftRight, Users, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Zap, Globe, Shield, Radio, AlertTriangle, CheckCircle2, Trophy, Clock, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -231,6 +231,19 @@ export default function Dashboard() {
     }));
   }, [recentTxns]);
 
+  // Stripe sandbox claim banner
+  const [stripeBannerDismissed, setStripeBannerDismissed] = useState(() => {
+    return localStorage.getItem('stripe_banner_dismissed') === '1';
+  });
+  const dismissStripeBanner = () => {
+    localStorage.setItem('stripe_banner_dismissed', '1');
+    setStripeBannerDismissed(true);
+  };
+  // NIP banks sync
+  const syncBanks = trpc.nip.syncBanks.useMutation({
+    onSuccess: (data) => toast.success(`Synced ${data.synced} NIP banks`),
+    onError: () => toast.error('NIP bank sync failed'),
+  });
   const totalCount = Number(overview?.transactions?.totalCount ?? 0);
   const completedCount = Number(overview?.transactions?.completedCount ?? 0);
   const failedCount = Number(overview?.transactions?.failedCount ?? 0);
@@ -242,6 +255,35 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      {/* ─── Stripe Sandbox Claim Banner ─────────────────────────────────── */}
+      {!stripeBannerDismissed && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-violet-50 border border-violet-200 text-violet-900">
+          <CreditCard className="w-5 h-5 shrink-0 text-violet-600" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">Claim your Stripe test sandbox</p>
+            <p className="text-xs text-violet-700 mt-0.5">
+              Your Stripe test environment expires <strong>2026-05-11</strong>. Claim it now to activate test payments.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href="https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors"
+            >
+              Claim Sandbox
+            </a>
+            <button
+              onClick={dismissStripeBanner}
+              className="p-1 rounded-md hover:bg-violet-100 text-violet-500 hover:text-violet-700 transition-colors"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>

@@ -1649,3 +1649,14 @@
 - [x] Add per-merchant reconciliation alert badge threshold config to Settings page
 - [x] Write vitest tests for nameEnquiry, createAlert webhook, and threshold config
 - [x] Write Go tests for updated SettlementBatchWorkflow with PollNIBSSBatchStatus
+
+## Wave 65 — Production Wiring & Go-Live Prep
+
+- [x] Add Stripe sandbox claim banner to Dashboard (dismissible, links to claim URL)
+- [x] Add nip.syncBanks tRPC procedure to seed/refresh NIP banks from static CBN list
+- [x] Auto-trigger nip.syncBanks on server startup if nipBanks table is empty
+- [x] Add Go-bridge env var validation on startup with clear error messages
+- [x] Improve MicroserviceHealth page: show bridge URL config status, add copy-to-clipboard for env var names
+- [x] Add "Claim Stripe Sandbox" action card to Settings → Payment section
+- [x] Write vitest tests for nip.syncBanks procedure
+- [x] Update production archive

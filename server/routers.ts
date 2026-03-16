@@ -2854,6 +2854,27 @@ const nipRouter = router({
         bankBreakdown,
       };
     }),
+
+  // Explicit sync: upserts the full static CBN NIP bank list into the DB.
+  // Safe to call repeatedly — uses upsert semantics. Returns count of banks synced.
+  syncBanks: protectedProcedure
+    .mutation(async () => {
+      const now = new Date();
+      const rows = NIGERIAN_BANKS.map(b => ({
+        id: `nip_${b.bankCode}`,
+        bankCode: b.bankCode,
+        bankName: b.bankName,
+        shortName: b.shortName,
+        isActive: 1,
+        supportsNip: 1,
+        supportsUssd: 0,
+        lastSyncedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      await upsertNipBanks(rows);
+      return { synced: rows.length, syncedAt: now };
+    }),
 });
 
 // ─── Settlements Router ─────────────────────────────────────────────────────────────

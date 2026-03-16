@@ -37,7 +37,43 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	// ── TigerBeetle init ─────────────────────────────────────────────────────
+	// ── Startup env var validation ──────────────────────────────────────────
+// Warn (not fatal) for optional but recommended env vars so the bridge
+// starts in degraded mode rather than refusing to start entirely.
+requiredEnvVars := []struct {
+key     string
+fatal   bool
+purpose string
+}{
+{"BRIDGE_INTERNAL_KEY", false, "bearer token for portal→bridge auth (dev mode: skipped)"},
+{"DATABASE_URL", true, "MySQL/TiDB connection string"},
+}
+recommendedEnvVars := []struct {
+key     string
+purpose string
+}{
+{"PORTAL_TRPC_URL", "portal tRPC URL for reconciler alert push"},
+{"MIDDLEWARE_INTERNAL_KEY", "shared HMAC key for bridge→portal auth"},
+{"TEMPORAL_HOST_PORT", "Temporal server address for settlement workflows"},
+{"NIBSS_GATEWAY_URL", "NIBSS NIP gateway base URL"},
+}
+for _, ev := range requiredEnvVars {
+if os.Getenv(ev.key) == "" {
+if ev.fatal {
+slog.Error("required env var missing", "key", ev.key, "purpose", ev.purpose)
+os.Exit(1)
+}
+slog.Warn("optional env var not set — running in degraded mode", "key", ev.key, "purpose", ev.purpose)
+}
+}
+for _, ev := range recommendedEnvVars {
+if os.Getenv(ev.key) == "" {
+slog.Warn("recommended env var not set", "key", ev.key, "purpose", ev.purpose)
+}
+}
+slog.Info("env var validation complete")
+
+// ── TigerBeetle init ─────────────────────────────────────────────────────
 	tbAddress := tb.DefaultTigerBeetleAddress()
 	clusterID := uint64(0)
 	if v := os.Getenv("TIGERBEETLE_CLUSTER"); v != "" {

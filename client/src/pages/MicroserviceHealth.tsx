@@ -401,6 +401,37 @@ export default function MicroserviceHealth() {
         </CardContent>
       </Card>
 
+      {/* Go-Bridge Production Config */}
+      <Card className="border-border">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center gap-3 mb-3">
+            <Activity className="h-5 w-5 text-blue-500 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold">Go Middleware Bridge — Required Env Vars</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Set these in <strong>Settings → Secrets</strong> to enable NIBSS NIP, Temporal workflows, and settlement processing.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {([
+              { key: 'MIDDLEWARE_BRIDGE_URL', example: 'http://go-bridge:8080', desc: 'Go bridge base URL (internal Kubernetes service or Docker host)' },
+              { key: 'MIDDLEWARE_INTERNAL_KEY', example: 'your-shared-secret', desc: 'Shared HMAC secret for bridge-to-portal auth' },
+              { key: 'PORTAL_TRPC_URL', example: 'http://portal:3000/api/trpc', desc: 'Portal tRPC URL used by reconciler CronJobs to push alerts' },
+            ] as { key: string; example: string; desc: string }[]).map(({ key, example, desc }) => (
+              <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+                <div className="flex-1 min-w-0">
+                  <code className="text-xs font-mono font-semibold text-foreground">{key}</code>
+                  <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                  <p className="text-xs text-muted-foreground/70 mt-0.5">e.g. <code className="bg-background px-1 rounded">{example}</code></p>
+                </div>
+                <CopyButton text={`${key}=${example}`} label="Copy" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* ENV docs link */}
       <Card className="bg-muted/40">
         <CardContent className="pt-4 pb-4">
