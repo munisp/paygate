@@ -357,10 +357,12 @@ export default function QuickPay() {
   const recentTx = useMemo(() => (txData?.rows ?? []).slice(0, 8), [txData]);
 
   const handleShortcut = (id: string) => {
-    if (id === "link") {
-      setActiveTab("link");
-      return;
-    }
+    // Route shortcuts to existing pages where implemented
+    if (id === "link") { setActiveTab("link"); return; }
+    if (id === "send" || id === "bulk") { window.location.href = "/payouts"; return; }
+    if (id === "bills") { window.location.href = "/consumer/bills"; return; }
+    if (id === "airtime") { window.location.href = "/consumer/bills"; return; }
+    // Remaining shortcuts (request, split, topup) show the coming soon dialog
     setActiveShortcut(id);
   };
 

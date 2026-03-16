@@ -1,8 +1,10 @@
 import { useState, useRef, useMemo } from "react";
-import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2, UserCheck, AlertCircle } from "lucide-react";
+import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2, UserCheck, AlertCircle, ChevronsUpDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -55,6 +57,7 @@ export default function Payouts() {
   const [showForm, setShowForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [showApprovalSettings, setShowApprovalSettings] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
   const [form, setForm] = useState({ bankCode: "", accountNumber: "", amount: "", narration: "", currency: "NGN" });
   const [resolvedName, setResolvedName] = useState<string | null>(null);
   const [nameFromCache, setNameFromCache] = useState(false);
@@ -291,15 +294,46 @@ export default function Payouts() {
           <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank *</label>
-              <select
-                value={form.bankCode}
-                onChange={(e) => { setForm(f => ({ ...f, bankCode: e.target.value })); setResolvedName(null); }}
-                className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
-                <option value="">— Select bank —</option>
-                {bankOptions.map(b => (
-                  <option key={b.bankCode} value={b.bankCode}>{b.bankName} ({b.bankCode})</option>
-                ))}
-              </select>
+              <Popover open={bankOpen} onOpenChange={setBankOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    role="combobox"
+                    aria-expanded={bankOpen}
+                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none text-left"
+                  >
+                    <span className={form.bankCode ? "text-foreground" : "text-muted-foreground"}>
+                      {selectedBank ? `${selectedBank.bankName} (${selectedBank.bankCode})` : "— Search bank —"}
+                    </span>
+                    <ChevronsUpDown className="w-3.5 h-3.5 ml-2 shrink-0 text-muted-foreground" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Type bank name or code…" />
+                    <CommandList>
+                      <CommandEmpty>No bank found.</CommandEmpty>
+                      <CommandGroup>
+                        {bankOptions.map(b => (
+                          <CommandItem
+                            key={b.bankCode}
+                            value={`${b.bankName} ${b.bankCode} ${b.shortName ?? ""}`}
+                            onSelect={() => {
+                              setForm(f => ({ ...f, bankCode: b.bankCode }));
+                              setResolvedName(null);
+                              setBankOpen(false);
+                            }}
+                          >
+                            <Check className={`mr-2 w-3.5 h-3.5 ${form.bankCode === b.bankCode ? "opacity-100" : "opacity-0"}`} />
+                            <span className="flex-1">{b.bankName}</span>
+                            <span className="text-xs text-muted-foreground ml-2">{b.bankCode}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               {selectedBank && (
                 <p className="mt-1 text-xs text-muted-foreground">{selectedBank.shortName} · {selectedBank.bankCode}</p>
               )}

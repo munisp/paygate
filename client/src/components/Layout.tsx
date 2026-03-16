@@ -10,6 +10,8 @@ import {
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
   Rocket, Crown, Server, FileText, Banknote, Scale} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useLocation as useWouterLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
@@ -150,6 +152,27 @@ export default function Layout({ children }: LayoutProps) {
   const reconBadgeThreshold = reconAlertSettings?.reconAlertThreshold ?? 1;
   const showReconBadge = reconBadgeEnabled && openReconCount >= reconBadgeThreshold;
 
+  const [reconDrawerOpen, setReconDrawerOpen] = useState(false);
+  const { data: reconAlerts, refetch: refetchReconAlerts } = trpc.reconciliation.listAlerts.useQuery(
+    { status: "open", limit: 20, offset: 0 },
+    { enabled: reconDrawerOpen, staleTime: 30_000 }
+  );
+  const dismissReconAlert = trpc.reconciliation.dismissAlert.useMutation({
+    onSuccess: () => {
+      toast.success("Alert dismissed");
+      refetchReconAlerts();
+      trpc.useUtils().reconciliation.getStats.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const resolveReconAlert = trpc.reconciliation.updateAlert.useMutation({
+    onSuccess: () => {
+      toast.success("Alert marked as resolved");
+      refetchReconAlerts();
+      trpc.useUtils().reconciliation.getStats.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const inAppUnread = useNotificationCount();
   const { isInstallable, promptInstall, isOnline, dismissInstall } = usePWA();
   const showPwaBanner = isInstallable;
@@ -210,15 +233,21 @@ export default function Layout({ children }: LayoutProps) {
               {!collapsed && (
                 <>
                   <span className="flex-1">{item.label}</span>
-                  {/* Dynamic open-alert count badge for Recon Alerts */}
+                  {/* Dynamic open-alert count badge for Recon Alerts — click to open drawer */}
                   {isReconItem && showReconBadge && (
-                    <Badge
-                      variant="secondary"
-                      className="text-xs px-1.5 py-0 bg-red-500/20 text-red-400 border-0 min-w-[1.25rem] text-center"
-                      title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? 's' : ''}`}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setReconDrawerOpen(true); }}
+                      className="focus:outline-none"
+                      title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? 's' : ''} — click to view`}
                     >
-                      {openReconCount > 99 ? '99+' : openReconCount}
-                    </Badge>
+                      <Badge
+                        variant="secondary"
+                        className="text-xs px-1.5 py-0 bg-red-500/20 text-red-400 border-0 min-w-[1.25rem] text-center hover:bg-red-500/30 transition-colors"
+                      >
+                        {openReconCount > 99 ? '99+' : openReconCount}
+                      </Badge>
+                    </button>
                   )}
                   {/* Static label badges for other nav items */}
                   {!isReconItem && item.badge && (
@@ -239,7 +268,12 @@ export default function Layout({ children }: LayoutProps) {
               )}
               {/* Collapsed sidebar: show red dot indicator when there are open recon alerts */}
               {collapsed && isReconItem && showReconBadge && (
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setReconDrawerOpen(true); }}
+                  className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 hover:bg-red-400 transition-colors focus:outline-none"
+                  title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? 's' : ''}`}
+                />
               )}
             </Link>
           );
@@ -520,6 +554,86 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Notification Panel */}
       <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
+
+      {/* ─── Reconciliation Alert Slide-over Drawer ─────────────────────────── */}
+      <Sheet open={reconDrawerOpen} onOpenChange={setReconDrawerOpen}>
+        <SheetContent side="right" className="w-[420px] sm:w-[480px] flex flex-col gap-0 p-0">
+          <SheetHeader className="px-6 py-4 border-b border-border">
+            <SheetTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+              Open Reconciliation Alerts
+              {openReconCount > 0 && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{openReconCount} open</span>
+              )}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            {!reconAlerts ? (
+              <div className="space-y-3">
+                {[1,2,3].map(i => (
+                  <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />
+                ))}
+              </div>
+            ) : reconAlerts.alerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500 mb-3" />
+                <p className="font-medium">No open alerts</p>
+                <p className="text-xs text-muted-foreground mt-1">All reconciliation balances are in sync.</p>
+              </div>
+            ) : (
+              reconAlerts.alerts.map((alert: any) => (
+                <div key={alert.id} className="rounded-xl border border-border bg-card p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">{alert.currency} — {alert.delta > 0 ? 'Surplus' : 'Shortfall'}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Delta: <span className={alert.delta > 0 ? 'text-emerald-600' : 'text-red-600'}>
+                          {alert.delta > 0 ? '+' : ''}{(alert.delta / 100).toFixed(2)} {alert.currency}
+                        </span>
+                      </p>
+                      {alert.notes && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{alert.notes}</p>}
+                      <p className="text-xs text-muted-foreground mt-1">{new Date(alert.createdAt).toLocaleString()}</p>
+                    </div>
+                    <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+                      {alert.status}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 text-xs h-7"
+                      disabled={resolveReconAlert.isPending}
+                      onClick={() => resolveReconAlert.mutate({ id: alert.id, status: 'resolved' })}
+                    >
+                      <CheckCircle2 className="w-3 h-3 mr-1" />Resolve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="flex-1 text-xs h-7 text-muted-foreground"
+                      disabled={dismissReconAlert.isPending}
+                      onClick={() => dismissReconAlert.mutate({ id: alert.id })}
+                    >
+                      <X className="w-3 h-3 mr-1" />Dismiss
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="px-6 py-4 border-t border-border">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs"
+              onClick={() => { setReconDrawerOpen(false); window.location.href = '/reconciliation-alerts'; }}
+            >
+              View All Alerts
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
