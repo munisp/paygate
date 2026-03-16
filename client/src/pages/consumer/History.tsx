@@ -51,19 +51,20 @@ export default function ConsumerHistory() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
-  const walletQuery = trpc.wallet.getWallet.useQuery();
-  const historyQuery = trpc.wallet.getHistory.useQuery({
+  const walletQuery = trpc.consumerWallet.getBalance.useQuery({ currency: 'NGN' });
+  const historyQuery = trpc.consumerWallet.history.useQuery({
+    currency: 'NGN',
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   });
 
-  const wallet = walletQuery.data?.wallet;
-  const allTxs = historyQuery.data?.transactions ?? [];
+  const balanceKobo = walletQuery.data?.balanceKobo ?? 0;
+  const allTxs = historyQuery.data?.rows ?? [];
   const total = historyQuery.data?.total ?? 0;
 
   const filtered = allTxs.filter((tx) => {
-    const matchSearch = !search || tx.description.toLowerCase().includes(search.toLowerCase())
-      || tx.reference.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = !search || (tx.description ?? '').toLowerCase().includes(search.toLowerCase())
+      || (tx.reference ?? '').toLowerCase().includes(search.toLowerCase())
       || (tx.counterpartyName ?? "").toLowerCase().includes(search.toLowerCase());
     const matchType = typeFilter === "all" || tx.type === typeFilter;
     return matchSearch && matchType;
@@ -85,6 +86,7 @@ export default function ConsumerHistory() {
             variant="ghost"
             size="icon"
             onClick={() => { walletQuery.refetch(); historyQuery.refetch(); }}
+
             className="text-slate-400 hover:text-white"
           >
             <RefreshCw className="w-5 h-5" />
@@ -104,14 +106,13 @@ export default function ConsumerHistory() {
                   <Skeleton className="h-8 w-40 bg-white/20" />
                 ) : (
                   <p className="text-3xl font-bold text-white">
-                    ₦{parseFloat(wallet?.balance ?? "0").toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                    ₦{(balanceKobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                   </p>
                 )}
               </div>
             </div>
             <div className="flex gap-4 text-sm text-white/70">
-              <span>Tier: <span className="text-white font-medium capitalize">{wallet?.tier ?? "basic"}</span></span>
-              <span>Currency: <span className="text-white font-medium">{wallet?.currency ?? "NGN"}</span></span>
+              <span>Currency: <span className="text-white font-medium">{walletQuery.data?.currency ?? "NGN"}</span></span>
             </div>
           </CardContent>
         </Card>
@@ -182,8 +183,8 @@ export default function ConsumerHistory() {
                       <p className="text-xs text-slate-600 mt-0.5 font-mono">{tx.reference}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className={`text-sm font-semibold ${tx.type === "debit" ? "text-red-400" : "text-emerald-400"}`}>
-                        {formatAmount(tx.amount, tx.type)}
+                      <p className={`text-sm font-semibold ${tx.type === "debit" || tx.type === "p2p_send" || tx.type === "bill_pay" || tx.type === "qr_pay" || tx.type === "red_envelope_send" ? "text-red-400" : "text-emerald-400"}`}>
+                        {formatAmount(String((tx.amountKobo ?? 0) / 100), tx.type)}
                       </p>
                       <StatusBadge status={tx.status} />
                     </div>

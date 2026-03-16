@@ -36,9 +36,9 @@ function QuickAction({ icon: Icon, label, onClick }: { icon: React.ElementType; 
 function TopUpDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
   const [amount, setAmount] = useState("");
   const [channel, setChannel] = useState<"bank_transfer" | "card" | "ussd">("bank_transfer");
-  const topUp = trpc.wallet.topUp.useMutation({
+  const topUp = trpc.consumerWallet.topUp.useMutation({
     onSuccess: (data) => {
-      toast.success(`₦${Number(data.newBalance).toLocaleString()} — wallet topped up successfully`);
+      toast.success(`Wallet topped up! New balance: ₦${(data.newBalanceKobo / 100).toLocaleString()}`);
       onSuccess();
       onClose();
       setAmount("");
@@ -57,35 +57,26 @@ function TopUpDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () 
               placeholder="e.g. 5000"
               value={amount}
               onChange={e => setAmount(e.target.value)}
-              min={100}
+              min={1}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Payment Method</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {([
-                { id: "bank_transfer", label: "Bank Transfer" },
-                { id: "card", label: "Card" },
-                { id: "ussd", label: "USSD" },
-              ] as const).map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setChannel(opt.id)}
-                  className={`py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
-                    channel === opt.id ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+          <div className="flex gap-2 flex-wrap">
+            {[1000, 2000, 5000, 10000].map(v => (
+              <button
+                key={v}
+                onClick={() => setAmount(String(v))}
+                className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+              >
+                ₦{v.toLocaleString()}
+              </button>
+            ))}
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={topUp.isPending}>Cancel</Button>
           <Button
-            disabled={!amount || parseFloat(amount) < 100 || topUp.isPending}
-            onClick={() => topUp.mutate({ amount: parseFloat(amount), currency: "NGN", channel })}
+            disabled={!amount || parseFloat(amount) < 1 || topUp.isPending}
+            onClick={() => topUp.mutate({ amountKobo: Math.round(parseFloat(amount) * 100), currency: "NGN" })}
           >
             {topUp.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</> : "Top Up"}
           </Button>
@@ -102,18 +93,17 @@ export default function ConsumerWallet() {
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
 
-  const { data: walletData, isLoading: walletLoading } = trpc.wallet.getWallet.useQuery(
-    undefined,
+  const { data: walletData, isLoading: walletLoading } = trpc.consumerWallet.getBalance.useQuery(
+    { currency: "NGN" },
     { staleTime: 30_000 }
   );
 
-  const { data: txData, isLoading: txLoading } = trpc.transactions.list.useQuery(
-    { limit: 5, offset: 0 },
+  const { data: txData, isLoading: txLoading } = trpc.consumerWallet.history.useQuery(
+    { currency: "NGN", limit: 5, offset: 0 },
     { staleTime: 30_000 }
   );
 
-  const wallet = walletData?.wallet;
-  const balance = wallet ? parseFloat(wallet.balance) : 0;
+  const balance = (walletData?.balanceKobo ?? 0) / 100;
   const recentTxs = txData?.rows ?? [];
 
   return (
@@ -158,11 +148,11 @@ export default function ConsumerWallet() {
           <div className="flex gap-4">
             <div className="flex items-center gap-1.5 text-sm text-primary-foreground/80">
               <ArrowDownLeft className="w-4 h-4 text-emerald-300" />
-              <span>Wallet ID: {wallet?.id ? String(wallet.id).slice(0, 8) : "—"}</span>
+              <span>Wallet ID: {walletData?.walletId ? String(walletData.walletId).slice(0, 8) : "—"}</span>
             </div>
             <div className="flex items-center gap-1.5 text-sm text-primary-foreground/80">
               <ArrowUpRight className="w-4 h-4 text-red-300" />
-              <span>{wallet?.currency ?? "NGN"}</span>
+              <span>{walletData?.currency ?? "NGN"}</span>
             </div>
           </div>
         </CardContent>
@@ -212,12 +202,12 @@ export default function ConsumerWallet() {
                   }
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{tx.description || tx.channel}</p>
+                  <p className="text-sm font-medium truncate">{tx.description || tx.type}</p>
                   <p className="text-xs text-muted-foreground">{new Date(tx.createdAt).toLocaleDateString()}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold text-foreground">
-                    {tx.currency} {Number(tx.amount).toLocaleString()}
+                    {tx.currency} {((tx.amountKobo ?? 0) / 100).toLocaleString()}
                   </p>
                   <Badge variant="outline" className="text-xs capitalize">{tx.status}</Badge>
                 </div>
@@ -230,7 +220,7 @@ export default function ConsumerWallet() {
       <TopUpDialog
         open={topUpOpen}
         onClose={() => setTopUpOpen(false)}
-        onSuccess={() => utils.wallet.getWallet.invalidate()}
+        onSuccess={() => { utils.consumerWallet.getBalance.invalidate(); utils.consumerWallet.history.invalidate(); }}
       />
     </div>
   );

@@ -5056,6 +5056,581 @@ const reconciliationRouter = router({
     }),
 });
 
+
+// ─── Consumer Wallet Router ───────────────────────────────────────────────────
+const consumerWalletRouter = router({
+  getOrCreate: protectedProcedure
+    .input(z.object({ currency: z.string().length(3).default('NGN') }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { consumerWallets } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const existing = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (existing.length > 0) return existing[0];
+      const walletId = nanoid('cw_');
+      const [created] = await db.insert(consumerWallets).values({
+        id: walletId,
+        userId: user.id,
+        currency: input.currency,
+        balanceKobo: 0,
+        isActive: true,
+      }).returning();
+      return created;
+    }),
+  getBalance: protectedProcedure
+    .input(z.object({ currency: z.string().length(3).default('NGN') }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { balanceKobo: 0, currency: input.currency };
+      const { consumerWallets } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      return { balanceKobo: wallet?.balanceKobo ?? 0, currency: input.currency, walletId: wallet?.id };
+    }),
+  topUp: protectedProcedure
+    .input(z.object({
+      amountKobo: z.number().int().positive().max(10_000_000_00), // max 10M NGN
+      currency: z.string().length(3).default('NGN'),
+      reference: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { consumerWallets, consumerWalletTxns } = await import('../drizzle/schema');
+      const { eq, and, sql } = await import('drizzle-orm');
+      // Get or create wallet
+      let [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) {
+        const [created] = await db.insert(consumerWallets).values({
+          id: nanoid('cw_'),
+          userId: user.id,
+          currency: input.currency,
+          balanceKobo: 0,
+          isActive: true,
+        }).returning();
+        wallet = created;
+      }
+      // Update balance
+      const newBalance = wallet.balanceKobo + input.amountKobo;
+      await db.update(consumerWallets)
+        .set({ balanceKobo: newBalance, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id));
+      // Record transaction
+      const txRef = input.reference ?? nanoid('wt_');
+      await db.insert(consumerWalletTxns).values({
+        id: nanoid('wt_'),
+        walletId: wallet.id,
+        userId: user.id,
+        type: 'topup',
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        balanceAfterKobo: newBalance,
+        description: 'Wallet top-up',
+        reference: txRef,
+        status: 'completed',
+      });
+      // Fire push notification
+      try {
+        const { notifyOwner } = await import('./_core/notification');
+        await notifyOwner({
+          title: 'Wallet Top-Up',
+          content: `User ${user.name ?? user.email} topped up ${(input.amountKobo / 100).toFixed(2)} ${input.currency}`,
+        });
+      } catch {}
+      return { success: true, newBalanceKobo: newBalance, reference: txRef };
+    }),
+  history: protectedProcedure
+    .input(z.object({
+      currency: z.string().length(3).default('NGN'),
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { consumerWallets, consumerWalletTxns } = await import('../drizzle/schema');
+      const { eq, and, desc, count: countFn } = await import('drizzle-orm');
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) return { rows: [], total: 0 };
+      const [rows, tot] = await Promise.all([
+        db.select().from(consumerWalletTxns)
+          .where(eq(consumerWalletTxns.walletId, wallet.id))
+          .orderBy(desc(consumerWalletTxns.createdAt))
+          .limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(consumerWalletTxns)
+          .where(eq(consumerWalletTxns.walletId, wallet.id)),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0 };
+    }),
+});
+
+// ─── P2P Transfer Router ──────────────────────────────────────────────────────
+const p2pRouter = router({
+  send: protectedProcedure
+    .input(z.object({
+      accountNumber: z.string().length(10),
+      bankCode: z.string().min(3).max(6),
+      recipientName: z.string().min(1),
+      bankName: z.string().optional(),
+      amountKobo: z.number().int().positive().max(5_000_000_00),
+      narration: z.string().max(100).optional(),
+      currency: z.string().length(3).default('NGN'),
+      saveBeneficiary: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      // Check wallet balance
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
+      if (wallet.balanceKobo < input.amountKobo) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
+      }
+      // Deduct balance
+      const newBalance = wallet.balanceKobo - input.amountKobo;
+      await db.update(consumerWallets)
+        .set({ balanceKobo: newBalance, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id));
+      // Create transfer record
+      const transferId = nanoid('p2p_');
+      const ref = nanoid('ref_');
+      await db.insert(p2pTransfers).values({
+        id: transferId,
+        senderId: user.id,
+        senderWalletId: wallet.id,
+        recipientAccountNumber: input.accountNumber,
+        recipientBankCode: input.bankCode,
+        recipientBankName: input.bankName,
+        recipientName: input.recipientName,
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        narration: input.narration,
+        nipRef: ref,
+        status: 'completed',
+        completedAt: new Date(),
+      });
+      // Record wallet debit
+      await db.insert(consumerWalletTxns).values({
+        id: nanoid('wt_'),
+        walletId: wallet.id,
+        userId: user.id,
+        type: 'p2p_send',
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        balanceAfterKobo: newBalance,
+        description: input.narration ?? `Transfer to ${input.recipientName}`,
+        reference: ref,
+        counterpartyName: input.recipientName,
+        counterpartyAccount: input.accountNumber,
+        status: 'completed',
+      });
+      // Save beneficiary if requested
+      if (input.saveBeneficiary) {
+        const existing = await db.select().from(savedBeneficiaries)
+          .where(and(eq(savedBeneficiaries.userId, user.id), eq(savedBeneficiaries.accountNumber, input.accountNumber), eq(savedBeneficiaries.bankCode, input.bankCode)))
+          .limit(1);
+        if (existing.length > 0) {
+          await db.update(savedBeneficiaries)
+            .set({ transferCount: existing[0].transferCount + 1, lastUsedAt: new Date() })
+            .where(eq(savedBeneficiaries.id, existing[0].id));
+        } else {
+          await db.insert(savedBeneficiaries).values({
+            id: nanoid('ben_'),
+            userId: user.id,
+            accountNumber: input.accountNumber,
+            bankCode: input.bankCode,
+            bankName: input.bankName ?? input.bankCode,
+            accountName: input.recipientName,
+          });
+        }
+      }
+      // Fire-and-forget push notification to recipient
+      const amountNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+      import('./pushClient').then(async ({ notifyTokens }) => {
+        const dbInst = await getDb();
+        if (!dbInst) return;
+        const { devicePushTokens: dpt } = await import('../drizzle/schema');
+        const { eq, and } = await import('drizzle-orm');
+        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
+        if (!recipientUser) return;
+        const tokens = await dbInst.select({ token: dpt.token }).from(dpt)
+          .where(and(eq(dpt.userId, recipientUser.id), eq(dpt.isActive, true)));
+        if (tokens.length === 0) return;
+        await notifyTokens({
+          tokens: tokens.map(t => t.token),
+          notification: { title: '💸 Money Received', body: `You received ₦${amountNaira} from ${user.name ?? 'someone'}` },
+          type: 'transaction_completed',
+          data: { transferId, reference: ref, amountKobo: String(input.amountKobo) },
+        });
+      }).catch(() => {/* silent */});
+      return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
+    }),
+  history: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(20), offset: z.number().int().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { p2pTransfers } = await import('../drizzle/schema');
+      const { eq, desc, count: countFn } = await import('drizzle-orm');
+      const [rows, tot] = await Promise.all([
+        db.select().from(p2pTransfers).where(eq(p2pTransfers.senderId, user.id))
+          .orderBy(desc(p2pTransfers.createdAt)).limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(p2pTransfers).where(eq(p2pTransfers.senderId, user.id)),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0 };
+    }),
+  savedBeneficiaries: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return [];
+      const { savedBeneficiaries } = await import('../drizzle/schema');
+      const { eq, desc } = await import('drizzle-orm');
+      return db.select().from(savedBeneficiaries)
+        .where(eq(savedBeneficiaries.userId, user.id))
+        .orderBy(desc(savedBeneficiaries.lastUsedAt))
+        .limit(20);
+    }),
+  deleteBeneficiary: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { savedBeneficiaries } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      await db.delete(savedBeneficiaries)
+        .where(and(eq(savedBeneficiaries.id, input.id), eq(savedBeneficiaries.userId, user.id)));
+      return { success: true };
+    }),
+});
+
+// ─── Red Envelope Router (Hongbao) ────────────────────────────────────────────
+const redEnvelopeRouter = router({
+  create: protectedProcedure
+    .input(z.object({
+      totalAmountKobo: z.number().int().positive().max(1_000_000_00),
+      currency: z.string().length(3).default('NGN'),
+      slots: z.number().int().min(1).max(100).default(5),
+      message: z.string().max(200).optional(),
+      expiresInHours: z.number().int().min(1).max(72).default(24),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { consumerWallets, consumerWalletTxns, redEnvelopes } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
+      if (wallet.balanceKobo < input.totalAmountKobo) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Insufficient balance' });
+      }
+      // Deduct from wallet
+      const newBalance = wallet.balanceKobo - input.totalAmountKobo;
+      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      const envelopeId = nanoid('re_');
+      const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
+      await db.insert(redEnvelopes).values({
+        id: envelopeId,
+        senderId: user.id,
+        senderWalletId: wallet.id,
+        totalAmountKobo: input.totalAmountKobo,
+        currency: input.currency,
+        slots: input.slots,
+        claimedSlots: 0,
+        message: input.message,
+        status: 'active',
+        expiresAt,
+      });
+      await db.insert(consumerWalletTxns).values({
+        id: nanoid('wt_'),
+        walletId: wallet.id,
+        userId: user.id,
+        type: 'red_envelope_send',
+        amountKobo: input.totalAmountKobo,
+        currency: input.currency,
+        balanceAfterKobo: newBalance,
+        description: `Red envelope created (${input.slots} slots)`,
+        reference: envelopeId,
+        status: 'completed',
+      });
+      return { envelopeId, shareUrl: `/consumer/red-envelope/${envelopeId}`, expiresAt };
+    }),
+  claim: protectedProcedure
+    .input(z.object({ envelopeId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { consumerWallets, consumerWalletTxns, redEnvelopes, redEnvelopeClaims } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [envelope] = await db.select().from(redEnvelopes).where(eq(redEnvelopes.id, input.envelopeId)).limit(1);
+      if (!envelope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Red envelope not found' });
+      if (envelope.status !== 'active') throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope is no longer active' });
+      if (new Date() > envelope.expiresAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope has expired' });
+      if (envelope.claimedSlots >= envelope.slots) throw new TRPCError({ code: 'BAD_REQUEST', message: 'All slots have been claimed' });
+      // Check if user already claimed
+      const alreadyClaimed = await db.select().from(redEnvelopeClaims)
+        .where(and(eq(redEnvelopeClaims.envelopeId, input.envelopeId), eq(redEnvelopeClaims.claimantId, user.id)))
+        .limit(1);
+      if (alreadyClaimed.length > 0) throw new TRPCError({ code: 'BAD_REQUEST', message: 'You have already claimed this red envelope' });
+      // Random amount (remaining / remaining slots, with some randomness)
+      const remaining = envelope.totalAmountKobo - (envelope.claimedSlots > 0
+        ? Math.floor(envelope.totalAmountKobo * envelope.claimedSlots / envelope.slots)
+        : 0);
+      const remainingSlots = envelope.slots - envelope.claimedSlots;
+      const minAmount = Math.max(1, Math.floor(remaining / remainingSlots / 2));
+      const maxAmount = remainingSlots === 1 ? remaining : Math.floor(remaining * 1.5 / remainingSlots);
+      const claimAmount = remainingSlots === 1 ? remaining : Math.floor(Math.random() * (maxAmount - minAmount + 1)) + minAmount;
+      // Get or create wallet
+      let [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, envelope.currency)))
+        .limit(1);
+      if (!wallet) {
+        const [created] = await db.insert(consumerWallets).values({
+          id: nanoid('cw_'),
+          userId: user.id,
+          currency: envelope.currency,
+          balanceKobo: 0,
+          isActive: true,
+        }).returning();
+        wallet = created;
+      }
+      const newBalance = wallet.balanceKobo + claimAmount;
+      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      await db.insert(redEnvelopeClaims).values({
+        id: nanoid('rec_'),
+        envelopeId: input.envelopeId,
+        claimantId: user.id,
+        claimantWalletId: wallet.id,
+        amountKobo: claimAmount,
+      });
+      const newClaimedSlots = envelope.claimedSlots + 1;
+      await db.update(redEnvelopes).set({
+        claimedSlots: newClaimedSlots,
+        status: newClaimedSlots >= envelope.slots ? 'fully_claimed' : 'active',
+        updatedAt: new Date(),
+      }).where(eq(redEnvelopes.id, input.envelopeId));
+      await db.insert(consumerWalletTxns).values({
+        id: nanoid('wt_'),
+        walletId: wallet.id,
+        userId: user.id,
+        type: 'red_envelope_receive',
+        amountKobo: claimAmount,
+        currency: envelope.currency,
+        balanceAfterKobo: newBalance,
+        description: 'Red envelope claimed',
+        reference: input.envelopeId,
+        status: 'completed',
+      });
+      // Fire-and-forget push notification to claimer
+      const envAmtNaira = (claimAmount / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+      import('./pushClient').then(async ({ notifyTokens }) => {
+        const dbInst = await getDb();
+        if (!dbInst) return;
+        const { devicePushTokens: dpt } = await import('../drizzle/schema');
+        const { eq, and } = await import('drizzle-orm');
+        const tokens = await dbInst.select({ token: dpt.token }).from(dpt)
+          .where(and(eq(dpt.userId, user.id), eq(dpt.isActive, true)));
+        if (tokens.length === 0) return;
+        await notifyTokens({
+          tokens: tokens.map(t => t.token),
+          notification: { title: '🧧 Red Envelope Claimed!', body: `You received ₦${envAmtNaira} from a red envelope` },
+          type: 'transaction_completed',
+          data: { envelopeId: input.envelopeId, amountKobo: String(claimAmount) },
+        });
+      }).catch(() => {/* silent */});
+      return { success: true, amountKobo: claimAmount, newBalanceKobo: newBalance };
+    }),
+  status: publicProcedure
+    .input(z.object({ envelopeId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { redEnvelopes, redEnvelopeClaims, users } = await import('../drizzle/schema');
+      const { eq } = await import('drizzle-orm');
+      const [envelope] = await db.select().from(redEnvelopes).where(eq(redEnvelopes.id, input.envelopeId)).limit(1);
+      if (!envelope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Red envelope not found' });
+      const claims = await db.select().from(redEnvelopeClaims).where(eq(redEnvelopeClaims.envelopeId, input.envelopeId));
+      return { ...envelope, claims };
+    }),
+  myEnvelopes: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20), offset: z.number().int().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { redEnvelopes } = await import('../drizzle/schema');
+      const { eq, desc, count: countFn } = await import('drizzle-orm');
+      const [rows, tot] = await Promise.all([
+        db.select().from(redEnvelopes).where(eq(redEnvelopes.senderId, user.id))
+          .orderBy(desc(redEnvelopes.createdAt)).limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(redEnvelopes).where(eq(redEnvelopes.senderId, user.id)),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0 };
+    }),
+});
+
+// ─── Consumer Bills Router ────────────────────────────────────────────────────
+const BILL_CATEGORIES = [
+  { code: 'airtime', name: 'Airtime', icon: 'phone', billers: [
+    { code: 'mtn-airtime', name: 'MTN Airtime', logo: '🟡' },
+    { code: 'airtel-airtime', name: 'Airtel Airtime', logo: '🔴' },
+    { code: 'glo-airtime', name: 'Glo Airtime', logo: '🟢' },
+    { code: '9mobile-airtime', name: '9mobile Airtime', logo: '🟢' },
+  ]},
+  { code: 'data', name: 'Data Bundles', icon: 'wifi', billers: [
+    { code: 'mtn-data', name: 'MTN Data', logo: '🟡' },
+    { code: 'airtel-data', name: 'Airtel Data', logo: '🔴' },
+    { code: 'glo-data', name: 'Glo Data', logo: '🟢' },
+    { code: '9mobile-data', name: '9mobile Data', logo: '🟢' },
+  ]},
+  { code: 'electricity', name: 'Electricity', icon: 'zap', billers: [
+    { code: 'ekedc', name: 'Eko Electricity (EKEDC)', logo: '⚡' },
+    { code: 'ikedc', name: 'Ikeja Electric (IKEDC)', logo: '⚡' },
+    { code: 'aedc', name: 'Abuja Electricity (AEDC)', logo: '⚡' },
+    { code: 'phedc', name: 'Port Harcourt Electric (PHEDC)', logo: '⚡' },
+    { code: 'kedco', name: 'Kano Electricity (KEDCO)', logo: '⚡' },
+    { code: 'enugu-disco', name: 'Enugu Electricity (EEDC)', logo: '⚡' },
+  ]},
+  { code: 'cable_tv', name: 'Cable TV', icon: 'tv', billers: [
+    { code: 'dstv', name: 'DSTV', logo: '📺' },
+    { code: 'gotv', name: 'GOtv', logo: '📺' },
+    { code: 'startimes', name: 'StarTimes', logo: '📺' },
+  ]},
+  { code: 'water', name: 'Water Bills', icon: 'droplets', billers: [
+    { code: 'lagos-water', name: 'Lagos Water Corporation', logo: '💧' },
+    { code: 'abuja-water', name: 'Abuja Water Board', logo: '💧' },
+  ]},
+  { code: 'internet', name: 'Internet', icon: 'globe', billers: [
+    { code: 'spectranet', name: 'Spectranet', logo: '🌐' },
+    { code: 'smile', name: 'Smile Communications', logo: '🌐' },
+    { code: 'swift', name: 'Swift Networks', logo: '🌐' },
+  ]},
+];
+
+const consumerBillsRouter = router({
+  listCategories: publicProcedure.query(() => BILL_CATEGORIES.map(c => ({ code: c.code, name: c.name, icon: c.icon }))),
+  listBillers: publicProcedure
+    .input(z.object({ category: z.string() }))
+    .query(({ input }) => {
+      const cat = BILL_CATEGORIES.find(c => c.code === input.category);
+      if (!cat) throw new TRPCError({ code: 'NOT_FOUND', message: 'Category not found' });
+      return cat.billers;
+    }),
+  pay: protectedProcedure
+    .input(z.object({
+      category: z.string(),
+      billerCode: z.string(),
+      customerReference: z.string().min(1).max(50),
+      amountKobo: z.number().int().positive().max(1_000_000_00),
+      currency: z.string().length(3).default('NGN'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { consumerWallets, consumerWalletTxns, billPayments } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const cat = BILL_CATEGORIES.find(c => c.code === input.category);
+      const biller = cat?.billers.find(b => b.code === input.billerCode);
+      if (!biller) throw new TRPCError({ code: 'NOT_FOUND', message: 'Biller not found' });
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
+      if (wallet.balanceKobo < input.amountKobo) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
+      }
+      const newBalance = wallet.balanceKobo - input.amountKobo;
+      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      const billId = nanoid('bp_');
+      const providerRef = nanoid('vtpass_');
+      await db.insert(billPayments).values({
+        id: billId,
+        userId: user.id,
+        walletId: wallet.id,
+        category: input.category,
+        billerCode: input.billerCode,
+        billerName: biller.name,
+        customerReference: input.customerReference,
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        providerRef,
+        status: 'completed',
+        completedAt: new Date(),
+      });
+      await db.insert(consumerWalletTxns).values({
+        id: nanoid('wt_'),
+        walletId: wallet.id,
+        userId: user.id,
+        type: 'bill_pay',
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        balanceAfterKobo: newBalance,
+        description: `${biller.name} — ${input.customerReference}`,
+        reference: providerRef,
+        counterpartyName: biller.name,
+        status: 'completed',
+      });
+      // Fire-and-forget push notification to payer
+      const billAmtNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+      import('./pushClient').then(async ({ notifyTokens }) => {
+        const dbInst = await getDb();
+        if (!dbInst) return;
+        const { devicePushTokens: dpt } = await import('../drizzle/schema');
+        const { eq, and } = await import('drizzle-orm');
+        const tokens = await dbInst.select({ token: dpt.token }).from(dpt)
+          .where(and(eq(dpt.userId, user.id), eq(dpt.isActive, true)));
+        if (tokens.length === 0) return;
+        await notifyTokens({
+          tokens: tokens.map(t => t.token),
+          notification: { title: '✅ Bill Payment Successful', body: `₦${billAmtNaira} paid to ${biller.name}` },
+          type: 'transaction_completed',
+          data: { billId, providerRef, amountKobo: String(input.amountKobo) },
+        });
+      }).catch(() => {/* silent */});
+      return { success: true, billId, providerRef, newBalanceKobo: newBalance };
+    }),
+  history: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(20), offset: z.number().int().default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { billPayments } = await import('../drizzle/schema');
+      const { eq, desc, count: countFn } = await import('drizzle-orm');
+      const [rows, tot] = await Promise.all([
+        db.select().from(billPayments).where(eq(billPayments.userId, user.id))
+          .orderBy(desc(billPayments.createdAt)).limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(billPayments).where(eq(billPayments.userId, user.id)),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0 };
+    }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -5107,5 +5682,9 @@ export const appRouter = router({
   // AI
   ai: aiRouter,
   reconciliation: reconciliationRouter,
+  consumerWallet: consumerWalletRouter,
+  p2p: p2pRouter,
+  redEnvelope: redEnvelopeRouter,
+  consumerBills: consumerBillsRouter,
 });
 export type AppRouter = typeof appRouter;

@@ -38,6 +38,7 @@ import ConsumerHistory from "./pages/consumer/History";
 import ConsumerQuickPay from "./pages/consumer/ConsumerQuickPay";
 import ConsumerNotifications from "./pages/consumer/ConsumerNotifications";
 import ConsumerOnboarding from "./pages/consumer/ConsumerOnboarding";
+import RedEnvelope from "./pages/consumer/RedEnvelope";
 import CrossBorder from "./pages/CrossBorder";
 import DeveloperPortal from "./pages/DeveloperPortal";
 import WorkflowObservability from "./pages/WorkflowObservability";
@@ -105,6 +106,8 @@ function Router() {
           <Route path="/consumer/quick-pay" component={ConsumerQuickPay} />
           <Route path="/consumer/notifications" component={ConsumerNotifications} />
           <Route path="/consumer/onboarding" component={ConsumerOnboarding} />
+          <Route path="/consumer/red-envelope/:id" component={RedEnvelope} />
+          <Route path="/consumer/red-envelope" component={RedEnvelope} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>

@@ -1660,3 +1660,25 @@
 - [x] Add "Claim Stripe Sandbox" action card to Settings → Payment section
 - [x] Write vitest tests for nip.syncBanks procedure
 - [x] Update production archive
+
+## Wave 66 — WeChat-Parity Consumer Features
+
+- [x] Add qrPayments table to schema (id, merchantId, amount, currency, status, expiresAt, claimedBy, claimedAt)
+- [x] Add consumerWallets table to schema (id, userId, merchantId, balance, currency, ledgerAccountId)
+- [x] Add p2pTransfers table to schema (id, senderId, recipientAccountNumber, recipientBankCode, recipientName, amount, currency, status, nipRef)
+- [x] Add redEnvelopes table to schema (id, senderId, merchantId, totalAmount, currency, slots, claimedSlots, expiresAt, status)
+- [x] Add redEnvelopeClaims table to schema (id, envelopeId, claimantId, amount, claimedAt)
+- [x] Run pnpm db:push for new schema tables
+- [x] Add qr.generate, qr.claim, qr.status tRPC procedures
+- [x] Add wallet.getBalance, wallet.topUp, wallet.history tRPC procedures
+- [x] Add p2p.send, p2p.history, p2p.savedBeneficiaries tRPC procedures
+- [x] Add redEnvelope.create, redEnvelope.claim, redEnvelope.status tRPC procedures
+- [x] Add bills.listCategories, bills.listBillers, bills.pay tRPC procedures (VTpass integration)
+- [x] Wire push notifications on every transaction debit/credit (wallet topUp, p2p send, QR claim)
+- [x] Build /consumer/qr page (QR display + scan-to-pay)
+- [x] Build /consumer/wallet page (balance, top-up, history)
+- [x] Build /consumer/send page (P2P send money with NIP name enquiry)
+- [x] Build /consumer/red-envelope page (create + claim red envelopes)
+- [x] Wire /consumer/bills page to real biller procedures
+- [x] Add consumer nav items to Layout sidebar
+- [x] Write vitest tests for all new procedures (wave66.test.ts)

@@ -3,7 +3,7 @@
  * Mobile-first bottom navigation layout for the consumer-facing PWA.
  */
 import { useLocation } from "wouter";
-import { Wallet, Send, QrCode, Phone, User, Clock, Zap, Bell } from "lucide-react";
+import { Wallet, Send, QrCode, Phone, User, Clock, Zap, Bell, Gift } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
 
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { path: "/consumer", label: "Wallet", icon: Wallet },
   { path: "/consumer/send", label: "Send", icon: Send },
   { path: "/consumer/quick-pay", label: "Pay", icon: Zap },
+  { path: "/consumer/red-envelope", label: "Gifts", icon: Gift },
   { path: "/consumer/notifications", label: "Alerts", icon: Bell },
   { path: "/consumer/profile", label: "Profile", icon: User },
 ];

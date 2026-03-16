@@ -1372,3 +1372,171 @@ export const reconciliationAlerts = pgTable("reconciliation_alerts", {
 ]);
 export type ReconciliationAlert = typeof reconciliationAlerts.$inferSelect;
 export type InsertReconciliationAlert = typeof reconciliationAlerts.$inferInsert;
+
+// ─── QR Payments ──────────────────────────────────────────────────────────────
+export const qrPayments = pgTable("qr_payments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id),
+  amount: bigint("amount", { mode: "number" }),
+  currency: text("currency").notNull().default("NGN"),
+  description: text("description"),
+  status: text("status", { enum: ["pending", "claimed", "expired", "cancelled"] }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at"),
+  claimedBy: integer("claimed_by").references(() => users.id),
+  claimedAt: timestamp("claimed_at"),
+  transactionRef: text("transaction_ref"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("qr_merchant_idx").on(t.merchantId),
+  index("qr_status_idx").on(t.status),
+]);
+export type QrPayment = typeof qrPayments.$inferSelect;
+export type InsertQrPayment = typeof qrPayments.$inferInsert;
+
+// ─── Consumer Wallets ─────────────────────────────────────────────────────────
+export const consumerWallets = pgTable("consumer_wallets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id),
+  currency: text("currency").notNull().default("NGN"),
+  balanceKobo: bigint("balance_kobo", { mode: "number" }).notNull().default(0),
+  ledgerAccountId: text("ledger_account_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cw_user_idx").on(t.userId),
+  index("cw_user_currency_idx").on(t.userId, t.currency),
+]);
+export type ConsumerWallet = typeof consumerWallets.$inferSelect;
+export type InsertConsumerWallet = typeof consumerWallets.$inferInsert;
+
+// ─── Wallet Transactions ──────────────────────────────────────────────────────
+export const p2pTransfers = pgTable("p2p_transfers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  senderId: integer("sender_id").notNull().references(() => users.id),
+  senderWalletId: text("sender_wallet_id").notNull().references(() => consumerWallets.id),
+  recipientAccountNumber: text("recipient_account_number").notNull(),
+  recipientBankCode: text("recipient_bank_code").notNull(),
+  recipientBankName: text("recipient_bank_name"),
+  recipientName: text("recipient_name").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  narration: text("narration"),
+  nipSessionId: text("nip_session_id"),
+  nipRef: text("nip_ref"),
+  status: text("status", { enum: ["pending", "processing", "completed", "failed", "reversed"] }).notNull().default("pending"),
+  failureReason: text("failure_reason"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("p2p_sender_idx").on(t.senderId),
+  index("p2p_status_idx").on(t.status),
+  index("p2p_created_idx").on(t.createdAt),
+]);
+export type P2pTransfer = typeof p2pTransfers.$inferSelect;
+export type InsertP2pTransfer = typeof p2pTransfers.$inferInsert;
+
+// ─── Saved Beneficiaries ──────────────────────────────────────────────────────
+export const savedBeneficiaries = pgTable("saved_beneficiaries", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id),
+  accountNumber: text("account_number").notNull(),
+  bankCode: text("bank_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  accountName: text("account_name").notNull(),
+  nickname: text("nickname"),
+  transferCount: integer("transfer_count").notNull().default(1),
+  lastUsedAt: timestamp("last_used_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("sb_user_idx").on(t.userId),
+]);
+export type SavedBeneficiary = typeof savedBeneficiaries.$inferSelect;
+export type InsertSavedBeneficiary = typeof savedBeneficiaries.$inferInsert;
+
+// ─── Red Envelopes (Hongbao) ──────────────────────────────────────────────────
+export const redEnvelopes = pgTable("red_envelopes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  senderId: integer("sender_id").notNull().references(() => users.id),
+  senderWalletId: text("sender_wallet_id").notNull().references(() => consumerWallets.id),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  slots: integer("slots").notNull().default(5),
+  claimedSlots: integer("claimed_slots").notNull().default(0),
+  message: text("message"),
+  status: text("status", { enum: ["active", "fully_claimed", "expired", "cancelled"] }).notNull().default("active"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("re_sender_idx").on(t.senderId),
+  index("re_status_idx").on(t.status),
+]);
+export type RedEnvelope = typeof redEnvelopes.$inferSelect;
+export type InsertRedEnvelope = typeof redEnvelopes.$inferInsert;
+
+// ─── Red Envelope Claims ──────────────────────────────────────────────────────
+export const redEnvelopeClaims = pgTable("red_envelope_claims", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  envelopeId: text("envelope_id").notNull().references(() => redEnvelopes.id, { onDelete: "cascade" }),
+  claimantId: integer("claimant_id").notNull().references(() => users.id),
+  claimantWalletId: text("claimant_wallet_id").notNull().references(() => consumerWallets.id),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  claimedAt: timestamp("claimed_at").defaultNow().notNull(),
+}, (t) => [
+  index("rec_envelope_idx").on(t.envelopeId),
+  index("rec_claimant_idx").on(t.claimantId),
+]);
+export type RedEnvelopeClaim = typeof redEnvelopeClaims.$inferSelect;
+export type InsertRedEnvelopeClaim = typeof redEnvelopeClaims.$inferInsert;
+
+// ─── Bill Payments ────────────────────────────────────────────────────────────
+export const billPayments = pgTable("bill_payments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id),
+  walletId: text("wallet_id").notNull().references(() => consumerWallets.id),
+  category: text("category").notNull(),
+  billerCode: text("biller_code").notNull(),
+  billerName: text("biller_name").notNull(),
+  customerReference: text("customer_reference").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  providerRef: text("provider_ref"),
+  status: text("status", { enum: ["pending", "processing", "completed", "failed"] }).notNull().default("pending"),
+  failureReason: text("failure_reason"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bp_user_idx").on(t.userId),
+  index("bp_status_idx").on(t.status),
+  index("bp_created_idx").on(t.createdAt),
+]);
+export type BillPayment = typeof billPayments.$inferSelect;
+export type InsertBillPayment = typeof billPayments.$inferInsert;
+
+// ─── Consumer Wallet Transactions ─────────────────────────────────────────────
+export const consumerWalletTxns = pgTable("consumer_wallet_txns", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  walletId: text("wallet_id").notNull().references(() => consumerWallets.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  type: text("type", { enum: ["topup", "debit", "p2p_send", "p2p_receive", "qr_pay", "bill_pay", "red_envelope_send", "red_envelope_receive", "refund"] }).notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  balanceAfterKobo: bigint("balance_after_kobo", { mode: "number" }).notNull(),
+  description: text("description"),
+  reference: text("reference"),
+  counterpartyName: text("counterparty_name"),
+  counterpartyAccount: text("counterparty_account"),
+  status: text("status", { enum: ["pending", "completed", "failed", "reversed"] }).notNull().default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cwt_wallet_idx").on(t.walletId),
+  index("cwt_user_idx").on(t.userId),
+  index("cwt_created_idx").on(t.createdAt),
+]);
+export type ConsumerWalletTxn = typeof consumerWalletTxns.$inferSelect;
+export type InsertConsumerWalletTxn = typeof consumerWalletTxns.$inferInsert;
