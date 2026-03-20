@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * pushTokenCleanup.ts
  * ─────────────────────────────────────────────────────────────────────────────
@@ -20,11 +21,11 @@ const STALE_AFTER_DAYS =
   Number(process.env.PUSH_TOKEN_STALE_DAYS) || 90;
 
 async function runCleanup(): Promise<void> {
-  console.log("[pushTokenCleanup] Starting stale push token cleanup…");
+  logger.info("[pushTokenCleanup] Starting stale push token cleanup…");
   try {
     const db = await getDb();
     if (!db) {
-      console.warn("[pushTokenCleanup] DB unavailable — skipping");
+      logger.warn("[pushTokenCleanup] DB unavailable — skipping");
       return;
     }
 
@@ -45,7 +46,7 @@ async function runCleanup(): Promise<void> {
       )
       .returning({ id: devicePushTokens.id });
 
-    console.log(`[pushTokenCleanup] Removed ${result.length} stale/inactive push tokens`);
+    logger.info(`[pushTokenCleanup] Removed ${result.length} stale/inactive push tokens`);
   } catch (err) {
     console.error(
       "[pushTokenCleanup] Cleanup failed:",
@@ -65,7 +66,7 @@ export function startPushTokenCleanupWorker(): void {
       runCleanup().catch(() => {});
     }, CLEANUP_INTERVAL_MS);
   }, 60_000);
-  console.log(`[pushTokenCleanup] Worker scheduled — interval: ${CLEANUP_INTERVAL_MS / 86_400_000}d, stale threshold: ${STALE_AFTER_DAYS}d`);
+  logger.info(`[pushTokenCleanup] Worker scheduled — interval: ${CLEANUP_INTERVAL_MS / 86_400_000}d, stale threshold: ${STALE_AFTER_DAYS}d`);
 }
 
 export function stopPushTokenCleanupWorker(): void {

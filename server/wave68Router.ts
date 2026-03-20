@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * Wave 68 — Full WeChat-parity consumer features
  *
@@ -203,7 +204,7 @@ async function sendTermiiOtp(phone: string, otp: string): Promise<{ success: boo
   const apiKey = process.env.TERMII_API_KEY;
   if (!apiKey) {
     // No credentials — log and return success so dev flow works
-    console.warn("[Termii] No TERMII_API_KEY set — OTP not sent. Code:", otp);
+    logger.warn("[Termii] No TERMII_API_KEY set — OTP not sent. Code:", otp);
     return { success: true, messageId: "dev_" + Date.now() };
   }
   try {
@@ -223,10 +224,10 @@ async function sendTermiiOtp(phone: string, otp: string): Promise<{ success: boo
     if (data.code === "ok" || data.message_id) {
       return { success: true, messageId: data.message_id };
     }
-    console.error("[Termii] Send failed:", data);
+    logger.error("[Termii] Send failed:", data);
     return { success: false };
   } catch (err) {
-    console.error("[Termii] Network error:", err);
+    logger.error("[Termii] Network error:", err);
     return { success: false };
   }
 }
@@ -242,7 +243,7 @@ async function submitYouverifyKyc(data: {
 }): Promise<{ success: boolean; ref?: string; status: string }> {
   const apiKey = process.env.YOUVERIFY_API_KEY;
   if (!apiKey) {
-    console.warn("[Youverify] No YOUVERIFY_API_KEY set — KYC submitted in dev mode");
+    logger.warn("[Youverify] No YOUVERIFY_API_KEY set — KYC submitted in dev mode");
     return { success: true, ref: "dev_kyc_" + Date.now(), status: "approved" };
   }
   try {
@@ -277,7 +278,7 @@ async function submitYouverifyKyc(data: {
     }
     return { success: false, status: "manual_review" };
   } catch (err) {
-    console.error("[Youverify] Error:", err);
+    logger.error("[Youverify] Error:", err);
     return { success: false, status: "manual_review" };
   }
 }

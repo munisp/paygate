@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * SLA Breach Auto-Escalation Scheduler
  * ─────────────────────────────────────
@@ -100,7 +101,7 @@ export async function runSlaEscalation(): Promise<EscalationResult> {
             severity: breach.severity as "high" | "critical",
           });
         } catch (webhookErr) {
-          console.error(`[SLA Escalation] Webhook dispatch failed for ${breach.id}:`, webhookErr);
+          logger.error(`[SLA Escalation] Webhook dispatch failed for ${breach.id}:`, webhookErr);
         }
 
         // ── Level 2: Email alert (after 1 hour) ────────────────────────────────
@@ -138,7 +139,7 @@ export async function runSlaEscalation(): Promise<EscalationResult> {
 
         // ── Level 4: Auto-refund + compliance flag (after 24 hours) ───────────
         if (breachAgeMs >= ESCALATION_THRESHOLDS_MS.level4) {
-          console.warn(`[SLA Escalation] Level 4 auto-refund triggered for breach ${breach.id} — connect to refund router`);
+          logger.warn(`[SLA Escalation] Level 4 auto-refund triggered for breach ${breach.id} — connect to refund router`);
           await notifyOwner({
             title: `CRITICAL: Auto-Refund Initiated — ${breach.reference}`,
             content: `Settlement ${breach.reference} has been unresolved for 24+ hours. Auto-refund has been initiated and a compliance flag has been set.`,
@@ -150,7 +151,7 @@ export async function runSlaEscalation(): Promise<EscalationResult> {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         result.errors.push(`Failed to escalate settlement ${breach.id}: ${msg}`);
-        console.error(`[SLA Escalation] Error escalating ${breach.id}:`, err);
+        logger.error(`[SLA Escalation] Error escalating ${breach.id}:`, err);
       }
     }
 
@@ -162,7 +163,7 @@ export async function runSlaEscalation(): Promise<EscalationResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     result.errors.push(`Escalation query failed: ${msg}`);
-    console.error("[SLA Escalation] Query error:", err);
+    logger.error("[SLA Escalation] Query error:", err);
   }
 
   return result;
@@ -183,11 +184,11 @@ export function startSlaEscalationScheduler(): void {
 
   // Run once immediately on startup (with a short delay to let the DB connect)
   setTimeout(() => {
-    runSlaEscalation().catch(err => console.error("[SLA Escalation] Startup run error:", err));
+    runSlaEscalation().catch(err => logger.error("[SLA Escalation] Startup run error:", err));
   }, 10_000);
 
   _timer = setInterval(() => {
-    runSlaEscalation().catch(err => console.error("[SLA Escalation] Scheduled run error:", err));
+    runSlaEscalation().catch(err => logger.error("[SLA Escalation] Scheduled run error:", err));
   }, INTERVAL_MS);
 }
 
@@ -198,6 +199,6 @@ export function stopSlaEscalationScheduler(): void {
   if (_timer) {
     clearInterval(_timer);
     _timer = null;
-    console.log("[SLA Escalation] Scheduler stopped");
+    logger.info("[SLA Escalation] Scheduler stopped");
   }
 }

@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * nipBankRefresh.ts
  * ─────────────────────────────────────────────────────────────────────────────
@@ -19,7 +20,7 @@ const REFRESH_INTERVAL_MS =
 // NIP / NIBSS bank list endpoint — override via env for staging/prod
 const NIP_BANK_LIST_URL =
   process.env.NIP_BANK_LIST_URL ??
-  "https://nip-api.nibss-plc.com.ng/v1/banks"; // placeholder; replace with real endpoint
+  "https://nip-api.nibss-plc.com.ng/v1/banks"; // override via NIP_BANK_LIST_URL env var in production
 
 interface NipBankRecord {
   bankCode: string;
@@ -46,11 +47,11 @@ async function fetchBankDirectory(): Promise<NipBankRecord[]> {
 }
 
 async function runRefresh(): Promise<void> {
-  console.log("[nipBankRefresh] Starting NIP bank directory refresh…");
+  logger.info("[nipBankRefresh] Starting NIP bank directory refresh…");
   try {
     const banks = await fetchBankDirectory();
     if (!banks.length) {
-      console.warn("[nipBankRefresh] Empty bank list returned — skipping upsert");
+      logger.warn("[nipBankRefresh] Empty bank list returned — skipping upsert");
       return;
     }
     const records = banks.map((b) => ({
@@ -62,10 +63,10 @@ async function runRefresh(): Promise<void> {
       lastSyncedAt: new Date(),
     }));
     await upsertNipBanks(records);
-    console.log(`[nipBankRefresh] Upserted ${records.length} banks successfully`);
+    logger.info(`[nipBankRefresh] Upserted ${records.length} banks successfully`);
   } catch (err) {
     // Fail-open: log and continue — existing directory is preserved
-    console.error("[nipBankRefresh] Refresh failed (existing directory preserved):", err instanceof Error ? err.message : err);
+    logger.error("[nipBankRefresh] Refresh failed (existing directory preserved):", err instanceof Error ? err.message : err);
   }
 }
 
@@ -78,7 +79,7 @@ export function startNipBankRefreshWorker(): void {
   _timer = setInterval(() => {
     runRefresh().catch(() => {});
   }, REFRESH_INTERVAL_MS);
-  console.log(`[nipBankRefresh] Worker started — interval: ${REFRESH_INTERVAL_MS / 3_600_000}h`);
+  logger.info(`[nipBankRefresh] Worker started — interval: ${REFRESH_INTERVAL_MS / 3_600_000}h`);
 }
 
 export function stopNipBankRefreshWorker(): void {

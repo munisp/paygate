@@ -1,3 +1,4 @@
+import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
 import {
   moneyRequestRouter,
@@ -275,7 +276,7 @@ const dashboardRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       await cache.flush("dashboard:overview");
-      console.log(`[cache] dashboard:overview flushed for merchant ${merchant.id}`);
+      logger.info(`[cache] dashboard:overview flushed for merchant ${merchant.id}`);
       return { success: true };
     }),
 });
@@ -351,7 +352,7 @@ const transactionsRouter = router({
           ip_address: ctx.req.ip ?? undefined,
         });
       } catch (e) {
-        console.warn("[fraud] scoring service unavailable (fail-open):", (e as Error).message);
+        logger.warn("[fraud] scoring service unavailable (fail-open):", (e as Error).message);
       }
 
       if (fraudResult?.recommendation === "decline" || fraudResult?.risk_level === "critical") {
@@ -401,7 +402,7 @@ const transactionsRouter = router({
         } catch (e) {
           if ((e as any)?.code === "CONFLICT") throw e;
           // Inventory Engine unavailable — fail-open, log warning
-          console.warn("[inventory] reservation service unavailable (fail-open):", (e as Error).message);
+          logger.warn("[inventory] reservation service unavailable (fail-open):", (e as Error).message);
         }
       }
 
@@ -424,7 +425,7 @@ const transactionsRouter = router({
             pointsKoboValue = redeemResult.kobo_value;
           }
         } catch (e) {
-          console.warn("[loyalty] redemption service unavailable (fail-open):", (e as Error).message);
+          logger.warn("[loyalty] redemption service unavailable (fail-open):", (e as Error).message);
         }
       }
 
@@ -515,7 +516,7 @@ const transactionsRouter = router({
                   }
                 } catch (_) { /* fail-open */ }
               }
-            }).catch(e => console.warn("[loyalty] earn failed (non-fatal):", e.message));
+            }).catch(e => logger.warn("[loyalty] earn failed (non-fatal):", e.message));
           }
         }
         return tx;
@@ -550,7 +551,7 @@ const transactionsRouter = router({
           amount: refundAmount,
           reason: input.reason ?? 'merchant_initiated',
           initiatorId: ctx.user.openId,
-        }).catch(e => console.error('[bridge] refundTransaction failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] refundTransaction failed (non-fatal):', e));
       }
       // Fire webhook event for all active webhooks on this merchant
       const webhooks = await listWebhooks(merchant.id);
@@ -754,7 +755,7 @@ const payoutsRouter = router({
           // Non-fatal: payout is already in pending_approval state in DB.
           // The portal UI will show the approval queue; the bridge can be
           // retried manually or via a reconciliation job.
-          console.error("[bridge] initiatePayoutApproval failed (non-fatal):", bridgeErr);
+          logger.error("[bridge] initiatePayoutApproval failed (non-fatal):", bridgeErr);
         }
       }
 
@@ -828,7 +829,7 @@ const payoutsRouter = router({
           // Bridge handles the status update via Temporal workflow completion
           return { success: true, via: "bridge" };
         } catch (bridgeErr) {
-          console.error("[bridge] approvePayoutViaMiddleware failed, falling back to DB:", bridgeErr);
+          logger.error("[bridge] approvePayoutViaMiddleware failed, falling back to DB:", bridgeErr);
           // Fall through to direct DB update
         }
       }
@@ -873,7 +874,7 @@ const payoutsRouter = router({
           });
           return { success: true, via: "bridge" };
         } catch (bridgeErr) {
-          console.error("[bridge] rejectPayoutViaMiddleware failed, falling back to DB:", bridgeErr);
+          logger.error("[bridge] rejectPayoutViaMiddleware failed, falling back to DB:", bridgeErr);
         }
       }
 
@@ -1200,7 +1201,7 @@ const disputesRouter = router({
           amount: (dispute as any).amount ?? 0,
           currency: (dispute as any).currency ?? 'NGN',
           submitterId: ctx.user.openId,
-        }).catch(e => console.error('[bridge] submitDispute failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] submitDispute failed (non-fatal):', e));
       }
       return { success: true };
     }),
@@ -1297,7 +1298,7 @@ const virtualCardsRouter = router({
           spendingLimit: input.spendLimit ?? 0,
           label: input.label ?? '',
           issuerId: ctx.user.openId,
-        }).catch(e => console.error('[bridge] issueVirtualCard failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] issueVirtualCard failed (non-fatal):', e));
       }
       return card;
     }),
@@ -1318,7 +1319,7 @@ const virtualCardsRouter = router({
           merchantId: merchant.id,
           freeze: newStatus === "frozen",
           operatorId: ctx.user.openId,
-        }).catch(e => console.error('[bridge] freezeVirtualCard failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] freezeVirtualCard failed (non-fatal):', e));
       }
       return { success: true };
     }),
@@ -1363,7 +1364,7 @@ const paymentLinksRouter = router({
           currency: input.currency,
           description: input.description ?? input.title,
           creatorId: ctx.user.openId,
-        }).catch(e => console.error('[bridge] createPaymentLink failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] createPaymentLink failed (non-fatal):', e));
       }
       return link;
     }),
@@ -1383,7 +1384,7 @@ const paymentLinksRouter = router({
           linkId: input.id,
           merchantId: merchant.id,
           operatorId: ctx.user.openId,
-        }).catch(e => console.error('[bridge] deactivatePaymentLink failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] deactivatePaymentLink failed (non-fatal):', e));
       }
       return { success: true };
     }),
@@ -1602,7 +1603,7 @@ async function bridgeFetch(path: string, method: string, body?: unknown) {
   } catch (e: any) {
     if (e instanceof TRPCError) throw e;
     // Bridge not running — degrade gracefully
-    console.warn("[Bridge] Unavailable:", e.message);
+    logger.warn("[Bridge] Unavailable:", e.message);
     return null;
   }
 }
@@ -1804,7 +1805,7 @@ const fraudRiskRouter = router({
           merchantId: merchant.id,
           acknowledgerId: ctx.user.openId,
           action: 'escalate',
-        }).catch(e => console.error('[bridge] acknowledgeFraudAlert failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] acknowledgeFraudAlert failed (non-fatal):', e));
       }
       return { success: true };
     }),
@@ -1961,7 +1962,7 @@ const complianceKycRouter = router({
             status: input.status,
             reviewerId: ctx.user.openId,
             rejectionReason: input.rejectionReason,
-          }).catch(e => console.error('[bridge] updateKYCStatus failed (non-fatal):', e));
+          }).catch(e => logger.error('[bridge] updateKYCStatus failed (non-fatal):', e));
         }
       }
       // Notify owner when KYC status changes to approved or rejected
@@ -2031,7 +2032,7 @@ const bnplRouter = router({
           installmentAmount,
           interestRate: input.interestRate,
           transactionId: input.transactionId,
-        }).catch(e => console.error('[bridge] createBNPLLoan failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] createBNPLLoan failed (non-fatal):', e));
       }
       return loan;
     }),
@@ -2340,7 +2341,7 @@ const walletRouter = router({
             amount: Number(input.amount),
             currency: input.currency,
             narration: input.note ?? '',
-          }).catch(e => console.error('[bridge] p2pTransfer failed (non-fatal):', e));
+          }).catch(e => logger.error('[bridge] p2pTransfer failed (non-fatal):', e));
         }
         return { success: true, reference: ref, transaction: tx };
       };
@@ -2385,7 +2386,7 @@ const walletRouter = router({
           currency: input.currency,
           reference: ref,
           description: `Top-up via ${input.channel}`,
-        }).catch(e => console.error('[bridge] creditWallet failed (non-fatal):', e));
+        }).catch(e => logger.error('[bridge] creditWallet failed (non-fatal):', e));
       }
       return { success: true, reference: ref, newBalance, transaction: tx };
     }),
@@ -2972,7 +2973,7 @@ const settlementsRouter = router({
             await updateSettlement(settlementId, { workflowId: resp.workflowId, status: "processing", processedAt: new Date() });
           }
         } catch (err) {
-          console.error("[bridge] triggerSettlement failed (non-fatal):", err);
+          logger.error("[bridge] triggerSettlement failed (non-fatal):", err);
         }
       }
       return settlement;
@@ -3032,7 +3033,7 @@ const settlementsRouter = router({
             await updateSettlement(input.id, { workflowId: resp.workflowId });
           }
         } catch (err) {
-          console.error('[settlements.retry] Bridge call failed (non-fatal):', err);
+          logger.error('[settlements.retry] Bridge call failed (non-fatal):', err);
         }
       }
       return { ok: true, id: input.id };
@@ -3071,7 +3072,7 @@ const settlementsRouter = router({
               severity: "high",
             });
           } catch (webhookErr) {
-            console.error("[settlements.checkSla] Webhook dispatch failed (non-fatal):", webhookErr);
+            logger.error("[settlements.checkSla] Webhook dispatch failed (non-fatal):", webhookErr);
           }
           await markSettlementSlaAlertSent(s.id);
           alertsSent++;
@@ -3387,7 +3388,7 @@ const pushTokensRouter = router({
           merchantId: String(merchant.id),
           userId:     user.id,
         })
-      ).catch((err: any) => console.error('[pushTokens.register] pushClient error:', err?.message));
+      ).catch((err: any) => logger.error('[pushTokens.register] pushClient error:', err?.message));
       return { registered: true };
     }),
 
@@ -3406,7 +3407,7 @@ const pushTokensRouter = router({
       // Notify Python push service (fire-and-forget)
       import("./pushClient").then(({ deregisterToken }) =>
         deregisterToken(input.token)
-      ).catch((err: any) => console.error("[pushTokens.deregister] pushClient error:", err?.message));
+      ).catch((err: any) => logger.error("[pushTokens.deregister] pushClient error:", err?.message));
       return { deregistered: true };
     }),
   // Web Push (VAPID) subscription management

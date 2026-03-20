@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * PayGate Webhook Retry Service
  *
@@ -167,7 +168,7 @@ async function processRetries() {
         } as any)
         .where(eq(webhookDeliveries.id, delivery.id));
 
-      console.warn(`[webhookRetry] Delivery ${delivery.id} dead-lettered after ${newAttemptCount} attempts`);
+      logger.warn(`[webhookRetry] Delivery ${delivery.id} dead-lettered after ${newAttemptCount} attempts`);
     } else {
       // Schedule next retry
       const retryAt = nextRetryAt(newAttemptCount);
@@ -196,7 +197,7 @@ export function startWebhookRetryWorker() {
   console.info("[webhookRetry] Starting retry worker (interval=30s, maxAttempts=7)");
   workerInterval = setInterval(() => {
     processRetries().catch((err) => {
-      console.error("[webhookRetry] Worker error:", err);
+      logger.error("[webhookRetry] Worker error:", err);
     });
   }, WORKER_INTERVAL_MS);
 }

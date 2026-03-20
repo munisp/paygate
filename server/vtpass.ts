@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * VTpass API Client — Live bill payment integration for Nigeria
  *
@@ -82,7 +83,7 @@ function isSimulationMode(): boolean {
 }
 
 function simulatePay(input: VTpassPayInput): VTpassPayResult {
-  console.log(`[VTpass] Simulation mode — billerCode=${input.billerCode} amount=${input.amountNaira}`);
+  logger.info(`[VTpass] Simulation mode — billerCode=${input.billerCode} amount=${input.amountNaira}`);
   return {
     success: true,
     status: "completed",
@@ -93,7 +94,7 @@ function simulatePay(input: VTpassPayInput): VTpassPayResult {
 }
 
 function simulateVerify(input: VTpassVerifyInput): VTpassVerifyResult {
-  console.log(`[VTpass] Simulation verify — billerCode=${input.billerCode} ref=${input.customerReference}`);
+  logger.info(`[VTpass] Simulation verify — billerCode=${input.billerCode} ref=${input.customerReference}`);
   return {
     valid: true,
     customerName: "Simulated Customer",
@@ -210,9 +211,9 @@ export async function vtpassPay(
       transactionDate,
     };
   } catch (err) {
-    console.error("[VTpass] Pay error:", err);
+    logger.error("[VTpass] Pay error:", err);
     // Graceful fallback to simulation on network/timeout errors
-    console.warn("[VTpass] Falling back to simulation due to API error");
+    logger.warn("[VTpass] Falling back to simulation due to API error");
     return simulatePay(input);
   }
 }
@@ -261,7 +262,7 @@ export async function vtpassVerify(
         "Customer reference could not be verified",
     };
   } catch (err) {
-    console.error("[VTpass] Verify error:", err);
+    logger.error("[VTpass] Verify error:", err);
     // Graceful fallback
     return simulateVerify(input);
   }

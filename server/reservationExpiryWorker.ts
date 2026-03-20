@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * PayGate Reservation Expiry Worker
  *
@@ -22,7 +23,7 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
 const EXPIRY_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 
 export function startReservationExpiryWorker(): void {
-  console.log("[reservationExpiry] Worker started (poll every 5 min, threshold 15 min)");
+  logger.info("[reservationExpiry] Worker started (poll every 5 min, threshold 15 min)");
   const tick = async () => {
     try {
       const db = await getDb();
@@ -56,7 +57,7 @@ export function startReservationExpiryWorker(): void {
 
       if (expired.length === 0) return;
 
-      console.log(`[reservationExpiry] Processing ${expired.length} expired reservation(s)`);
+      logger.info(`[reservationExpiry] Processing ${expired.length} expired reservation(s)`);
 
       await Promise.allSettled(
         expired.map(async (row) => {
@@ -65,7 +66,7 @@ export function startReservationExpiryWorker(): void {
           try {
             await rustReleaseInventory(reservationId);
           } catch (e) {
-            console.warn(`[reservationExpiry] Release failed for ${reservationId} (non-fatal):`, (e as Error).message);
+            logger.warn(`[reservationExpiry] Release failed for ${reservationId} (non-fatal):`, (e as Error).message);
           }
           // Mark as expired regardless of whether the release call succeeded
           await db
@@ -82,11 +83,11 @@ export function startReservationExpiryWorker(): void {
           notifyOwner({
             title: "Inventory reservation expired",
             content: `Reservation ${reservationId} for transaction ${row.id} (${amountNaira}) has expired and been released. Check the transaction for details.`,
-          }).catch((e: Error) => console.warn("[reservationExpiry] notifyOwner failed (non-fatal):", e.message));
+          }).catch((e: Error) => logger.warn("[reservationExpiry] notifyOwner failed (non-fatal):", e.message));
         })
       );
     } catch (err) {
-      console.error("[reservationExpiry] Worker error:", err);
+      logger.error("[reservationExpiry] Worker error:", err);
     }
   };
 

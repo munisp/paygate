@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * notificationPurge.ts
  * ─────────────────────────────────────────────────────────────────────────────
@@ -23,11 +24,11 @@ const READ_RETENTION_DAYS =
   Number(process.env.READ_NOTIFICATION_RETENTION_DAYS) || 30;
 
 async function runPurge(): Promise<void> {
-  console.log("[notificationPurge] Starting merchant notification purge…");
+  logger.info("[notificationPurge] Starting merchant notification purge…");
   try {
     const db = await getDb();
     if (!db) {
-      console.warn("[notificationPurge] DB unavailable — skipping");
+      logger.warn("[notificationPurge] DB unavailable — skipping");
       return;
     }
 
@@ -52,7 +53,7 @@ async function runPurge(): Promise<void> {
       )
       .returning({ id: merchantNotifications.id });
 
-    console.log(`[notificationPurge] Purged ${result.length} old notifications`);
+    logger.info(`[notificationPurge] Purged ${result.length} old notifications`);
   } catch (err) {
     console.error(
       "[notificationPurge] Purge failed:",

@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * SLA Breach Webhook Dispatch
  * Sends HMAC-SHA256 signed webhook payloads to merchant-configured endpoints
@@ -121,7 +122,7 @@ export async function dispatchSlaBreachWebhook(
         deliveredAt: success ? new Date() : null,
       });
     } catch (dbErr) {
-      console.error("[webhookDispatch] Failed to log delivery:", dbErr);
+      logger.error("[webhookDispatch] Failed to log delivery:", dbErr);
     }
 
     // Also dispatch via middleware bridge for Kafka/Redis/Lakehouse fan-out

@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * PayGate Merchant Portal — Push Notification Client (Wave 19)
  *
@@ -52,7 +53,7 @@ async function callPushService(
 ): Promise<DispatchResult | null> {
   if (!BASE_URL) {
     // Push service not configured — log and skip silently
-    console.warn("[PushClient] PUSH_SERVICE_URL not set — skipping notification");
+    logger.warn("[PushClient] PUSH_SERVICE_URL not set — skipping notification");
     return null;
   }
 
@@ -70,13 +71,13 @@ async function callPushService(
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error(`[PushClient] ${path} returned ${res.status}: ${text}`);
+      logger.error(`[PushClient] ${path} returned ${res.status}: ${text}`);
       return null;
     }
 
     return (await res.json()) as DispatchResult;
   } catch (err: any) {
-    console.error(`[PushClient] Failed to call ${path}:`, err?.message);
+    logger.error(`[PushClient] Failed to call ${path}:`, err?.message);
     return null;
   }
 }
@@ -180,7 +181,7 @@ export async function registerToken(opts: {
       signal: AbortSignal.timeout(5_000),
     });
   } catch (err: any) {
-    console.error("[PushClient] registerToken failed:", err?.message);
+    logger.error("[PushClient] registerToken failed:", err?.message);
   }
 }
 
@@ -201,6 +202,6 @@ export async function deregisterToken(token: string): Promise<void> {
       signal: AbortSignal.timeout(5_000),
     });
   } catch (err: any) {
-    console.error("[PushClient] deregisterToken failed:", err?.message);
+    logger.error("[PushClient] deregisterToken failed:", err?.message);
   }
 }

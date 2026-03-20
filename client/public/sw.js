@@ -378,3 +378,66 @@ define(['./workbox-a959eb95'], (function (workbox) { 'use strict';
   }), 'GET');
 
 }));
+
+// ─── Web Push Notification Handlers ──────────────────────────────────────────
+// Handle incoming push events from the server (VAPID Web Push)
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'PayGate',
+    body: 'You have a new notification',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    tag: 'paygate-notification',
+    data: {}
+  };
+  if (event.data) {
+    try { Object.assign(data, event.data.json()); } catch (_) { data.body = event.data.text(); }
+  }
+  const options = {
+    body: data.body,
+    icon: data.icon || '/icons/icon-192x192.png',
+    badge: data.badge || '/icons/icon-72x72.png',
+    tag: data.tag || 'paygate-notification',
+    renotify: true,
+    requireInteraction: false,
+    data: data.data || {},
+    actions: data.actions || [],
+    vibrate: [200, 100, 200],
+  };
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
+
+// Handle notification click — open or focus the app at the relevant URL
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) ? event.notification.data.url : '/dashboard';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    })
+  );
+});
+
+// Handle subscription expiry — re-subscribe and notify the app
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.registration.pushManager.subscribe({ userVisibleOnly: true })
+      .then((subscription) => {
+        return clients.matchAll({ type: 'window' }).then((clientList) => {
+          clientList.forEach((client) => {
+            client.postMessage({
+              type: 'PUSH_SUBSCRIPTION_CHANGED',
+              subscription: subscription.toJSON()
+            });
+          });
+        });
+      })
+      .catch(() => { /* silent — user may have revoked permission */ })
+  );
+});

@@ -21,5 +21,21 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(function(reg) {
+              console.log('[PWA] Consumer SW registered:', reg.scope);
+              navigator.serviceWorker.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'PUSH_SUBSCRIPTION_CHANGED') {
+                  window.dispatchEvent(new CustomEvent('pushsubscriptionchanged', { detail: event.data.subscription }));
+                }
+              });
+            })
+            .catch(function(err) { console.warn('[PWA] SW registration failed:', err); });
+        });
+      }
+    </script>
   </body>
 </html>

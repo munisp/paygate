@@ -1,3 +1,4 @@
+import { logger } from './logger';
 /**
  * Idempotency Key TTL Cleanup Worker
  *
@@ -30,7 +31,7 @@ async function cleanupExpiredKeys(): Promise<void> {
       console.info(`[idempotencyCleanup] Purged ${deleted} expired idempotency keys`);
     }
   } catch (err) {
-    console.error("[idempotencyCleanup] Cleanup error:", err);
+    logger.error("[idempotencyCleanup] Cleanup error:", err);
   }
 }
 
