@@ -2,13 +2,32 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { logProcedure } from "../logger";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
 });
 
+// ─── Logging middleware ───────────────────────────────────────────────────────
+// Applied to ALL procedures (public and protected).
+// Logs procedure path, type, duration, success/failure, and actor.
+
+const loggingMiddleware = t.middleware(async opts => {
+  const start = Date.now();
+  const result = await opts.next();
+  const durationMs = Date.now() - start;
+  logProcedure(
+    opts.path,
+    opts.type as "query" | "mutation" | "subscription",
+    durationMs,
+    result.ok,
+    { userId: (opts.ctx as any).user?.openId }
+  );
+  return result;
+});
+
 export const router = t.router;
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(loggingMiddleware);
 
 // ─── requireUser ──────────────────────────────────────────────────────────────
 
@@ -27,11 +46,11 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = t.procedure.use(loggingMiddleware).use(requireUser);
 
 // ─── adminProcedure ───────────────────────────────────────────────────────────
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = t.procedure.use(loggingMiddleware).use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
@@ -55,7 +74,7 @@ export const adminProcedure = t.procedure.use(
 
 export const DEFAULT_TENANT_ID = "ten_default";
 
-export const tenantProcedure = t.procedure.use(
+export const tenantProcedure = t.procedure.use(loggingMiddleware).use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

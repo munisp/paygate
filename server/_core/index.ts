@@ -1,8 +1,10 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
 import { createServer } from "http";
 import net from "net";
 import path from "path";
+import { logger, logRequest } from "../logger";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerKeycloakRoutes } from "./keycloakRoutes";
@@ -70,6 +72,42 @@ const uploadLimiter = rateLimit({
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // ─── CORS ─────────────────────────────────────────────────────────────────
+  const allowedOrigins = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+    /\.manus\.space$/,
+    /\.manus\.computer$/,
+  ];
+  if (process.env.ALLOWED_ORIGINS) {
+    process.env.ALLOWED_ORIGINS.split(",").forEach(o => allowedOrigins.push(new RegExp(`^${o.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)));
+  }
+  app.use(cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      const ok = allowedOrigins.some(p => (p instanceof RegExp ? p.test(origin) : p === origin));
+      if (ok) return callback(null, true);
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "stripe-signature", "x-internal-key"],
+    maxAge: 86400, // 24h preflight cache
+  }));
+
+  // ─── Request Logger ────────────────────────────────────────────────────────
+  app.use((req: any, res: any, next: any) => {
+    const start = Date.now();
+    res.on("finish", () => {
+      logRequest(req.method, req.path, res.statusCode, Date.now() - start, {
+        ip: req.ip,
+        ua: req.headers["user-agent"]?.slice(0, 80),
+      });
+    });
+    next();
+  });
 
   // ─── Security Headers ──────────────────────────────────────────────────────
   app.use(helmet({
@@ -847,9 +885,43 @@ async function startServer() {
     } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
   });
 
-  // Health check endpoint
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: Date.now(), service: "paygate-merchant" });
+  // Health check endpoint — includes circuit breaker states and DB ping
+  app.get("/api/health", async (_req, res) => {
+    const { getAllCircuitBreakerStats } = await import("../circuitBreaker");
+    const { getDb } = await import("../db");
+    const { isBridgeAvailable } = await import("../middlewareBridge");
+    let dbOk = false;
+    try {
+      const db = await getDb();
+      if (db) {
+        await db.execute("SELECT 1" as any);
+        dbOk = true;
+      }
+    } catch { dbOk = false; }
+    const circuitBreakers = getAllCircuitBreakerStats();
+    const allCbClosed = circuitBreakers.every(cb => cb.state === "CLOSED");
+    const status = dbOk ? "ok" : "degraded";
+    res.status(dbOk ? 200 : 503).json({
+      status,
+      timestamp: Date.now(),
+      service: "paygate-merchant",
+      version: process.env.npm_package_version ?? "1.0.0",
+      checks: {
+        database: dbOk ? "ok" : "error",
+        bridge: isBridgeAvailable() ? "configured" : "not_configured",
+        circuitBreakers: allCbClosed ? "all_closed" : "some_open",
+      },
+      circuitBreakers,
+      integrations: {
+        stripe: !!(process.env.STRIPE_SECRET_KEY),
+        vtpass: !!(process.env.VTPASS_API_KEY),
+        termii: !!(process.env.TERMII_API_KEY),
+        youverify: !!(process.env.YOUVERIFY_API_KEY),
+        nip: !!(process.env.NIP_API_KEY),
+        webPush: !!(process.env.VAPID_PUBLIC_KEY),
+        pushService: !!(process.env.PUSH_SERVICE_URL),
+      },
+    });
   });
 
   app.get("/api/events/transactions", async (req: any, res: any) => {
@@ -936,9 +1008,11 @@ async function startServer() {
     createExpressMiddleware({
       router: appRouter,
       createContext,
-      onError: ({ error, path }) => {
+      onError: ({ error, path, type }) => {
         if (error.code === "INTERNAL_SERVER_ERROR") {
-          console.error(`[tRPC Error] ${path}:`, error);
+          logger.error("trpc_internal_error", { path, type, message: error.message, stack: error.stack });
+        } else if (error.code !== "UNAUTHORIZED" && error.code !== "NOT_FOUND") {
+          logger.warn("trpc_error", { path, type, code: error.code, message: error.message });
         }
       },
     })
@@ -980,13 +1054,37 @@ async function startServer() {
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    logger.info("server_started", { port, env: process.env.NODE_ENV ?? "development", stripe: isStripeConfigured() });
     if (isStripeConfigured()) {
-      console.log("[Stripe] Configured — webhook endpoint: /api/stripe/webhook");
+      logger.info("stripe_configured", { webhook: "/api/stripe/webhook" });
     } else {
-      console.log("[Stripe] Not configured — set STRIPE_SECRET_KEY to enable payments");
+      logger.warn("stripe_not_configured", { hint: "Set STRIPE_SECRET_KEY to enable payments" });
     }
   });
+
+  // ─── Graceful Shutdown (SIGTERM / SIGINT) ──────────────────────────────────
+  let isShuttingDown = false;
+  const gracefulShutdown = (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    logger.info("graceful_shutdown_initiated", { signal });
+    // Stop accepting new connections
+    server.close((err) => {
+      if (err) {
+        logger.error("graceful_shutdown_error", { error: err.message });
+        process.exit(1);
+      }
+      logger.info("graceful_shutdown_complete");
+      process.exit(0);
+    });
+    // Force exit after 30 seconds if drain takes too long
+    setTimeout(() => {
+      logger.error("graceful_shutdown_timeout", { hint: "Forcing exit after 30s drain timeout" });
+      process.exit(1);
+    }, 30_000).unref();
+  };
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
 // ─── Env Validation ─────────────────────────────────────────────────────
@@ -997,21 +1095,27 @@ function validateEnv() {
   ];
   const missing = required.filter(([key]) => !process.env[key]);
   if (missing.length > 0) {
-    console.error("[Startup] Missing required environment variables:");
-    missing.forEach(([key, desc]) => console.error(`  - ${key}: ${desc}`));
+    logger.error("missing_required_env", { missing: missing.map(([k]) => k) });
     if (process.env.NODE_ENV === "production") {
       process.exit(1);
     } else {
-      console.warn("[Startup] Continuing in development mode with missing env vars");
+      logger.warn("continuing_without_required_env", { hint: "Dev mode only" });
     }
   }
   const optional: [string, string][] = [
     ["STRIPE_SECRET_KEY", "Stripe payments"],
+    ["STRIPE_WEBHOOK_SECRET", "Stripe webhook signature verification"],
     ["MIDDLEWARE_BRIDGE_URL", "Go middleware bridge (payout approvals)"],
+    ["VTPASS_API_KEY", "VTpass bill payments (airtime, data, electricity)"],
+    ["TERMII_API_KEY", "Termii SMS OTP"],
+    ["YOUVERIFY_API_KEY", "Youverify KYC (BVN/NIN)"],
+    ["NIP_API_KEY", "NIP name enquiry for P2P transfers"],
+    ["PUSH_SERVICE_KEY", "Push notification service"],
+    ["REDIS_URL", "Redis (rate limiting + USSD sessions)"],
   ];
   optional.forEach(([key, feature]) => {
     if (!process.env[key]) {
-      console.warn(`[Startup] ${key} not set — ${feature} will be disabled`);
+      logger.warn("optional_env_not_set", { key, feature, impact: "Feature will run in simulation/fallback mode" });
     }
   });
 }

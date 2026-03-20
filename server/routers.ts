@@ -3409,6 +3409,52 @@ const pushTokensRouter = router({
       ).catch((err: any) => console.error("[pushTokens.deregister] pushClient error:", err?.message));
       return { deregistered: true };
     }),
+  // Web Push (VAPID) subscription management
+  getVapidPublicKey: publicProcedure
+    .query(() => {
+      const { getVapidPublicKey } = require('./webPush');
+      return { publicKey: getVapidPublicKey() as string };
+    }),
+  subscribeWebPush: protectedProcedure
+    .input(z.object({
+      endpoint: z.string().url(),
+      p256dh: z.string().min(10),
+      auth: z.string().min(10),
+      deviceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`INSERT INTO device_push_tokens (merchant_id, user_id, token, platform, device_id, web_push_endpoint, web_push_p256dh, web_push_auth, is_active, updated_at)
+            VALUES (${merchant.id}, ${user.id}, ${input.endpoint}, 'web', ${input.deviceId ?? 'browser'}, ${input.endpoint}, ${input.p256dh}, ${input.auth}, true, now())
+            ON CONFLICT (user_id, device_id) DO UPDATE SET
+              web_push_endpoint = EXCLUDED.web_push_endpoint,
+              web_push_p256dh = EXCLUDED.web_push_p256dh,
+              web_push_auth = EXCLUDED.web_push_auth,
+              is_active = true,
+              updated_at = now()`
+      );
+      return { subscribed: true };
+    }),
+  unsubscribeWebPush: protectedProcedure
+    .input(z.object({ endpoint: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      await db.execute(
+        sql`UPDATE device_push_tokens SET is_active = false, updated_at = now()
+            WHERE user_id = ${user.id} AND web_push_endpoint = ${input.endpoint}`
+      );
+      return { unsubscribed: true };
+    }),
 });
 
 // ─── QR Payments Router ─────────────────────────────────────────────────────

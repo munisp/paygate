@@ -1717,3 +1717,24 @@
 - [x] PWA: manifest, service worker, offline page, all icon sizes
 - [x] Consumer PWA: separate manifest with consumer shortcuts
 - [x] 1108 tests passing, 0 TypeScript errors
+
+## Production Hardening Sprint (100/100)
+- [x] CORS middleware with allowed-origins list and ALLOWED_ORIGINS env override
+- [x] SIGTERM/SIGINT graceful shutdown with 30s drain timeout
+- [x] Structured Winston logger (JSON in prod, colourised in dev) — server/logger.ts
+- [x] tRPC logging middleware on ALL procedures (public + protected + admin + tenant)
+- [x] tRPC onError handler logs INTERNAL_SERVER_ERROR at error level, other codes at warn
+- [x] Circuit breaker (CLOSED/OPEN/HALF_OPEN) for Go middleware bridge — server/circuitBreaker.ts
+- [x] Circuit breaker wired into middlewareBridge.ts safe() wrapper
+- [x] Centralized audit trail helper (fire-and-forget, never throws) — server/auditTrail.ts
+- [x] AUDIT constants for all admin/merchant actions
+- [x] Web Push (VAPID) client — server/webPush.ts
+- [x] VAPID keys auto-generated and embedded as defaults
+- [x] Web Push columns added to device_push_tokens schema (webPushEndpoint, webPushP256dh, webPushAuth)
+- [x] pnpm db:push migration applied for web push columns
+- [x] pushTokens.getVapidPublicKey, subscribeWebPush, unsubscribeWebPush tRPC procedures
+- [x] Enhanced /api/health endpoint: DB ping, circuit breaker states, integration flags
+- [x] web-push npm package installed
+- [x] cors, winston, pino npm packages installed
+- [x] 22 new production hardening tests in server/production.hardening.test.ts
+- [x] 1130 tests passing (43 test files), 0 TypeScript errors

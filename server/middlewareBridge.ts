@@ -21,6 +21,8 @@
  */
 
 import { ENV } from "./_core/env";
+import { getCircuitBreaker, CircuitBreakerOpenError } from "./circuitBreaker";
+import { logger } from "./logger";
 
 // ─── Bridge availability ──────────────────────────────────────────────────────
 
@@ -52,16 +54,21 @@ async function bridgeRequest<T>(
   return res.json() as Promise<T>;
 }
 
-/** Safe wrapper — logs and returns null on failure (never throws to callers) */
+/** Safe wrapper — uses circuit breaker, logs and returns null on failure (never throws to callers) */
 async function safe<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown
 ): Promise<T | null> {
+  const cb = getCircuitBreaker("go-bridge", { failureThreshold: 5, recoveryTimeMs: 30_000 });
   try {
-    return await bridgeRequest<T>(method, path, body);
+    return await cb.execute(() => bridgeRequest<T>(method, path, body));
   } catch (err: any) {
-    console.warn(`[Bridge] ${method} ${path} degraded:`, err?.message);
+    if (err instanceof CircuitBreakerOpenError) {
+      logger.warn("bridge_circuit_open", { path, message: err.message });
+    } else {
+      logger.warn("bridge_degraded", { method, path, error: err?.message });
+    }
     return null;
   }
 }

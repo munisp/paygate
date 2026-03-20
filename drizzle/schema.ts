@@ -807,6 +807,10 @@ export const devicePushTokens = pgTable("device_push_tokens", {
   deviceId: varchar("device_id", { length: 128 }),
   appVersion: varchar("app_version", { length: 32 }),
   isActive: boolean("is_active").notNull().default(true),
+  /** Web Push Protocol (VAPID) subscription — for browser/PWA notifications */
+  webPushEndpoint: text("web_push_endpoint"),
+  webPushP256dh: text("web_push_p256dh"),
+  webPushAuth: text("web_push_auth"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
