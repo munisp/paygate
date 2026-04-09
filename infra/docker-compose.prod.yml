@@ -3,12 +3,25 @@ version: "3.9"
 # =============================================================================
 # PayGate Production Docker Compose
 # Includes: Portal (2 replicas), Go Bridge (2 replicas), Redis, APISIX,
-#           TigerBeetle cluster, Kafka, Temporal, Prometheus, Grafana
+#           TigerBeetle cluster, Kafka, Temporal, Prometheus, Grafana,
+#           Push Service, USSD Gateway, Fraud Scoring, Sync Relay,
+#           Consumer Outbox Relay, Lakehouse Audit, M-Pesa Connector,
+#           Kiosk Health, Payroll Service, USDC Lakehouse Consumer
 #
 # Usage:
 #   docker compose -f infra/docker-compose.prod.yml up -d
 #   docker compose -f infra/docker-compose.prod.yml ps
 #   docker compose -f infra/docker-compose.prod.yml logs -f paygate-bridge
+#
+# Required environment variables (copy to .env.prod):
+#   DATABASE_URL, JWT_SECRET, REDIS_PASSWORD, MIDDLEWARE_INTERNAL_KEY,
+#   INTERNAL_API_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+#   KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET,
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VTPASS_API_KEY, VTPASS_SECRET_KEY,
+#   TERMII_API_KEY, YOUVERIFY_API_KEY, NIBSS_SECRET_KEY, MOJALOOP_API_KEY,
+#   FIREBASE_PROJECT_ID, FIREBASE_CREDENTIALS_JSON, APNS_KEY_ID,
+#   APNS_TEAM_ID, APNS_PRIVATE_KEY, GRAFANA_ADMIN_PASSWORD,
+#   TEMPORAL_DB_USER, TEMPORAL_DB_PASSWORD, TEMPORAL_DB_HOST
 # =============================================================================
 
 x-portal-base: &portal-base
@@ -28,9 +41,53 @@ x-portal-base: &portal-base
     VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
     MIDDLEWARE_BRIDGE_URL: ${MIDDLEWARE_BRIDGE_URL:-http://bridge-lb:8080}
     MIDDLEWARE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
     BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    KEYCLOAK_URL: ${KEYCLOAK_URL:-https://auth.paygate.ng}
+    KEYCLOAK_REALM: ${KEYCLOAK_REALM:-paygate}
+    KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-merchant-portal}
+    KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+    VITE_KEYCLOAK_URL: ${KEYCLOAK_URL:-https://auth.paygate.ng}
+    VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+    VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+    VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:ops@paygate.ng}
+    VTPASS_API_KEY: ${VTPASS_API_KEY}
+    VTPASS_SECRET_KEY: ${VTPASS_SECRET_KEY}
+    VTPASS_SANDBOX: "false"
+    TERMII_API_KEY: ${TERMII_API_KEY}
+    YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY}
+    NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-nip.paygate.ng}
+    NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY}
+    NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-999999}
+    NIBSS_WEBHOOK_SECRET: ${NIBSS_WEBHOOK_SECRET}
+    MOJALOOP_URL: ${MOJALOOP_URL:-https://ml-api-adapter.paygate.ng}
+    MOJALOOP_API_KEY: ${MOJALOOP_API_KEY}
+    PUSH_SERVICE_URL: http://push-service:8096
+    PUSH_SERVICE_KEY: ${INTERNAL_API_KEY}
+    USSD_GATEWAY_URL: http://ussd-gateway:8095
+    FRAUD_SCORING_URL: http://fraud-scoring:8083
+    SYNC_RELAY_URL: http://sync-relay:8097
+    SYNC_RELAY_KEY: ${INTERNAL_API_KEY}
+    SMTP_HOST: ${SMTP_HOST:-smtp.paygate.ng}
+    SMTP_PORT: ${SMTP_PORT:-587}
+    SMTP_USER: ${SMTP_USER:-noreply@paygate.ng}
+    SMTP_PASS: ${SMTP_PASS}
+    PAYOUT_APPROVER_EMAIL: ${PAYOUT_APPROVER_EMAIL:-approvals@paygate.ng}
+    NIP_API_KEY: ${NIP_API_KEY}
+    TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    TEMPORAL_HOST_PORT: temporal:7233
+    TEMPORAL_NAMESPACE: paygate
+    PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+    PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+    FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+    PORTAL_TRPC_URL: http://portal-1:3000/api/trpc
+    MERCHANT_PORTAL_URL: http://portal-1:3000
+    PAYMENT_LINK_BASE_URL: ${PAYMENT_LINK_BASE_URL:-https://pay.paygate.ng}
+    ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://paygate.ng,https://merchant.paygate.ng,https://consumer.paygate.ng}
+    LOG_LEVEL: info
     OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     OTEL_SERVICE_NAME: paygate-portal
   depends_on:
@@ -54,13 +111,18 @@ x-bridge-base: &bridge-base
     KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
     TEMPORAL_ADDRESS: temporal:7233
     TEMPORAL_NAMESPACE: paygate
-    PERMIFY_URL: ${PERMIFY_URL:-}
-    PERMIFY_API_KEY: ${PERMIFY_API_KEY:-}
-    FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-}
-    NIBSS_BASE_URL: ${NIBSS_BASE_URL:-}
-    NIBSS_HMAC_SECRET: ${NIBSS_HMAC_SECRET:-}
-    MOJALOOP_API_URL: ${MOJALOOP_API_URL:-}
-    MOJALOOP_API_KEY: ${MOJALOOP_API_KEY:-}
+    PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+    PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+    FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+    NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-nip.paygate.ng}
+    NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY}
+    NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-999999}
+    NIBSS_WEBHOOK_SECRET: ${NIBSS_WEBHOOK_SECRET}
+    MOJALOOP_URL: ${MOJALOOP_URL:-https://ml-api-adapter.paygate.ng}
+    MOJALOOP_API_KEY: ${MOJALOOP_API_KEY}
+    PORTAL_TRPC_URL: http://portal-1:3000/api/trpc
+    DATABASE_URL: ${DATABASE_URL}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     OTEL_SERVICE_NAME: paygate-bridge
   networks:
@@ -183,6 +245,211 @@ services:
     networks:
       - paygate-net
 
+  # ─── Push Service (Python FCM/APNs) ─────────────────────────────────────────
+  push-service:
+    image: paygate/push-service:${PUSH_VERSION:-latest}
+    container_name: paygate-push-service
+    restart: unless-stopped
+    environment:
+      PORT: "8096"
+      LOG_LEVEL: info
+      APNS_BUNDLE_ID: com.paygate.consumer
+      API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_PRIVATE_KEY: ${APNS_PRIVATE_KEY:-}
+    ports:
+      - "8096:8096"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── USSD Gateway (Python) ───────────────────────────────────────────────────
+  ussd-gateway:
+    image: paygate/ussd-gateway:${USSD_VERSION:-latest}
+    container_name: paygate-ussd-gateway
+    restart: unless-stopped
+    environment:
+      PORT: "8095"
+      LOG_LEVEL: info
+      PORTAL_BASE_URL: http://portal-1:3000
+      INTERNAL_API_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "8095:8095"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Fraud Scoring (Python ML) ───────────────────────────────────────────────
+  fraud-scoring:
+    image: paygate/fraud-scoring:${FRAUD_VERSION:-latest}
+    container_name: paygate-fraud-scoring
+    restart: unless-stopped
+    environment:
+      PORT: "8083"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    ports:
+      - "8083:8083"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Sync Relay (Go — offline POS mobile sync) ───────────────────────────────
+  sync-relay:
+    image: paygate/go-bridge:${BRIDGE_VERSION:-latest}
+    container_name: paygate-sync-relay
+    command: ["/app/sync-relay"]
+    restart: unless-stopped
+    environment:
+      PORT: "8097"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    ports:
+      - "8097:8097"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8097/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Consumer Outbox Relay (Go) ───────────────────────────────────────────────
+  consumer-outbox-relay:
+    image: paygate/go-bridge:${BRIDGE_VERSION:-latest}
+    container_name: paygate-consumer-outbox-relay
+    command: ["/app/consumer-outbox-relay"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    networks:
+      - paygate-net
+
+  # ─── Lakehouse Audit (Python Delta Lake) ─────────────────────────────────────
+  lakehouse-audit:
+    image: paygate/lakehouse-audit:${LAKEHOUSE_VERSION:-latest}
+    container_name: paygate-lakehouse-audit
+    restart: unless-stopped
+    environment:
+      PORT: "8098"
+      LOG_LEVEL: info
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DELTA_LAKE_PATH: /data/delta
+    volumes:
+      - lakehouse-data:/data/delta
+    ports:
+      - "8098:8098"
+    networks:
+      - paygate-net
+
+  # ─── M-Pesa Connector (Python) ───────────────────────────────────────────────
+  mpesa-connector:
+    image: paygate/mpesa-connector:${MPESA_VERSION:-latest}
+    container_name: paygate-mpesa-connector
+    restart: unless-stopped
+    environment:
+      PORT: "8099"
+      LOG_LEVEL: info
+      BRIDGE_URL: http://bridge-1:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    ports:
+      - "8099:8099"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8099/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Kiosk Health Monitor (Python) ───────────────────────────────────────────
+  kiosk-health:
+    image: paygate/kiosk-health:${KIOSK_VERSION:-latest}
+    container_name: paygate-kiosk-health
+    restart: unless-stopped
+    environment:
+      PORT: "8094"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "8094:8094"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8094/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Payroll Service (Python) ────────────────────────────────────────────────
+  payroll-service:
+    image: paygate/payroll-service:${PAYROLL_VERSION:-latest}
+    container_name: paygate-payroll-service
+    restart: unless-stopped
+    environment:
+      PORT: "8100"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      BRIDGE_URL: http://bridge-1:8080
+    ports:
+      - "8100:8100"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── USDC Lakehouse Consumer (Python) ────────────────────────────────────────
+  usdc-lakehouse-consumer:
+    image: paygate/usdc-lakehouse-consumer:${USDC_VERSION:-latest}
+    container_name: paygate-usdc-lakehouse-consumer
+    restart: unless-stopped
+    environment:
+      PORT: "8101"
+      LOG_LEVEL: info
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks:
+      - paygate-net
+
   # ─── Prometheus ───────────────────────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.51.0
@@ -243,6 +510,7 @@ volumes:
   tb-data-3:
   prometheus-data:
   grafana-data:
+  lakehouse-data:
 
 networks:
   paygate-net:

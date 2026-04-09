@@ -35,7 +35,16 @@ export default function ConsumerQuickPay() {
   const balance = walletData?.balanceKobo ?? 0;
   const transactions = txData?.rows ?? [];
 
-  const paymentUrl = `${window.location.origin}/consumer/pay?amount=${amount}&ref=${Date.now()}`;
+  // Deep link: paygate:// for native app, https:// web fallback
+  // Format: paygate://pay?to=<walletId>&amount=<kobo>&currency=NGN
+  const walletId = walletData?.walletId ?? '';
+  const amountKobo = amount ? Number(amount) : 0;
+  const deepLinkUrl = walletId
+    ? `paygate://pay?to=${encodeURIComponent(walletId)}&amount=${amountKobo}&currency=NGN&ts=${Date.now()}`
+    : `${window.location.origin}/consumer/pay?amount=${amountKobo}&currency=NGN&ts=${Date.now()}`;
+  const webFallbackUrl = `${window.location.origin}/consumer/pay?to=${encodeURIComponent(walletId)}&amount=${amountKobo}&currency=NGN`;
+  // QR encodes the deep link; copy button gives the web fallback URL for sharing
+  const paymentUrl = deepLinkUrl;
 
   const handleGenerateQR = () => {
     if (!amount || Number(amount) <= 0) {
@@ -46,7 +55,8 @@ export default function ConsumerQuickPay() {
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(paymentUrl);
+    // Share the web fallback URL (works in any browser/messenger)
+    navigator.clipboard.writeText(webFallbackUrl);
     setCopied(true);
     toast.success("Payment link copied!");
     setTimeout(() => setCopied(false), 2000);

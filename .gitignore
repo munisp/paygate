@@ -111,3 +111,4 @@ temp/
 
 # Rust build artifacts
 rust-services/*/target/
+rust/*/target/

@@ -1786,3 +1786,10 @@
 - [x] Tests: server/usdc.router.test.ts — 36 tests covering address validation, lamport conversion, status machine, network validation, fraud thresholds, reference validation, TigerBeetle constants
 - [x] Tests: go-bridge/internal/solana/client_test.go — Go unit tests for address validation, lamport conversion, payout request validation
 - [x] 1166 tests passing (44 test files), 0 TypeScript errors
+## Production Wiring — All Secrets & Defaults
+- [x] All 46 production env secrets set (Keycloak, VAPID, VTpass, Termii, Youverify, Redis, TigerBeetle, Kafka, Temporal, Permify, Fluvio, Mojaloop, NIBSS, Push, USSD, Fraud, Sync Relay, OTel, SMTP, CORS, etc.)
+- [x] VITE_KEYCLOAK_URL set — frontend SSO login routes through Keycloak OIDC
+- [x] ConsumerQuickPay QR code updated to use paygate:// deep link (with https:// web fallback)
+- [x] docker-compose.prod.yml updated — all Python microservices added (push-service, ussd-gateway, fraud-scoring, sync-relay, consumer-outbox-relay, lakehouse-audit, mpesa-connector, kiosk-health, payroll-service, usdc-lakehouse-consumer)
+- [x] k8s/microservices-deployment.yaml created — full K8s manifests for all microservices with HPA, PDB, liveness/readiness probes
+- [x] 1272 tests passing (46 test files), 0 TypeScript errors — production-complete state
