@@ -512,30 +512,30 @@
 - [ ] Write vitest tests for Keycloak JWT validation
 
 ### 24b: Consumer Portal Middleware Integration
-- [ ] Add middlewareRouter to consumer portal (health, ledger balance, Kafka event emit)
-- [ ] Wire wallet top-up and transfer events to Kafka topic via middleware bridge
-- [ ] Add TigerBeetle ledger balance query for consumer wallet
-- [ ] Add NIP account resolution to consumer transfer flow (bank account lookup)
-- [ ] Add consumer portal ENV vars: MIDDLEWARE_BRIDGE_URL, MIDDLEWARE_INTERNAL_KEY
+- [x] Add middlewareRouter to consumer portal (health, ledger balance, Kafka event emit)
+- [x] Wire wallet top-up and transfer events to Kafka topic via middleware bridge
+- [x] Add TigerBeetle ledger balance query for consumer wallet
+- [x] Add NIP account resolution to consumer transfer flow (bank account lookup)
+- [x] Add consumer portal ENV vars: MIDDLEWARE_BRIDGE_URL, MIDDLEWARE_INTERNAL_KEY
 
 ### 24c: Consumer Analytics & Reporting
-- [ ] Add analyticsRouter to consumer portal (spend by category, monthly summary, daily usage chart)
-- [ ] Add /analytics page to consumer portal with spend breakdown chart
-- [ ] Add transaction export (CSV download) to consumer History page
+- [x] Add analyticsRouter to consumer portal (spend by category, monthly summary, daily usage chart)
+- [x] Add /analytics page to consumer portal with spend breakdown chart
+- [x] Add transaction export (CSV download) to consumer History page
 - [ ] Add monthly statement generation endpoint
 
 ### 24d: Consumer Dispute & Fraud/Risk
-- [ ] Add consumer_disputes table to consumer portal schema
-- [ ] Add consumer_fraud_flags table to consumer portal schema
-- [ ] Add disputeRouter to consumer portal (raise dispute, track status, upload evidence)
-- [ ] Add fraudRouter to consumer portal (flag suspicious tx, view risk score)
-- [ ] Add /disputes page to consumer portal
-- [ ] Wire consumer disputes to merchant portal dispute table (shared dispute ID)
+- [x] Add consumer_disputes table to consumer portal schema
+- [x] Add consumer_fraud_flags table to consumer portal schema
+- [x] Add disputeRouter to consumer portal (raise dispute, track status, upload evidence)
+- [x] Add fraudRouter to consumer portal (flag suspicious tx, view risk score)
+- [x] Add /disputes page to consumer portal
+- [x] Wire consumer disputes to merchant portal dispute table (shared dispute ID)
 
 ### 24e: Recommended Merchant Features for Consumer
-- [ ] Add push token registration to consumer portal (FCM/APNs device token)
-- [ ] Add NIP bank account resolution to consumer transfer page
-- [ ] Add transaction export (CSV/PDF) to consumer history
+- [x] Add push token registration to consumer portal (FCM/APNs device token)
+- [x] Add NIP bank account resolution to consumer transfer page
+- [x] Add transaction export (CSV/PDF) to consumer history
 - [ ] Enhance beneficiaries UI with edit/delete and last-used sorting
 
 ### 24f: gRPC + Idempotency Platform-Wide
@@ -550,12 +550,12 @@
 ## Wave 25 — Go / Python / Rust Deep Integration
 
 ### 25a: Go — Middleware Bridge Consumer Endpoints
-- [ ] Add /v1/consumer/wallet/credit and /v1/consumer/wallet/debit HTTP handlers to Go bridge
-- [ ] Add /v1/consumer/transfer/p2p handler with TigerBeetle double-entry ledger
-- [ ] Add /v1/consumer/transfer/bank handler with NIP resolution + Kafka emit
-- [ ] Add /v1/consumer/bill-pay handler with Kafka emit to billing topic
-- [ ] Add /v1/consumer/fraud/score handler calling Python ML service
-- [ ] Add /v1/consumer/push/notify handler calling Python push service
+- [x] Add /v1/consumer/wallet/credit and /v1/consumer/wallet/debit HTTP handlers to Go bridge
+- [x] Add /v1/consumer/transfer/p2p handler with TigerBeetle double-entry ledger
+- [x] Add /v1/consumer/transfer/bank handler with NIP resolution + Kafka emit
+- [x] Add /v1/consumer/bill-pay handler with Kafka emit to billing topic
+- [x] Add /v1/consumer/fraud/score handler calling Python ML service
+- [x] Add /v1/consumer/push/notify handler calling Python push service
 - [ ] Wire all consumer handlers to Temporal workflow activities
 - [ ] Add Dapr pub/sub bindings for consumer.wallet.* and consumer.transfer.* topics
 - [ ] Add Fluvio stream processor for consumer real-time event fan-out
@@ -576,7 +576,7 @@
 
 ### 25d: Python — Push Service Integration
 - [ ] Add /push/consumer endpoint to push service (FCM + APNs)
-- [ ] Wire consumer portal pushTokens.register tRPC → push service /register
+- [x] Wire consumer portal pushTokens.register tRPC → push service /register
 - [ ] Wire consumer wallet credit events → push service notification
 - [ ] Wire consumer transfer completion → push service notification
 - [ ] Wire consumer dispute status change → push service notification
@@ -1121,17 +1121,17 @@
 
 ## Wave 41 (March 2026) — Audit Auto-Seeding, PO Email Notifications, Consumer Onboarding Gate
 
-- [ ] Audit: wire logAuditEvent into auth.login mutation (user.login event)
-- [ ] Audit: wire logAuditEvent into settings.update mutation (settings.updated event)
-- [ ] Audit: wire logAuditEvent into disputes.submit mutation (dispute.submitted event)
-- [ ] Audit: wire logAuditEvent into apiKeys.create and apiKeys.revoke (api_key.created/revoked events)
-- [ ] Audit: wire logAuditEvent into webhooks.create and webhooks.delete (webhook.created/deleted events)
-- [ ] Audit: wire logAuditEvent into team.invite and team.remove (team.invited/removed events)
-- [ ] PO email: notifyOwner on purchaseOrders.approve with item name, qty, estimated cost
-- [ ] PO email: notifyOwner on purchaseOrders.markReceived with delivery confirmation
-- [ ] Consumer gate: useOnboardingGate hook — checks localStorage "consumer_onboarded" flag
-- [ ] Consumer gate: redirect wallet/send/QR/bills screens to /consumer/onboarding if not completed
-- [ ] Consumer gate: set "consumer_onboarded" flag on step 3 completion in ConsumerOnboarding.tsx
+- [x] Audit: wire logAuditEvent into auth.login mutation (user.login event)
+- [x] Audit: wire logAuditEvent into settings.update mutation (settings.updated event)
+- [x] Audit: wire logAuditEvent into disputes.submit mutation (dispute.submitted event)
+- [x] Audit: wire logAuditEvent into apiKeys.create and apiKeys.revoke (api_key.created/revoked events)
+- [x] Audit: wire logAuditEvent into webhooks.create and webhooks.delete (webhook.created/deleted events)
+- [x] Audit: wire logAuditEvent into team.invite and team.remove (team.invited/removed events)
+- [x] PO email: notifyOwner on purchaseOrders.approve with item name, qty, estimated cost
+- [x] PO email: notifyOwner on purchaseOrders.markReceived with delivery confirmation
+- [x] Consumer gate: useOnboardingGate hook — checks localStorage "consumer_onboarded" flag
+- [x] Consumer gate: redirect wallet/send/QR/bills screens to /consumer/onboarding if not completed
+- [x] Consumer gate: set "consumer_onboarded" flag on step 3 completion in ConsumerOnboarding.tsx
 - [ ] Tests: Wave 41 vitest coverage — no regressions
 
 ## Wave 41 (March 2026) — Audit Seeding, PO Email, Consumer Gate
@@ -1627,7 +1627,7 @@
 ## Wave 61
 - [ ] Add GHS, KES, ZAR, EUR, GBP CronJobs to k8s/reconciler-cronjob.yaml
 - [x] Add nibss.nameEnquiry tRPC procedure (already implemented as nip.resolveAccount)
-- [ ] Wire NameEnquiry into Payouts payout creation form
+- [x] Wire NameEnquiry into Payouts payout creation form
 - [ ] Add reconciliation alert webhook with notifyOwner
 - [ ] Write vitest tests for nameEnquiry and webhook trigger
 

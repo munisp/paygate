@@ -10,7 +10,6 @@ import (
 	"github.com/paygate/go-bridge/internal/solana"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
 	"github.com/paygate/go-bridge/internal/temporal"
-	"github.com/paygate/go-bridge/pkg/types"
 	gotemporal "go.temporal.io/sdk/client"
 )
 
@@ -35,17 +34,16 @@ type USDCWalletValidateRequest struct {
 }
 
 type USDCWalletValidateResponse struct {
-	Valid          bool    `json:"valid"`
-	HasTokenAccount bool   `json:"has_token_account"`
-	USDCBalance    float64 `json:"usdc_balance"`
-	Error          string  `json:"error,omitempty"`
+	Valid           bool    `json:"valid"`
+	HasTokenAccount bool    `json:"has_token_account"`
+	USDCBalance     float64 `json:"usdc_balance"`
+	Error           string  `json:"error,omitempty"`
 }
 
 type USDCBalanceResponse struct {
 	MerchantID     string  `json:"merchant_id"`
 	USDCBalance    float64 `json:"usdc_balance_usdc"`
 	LamportBalance uint64  `json:"lamport_balance"`
-	WalletAddress  string  `json:"wallet_address"`
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -65,16 +63,12 @@ func InitiateUSDCPayout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate the recipient wallet has a USDC token account before reserving funds
-	sc := solana.NewClient()
+	sc := solana.GetActive()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	hasAccount, err := sc.HasUSDCTokenAccount(ctx, req.RecipientWallet)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("wallet validation failed: %v", err))
-		return
-	}
-	if !hasAccount {
+	tokenInfo, err := sc.GetTokenAccountInfo(ctx, req.RecipientWallet)
+	if err != nil || tokenInfo == nil {
 		writeError(w, http.StatusUnprocessableEntity,
 			"recipient wallet does not have a USDC token account — the recipient must create one first")
 		return
@@ -128,44 +122,37 @@ func ValidateUSDCWallet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sc := solana.NewClient()
+	sc := solana.GetActive()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Step 1: Validate the address is a valid Ed25519 public key on-chain
-	valid, err := sc.ValidateWalletAddress(ctx, req.WalletAddress)
-	if err != nil || !valid {
-		writeJSON(w, http.StatusOK, USDCWalletValidateResponse{
-			Valid: false,
-			Error: fmt.Sprintf("invalid wallet address: %v", err),
-		})
-		return
-	}
-
-	// Step 2: Check for USDC Associated Token Account
-	hasTokenAccount, err := sc.HasUSDCTokenAccount(ctx, req.WalletAddress)
+	// Step 1: Validate the address by checking the token account
+	tokenInfo, err := sc.GetTokenAccountInfo(ctx, req.WalletAddress)
 	if err != nil {
+		// Address is valid but no token account
 		writeJSON(w, http.StatusOK, USDCWalletValidateResponse{
-			Valid:          true,
+			Valid:           true,
 			HasTokenAccount: false,
-			Error:          fmt.Sprintf("token account check failed: %v", err),
+			Error:           fmt.Sprintf("token account check failed: %v", err),
 		})
 		return
 	}
 
-	// Step 3: Get USDC balance if token account exists
-	var usdcBalance float64
-	if hasTokenAccount {
-		lamports, err := sc.GetUSDCBalance(ctx, req.WalletAddress)
-		if err == nil {
-			usdcBalance = float64(lamports) / 1_000_000 // convert lamports to USDC
-		}
+	if tokenInfo == nil {
+		writeJSON(w, http.StatusOK, USDCWalletValidateResponse{
+			Valid:           true,
+			HasTokenAccount: false,
+		})
+		return
 	}
+
+	// Step 2: Extract USDC balance from token account info
+	usdcBalance := float64(tokenInfo.Balance) / 1_000_000 // convert lamports to USDC
 
 	writeJSON(w, http.StatusOK, USDCWalletValidateResponse{
-		Valid:          true,
-		HasTokenAccount: hasTokenAccount,
-		USDCBalance:    usdcBalance,
+		Valid:           true,
+		HasTokenAccount: true,
+		USDCBalance:     usdcBalance,
 	})
 }
 
@@ -185,15 +172,13 @@ func GetUSDCBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accounts, err := client.LookupAccounts([]types.Uint128{accountID})
-	if err != nil || len(accounts) == 0 {
-		writeError(w, http.StatusNotFound, "merchant USDC account not found")
+	// Use GetBalance which is part of the clientInterface
+	lamportBalance, err := client.GetBalance(accountID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("merchant USDC account not found: %v", err))
 		return
 	}
 
-	acc := accounts[0]
-	// Credits - Debits = available balance in lamports
-	lamportBalance := acc.CreditsPosted - acc.DebitsPosted
 	usdcBalance := float64(lamportBalance) / 1_000_000
 
 	writeJSON(w, http.StatusOK, USDCBalanceResponse{

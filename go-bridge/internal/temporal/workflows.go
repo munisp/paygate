@@ -77,6 +77,8 @@ func RegisterWorker(c client.Client) worker.Worker {
 	w.RegisterActivity(acts.CancelSubscription)
 	w.RegisterActivity(acts.GetCrossBorderQuote)
 	w.RegisterActivity(acts.ExecuteMojalloopTransfer)
+	w.RegisterActivity(acts.GetCrossBorderQuoteReal)
+	w.RegisterActivity(acts.ExecuteMojalloopTransferReal)
 	w.RegisterActivity(acts.UpdateTransferStatus)
 
 	// USDC payout activities
@@ -353,10 +355,16 @@ type CrossBorderInput struct {
 	FromCurrency    string `json:"from_currency"`
 	ToCurrency      string `json:"to_currency"`
 	Amount          int64  `json:"amount"`
-	Corridors       string `json:"corridor"`         // "USDC" | "NG-GH" | "NG-KE" etc.
+	AmountKobo      int64  `json:"amount_kobo"`       // Minor units for Mojaloop
+	Currency        string `json:"currency"`          // ISO 4217 currency code
+	Corridors       string `json:"corridor"`          // "USDC" | "NG-GH" | "NG-KE" etc.
 	QuoteID         string `json:"quote_id"`
-	RecipientWallet string `json:"recipient_wallet"` // Solana wallet address (USDC only)
-	Reference       string `json:"reference"`        // Payment reference for Kafka events
+	RecipientWallet string `json:"recipient_wallet"`  // Solana wallet address (USDC only)
+	SenderAccountID string `json:"sender_account_id"` // Payer account ID (Mojaloop)
+	RecipientPhone  string `json:"recipient_phone"`   // Payee MSISDN (Mojaloop)
+	ILPPacket       string `json:"ilp_packet"`        // ILP packet from quote response
+	ILPCondition    string `json:"ilp_condition"`     // ILP condition from quote response
+	Reference       string `json:"reference"`         // Payment reference for Kafka events
 }
 
 // CrossBorderTransferWorkflow routes cross-border transfers to the correct rail:
@@ -444,15 +452,16 @@ func CrossBorderTransferWorkflow(ctx workflow.Context, input CrossBorderInput) e
 	}
 
 	// ── Mojaloop FSPIOP routing branch ───────────────────────────────────────
+	// Use real FSPIOP activities when MOJALOOP_URL is configured.
 	var quoteID string
-	if err := workflow.ExecuteActivity(ctx, acts.GetCrossBorderQuote, input).Get(ctx, &quoteID); err != nil {
-		return fmt.Errorf("GetCrossBorderQuoteActivity: %w", err)
+	if err := workflow.ExecuteActivity(ctx, acts.GetCrossBorderQuoteReal, input).Get(ctx, &quoteID); err != nil {
+		return fmt.Errorf("GetCrossBorderQuoteRealActivity: %w", err)
 	}
 	input.QuoteID = quoteID
 
-	if err := workflow.ExecuteActivity(ctx, acts.ExecuteMojalloopTransfer, input).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, acts.ExecuteMojalloopTransferReal, input).Get(ctx, nil); err != nil {
 		_ = workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "failed").Get(ctx, nil)
-		return fmt.Errorf("ExecuteMojalloopTransferActivity: %w", err)
+		return fmt.Errorf("ExecuteMojalloopTransferRealActivity: %w", err)
 	}
 
 	if err := workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "completed").Get(ctx, nil); err != nil {

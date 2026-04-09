@@ -69,6 +69,61 @@ const uploadLimiter = rateLimit({
   skip: () => process.env.NODE_ENV === "development",
 });
 
+// Per-route mutation limiters — stricter limits for sensitive financial operations
+const payoutLimiter = rateLimit({
+  windowMs: 60_000,         // 1 minute
+  max: 10,                  // 10 payout initiations per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many payout requests. Please wait before retrying." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const kycLimiter = rateLimit({
+  windowMs: 15 * 60_000,    // 15 minutes
+  max: 5,                   // 5 KYC submissions per 15 min
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many KYC submission attempts." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const apiKeyLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,                  // 20 API key operations per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many API key operations." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const webhookLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,                  // 30 webhook operations per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many webhook operations." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const usdcLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,                   // 5 USDC payout initiations per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many USDC payout requests." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
+const crossBorderLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,                   // 5 cross-border transfers per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many cross-border transfer requests." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -1002,6 +1057,32 @@ async function startServer() {
     }
   });
 
+  // ─── Per-route mutation rate limiters ──────────────────────────────────────
+  // These run before the tRPC middleware and apply stricter limits to sensitive
+  // financial mutation endpoints.  tRPC batch requests include the procedure
+  // name in the URL path (e.g. /api/trpc/payouts.create), so we can match them.
+  app.use("/api/trpc/payouts.create", payoutLimiter);
+  app.use("/api/trpc/payouts.approve", payoutLimiter);
+  app.use("/api/trpc/payouts.bulkCreate", payoutLimiter);
+  app.use("/api/trpc/usdc.initiateUSDCPayout", usdcLimiter);
+  app.use("/api/trpc/usdc.createUSDCPayout", usdcLimiter);
+  app.use("/api/trpc/crossBorder.initiate", crossBorderLimiter);
+  app.use("/api/trpc/crossBorder.create", crossBorderLimiter);
+  app.use("/api/trpc/onboarding.submitKYC", kycLimiter);
+  app.use("/api/trpc/kyc.submit", kycLimiter);
+  app.use("/api/trpc/apiKeys.create", apiKeyLimiter);
+  app.use("/api/trpc/apiKeys.revoke", apiKeyLimiter);
+  app.use("/api/trpc/apiKeys.rotate", apiKeyLimiter);
+  app.use("/api/trpc/webhooks.create", webhookLimiter);
+  app.use("/api/trpc/webhooks.update", webhookLimiter);
+  app.use("/api/trpc/webhooks.delete", webhookLimiter);
+  app.use("/api/trpc/webhooks.retry", webhookLimiter);
+  app.use("/api/trpc/auth.login", authLimiter);
+  app.use("/api/trpc/auth.register", authLimiter);
+  app.use("/api/trpc/consumer.sendMoney", payoutLimiter);
+  app.use("/api/trpc/consumer.topUp", payoutLimiter);
+  app.use("/api/trpc/p2p.send", payoutLimiter);
+
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",
@@ -1061,6 +1142,10 @@ async function startServer() {
       logger.warn("stripe_not_configured", { hint: "Set STRIPE_SECRET_KEY to enable payments" });
     }
   });
+
+  // ─── Background Workers ─────────────────────────────────────────────────────
+  const { startUSDCBalanceMonitor, stopUSDCBalanceMonitor } = await import("../usdcBalanceMonitor");
+  startUSDCBalanceMonitor();
 
   // ─── Graceful Shutdown (SIGTERM / SIGINT) ──────────────────────────────────
   let isShuttingDown = false;

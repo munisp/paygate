@@ -10,6 +10,16 @@ name = "wallet_ffi"
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
+# HTTP server binary — wraps the signing library for Go HTTP calls
+[[bin]]
+name = "wallet-ffi-server"
+path = "src/server.rs"
+required-features = ["server"]
+
+[features]
+default = []
+server = ["dep:warp", "dep:tokio", "dep:bytes"]
+
 [dependencies]
 # Solana SDK — provides Keypair, Pubkey, Transaction, Instruction
 solana-sdk        = "1.18"
@@ -27,6 +37,10 @@ hex               = "0.4"
 bincode            = "1"
 # Error handling
 thiserror         = "1"
+# HTTP server (optional — only compiled with --features server)
+warp              = { version = "0.3", optional = true }
+tokio             = { version = "1", features = ["full"], optional = true }
+bytes             = { version = "1", optional = true }
 
 [dev-dependencies]
 # For integration tests that call the FFI functions

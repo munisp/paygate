@@ -1817,3 +1817,61 @@ export const usdcDeposits = pgTable("usdc_deposits", {
   index("ud_signature_idx").on(t.solanaSignature),
 ]);
 export type USDCDeposit = typeof usdcDeposits.$inferSelect;
+
+// ─── Consumer Disputes ────────────────────────────────────────────────────────
+export const consumerDisputes = pgTable("consumer_disputes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id),
+  walletTxnId: text("wallet_txn_id").references(() => consumerWalletTxns.id),
+  merchantDisputeId: text("merchant_dispute_id"),
+  subject: text("subject").notNull(),
+  description: text("description").notNull(),
+  category: text("category", { enum: ["unauthorized", "duplicate", "not_received", "wrong_amount", "fraud", "other"] }).notNull().default("other"),
+  status: text("status", { enum: ["open", "under_review", "resolved", "rejected", "escalated"] }).notNull().default("open"),
+  resolution: text("resolution"),
+  evidenceUrls: text("evidence_urls"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cd_user_idx").on(t.userId),
+  index("cd_status_idx").on(t.status),
+]);
+export type ConsumerDispute = typeof consumerDisputes.$inferSelect;
+export type InsertConsumerDispute = typeof consumerDisputes.$inferInsert;
+
+// ─── Consumer Fraud Flags ─────────────────────────────────────────────────────
+export const consumerFraudFlags = pgTable("consumer_fraud_flags", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id),
+  walletTxnId: text("wallet_txn_id").references(() => consumerWalletTxns.id),
+  riskScore: integer("risk_score").notNull().default(0),
+  flagReason: text("flag_reason").notNull(),
+  flagType: text("flag_type", { enum: ["velocity", "geo_anomaly", "device_change", "large_amount", "ml_model", "manual"] }).notNull().default("ml_model"),
+  status: text("status", { enum: ["active", "reviewed", "dismissed", "escalated"] }).notNull().default("active"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cff_user_idx").on(t.userId),
+  index("cff_status_idx").on(t.status),
+  index("cff_score_idx").on(t.riskScore),
+]);
+export type ConsumerFraudFlag = typeof consumerFraudFlags.$inferSelect;
+export type InsertConsumerFraudFlag = typeof consumerFraudFlags.$inferInsert;
+
+// ─── Consumer Idempotency Keys ────────────────────────────────────────────────
+export const consumerIdempotencyKeys = pgTable("consumer_idempotency_keys", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  operation: text("operation").notNull(),
+  responsePayload: text("response_payload"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cik_user_idx").on(t.userId),
+  index("cik_key_idx").on(t.idempotencyKey),
+]);
+export type ConsumerIdempotencyKey = typeof consumerIdempotencyKeys.$inferSelect;

@@ -52,6 +52,8 @@ import SplitBill from "./pages/consumer/SplitBill";
 import PINSetup from "./pages/consumer/PINSetup";
 import ConsumerKYC from "./pages/consumer/ConsumerKYC";
 import Discover from "./pages/consumer/Discover";
+import ConsumerAnalytics from "./pages/ConsumerAnalytics";
+import ConsumerDisputes from "./pages/ConsumerDisputes";
 import CrossBorder from "./pages/CrossBorder";
 import DeveloperPortal from "./pages/DeveloperPortal";
 import WorkflowObservability from "./pages/WorkflowObservability";
@@ -133,6 +135,8 @@ function Router() {
           <Route path="/consumer/pin" component={PINSetup} />
           <Route path="/consumer/kyc" component={ConsumerKYC} />
           <Route path="/consumer/discover" component={Discover} />
+          <Route path="/consumer/analytics" component={ConsumerAnalytics} />
+          <Route path="/consumer/disputes" component={ConsumerDisputes} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>

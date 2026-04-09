@@ -6,9 +6,9 @@ via the Safaricom Daraja API.
 
 Endpoints:
   POST /v1/mpesa/stk-push        — Initiate STK Push payment
-  POST /v1/mpesa/stk-callback    — Safaricom STK callback
+  POST /v1/mpesa/stk-callback    — Safaricom STK callback → forwarded to Go bridge
   POST /v1/mpesa/b2c             — Business to Customer payout
-  POST /v1/mpesa/b2c-callback    — Safaricom B2C result callback
+  POST /v1/mpesa/b2c-callback    — Safaricom B2C result callback → forwarded to Go bridge
   GET  /health
   GET  /metrics
 
@@ -55,6 +55,8 @@ CONSUMER_KEY = os.getenv("MPESA_CONSUMER_KEY", "")
 CONSUMER_SECRET = os.getenv("MPESA_CONSUMER_SECRET", "")
 SHORTCODE = os.getenv("MPESA_SHORTCODE", "174379")
 PASSKEY = os.getenv("MPESA_PASSKEY", "")
+BRIDGE_URL = os.getenv("BRIDGE_URL", "")
+BRIDGE_INTERNAL_KEY = os.getenv("BRIDGE_INTERNAL_KEY", "")
 
 # ─── Token cache ──────────────────────────────────────────────────────────────
 _token_cache: dict = {"token": None, "expires_at": 0}
@@ -86,6 +88,41 @@ def generate_password() -> tuple[str, str]:
     return password, timestamp
 
 
+async def forward_to_bridge(path: str, payload: dict) -> dict:
+    """Forward a callback payload to the Go bridge.
+
+    The bridge endpoint is at BRIDGE_URL/path.  We include the internal
+    authentication key so the bridge can verify the request origin.
+
+    Returns the bridge response body (or a synthetic ack on error so that
+    Safaricom always receives a 200 OK and does not retry).
+    """
+    if not BRIDGE_URL:
+        logger.warning("BRIDGE_URL not set — callback not forwarded to bridge")
+        return {"forwarded": False, "reason": "BRIDGE_URL not configured"}
+
+    url = f"{BRIDGE_URL.rstrip('/')}{path}"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Internal-Key": BRIDGE_INTERNAL_KEY,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            logger.info("Forwarded to bridge: path=%s status=%d", path, resp.status_code)
+            return resp.json()
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "Bridge returned error: path=%s status=%d body=%s",
+            path, exc.response.status_code, exc.response.text,
+        )
+        return {"forwarded": False, "bridge_status": exc.response.status_code}
+    except Exception as exc:
+        logger.error("Bridge forwarding failed: path=%s error=%s", path, exc)
+        return {"forwarded": False, "error": str(exc)}
+
+
 # ─── Models ───────────────────────────────────────────────────────────────────
 
 class STKPushRequest(BaseModel):
@@ -107,7 +144,7 @@ class B2CRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"M-Pesa connector starting — env={MPESA_ENV}")
+    logger.info(f"M-Pesa connector starting — env={MPESA_ENV} bridge={BRIDGE_URL or 'not configured'}")
     yield
     logger.info("M-Pesa connector shutting down")
 
@@ -117,7 +154,12 @@ app = FastAPI(title="PayGate M-Pesa Connector", version="1.0.0", lifespan=lifesp
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "mpesa-connector", "env": MPESA_ENV}
+    return {
+        "status": "ok",
+        "service": "mpesa-connector",
+        "env": MPESA_ENV,
+        "bridge_configured": bool(BRIDGE_URL),
+    }
 
 
 @app.post("/v1/mpesa/stk-push")
@@ -155,10 +197,28 @@ async def stk_push(req: STKPushRequest):
 
 @app.post("/v1/mpesa/stk-callback")
 async def stk_callback(request: Request):
-    """Safaricom STK Push callback — forward result to Go bridge."""
+    """Safaricom STK Push callback — forward result to Go bridge.
+
+    Safaricom expects a 200 OK with ResultCode=0 regardless of our internal
+    processing outcome.  We forward asynchronously and always return success.
+    """
     body = await request.json()
-    logger.info(f"STK callback received: {body}")
-    # TODO: forward to bridge via BRIDGE_URL
+    logger.info("STK callback received: %s", body)
+
+    # Extract key fields for structured logging
+    stkb = body.get("Body", {}).get("stkCallback", {})
+    merchant_request_id = stkb.get("MerchantRequestID", "unknown")
+    result_code = stkb.get("ResultCode", -1)
+    logger.info(
+        "STK callback: merchant_request_id=%s result_code=%s",
+        merchant_request_id, result_code,
+    )
+
+    # Forward to Go bridge — non-blocking (fire and forget is acceptable here
+    # because Safaricom will retry if we return non-200, but we always return 200)
+    bridge_result = await forward_to_bridge("/v1/mpesa/stk-callback", body)
+    logger.info("Bridge forward result: %s", bridge_result)
+
     return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
 
@@ -168,16 +228,20 @@ async def b2c(req: B2CRequest):
         raise HTTPException(status_code=503, detail="M-Pesa credentials not configured")
 
     token = await get_access_token()
+    security_credential = os.getenv("MPESA_SECURITY_CREDENTIAL", "")
+    queue_timeout_url = os.getenv("MPESA_B2C_TIMEOUT_URL", "")
+    result_url = os.getenv("MPESA_B2C_RESULT_URL", "")
+
     payload = {
-        "InitiatorName": "PayGate",
-        "SecurityCredential": "",  # Set from portal secrets
+        "InitiatorName": os.getenv("MPESA_INITIATOR_NAME", "PayGate"),
+        "SecurityCredential": security_credential,
         "CommandID": "BusinessPayment",
         "Amount": req.amount,
         "PartyA": SHORTCODE,
         "PartyB": req.phone_number,
         "Remarks": req.remarks,
-        "QueueTimeOutURL": "",
-        "ResultURL": "",
+        "QueueTimeOutURL": queue_timeout_url,
+        "ResultURL": result_url,
         "Occasion": req.occasion or "",
     }
 
@@ -194,14 +258,37 @@ async def b2c(req: B2CRequest):
 
 @app.post("/v1/mpesa/b2c-callback")
 async def b2c_callback(request: Request):
+    """Safaricom B2C result callback — forward to Go bridge for settlement."""
     body = await request.json()
-    logger.info(f"B2C callback: {body}")
+    logger.info("B2C callback received: %s", body)
+
+    # Extract key fields for structured logging
+    result = body.get("Result", {})
+    transaction_id = result.get("TransactionID", "unknown")
+    result_code = result.get("ResultCode", -1)
+    logger.info(
+        "B2C callback: transaction_id=%s result_code=%s",
+        transaction_id, result_code,
+    )
+
+    # Forward to Go bridge
+    bridge_result = await forward_to_bridge("/v1/mpesa/b2c-callback", body)
+    logger.info("Bridge forward result: %s", bridge_result)
+
     return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics():
-    return PlainTextResponse("# mpesa metrics\n", media_type="text/plain")
+    return PlainTextResponse(
+        "# HELP mpesa_connector_up M-Pesa connector availability\n"
+        "# TYPE mpesa_connector_up gauge\n"
+        f"mpesa_connector_up 1\n"
+        "# HELP mpesa_bridge_configured Whether bridge forwarding is configured\n"
+        "# TYPE mpesa_bridge_configured gauge\n"
+        f"mpesa_bridge_configured {1 if BRIDGE_URL else 0}\n",
+        media_type="text/plain",
+    )
 
 
 if __name__ == "__main__":

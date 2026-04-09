@@ -204,6 +204,13 @@
       "when": 1775754478832,
       "tag": "0028_typical_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1775757151582,
+      "tag": "0029_lumpy_jane_foster",
+      "breakpoints": true
     }
   ]
 }

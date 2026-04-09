@@ -1,3 +1,4 @@
+import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';
 import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
 import {
@@ -5383,9 +5384,78 @@ const p2pRouter = router({
         .where(and(eq(savedBeneficiaries.id, input.id), eq(savedBeneficiaries.userId, user.id)));
       return { success: true };
     }),
+  // ─── Transaction Export (CSV) ─────────────────────────────────────────────
+  exportHistory: protectedProcedure
+    .input(z.object({
+      currency: z.string().length(3).default('NGN'),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { csv: '', count: 0 };
+      const { consumerWalletTxns, consumerWallets } = await import('../drizzle/schema');
+      const { eq, and, gte, lte, desc } = await import('drizzle-orm');
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) return { csv: '', count: 0 };
+      const conditions: any[] = [eq(consumerWalletTxns.walletId, wallet.id)];
+      if (input.from) conditions.push(gte(consumerWalletTxns.createdAt, new Date(input.from)));
+      if (input.to) conditions.push(lte(consumerWalletTxns.createdAt, new Date(input.to)));
+      const rows = await db.select().from(consumerWalletTxns)
+        .where(and(...conditions))
+        .orderBy(desc(consumerWalletTxns.createdAt))
+        .limit(1000);
+      const header = 'Date,Type,Amount,Currency,Description,Reference,Status';
+      const lines = rows.map((r: any) => [
+        new Date(r.createdAt).toISOString(),
+        r.txType,
+        (r.amountKobo / 100).toFixed(2),
+        r.currency,
+        `"${(r.description ?? '').replace(/"/g, '""')}"`,
+        r.reference,
+        r.status,
+      ].join(','));
+      const csv = [header, ...lines].join('\n');
+      return { csv, count: rows.length };
+    }),
+  // ─── Push Token Registration ──────────────────────────────────────────────
+  registerPushToken: protectedProcedure
+    .input(z.object({
+      token: z.string().min(10),
+      deviceId: z.string().min(1),
+      platform: z.enum(['fcm', 'apns']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { devicePushTokens } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [existing] = await db.select().from(devicePushTokens)
+        .where(and(eq(devicePushTokens.userId, user.id), eq(devicePushTokens.deviceId, input.deviceId)))
+        .limit(1);
+      if (existing) {
+        await db.update(devicePushTokens)
+          .set({ token: input.token, platform: input.platform, updatedAt: new Date() })
+          .where(eq(devicePushTokens.id, existing.id));
+      } else {
+        await db.insert(devicePushTokens).values({
+          userId: user.id,
+          merchantId: 'consumer',
+          deviceId: input.deviceId,
+          token: input.token,
+          platform: input.platform,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+      return { success: true };
+    }),
 });
-
-// ─── Red Envelope Router (Hongbao) ────────────────────────────────────────────
+// ─── Red Envelope Router (Hongbao)) ────────────────────────────────────────────
 const redEnvelopeRouter = router({
   create: protectedProcedure
     .input(z.object({
@@ -5784,6 +5854,10 @@ export const appRouter = router({
   consumerStripeTopUp: consumerStripeTopUpRouter,
   // Native USDC Payout Engine
   usdc: usdcRouter,
+  // Consumer analytics, disputes, fraud
+  consumerAnalytics: consumerAnalyticsRouter,
+  consumerDisputes: consumerDisputeRouter,
+  consumerFraud: consumerFraudRouter,
 });
 export type AppRouter = typeof appRouter;
 

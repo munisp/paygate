@@ -187,6 +187,15 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("POST /v1/usdc/wallet/validate", authMiddleware(handlers.ValidateUSDCWallet))
 	mux.HandleFunc("GET /v1/usdc/balance", authMiddleware(handlers.GetUSDCBalance))
 
+	// Consumer wallet operations
+	mux.HandleFunc("POST /v1/consumer/wallet/credit", authMiddleware(handlers.ConsumerWalletCredit))
+	mux.HandleFunc("POST /v1/consumer/wallet/debit", authMiddleware(handlers.ConsumerWalletDebit))
+	mux.HandleFunc("POST /v1/consumer/transfer/p2p", authMiddleware(handlers.ConsumerP2PTransfer))
+	mux.HandleFunc("POST /v1/consumer/transfer/bank", authMiddleware(handlers.ConsumerBankTransfer))
+	mux.HandleFunc("POST /v1/consumer/bill-pay", authMiddleware(handlers.ConsumerBillPay))
+	mux.HandleFunc("POST /v1/consumer/fraud/score", authMiddleware(handlers.ConsumerFraudScore))
+	mux.HandleFunc("POST /api/mobile/sync", authMiddleware(handlers.ConsumerMobileSync))
+
 	// ── Server ───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")
 	if port == "" {

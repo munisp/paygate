@@ -385,3 +385,43 @@ mod tests {
         wallet_ffi_free_string(std::ptr::null_mut());
     }
 }
+
+// ─── HTTP server types (used by src/server.rs binary) ────────────────────────
+
+/// HTTP-compatible request type for the wallet-ffi HTTP server.
+/// Mirrors `SignUSDCTransferRequest` but is `pub` so the server binary can use it.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SignUSDCTransferHttpRequest {
+    pub sender_keypair_base58: String,
+    pub recipient_ata: String,
+    pub amount_lamports: u64,
+    pub recent_blockhash: String,
+    #[serde(default = "default_network")]
+    pub network: String,
+}
+
+/// HTTP-compatible response type for the wallet-ffi HTTP server.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignUSDCTransferHttpResponse {
+    pub signed_tx_base64: String,
+    pub signature: String,
+    pub sender_pubkey: String,
+}
+
+/// Public entry point for the HTTP server binary.
+/// Calls `sign_usdc_transfer_inner` and maps to HTTP-compatible types.
+pub fn sign_usdc_transfer_http(req: SignUSDCTransferHttpRequest) -> Result<SignUSDCTransferHttpResponse, String> {
+    let inner_req = SignUSDCTransferRequest {
+        sender_keypair_base58: req.sender_keypair_base58,
+        recipient_ata: req.recipient_ata,
+        amount_lamports: req.amount_lamports,
+        recent_blockhash: req.recent_blockhash,
+        network: req.network,
+    };
+    let resp = sign_usdc_transfer_inner(&inner_req)?;
+    Ok(SignUSDCTransferHttpResponse {
+        signed_tx_base64: resp.signed_transaction_base64,
+        signature: resp.signature,
+        sender_pubkey: resp.sender_pubkey,
+    })
+}
