@@ -1751,3 +1751,69 @@ export const consumerKycRecords = pgTable("consumer_kyc_records", {
   index("ckr_user_idx").on(t.userId),
 ]);
 export type ConsumerKycRecord = typeof consumerKycRecords.$inferSelect;
+
+
+// --- USDC Payout Engine ---
+
+export const merchantSolanaWallets = pgTable("merchant_solana_wallets", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  label: text("label").default("default"),
+  network: text("network", { enum: ["mainnet", "devnet"] }).notNull().default("mainnet"),
+  isActive: boolean("is_active").notNull().default(true),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("msw_merchant_idx").on(t.merchantId),
+  index("msw_address_idx").on(t.walletAddress),
+]);
+export type MerchantSolanaWallet = typeof merchantSolanaWallets.$inferSelect;
+
+export const usdcPayouts = pgTable("usdc_payouts", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  recipientWallet: text("recipient_wallet").notNull(),
+  amountLamports: bigint("amount_lamports", { mode: "number" }).notNull(),
+  tbPendingTransferId: text("tb_pending_transfer_id"),
+  tbPostedTransferId: text("tb_posted_transfer_id"),
+  solanaSignature: text("solana_signature"),
+  solanaSlot: bigint("solana_slot", { mode: "number" }),
+  temporalWorkflowId: text("temporal_workflow_id"),
+  temporalRunId: text("temporal_run_id"),
+  status: text("status", {
+    enum: ["pending", "reserved", "broadcasting", "confirming", "settled", "failed", "voided"],
+  }).notNull().default("pending"),
+  failureReason: text("failure_reason"),
+  fraudScore: integer("fraud_score"),
+  fraudSignals: text("fraud_signals").array(),
+  reference: text("reference"),
+  network: text("network", { enum: ["mainnet", "devnet"] }).notNull().default("mainnet"),
+  initiatedAt: timestamp("initiated_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("up_merchant_idx").on(t.merchantId),
+  index("up_status_idx").on(t.status),
+  index("up_signature_idx").on(t.solanaSignature),
+  index("up_workflow_idx").on(t.temporalWorkflowId),
+]);
+export type USDCPayout = typeof usdcPayouts.$inferSelect;
+
+export const usdcDeposits = pgTable("usdc_deposits", {
+  id: text("id").primaryKey(),
+  walletAddress: text("wallet_address").notNull(),
+  merchantId: text("merchant_id"),
+  amountLamports: bigint("amount_lamports", { mode: "number" }).notNull(),
+  solanaSignature: text("solana_signature").notNull().unique(),
+  solanaSlot: bigint("solana_slot", { mode: "number" }),
+  network: text("network", { enum: ["mainnet", "devnet"] }).notNull().default("mainnet"),
+  detectedAt: timestamp("detected_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+}, (t) => [
+  index("ud_wallet_idx").on(t.walletAddress),
+  index("ud_merchant_idx").on(t.merchantId),
+  index("ud_signature_idx").on(t.solanaSignature),
+]);
+export type USDCDeposit = typeof usdcDeposits.$inferSelect;

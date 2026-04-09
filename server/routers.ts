@@ -5782,9 +5782,12 @@ export const appRouter = router({
   consumerKyc: consumerKycRouter,
   consumerOtp: consumerOtpRouter,
   consumerStripeTopUp: consumerStripeTopUpRouter,
+  // Native USDC Payout Engine
+  usdc: usdcRouter,
 });
 export type AppRouter = typeof appRouter;
 
 // ─── Wave 68 router imports ───────────────────────────────────────────────────
 // NOTE: appRouter is already exported above; we extend it by re-exporting a merged type.
 // The actual routers are registered via a separate import at the bottom of this file.
+import { usdcRouter } from './usdcRouter';

@@ -1762,3 +1762,27 @@
 - [x] Comprehensive archive generated: paygate_production_final_v69.tar.gz
 - [x] Archive diff vs v68: 8 new files added (auditTrail, circuitBreaker, logger, webPush, production.hardening.test, migration), Rust build artifacts excluded
 - [x] 1130 tests passing (43 test files), 0 TypeScript errors — final state
+
+## Native USDC Payout Engine (Full Stack)
+- [x] Go: Solana client (client.go, monitor.go) — IsValidBase58Address, LamportsToUsdc, UsdcToLamports, PayoutRequest.Validate, DepositMonitor
+- [x] Go: TigerBeetle two-phase transfers — CreatePendingUSDCTransfer, PostPendingUSDCTransfer, VoidPendingUSDCTransfer (CodeUSDCEscrow=20)
+- [x] Go: Temporal activities_usdc.go — ReserveUSDCFunds, ExecuteUSDCPayout, ConfirmSolanaTransaction, USDCDepositMonitorWorkflow
+- [x] Go: CrossBorderTransferWorkflow routing branch — USDC corridor routes to ExecuteUSDCPayout, Mojaloop corridor routes to ExecuteMojalloopTransfer
+- [x] Go: Kafka USDC topics — paygate.usdc.payout.initiated, paygate.usdc.payout.settled, paygate.usdc.payout.failed, paygate.usdc.deposit.detected
+- [x] Go: HTTP handler usdc.go — POST /v1/usdc/payout, POST /v1/usdc/wallet/validate, GET /v1/usdc/balance
+- [x] Go: temporal/client.go — GetClient() and TaskQueue constant
+- [x] Rust: wallet-ffi/src/lib.rs — SPL transaction signing FFI (sign_usdc_transfer, validate_wallet_address, free_string)
+- [x] Rust: wallet-ffi/Cargo.toml — solana-sdk, spl-token, ed25519-dalek, bincode, hex dependencies
+- [x] Python: usdc-lakehouse-consumer/main.py — Kafka consumer for USDC events → Delta Lake / Parquet
+- [x] Python: fraud-scoring/main.py — USDC risk signals (velocity, round-number, cross-border, new-wallet, high-value)
+- [x] TypeScript: drizzle/schema.ts — merchantSolanaWallets, usdcPayouts, usdcDeposits tables (migrated)
+- [x] TypeScript: server/usdcRouter.ts — registerWallet, deactivateWallet, validateWallet, listWallets, getBalance, initiatePayout, getPayoutStatus, listPayouts, listDeposits
+- [x] TypeScript: usdcRouter wired to appRouter as usdc:
+- [x] TypeScript UI: client/src/components/USDCWalletSection.tsx — wallet registration, validation, balance display
+- [x] TypeScript UI: client/src/pages/USDCPayouts.tsx — payout history, initiate form, deposits tab, real-time polling
+- [x] TypeScript UI: Settings.tsx — USDCWalletSection added after StripeSection
+- [x] TypeScript UI: App.tsx — /usdc-payouts route registered
+- [x] TypeScript UI: Layout.tsx — USDC Payouts nav item added (Coins icon)
+- [x] Tests: server/usdc.router.test.ts — 36 tests covering address validation, lamport conversion, status machine, network validation, fraud thresholds, reference validation, TigerBeetle constants
+- [x] Tests: go-bridge/internal/solana/client_test.go — Go unit tests for address validation, lamport conversion, payout request validation
+- [x] 1166 tests passing (44 test files), 0 TypeScript errors

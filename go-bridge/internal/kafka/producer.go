@@ -7,6 +7,8 @@
 //   - paygate.settlement.triggered
 //   - paygate.fraud.alert
 //   - paygate.audit.events
+//   - paygate.usdc.payout.settled
+//   - paygate.usdc.deposit.received
 //
 // The producer is initialised lazily on first use. If KAFKA_BOOTSTRAP_SERVERS
 // is not set, all Publish calls are no-ops (graceful degradation).
@@ -33,6 +35,8 @@ const (
 	TopicFraudAlert           = "paygate.fraud.alert"
 	TopicAuditEvents          = "paygate.audit.events"
 	TopicNIBSSConfirmation    = "paygate.nibss.confirmation"
+	TopicUSDCPayoutSettled    = "paygate.usdc.payout.settled"
+	TopicUSDCDepositReceived  = "paygate.usdc.deposit.received"
 )
 
 // ─── Event types ──────────────────────────────────────────────────────────────
@@ -81,6 +85,28 @@ type FraudAlertEvent struct {
 	RiskScore  int       `json:"risk_score"`
 	AlertType  string    `json:"alert_type"`
 	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// USDCPayoutEvent is published to paygate.usdc.payout.settled when a USDC
+// payout is confirmed on the Solana blockchain.
+type USDCPayoutEvent struct {
+	PayoutID        string `json:"payout_id"`
+	MerchantID      string `json:"merchant_id"`
+	RecipientWallet string `json:"recipient_wallet"`
+	AmountLamports  uint64 `json:"amount_lamports"`
+	SolanaSignature string `json:"solana_signature"`
+	Reference       string `json:"reference"`
+	SettledAt       string `json:"settled_at"`
+}
+
+// USDCDepositEvent is published to paygate.usdc.deposit.received when a new
+// USDC deposit is detected on a platform-monitored Solana wallet.
+type USDCDepositEvent struct {
+	WalletAddress  string `json:"wallet_address"`
+	AmountLamports uint64 `json:"amount_lamports"`
+	Signature      string `json:"signature"`
+	Slot           uint64 `json:"slot"`
+	DetectedAt     string `json:"detected_at"`
 }
 
 // AuditEvent is published to paygate.audit.events.
@@ -218,6 +244,16 @@ func (p *Producer) PublishFraudAlert(ctx context.Context, evt FraudAlertEvent) e
 // PublishAudit publishes an audit event.
 func (p *Producer) PublishAudit(ctx context.Context, evt AuditEvent) error {
 	return p.Publish(ctx, TopicAuditEvents, evt.MerchantID, evt)
+}
+
+// PublishUSDCPayout publishes a USDC payout settled event.
+func (p *Producer) PublishUSDCPayout(ctx context.Context, evt USDCPayoutEvent) error {
+	return p.Publish(ctx, TopicUSDCPayoutSettled, evt.MerchantID, evt)
+}
+
+// PublishUSDCDeposit publishes a USDC deposit received event.
+func (p *Producer) PublishUSDCDeposit(ctx context.Context, evt USDCDepositEvent) error {
+	return p.Publish(ctx, TopicUSDCDepositReceived, evt.WalletAddress, evt)
 }
 
 // Close shuts down the producer gracefully.

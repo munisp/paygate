@@ -15,6 +15,7 @@ import APIKeys from "./pages/APIKeys";
 import Webhooks from "./pages/Webhooks";
 import Settings from "./pages/Settings";
 import Payouts from "./pages/Payouts";
+import USDCPayouts from "./pages/USDCPayouts";
 import Disputes from "./pages/Disputes";
 import Onboarding from "./pages/Onboarding";
 import PaymentLinks from "./pages/PaymentLinks";
@@ -148,6 +149,7 @@ function Router() {
         <Route path="/analytics" component={Analytics} />
         <Route path="/checkout" component={Checkout} />
         <Route path="/payouts" component={Payouts} />
+        <Route path="/usdc-payouts" component={USDCPayouts} />
         <Route path="/disputes" component={Disputes} />
         <Route path="/disputes/:id" component={DisputeWorkflow} />
         <Route path="/payment-links" component={PaymentLinks} />

@@ -276,3 +276,114 @@ func (c *Client) Transfer(
 	}
 	return nil
 }
+
+// ─── Two-phase transfers ──────────────────────────────────────────────────────
+
+// CodeUSDCEscrow is the TigerBeetle account code for USDC payout escrow accounts.
+// These hold funds during the two-phase transfer while awaiting Solana confirmation.
+const CodeUSDCEscrow uint16 = 5
+
+// CreatePendingTransfer creates a two-phase transfer in the pending state.
+// This locks the funds in escrow without moving them to the final destination.
+// The transfer must be resolved with PostPendingTransfer (to complete) or
+// VoidPendingTransfer (to rollback) before the timeout expires.
+//
+// Used for USDC payouts: reserve funds → await Solana confirmation → post.
+func (c *Client) CreatePendingTransfer(
+	transferID tb_types.Uint128,
+	debitAccountID tb_types.Uint128,
+	creditAccountID tb_types.Uint128,
+	amount uint64,
+	ledger uint32,
+	code uint16,
+	timeout uint32, // seconds until auto-void (0 = no timeout)
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	transfers := []tb_types.Transfer{
+		{
+			ID:              transferID,
+			DebitAccountID:  debitAccountID,
+			CreditAccountID: creditAccountID,
+			Amount:          tb_types.ToUint128(amount),
+			Ledger:          ledger,
+			Code:            code,
+			Flags:           tb_types.TransferFlags{Pending: true}.ToUint16(),
+			Timeout:         timeout,
+		},
+	}
+	results, err := c.inner.CreateTransfers(transfers)
+	if err != nil {
+		return fmt.Errorf("CreatePendingTransfer: %w", err)
+	}
+	for _, r := range results {
+		if r.Result != tb_types.TransferOK {
+			return fmt.Errorf("CreatePendingTransfer[%d]: %v", r.Index, r.Result)
+		}
+	}
+	return nil
+}
+
+// PostPendingTransfer resolves a pending transfer by posting it.
+// This moves the funds from escrow to the final destination.
+// Called after Solana transaction finality is confirmed.
+func (c *Client) PostPendingTransfer(
+	pendingID tb_types.Uint128,
+	ledger uint32,
+	code uint16,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	transfers := []tb_types.Transfer{
+		{
+			ID:        tb_types.ID(), // new unique ID for the post operation
+			PendingID: pendingID,
+			Ledger:    ledger,
+			Code:      code,
+			Flags:     tb_types.TransferFlags{PostPendingTransfer: true}.ToUint16(),
+		},
+	}
+	results, err := c.inner.CreateTransfers(transfers)
+	if err != nil {
+		return fmt.Errorf("PostPendingTransfer: %w", err)
+	}
+	for _, r := range results {
+		if r.Result != tb_types.TransferOK {
+			return fmt.Errorf("PostPendingTransfer[%d]: %v", r.Index, r.Result)
+		}
+	}
+	return nil
+}
+
+// VoidPendingTransfer cancels a pending transfer and returns the funds to
+// the debit account. Used when a Solana transaction fails or times out.
+func (c *Client) VoidPendingTransfer(
+	pendingID tb_types.Uint128,
+	ledger uint32,
+	code uint16,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	transfers := []tb_types.Transfer{
+		{
+			ID:        tb_types.ID(), // new unique ID for the void operation
+			PendingID: pendingID,
+			Ledger:    ledger,
+			Code:      code,
+			Flags:     tb_types.TransferFlags{VoidPendingTransfer: true}.ToUint16(),
+		},
+	}
+	results, err := c.inner.CreateTransfers(transfers)
+	if err != nil {
+		return fmt.Errorf("VoidPendingTransfer: %w", err)
+	}
+	for _, r := range results {
+		if r.Result != tb_types.TransferOK {
+			return fmt.Errorf("VoidPendingTransfer[%d]: %v", r.Index, r.Result)
+		}
+	}
+	return nil
+}

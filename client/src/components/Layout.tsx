@@ -8,7 +8,7 @@ import {
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
-  Rocket, Crown, Server, FileText, Banknote, Scale} from "lucide-react";
+  Rocket, Crown, Server, FileText, Banknote, Scale, Coins} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLocation as useWouterLocation } from "wouter";
@@ -28,6 +28,7 @@ const navItems = [
   { icon: Users, label: "Customers", path: "/customers" },
   { icon: CreditCard, label: "Virtual Cards", path: "/virtual-cards" },
   { icon: Wallet, label: "Payouts", path: "/payouts" },
+  { icon: Coins, label: "USDC Payouts", path: "/usdc-payouts" },
   { icon: AlertTriangle, label: "Disputes", path: "/disputes" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
   { icon: ShoppingCart, label: "Checkout", path: "/checkout" },

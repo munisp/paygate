@@ -53,13 +53,18 @@ class TransactionInput(BaseModel):
     merchant_id: str
     amount_kobo: int = Field(..., gt=0)
     currency: str = Field(default="NGN", max_length=3)
-    channel: str = Field(..., description="web|mobile|pos|ussd|api")
+    channel: str = Field(..., description="web|mobile|pos|ussd|api|usdc_payout")
     customer_ip: Optional[str] = None
     customer_id: Optional[str] = None
     card_last4: Optional[str] = None
     card_country: Optional[str] = None
     device_fingerprint: Optional[str] = None
     metadata: Optional[dict] = None
+    # USDC-specific fields (populated when channel == "usdc_payout")
+    usdc_recipient_wallet: Optional[str] = None
+    usdc_amount_lamports: Optional[int] = None
+    usdc_first_payout: Optional[bool] = None  # True if merchant's first USDC payout
+    usdc_wallet_age_days: Optional[int] = None  # Age of recipient wallet (from on-chain data)
 
 class ScoreResponse(BaseModel):
     tx_id: str
@@ -86,6 +91,12 @@ BLOCKED_COUNTRIES = set()  # Add sanctioned countries
 # Velocity thresholds
 MAX_AMOUNT_KOBO = 10_000_000_00  # 10M NGN
 LARGE_AMOUNT_KOBO = 1_000_000_00  # 1M NGN
+
+# USDC thresholds
+USDC_LARGE_PAYOUT_LAMPORTS = 10_000 * 1_000_000  # 10,000 USDC
+USDC_VERY_LARGE_PAYOUT_LAMPORTS = 100_000 * 1_000_000  # 100,000 USDC
+# Known high-risk Solana wallets (placeholder — populate from OFAC SDN list)
+USDC_SANCTIONED_WALLETS: set[str] = set()
 
 
 def score_transaction(tx: TransactionInput) -> ScoreResponse:
@@ -125,6 +136,32 @@ def score_transaction(tx: TransactionInput) -> ScoreResponse:
         if tx.channel == "web":
             signals.append("internal_ip_web_transaction")
             score += 15
+
+    # ─── USDC payout-specific rules ───────────────────────────────────────────
+    if tx.channel == "usdc_payout":
+        # Sanctioned wallet check (OFAC / internal blocklist)
+        if tx.usdc_recipient_wallet and tx.usdc_recipient_wallet in USDC_SANCTIONED_WALLETS:
+            signals.append("usdc_sanctioned_wallet")
+            score += 100  # Always block
+        # Very large USDC payout
+        if tx.usdc_amount_lamports and tx.usdc_amount_lamports >= USDC_VERY_LARGE_PAYOUT_LAMPORTS:
+            signals.append("usdc_very_large_payout")
+            score += 35
+        elif tx.usdc_amount_lamports and tx.usdc_amount_lamports >= USDC_LARGE_PAYOUT_LAMPORTS:
+            signals.append("usdc_large_payout")
+            score += 15
+        # First-ever USDC payout from this merchant — elevated review
+        if tx.usdc_first_payout:
+            signals.append("usdc_first_payout")
+            score += 10
+        # Very new recipient wallet (< 7 days old) — common in scam flows
+        if tx.usdc_wallet_age_days is not None and tx.usdc_wallet_age_days < 7:
+            signals.append("usdc_new_recipient_wallet")
+            score += 20
+        # Wallet address not provided
+        if not tx.usdc_recipient_wallet:
+            signals.append("usdc_missing_wallet")
+            score += 30
 
     # ─── Clamp score ──────────────────────────────────────────────────────────
     score = min(score, 100)

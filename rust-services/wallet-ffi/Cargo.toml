@@ -1,0 +1,40 @@
+[package]
+name = "wallet-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "PayGate USDC payout signer — signs Solana SPL token transfer instructions via FFI"
+
+# Expose as both a cdylib (for Go FFI via cgo) and a rlib (for Rust tests)
+[lib]
+name = "wallet_ffi"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+# Solana SDK — provides Keypair, Pubkey, Transaction, Instruction
+solana-sdk        = "1.18"
+# SPL token program — provides transfer_checked instruction builder
+spl-token         = { version = "4", features = ["no-entrypoint"] }
+# Associated token account — derives ATA address
+spl-associated-token-account = { version = "2", features = ["no-entrypoint"] }
+# Serialization
+serde             = { version = "1", features = ["derive"] }
+serde_json        = "1"
+# Base58 encoding for public keys and signatures
+bs58              = "0.5"
+# Hex encoding for raw bytes
+hex               = "0.4"
+bincode            = "1"
+# Error handling
+thiserror         = "1"
+
+[dev-dependencies]
+# For integration tests that call the FFI functions
+tokio             = { version = "1", features = ["full"] }
+
+[profile.release]
+# Optimize for size — the .so is loaded into the Go process at runtime
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

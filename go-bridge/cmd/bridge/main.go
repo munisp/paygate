@@ -182,6 +182,10 @@ slog.Info("env var validation complete")
 
 	// NIP / NIBSS name enquiry
 	mux.HandleFunc("POST /v1/nibss/name-enquiry", authMiddleware(handlers.NIPNameEnquiry))
+	// USDC payout operations (native Solana engine)
+	mux.HandleFunc("POST /v1/usdc/payout", authMiddleware(handlers.InitiateUSDCPayout))
+	mux.HandleFunc("POST /v1/usdc/wallet/validate", authMiddleware(handlers.ValidateUSDCWallet))
+	mux.HandleFunc("GET /v1/usdc/balance", authMiddleware(handlers.GetUSDCBalance))
 
 	// ── Server ───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")

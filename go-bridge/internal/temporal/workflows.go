@@ -79,7 +79,34 @@ func RegisterWorker(c client.Client) worker.Worker {
 	w.RegisterActivity(acts.ExecuteMojalloopTransfer)
 	w.RegisterActivity(acts.UpdateTransferStatus)
 
+	// USDC payout activities
+	w.RegisterActivity(acts.ReserveUSDCFunds)
+	w.RegisterActivity(acts.ExecuteUSDCPayout)
+	w.RegisterActivity(acts.ConfirmSolanaTransaction)
+	w.RegisterActivity(acts.ScanUSDCDeposits)
+
+	// Register USDC deposit monitor workflow
+	w.RegisterWorkflow(USDCDepositMonitorWorkflow)
+
 	return w
+}
+
+// USDCDepositMonitorWorkflow is a cron workflow that runs every 30 seconds
+// to detect new USDC deposits on platform-monitored Solana wallets.
+// It publishes paygate.usdc.deposit.received events to Kafka for each new deposit.
+func USDCDepositMonitorWorkflow(ctx workflow.Context) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("USDCDepositMonitorWorkflow: scanning for deposits")
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 25 * time.Second, // must complete before next cron tick
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 1, // cron will retry on next tick anyway
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+	acts := NewActivitySet()
+	return workflow.ExecuteActivity(ctx, acts.ScanUSDCDeposits).Get(ctx, nil)
 }
 
 // ─── Payout Approval Workflow ─────────────────────────────────────────────────
@@ -318,22 +345,31 @@ func SubscriptionChargeWorkflow(ctx workflow.Context, input SubscriptionChargeIn
 // ─── Cross-Border Transfer Workflow ───────────────────────────────────────────
 
 // CrossBorderInput is the input to CrossBorderTransferWorkflow.
+// Set RecipientWallet + Corridor="USDC" to route via the native Solana engine.
+// Set Corridor to a Mojaloop corridor code (e.g. "NG-GH") for FSPIOP routing.
 type CrossBorderInput struct {
-	TransferID  string  `json:"transfer_id"`
-	MerchantID  string  `json:"merchant_id"`
-	FromCurrency string `json:"from_currency"`
-	ToCurrency  string  `json:"to_currency"`
-	Amount      int64   `json:"amount"`
-	Corridor    string  `json:"corridor"` // e.g. "NG-GH", "NG-KE"
-	QuoteID     string  `json:"quote_id"`
+	TransferID      string `json:"transfer_id"`
+	MerchantID      string `json:"merchant_id"`
+	FromCurrency    string `json:"from_currency"`
+	ToCurrency      string `json:"to_currency"`
+	Amount          int64  `json:"amount"`
+	Corridors       string `json:"corridor"`         // "USDC" | "NG-GH" | "NG-KE" etc.
+	QuoteID         string `json:"quote_id"`
+	RecipientWallet string `json:"recipient_wallet"` // Solana wallet address (USDC only)
+	Reference       string `json:"reference"`        // Payment reference for Kafka events
 }
 
-// CrossBorderTransferWorkflow executes a Mojaloop cross-border transfer.
-// The quote expires after 30 seconds — if not executed in time, a new quote
-// is fetched automatically.
+// CrossBorderTransferWorkflow routes cross-border transfers to the correct rail:
+//   - Corridor="USDC": native Solana USDC engine (TigerBeetle two-phase + Rust FFI)
+//   - Corridor="NG-GH", "NG-KE", etc.: Mojaloop FSPIOP via SDK Scheme Adapter
+//
+// The USDC path: ReserveUSDCFunds → ExecuteUSDCPayout → ConfirmSolanaTransaction
+// The Mojaloop path: GetCrossBorderQuote → ExecuteMojalloopTransfer
 func CrossBorderTransferWorkflow(ctx workflow.Context, input CrossBorderInput) error {
 	logger := workflow.GetLogger(ctx)
-	logger.Info("CrossBorderTransferWorkflow started", "transfer_id", input.TransferID)
+	logger.Info("CrossBorderTransferWorkflow started",
+		"transfer_id", input.TransferID,
+		"corridor", input.Corridors)
 
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -344,31 +380,87 @@ func CrossBorderTransferWorkflow(ctx workflow.Context, input CrossBorderInput) e
 		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
-
 	acts := NewActivitySet()
 
-	// Step 1: Get or refresh quote (30s expiry)
+	// ── USDC routing branch ──────────────────────────────────────────────────
+	if input.Corridors == "USDC" {
+		if input.RecipientWallet == "" {
+			return fmt.Errorf("CrossBorderTransferWorkflow: RecipientWallet required for USDC corridor")
+		}
+		usdcInput := USDCPayoutInput{
+			TransferID:      input.TransferID,
+			MerchantID:      input.MerchantID,
+			RecipientWallet: input.RecipientWallet,
+			AmountLamports:  uint64(input.Amount), // caller converts NGN→USDC lamports before dispatch
+			Reference:       input.Reference,
+		}
+
+		// Step 1: Reserve funds in TigerBeetle escrow
+		var pendingIDHex string
+		if err := workflow.ExecuteActivity(ctx, acts.ReserveUSDCFunds, usdcInput).Get(ctx, &pendingIDHex); err != nil {
+			_ = workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "failed").Get(ctx, nil)
+			return fmt.Errorf("ReserveUSDCFundsActivity: %w", err)
+		}
+		usdcInput.PendingTransferIDHex = pendingIDHex
+
+		// Step 2: Broadcast Solana transaction (Rust FFI signer)
+		broadcastAo := workflow.ActivityOptions{
+			StartToCloseTimeout: 60 * time.Second,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts:    2,
+				InitialInterval:    5 * time.Second,
+				BackoffCoefficient: 1.5,
+			},
+		}
+		broadcastCtx := workflow.WithActivityOptions(ctx, broadcastAo)
+		var solanaSignature string
+		if err := workflow.ExecuteActivity(broadcastCtx, acts.ExecuteUSDCPayout, usdcInput).Get(ctx, &solanaSignature); err != nil {
+			_ = workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "failed").Get(ctx, nil)
+			return fmt.Errorf("ExecuteUSDCPayoutActivity: %w", err)
+		}
+		usdcInput.SolanaSignature = solanaSignature
+
+		// Step 3: Poll Solana finality + post TigerBeetle transfer
+		finalityAo := workflow.ActivityOptions{
+			StartToCloseTimeout: 3 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 1,
+			},
+		}
+		finalityCtx := workflow.WithActivityOptions(ctx, finalityAo)
+		if err := workflow.ExecuteActivity(finalityCtx, acts.ConfirmSolanaTransaction, usdcInput).Get(ctx, nil); err != nil {
+			_ = workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "failed").Get(ctx, nil)
+			return fmt.Errorf("ConfirmSolanaTransactionActivity: %w", err)
+		}
+
+		// Step 4: Mark completed
+		if err := workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "completed").Get(ctx, nil); err != nil {
+			return fmt.Errorf("UpdateTransferStatus(completed): %w", err)
+		}
+		logger.Info("CrossBorderTransferWorkflow (USDC) complete",
+			"transfer_id", input.TransferID,
+			"signature", solanaSignature)
+		return nil
+	}
+
+	// ── Mojaloop FSPIOP routing branch ───────────────────────────────────────
 	var quoteID string
 	if err := workflow.ExecuteActivity(ctx, acts.GetCrossBorderQuote, input).Get(ctx, &quoteID); err != nil {
 		return fmt.Errorf("GetCrossBorderQuoteActivity: %w", err)
 	}
 	input.QuoteID = quoteID
 
-	// Step 2: Execute Mojaloop transfer
 	if err := workflow.ExecuteActivity(ctx, acts.ExecuteMojalloopTransfer, input).Get(ctx, nil); err != nil {
 		_ = workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "failed").Get(ctx, nil)
 		return fmt.Errorf("ExecuteMojalloopTransferActivity: %w", err)
 	}
 
-	// Step 3: Update status to completed
 	if err := workflow.ExecuteActivity(ctx, acts.UpdateTransferStatus, input.TransferID, "completed").Get(ctx, nil); err != nil {
 		return fmt.Errorf("UpdateTransferStatusActivity: %w", err)
 	}
-
-	logger.Info("CrossBorderTransferWorkflow complete", "transfer_id", input.TransferID)
+	logger.Info("CrossBorderTransferWorkflow (Mojaloop) complete", "transfer_id", input.TransferID)
 	return nil
 }
-
 // DisputeResolutionInput is the input to the DisburseFunds activity.
 type DisputeResolutionInput struct {
 	DisputeID  string `json:"dispute_id"`

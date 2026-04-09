@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import USDCWalletSection from "@/components/USDCWalletSection";
 
 // ── Stripe Payment Section ──────────────────────────────────────────────────
 function StripeSection() {
@@ -593,6 +594,8 @@ export default function Settings() {
 
       {/* Stripe Payment Configuration */}
       <StripeSection />
+      {/* USDC Payout Wallet */}
+      <USDCWalletSection />
 
       {/* Soundbox Language Preference */}
       <div className="bg-card rounded-xl border border-border p-6 space-y-4">
