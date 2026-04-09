@@ -146,3 +146,66 @@ func (p *Producer) ProduceTransaction(ctx context.Context, evt TransactionFeedEv
 func (p *Producer) ProduceFraudSignal(ctx context.Context, evt FraudSignalEvent) error {
 	return p.Produce(ctx, TopicFraudSignals, evt)
 }
+
+// ─── Consumer wallet topics ───────────────────────────────────────────────────
+
+const (
+	TopicConsumerWalletEvents   = "paygate-consumer-wallet-events"
+	TopicConsumerTransferEvents = "paygate-consumer-transfer-events"
+	TopicConsumerFraudSignals   = "paygate-consumer-fraud-signals"
+)
+
+// ConsumerWalletEvent is streamed to paygate-consumer-wallet-events.
+type ConsumerWalletEvent struct {
+	EventID     string    `json:"event_id"`
+	UserID      string    `json:"user_id"`
+	WalletID    string    `json:"wallet_id"`
+	EventType   string    `json:"event_type"` // "credit" | "debit" | "top_up" | "withdrawal"
+	AmountKobo  int64     `json:"amount_kobo"`
+	Currency    string    `json:"currency"`
+	Reference   string    `json:"reference"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// ConsumerTransferEvent is streamed to paygate-consumer-transfer-events.
+type ConsumerTransferEvent struct {
+	EventID         string    `json:"event_id"`
+	TransferID      string    `json:"transfer_id"`
+	SenderUserID    string    `json:"sender_user_id"`
+	RecipientUserID string    `json:"recipient_user_id,omitempty"`
+	RecipientPhone  string    `json:"recipient_phone,omitempty"`
+	AmountKobo      int64     `json:"amount_kobo"`
+	Currency        string    `json:"currency"`
+	TransferType    string    `json:"transfer_type"` // "p2p" | "bank" | "bill_pay" | "cross_border"
+	Status          string    `json:"status"`        // "initiated" | "completed" | "failed"
+	Reference       string    `json:"reference"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// ConsumerFraudSignal is streamed to paygate-consumer-fraud-signals.
+type ConsumerFraudSignal struct {
+	EventID    string    `json:"event_id"`
+	UserID     string    `json:"user_id"`
+	TransferID string    `json:"transfer_id,omitempty"`
+	FraudScore float64   `json:"fraud_score"`
+	RiskLevel  string    `json:"risk_level"` // "low" | "medium" | "high"
+	Flagged    bool      `json:"flagged"`
+	Reason     string    `json:"reason,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ProduceConsumerWallet streams a consumer wallet event.
+func (p *Producer) ProduceConsumerWallet(ctx context.Context, evt ConsumerWalletEvent) error {
+	return p.Produce(ctx, TopicConsumerWalletEvents, evt)
+}
+
+// ProduceConsumerTransfer streams a consumer transfer event.
+func (p *Producer) ProduceConsumerTransfer(ctx context.Context, evt ConsumerTransferEvent) error {
+	return p.Produce(ctx, TopicConsumerTransferEvents, evt)
+}
+
+// ProduceConsumerFraud streams a consumer fraud signal.
+func (p *Producer) ProduceConsumerFraud(ctx context.Context, signal ConsumerFraudSignal) error {
+	return p.Produce(ctx, TopicConsumerFraudSignals, signal)
+}

@@ -265,3 +265,226 @@ message RetryEventRequest {
 message RetryEventResponse {
   bool success = 1;
 }
+
+// ─── Consumer Wallet Service ──────────────────────────────────────────────────
+
+service ConsumerService {
+  rpc GetWalletBalance (ConsumerBalanceRequest) returns (ConsumerBalanceResponse);
+  rpc CreditWallet (ConsumerCreditRequest) returns (ConsumerCreditResponse);
+  rpc DebitWallet (ConsumerDebitRequest) returns (ConsumerDebitResponse);
+  rpc P2PTransfer (ConsumerP2PRequest) returns (ConsumerP2PResponse);
+  rpc BillPay (ConsumerBillPayRequest) returns (ConsumerBillPayResponse);
+  rpc GetTransactionHistory (ConsumerHistoryRequest) returns (ConsumerHistoryResponse);
+  rpc RegisterPushToken (ConsumerPushTokenRequest) returns (ConsumerPushTokenResponse);
+}
+
+message ConsumerBalanceRequest {
+  string consumer_id = 1;
+  string currency = 2;
+}
+
+message ConsumerBalanceResponse {
+  string balance = 1;
+  string currency = 2;
+  string ledger_account_id = 3;
+}
+
+message ConsumerCreditRequest {
+  string consumer_id = 1;
+  string amount = 2;
+  string currency = 3;
+  string reference = 4;
+  string idempotency_key = 5;
+}
+
+message ConsumerCreditResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string new_balance = 3;
+}
+
+message ConsumerDebitRequest {
+  string consumer_id = 1;
+  string amount = 2;
+  string currency = 3;
+  string reference = 4;
+  string idempotency_key = 5;
+}
+
+message ConsumerDebitResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string new_balance = 3;
+}
+
+message ConsumerP2PRequest {
+  string sender_id = 1;
+  string recipient_phone = 2;
+  string amount = 3;
+  string currency = 4;
+  string note = 5;
+  string idempotency_key = 6;
+}
+
+message ConsumerP2PResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string sender_new_balance = 3;
+  string recipient_new_balance = 4;
+}
+
+message ConsumerBillPayRequest {
+  string consumer_id = 1;
+  string biller_id = 2;
+  string customer_reference = 3;
+  string amount = 4;
+  string currency = 5;
+  string idempotency_key = 6;
+}
+
+message ConsumerBillPayResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string confirmation_code = 3;
+}
+
+message ConsumerHistoryRequest {
+  string consumer_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  string start_date = 4;
+  string end_date = 5;
+}
+
+message ConsumerHistoryResponse {
+  repeated ConsumerTransaction transactions = 1;
+  int32 total = 2;
+}
+
+message ConsumerTransaction {
+  string id = 1;
+  string type = 2;
+  string amount = 3;
+  string currency = 4;
+  string description = 5;
+  string status = 6;
+  int64 created_at_ms = 7;
+}
+
+message ConsumerPushTokenRequest {
+  string consumer_id = 1;
+  string token = 2;
+  string platform = 3;
+  string device_id = 4;
+}
+
+message ConsumerPushTokenResponse {
+  bool success = 1;
+  string token_id = 2;
+}
+
+// ─── Analytics Service ────────────────────────────────────────────────────────
+
+service AnalyticsService {
+  rpc GetMerchantRevenue (MerchantRevenueRequest) returns (MerchantRevenueResponse);
+  rpc GetTransactionVolume (TransactionVolumeRequest) returns (TransactionVolumeResponse);
+  rpc GetFraudMetrics (FraudMetricsRequest) returns (FraudMetricsResponse);
+  rpc GetConsumerSpend (ConsumerSpendRequest) returns (ConsumerSpendResponse);
+  rpc GetTopMerchants (TopMerchantsRequest) returns (TopMerchantsResponse);
+}
+
+message MerchantRevenueRequest {
+  string merchant_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+  string granularity = 4; // "daily" | "weekly" | "monthly"
+}
+
+message MerchantRevenueResponse {
+  repeated RevenueDataPoint data_points = 1;
+  string total_revenue = 2;
+  string currency = 3;
+  string growth_rate = 4;
+}
+
+message RevenueDataPoint {
+  string date = 1;
+  string revenue = 2;
+  int32 transaction_count = 3;
+}
+
+message TransactionVolumeRequest {
+  string merchant_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+}
+
+message TransactionVolumeResponse {
+  int64 total_count = 1;
+  string total_amount = 2;
+  string average_amount = 3;
+  map<string, int64> by_channel = 4;
+  map<string, int64> by_status = 5;
+}
+
+message FraudMetricsRequest {
+  string merchant_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+}
+
+message FraudMetricsResponse {
+  int32 total_flags = 1;
+  int32 confirmed_fraud = 2;
+  int32 false_positives = 3;
+  string fraud_rate = 4;
+  repeated FraudRuleBreakdown rule_breakdown = 5;
+}
+
+message FraudRuleBreakdown {
+  string rule = 1;
+  int32 count = 2;
+  string percentage = 3;
+}
+
+message ConsumerSpendRequest {
+  string consumer_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+}
+
+message ConsumerSpendResponse {
+  repeated SpendByCategory categories = 1;
+  repeated SpendByMonth monthly = 2;
+  string total_spend = 3;
+}
+
+message SpendByCategory {
+  string category = 1;
+  string amount = 2;
+  string percentage = 3;
+}
+
+message SpendByMonth {
+  string month = 1;
+  string amount = 2;
+  int32 transaction_count = 3;
+}
+
+message TopMerchantsRequest {
+  string consumer_id = 1;
+  int32 limit = 2;
+  string start_date = 3;
+  string end_date = 4;
+}
+
+message TopMerchantsResponse {
+  repeated TopMerchantEntry merchants = 1;
+}
+
+message TopMerchantEntry {
+  string merchant_id = 1;
+  string merchant_name = 2;
+  string total_spend = 3;
+  int32 visit_count = 4;
+}

@@ -36,6 +36,8 @@ const GRPC_FRAUD_URL = process.env.GRPC_FRAUD_URL ?? GRPC_BRIDGE_URL;
 const GRPC_NOTIFY_URL = process.env.GRPC_NOTIFY_URL ?? process.env.PUSH_SERVICE_GRPC_URL ?? "";
 const GRPC_USSD_URL = process.env.GRPC_USSD_URL ?? process.env.USSD_SERVICE_GRPC_URL ?? "";
 const GRPC_OUTBOX_URL = process.env.GRPC_OUTBOX_URL ?? process.env.OUTBOX_RELAY_GRPC_URL ?? "";
+const GRPC_CONSUMER_URL = process.env.GRPC_CONSUMER_URL ?? process.env.CONSUMER_SERVICE_GRPC_URL ?? GRPC_BRIDGE_URL;
+const GRPC_ANALYTICS_URL = process.env.GRPC_ANALYTICS_URL ?? process.env.ANALYTICS_SERVICE_GRPC_URL ?? GRPC_BRIDGE_URL;
 
 // ─── Proto loader ─────────────────────────────────────────────────────────────
 
@@ -354,6 +356,76 @@ export function getOutboxClient(): OutboxClient | null {
   return _outboxClient;
 }
 
+// ─── ConsumerService ─────────────────────────────────────────────────────────
+
+export interface ConsumerWalletClient {
+  getWalletBalance(req: { consumerId: string; currency: string }): Promise<{ balance: string; currency: string; ledgerAccountId: string }>;
+  creditWallet(req: { consumerId: string; amount: string; currency: string; reference: string; idempotencyKey: string }): Promise<{ success: boolean; transactionId: string; newBalance: string }>;
+  debitWallet(req: { consumerId: string; amount: string; currency: string; reference: string; idempotencyKey: string }): Promise<{ success: boolean; transactionId: string; newBalance: string }>;
+  p2pTransfer(req: { senderId: string; recipientPhone: string; amount: string; currency: string; note?: string; idempotencyKey: string }): Promise<{ success: boolean; transactionId: string; senderNewBalance: string; recipientNewBalance: string }>;
+  billPay(req: { consumerId: string; billerId: string; customerReference: string; amount: string; currency: string; idempotencyKey: string }): Promise<{ success: boolean; transactionId: string; confirmationCode: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getTransactionHistory(req: { consumerId: string; limit?: number; offset?: number; startDate?: string; endDate?: string }): Promise<{ transactions: any[]; total: number }>;
+  registerPushToken(req: { consumerId: string; token: string; platform: string; deviceId: string }): Promise<{ success: boolean; tokenId: string }>;
+}
+
+let _consumerClient: ConsumerWalletClient | null = null;
+
+export function getConsumerClient(): ConsumerWalletClient | null {
+  if (!GRPC_CONSUMER_URL) return null;
+  if (_consumerClient) return _consumerClient;
+  const descriptor = getProtoDescriptor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ConsumerService = (descriptor as any).paygate?.ConsumerService;
+  if (!ConsumerService) return null;
+  const raw = new ConsumerService(GRPC_CONSUMER_URL, makeCredentials(GRPC_CONSUMER_URL));
+  _consumerClient = {
+    getWalletBalance: (req) => promisifyUnary(raw, "getWalletBalance", req),
+    creditWallet: (req) => promisifyUnary(raw, "creditWallet", req),
+    debitWallet: (req) => promisifyUnary(raw, "debitWallet", req),
+    p2pTransfer: (req) => promisifyUnary(raw, "p2pTransfer", req),
+    billPay: (req) => promisifyUnary(raw, "billPay", req),
+    getTransactionHistory: (req) => promisifyUnary(raw, "getTransactionHistory", req),
+    registerPushToken: (req) => promisifyUnary(raw, "registerPushToken", req),
+  };
+  return _consumerClient;
+}
+
+// ─── AnalyticsService ─────────────────────────────────────────────────────────
+
+export interface AnalyticsClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMerchantRevenue(req: { merchantId: string; startDate: string; endDate: string; granularity?: string }): Promise<{ dataPoints: any[]; totalRevenue: string; currency: string; growthRate: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getTransactionVolume(req: { merchantId: string; startDate: string; endDate: string }): Promise<{ totalCount: number; totalAmount: string; averageAmount: string; byChannel: Record<string, number>; byStatus: Record<string, number> }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getFraudMetrics(req: { merchantId: string; startDate: string; endDate: string }): Promise<{ totalFlags: number; confirmedFraud: number; falsePositives: number; fraudRate: string; ruleBreakdown: any[] }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getConsumerSpend(req: { consumerId: string; startDate: string; endDate: string }): Promise<{ categories: any[]; monthly: any[]; totalSpend: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getTopMerchants(req: { consumerId: string; limit?: number; startDate: string; endDate: string }): Promise<{ merchants: any[] }>;
+}
+
+let _analyticsClient: AnalyticsClient | null = null;
+
+export function getAnalyticsClient(): AnalyticsClient | null {
+  if (!GRPC_ANALYTICS_URL) return null;
+  if (_analyticsClient) return _analyticsClient;
+  const descriptor = getProtoDescriptor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const AnalyticsService = (descriptor as any).paygate?.AnalyticsService;
+  if (!AnalyticsService) return null;
+  const raw = new AnalyticsService(GRPC_ANALYTICS_URL, makeCredentials(GRPC_ANALYTICS_URL));
+  _analyticsClient = {
+    getMerchantRevenue: (req) => promisifyUnary(raw, "getMerchantRevenue", req),
+    getTransactionVolume: (req) => promisifyUnary(raw, "getTransactionVolume", req),
+    getFraudMetrics: (req) => promisifyUnary(raw, "getFraudMetrics", req),
+    getConsumerSpend: (req) => promisifyUnary(raw, "getConsumerSpend", req),
+    getTopMerchants: (req) => promisifyUnary(raw, "getTopMerchants", req),
+  };
+  return _analyticsClient;
+}
+
 // ─── Health check for all gRPC services ──────────────────────────────────────
 
 export async function checkGrpcHealth(): Promise<{
@@ -362,6 +434,8 @@ export async function checkGrpcHealth(): Promise<{
   notifications: boolean;
   ussd: boolean;
   outbox: boolean;
+  consumer: boolean;
+  analytics: boolean;
 }> {
   const results = await Promise.allSettled([
     getLedgerClient()?.getBalance({ accountId: "health-check", currency: "NGN" }),
@@ -374,6 +448,8 @@ export async function checkGrpcHealth(): Promise<{
     }),
     getUssdClient()?.getSessionState({ sessionId: "health-check" }),
     getOutboxClient()?.getEventStatus({ eventId: "health-check" }),
+    getConsumerClient()?.getWalletBalance({ consumerId: "health-check", currency: "NGN" }),
+    getAnalyticsClient()?.getTransactionVolume({ merchantId: "health-check", startDate: "2024-01-01", endDate: "2024-12-31" }),
   ]);
 
   return {
@@ -382,5 +458,7 @@ export async function checkGrpcHealth(): Promise<{
     notifications: results[2].status === "fulfilled",
     ussd: results[3].status === "fulfilled",
     outbox: results[4].status === "fulfilled",
+    consumer: results[5].status === "fulfilled",
+    analytics: results[6].status === "fulfilled",
   };
 }

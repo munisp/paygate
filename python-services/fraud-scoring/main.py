@@ -246,3 +246,91 @@ async def batch_score(req: BatchScoreRequest):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8083"))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=2)
+
+
+# ─── Consumer fraud scoring ───────────────────────────────────────────────────
+
+class ConsumerTransactionInput(BaseModel):
+    """Lightweight input model for consumer wallet transactions."""
+    tx_id: str
+    user_id: str
+    phone: Optional[str] = None
+    amount_kobo: int = Field(..., ge=1)
+    channel: str = "consumer_wallet"  # p2p | bill_pay | ussd | qr | red_envelope | cross_border
+    recipient_phone: Optional[str] = None
+    recipient_account: Optional[str] = None
+    biller_code: Optional[str] = None
+    device_id: Optional[str] = None
+    device_fingerprint: Optional[str] = None
+    customer_ip: Optional[str] = None
+    txn_count_24h: Optional[int] = None
+    total_amount_24h_kobo: Optional[int] = None
+    is_new_recipient: Optional[bool] = None
+    is_first_transaction: Optional[bool] = None
+
+
+class ConsumerScoreResponse(BaseModel):
+    tx_id: str
+    user_id: str
+    risk_score: int = Field(..., ge=0, le=100)
+    risk_level: str
+    signals: list[str]
+    recommended_action: str
+    scored_at_ms: int
+
+
+CONSUMER_LARGE_AMOUNT_KOBO = 500_000_00
+CONSUMER_MAX_AMOUNT_KOBO = 5_000_000_00
+CONSUMER_MAX_TXN_24H = 20
+CONSUMER_MAX_TOTAL_24H_KOBO = 2_000_000_00
+
+
+def score_consumer_transaction(tx: ConsumerTransactionInput) -> ConsumerScoreResponse:
+    signals: list[str] = []
+    score = 0
+    if tx.amount_kobo > CONSUMER_MAX_AMOUNT_KOBO:
+        signals.append("consumer_amount_exceeds_limit"); score += 40
+    elif tx.amount_kobo > CONSUMER_LARGE_AMOUNT_KOBO:
+        signals.append("consumer_large_amount"); score += 20
+    if tx.txn_count_24h is not None and tx.txn_count_24h > CONSUMER_MAX_TXN_24H:
+        signals.append("consumer_high_velocity_24h"); score += 25
+    if tx.total_amount_24h_kobo is not None and tx.total_amount_24h_kobo > CONSUMER_MAX_TOTAL_24H_KOBO:
+        signals.append("consumer_daily_limit_exceeded"); score += 30
+    if tx.is_new_recipient and tx.amount_kobo > CONSUMER_LARGE_AMOUNT_KOBO:
+        signals.append("consumer_large_to_new_recipient"); score += 15
+    if tx.is_first_transaction and tx.amount_kobo > 100_000_00:
+        signals.append("consumer_large_first_transaction"); score += 20
+    if tx.channel in ("p2p", "bill_pay", "qr") and not tx.device_fingerprint:
+        signals.append("consumer_missing_device_fingerprint"); score += 10
+    if tx.channel == "ussd" and tx.amount_kobo > 200_000_00:
+        signals.append("consumer_large_ussd_transaction"); score += 15
+    if tx.channel == "cross_border":
+        signals.append("consumer_cross_border"); score += 10
+        if tx.amount_kobo > CONSUMER_LARGE_AMOUNT_KOBO:
+            signals.append("consumer_large_cross_border"); score += 15
+    if tx.channel == "red_envelope" and tx.amount_kobo > 100_000_00:
+        signals.append("consumer_large_red_envelope"); score += 10
+    score = min(score, 100)
+    if score >= 80: risk_level, action = "critical", "block"
+    elif score >= 60: risk_level, action = "high", "review"
+    elif score >= 30: risk_level, action = "medium", "review"
+    else: risk_level, action = "low", "allow"
+    return ConsumerScoreResponse(tx_id=tx.tx_id, user_id=tx.user_id, risk_score=score, risk_level=risk_level, signals=signals, recommended_action=action, scored_at_ms=int(time.time() * 1000))
+
+
+@app.post("/v1/score/consumer", response_model=ConsumerScoreResponse)
+async def score_consumer(tx: ConsumerTransactionInput):
+    """Score a consumer wallet transaction for fraud risk."""
+    start = time.time()
+    try:
+        result = score_consumer_transaction(tx)
+        if METRICS_ENABLED:
+            SCORE_REQUESTS.labels(result=result.risk_level).inc()
+        logger.info(f"[consumer-score] tx={tx.tx_id} user={tx.user_id} score={result.risk_score} action={result.recommended_action}")
+        return result
+    except Exception as e:
+        logger.error(f"[consumer-score] error tx {tx.tx_id}: {e}")
+        raise HTTPException(status_code=500, detail="Consumer scoring failed")
+    finally:
+        if METRICS_ENABLED:
+            SCORE_LATENCY.observe(time.time() - start)

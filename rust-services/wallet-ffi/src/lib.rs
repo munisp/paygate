@@ -425,3 +425,198 @@ pub fn sign_usdc_transfer_http(req: SignUSDCTransferHttpRequest) -> Result<SignU
         sender_pubkey: resp.sender_pubkey,
     })
 }
+
+// ─── BRICS Pay consumer cross-border signing ─────────────────────────────────
+// Signs a BRICS Pay cross-border transfer payload using the sender's Ed25519 key.
+// Used by the Go bridge to sign consumer cross-border transfer requests before
+// forwarding them to the BRICS Pay network.
+
+use ed25519_dalek::{Keypair as Ed25519Keypair, SecretKey, PublicKey, Signer as Ed25519Signer};
+
+/// HTTP-compatible request type for BRICS Pay signing.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BricsPaySignRequest {
+    /// Sender's Ed25519 private key in base58 encoding (32 bytes).
+    pub sender_private_key_base58: String,
+    /// Transfer payload to sign (JSON string).
+    pub payload: String,
+    /// Sender's wallet address.
+    pub sender_address: String,
+    /// Recipient's wallet address.
+    pub recipient_address: String,
+    /// Amount in the smallest currency unit.
+    pub amount: u64,
+    /// Currency code (e.g. "CNY", "RUB", "INR", "BRL", "ZAR").
+    pub currency: String,
+    /// Unique transfer reference.
+    pub reference: String,
+}
+
+/// HTTP-compatible response type for BRICS Pay signing.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BricsPaySignResponse {
+    /// Hex-encoded Ed25519 signature of the canonical payload.
+    pub signature_hex: String,
+    /// Base58-encoded sender public key.
+    pub sender_pubkey: String,
+    /// Signed payload JSON (original payload + signature metadata).
+    pub signed_payload: String,
+}
+
+/// Signs a BRICS Pay cross-border transfer payload.
+pub fn sign_brics_pay_transfer(req: BricsPaySignRequest) -> Result<BricsPaySignResponse, String> {
+    // Decode the private key from base58
+    let key_bytes = bs58::decode(&req.sender_private_key_base58)
+        .into_vec()
+        .map_err(|e| format!("base58 decode error: {}", e))?;
+
+    if key_bytes.len() < 32 {
+        return Err(format!(
+            "private key too short: expected 32+ bytes, got {}",
+            key_bytes.len()
+        ));
+    }
+
+    let key_arr: [u8; 32] = key_bytes[..32]
+        .try_into()
+        .map_err(|_| "invalid key length".to_string())?;
+
+    let secret_key = SecretKey::from_bytes(&key_arr)
+        .map_err(|e| format!("invalid secret key: {}", e))?;
+    let public_key: PublicKey = PublicKey::from(&secret_key);
+    let signing_key = Ed25519Keypair { secret: secret_key, public: public_key };
+    let verifying_key = signing_key.public;
+
+    // Build the canonical signing payload (deterministic ordering)
+    let canonical = format!(
+        "{}:{}:{}:{}:{}:{}",
+        req.sender_address,
+        req.recipient_address,
+        req.amount,
+        req.currency,
+        req.reference,
+        req.payload,
+    );
+
+    // Sign the canonical payload
+    let signature = signing_key.sign(canonical.as_bytes());
+    let signature_hex = hex::encode(signature.to_bytes());
+    let sender_pubkey = bs58::encode(verifying_key.as_bytes()).into_string();
+
+    // Build the signed payload JSON
+    let signed_payload = serde_json::json!({
+        "sender_address": req.sender_address,
+        "recipient_address": req.recipient_address,
+        "amount": req.amount,
+        "currency": req.currency,
+        "reference": req.reference,
+        "payload": req.payload,
+        "signature": signature_hex,
+        "sender_pubkey": sender_pubkey,
+    })
+    .to_string();
+
+    Ok(BricsPaySignResponse {
+        signature_hex,
+        sender_pubkey,
+        signed_payload,
+    })
+}
+
+#[cfg(test)]
+mod brics_tests {
+    use super::*;
+
+    fn test_private_key_base58() -> String {
+        // Deterministic 32-byte test key
+        let key_bytes: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+        ];
+        bs58::encode(key_bytes).into_string()
+    }
+
+    #[test]
+    fn test_sign_brics_pay_produces_signature() {
+        let req = BricsPaySignRequest {
+            sender_private_key_base58: test_private_key_base58(),
+            payload: r#"{"amount":5000,"currency":"CNY"}"#.to_string(),
+            sender_address: "brics1sender".to_string(),
+            recipient_address: "brics1recipient".to_string(),
+            amount: 5000,
+            currency: "CNY".to_string(),
+            reference: "ref-001".to_string(),
+        };
+        let result = sign_brics_pay_transfer(req).unwrap();
+        assert!(!result.signature_hex.is_empty(), "signature should not be empty");
+        assert_eq!(result.signature_hex.len(), 128, "Ed25519 signature is 64 bytes = 128 hex chars");
+        assert!(!result.sender_pubkey.is_empty(), "sender_pubkey should not be empty");
+        assert!(result.signed_payload.contains("brics1sender"), "signed_payload should contain sender address");
+    }
+
+    #[test]
+    fn test_sign_brics_pay_deterministic() {
+        let make_req = || BricsPaySignRequest {
+            sender_private_key_base58: test_private_key_base58(),
+            payload: r#"{"amount":1000}"#.to_string(),
+            sender_address: "addr1".to_string(),
+            recipient_address: "addr2".to_string(),
+            amount: 1000,
+            currency: "RUB".to_string(),
+            reference: "ref-det".to_string(),
+        };
+        let r1 = sign_brics_pay_transfer(make_req()).unwrap();
+        let r2 = sign_brics_pay_transfer(make_req()).unwrap();
+        assert_eq!(r1.signature_hex, r2.signature_hex, "same inputs must produce same signature");
+        assert_eq!(r1.sender_pubkey, r2.sender_pubkey, "same key must produce same pubkey");
+    }
+
+    #[test]
+    fn test_sign_brics_pay_different_amounts_produce_different_signatures() {
+        let make_req = |amount: u64| BricsPaySignRequest {
+            sender_private_key_base58: test_private_key_base58(),
+            payload: "{}".to_string(),
+            sender_address: "addr1".to_string(),
+            recipient_address: "addr2".to_string(),
+            amount,
+            currency: "INR".to_string(),
+            reference: "ref-diff".to_string(),
+        };
+        let r1 = sign_brics_pay_transfer(make_req(100)).unwrap();
+        let r2 = sign_brics_pay_transfer(make_req(200)).unwrap();
+        assert_ne!(r1.signature_hex, r2.signature_hex, "different amounts must produce different signatures");
+    }
+
+    #[test]
+    fn test_sign_brics_pay_invalid_key() {
+        let req = BricsPaySignRequest {
+            sender_private_key_base58: "not-valid-base58!!!".to_string(),
+            payload: "{}".to_string(),
+            sender_address: "addr1".to_string(),
+            recipient_address: "addr2".to_string(),
+            amount: 100,
+            currency: "INR".to_string(),
+            reference: "ref-bad".to_string(),
+        };
+        let result = sign_brics_pay_transfer(req);
+        assert!(result.is_err(), "should fail with invalid base58 key");
+    }
+
+    #[test]
+    fn test_sign_brics_pay_key_too_short() {
+        // 10 bytes is too short
+        let short_key = bs58::encode([0u8; 10]).into_string();
+        let req = BricsPaySignRequest {
+            sender_private_key_base58: short_key,
+            payload: "{}".to_string(),
+            sender_address: "addr1".to_string(),
+            recipient_address: "addr2".to_string(),
+            amount: 100,
+            currency: "ZAR".to_string(),
+            reference: "ref-short".to_string(),
+        };
+        let result = sign_brics_pay_transfer(req);
+        assert!(result.is_err(), "should fail with key too short");
+        assert!(result.unwrap_err().contains("too short"), "error should mention 'too short'");
+    }
+}

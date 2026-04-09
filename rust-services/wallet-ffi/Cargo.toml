@@ -35,6 +35,8 @@ bs58              = "0.5"
 # Hex encoding for raw bytes
 hex               = "0.4"
 bincode            = "1"
+# Ed25519 signing for BRICS Pay cross-border transfers (v1 is compatible with solana-sdk's zeroize)
+ed25519-dalek     = { version = "1", features = ["u64_backend"] }
 # Error handling
 thiserror         = "1"
 # HTTP server (optional — only compiled with --features server)

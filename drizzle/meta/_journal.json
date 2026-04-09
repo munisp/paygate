@@ -211,6 +211,13 @@
       "when": 1775757151582,
       "tag": "0029_lumpy_jane_foster",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1775761065066,
+      "tag": "0030_violet_quentin_quire",
+      "breakpoints": true
     }
   ]
 }

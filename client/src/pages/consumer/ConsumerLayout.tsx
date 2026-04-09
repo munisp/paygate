@@ -6,7 +6,7 @@
  * 5-tab bottom nav: Wallet | Pay | Discover | History | Profile
  */
 import { useLocation } from "wouter";
-import { Wallet, Zap, Compass, Clock, User } from "lucide-react";
+import { Wallet, Zap, Compass, Clock, User, Globe } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
 
@@ -37,6 +37,15 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
           <span className="font-semibold text-sm">PayGate</span>
           <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">Consumer</span>
         </div>
+        <div className="flex items-center gap-1">
+        <button
+          onClick={() => navigate("/consumer/cross-border")}
+          className="relative p-2 rounded-full hover:bg-muted transition-colors"
+          aria-label="International Transfer"
+          title="International Transfer"
+        >
+          <Globe className="w-5 h-5 text-muted-foreground" />
+        </button>
         <button
           onClick={() => navigate("/consumer/notifications")}
           className="relative p-2 rounded-full hover:bg-muted transition-colors"
@@ -50,6 +59,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
         </button>
+        </div>
       </header>
 
       {/* Page Content */}

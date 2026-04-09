@@ -32,6 +32,8 @@ export const grpcRouter = router({
         notifications: false,
         ussd: false,
         outbox: false,
+        consumer: false,
+        analytics: false,
       }));
       return {
         ...health,

@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
-  Send, Building2, CheckCircle, Loader2, ArrowLeft, Star, Trash2, User,
+  Send, Building2, CheckCircle, Loader2, ArrowLeft, Star, Trash2, User, Pencil, Check, X as XIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
@@ -89,6 +89,12 @@ export default function MakePayment() {
   );
 
   const { data: beneficiaries } = trpc.p2p.savedBeneficiaries.useQuery(undefined, { staleTime: 60_000 });
+  const [editingBeneId, setEditingBeneId] = useState<string | null>(null);
+  const [editNickname, setEditNickname] = useState("");
+  const updateBene = trpc.p2p.updateBeneficiary.useMutation({
+    onSuccess: () => { utils.p2p.savedBeneficiaries.invalidate(); setEditingBeneId(null); toast.success("Nickname saved"); },
+    onError: (e) => toast.error(e.message),
+  });
   const deleteBene = trpc.p2p.deleteBeneficiary.useMutation({
     onSuccess: () => { utils.p2p.savedBeneficiaries.invalidate(); toast.success("Beneficiary removed"); },
     onError: (e) => toast.error(e.message),
@@ -172,9 +178,32 @@ export default function MakePayment() {
                       <p className="text-xs text-muted-foreground">{b.bankName} · {b.accountNumber}</p>
                     </div>
                   </button>
-                  <button onClick={() => deleteBene.mutate({ id: b.id })} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {editingBeneId === b.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        value={editNickname}
+                        onChange={(e) => setEditNickname(e.target.value)}
+                        placeholder="Nickname"
+                        className="text-xs px-2 py-1 rounded border border-border bg-background w-24 outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') updateBene.mutate({ id: b.id, nickname: editNickname });
+                          if (e.key === 'Escape') setEditingBeneId(null);
+                        }}
+                      />
+                      <button onClick={() => updateBene.mutate({ id: b.id, nickname: editNickname })} className="p-1 text-emerald-600 hover:opacity-70"><Check className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setEditingBeneId(null)} className="p-1 text-muted-foreground hover:opacity-70"><XIcon className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => { setEditingBeneId(b.id); setEditNickname(b.nickname ?? b.accountName ?? ''); }} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => deleteBene.mutate({ id: b.id })} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

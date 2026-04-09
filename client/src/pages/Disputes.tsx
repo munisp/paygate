@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { RefreshCw, AlertTriangle, MessageSquare, Paperclip, X, Upload, CheckCircle2, ExternalLink } from "lucide-react";
+import { RefreshCw, AlertTriangle, MessageSquare, Paperclip, X, Upload, CheckCircle2, ExternalLink, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -15,6 +15,33 @@ type Dispute = {
   dueDate?: Date | string | null;
   merchantResponse?: string | null;
 };
+
+function SlaCountdown({ dueDate }: { dueDate: Date | string | null | undefined }) {
+  if (!dueDate) return <span className="text-muted-foreground text-xs">—</span>;
+  const due = new Date(dueDate);
+  const now = new Date();
+  const diffMs = due.getTime() - now.getTime();
+  const isBreached = diffMs < 0;
+  const absDiff = Math.abs(diffMs);
+  const hours = Math.floor(absDiff / (1000 * 60 * 60));
+  const mins = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
+  const label = isBreached
+    ? `Breached ${hours}h ${mins}m ago`
+    : hours < 2
+    ? `${hours}h ${mins}m left`
+    : `${hours}h left`;
+  const color = isBreached
+    ? "text-red-600 bg-red-50 border-red-200"
+    : hours < 2
+    ? "text-amber-600 bg-amber-50 border-amber-200"
+    : "text-emerald-600 bg-emerald-50 border-emerald-200";
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${color}`}>
+      <Clock className="w-3 h-3" />
+      {label}
+    </span>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -335,8 +362,11 @@ export default function Disputes() {
                     <td className="px-4 py-3 text-muted-foreground truncate max-w-[180px]">
                       {d.reason ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {d.dueDate ? new Date(d.dueDate).toLocaleDateString() : "—"}
+                    <td className="px-4 py-3">
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">{d.dueDate ? new Date(d.dueDate).toLocaleDateString() : "—"}</div>
+                        {(d.status === "open" || d.status === "under_review") && <SlaCountdown dueDate={d.dueDate} />}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

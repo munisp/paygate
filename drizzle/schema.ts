@@ -1875,3 +1875,20 @@ export const consumerIdempotencyKeys = pgTable("consumer_idempotency_keys", {
   index("cik_key_idx").on(t.idempotencyKey),
 ]);
 export type ConsumerIdempotencyKey = typeof consumerIdempotencyKeys.$inferSelect;
+
+// ─── Consumer Outbox (transactional outbox pattern) ───────────────────────────
+export const consumerOutbox = pgTable("consumer_outbox", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  aggregateId: text("aggregate_id").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").notNull(),
+  status: text("status", { enum: ["pending", "processed", "failed"] }).default("pending").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("co_status_idx").on(t.status),
+  index("co_aggregate_idx").on(t.aggregateId),
+  index("co_created_idx").on(t.createdAt),
+]);
+export type ConsumerOutboxEvent = typeof consumerOutbox.$inferSelect;

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, LineChart, Line, ComposedChart, Legend,
+  BarChart, Bar, LineChart, Line, ComposedChart, Legend, PieChart, Pie, Cell,
 } from "recharts";
-import { TrendingUp, TrendingDown, Download, Calendar, ShieldAlert } from "lucide-react";
+import { TrendingUp, TrendingDown, Download, Calendar, ShieldAlert, Layers } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -55,6 +55,20 @@ export default function Analytics() {
     { days: Math.min(days, 90) },
     { staleTime: 120_000 },
   );
+  const { data: channelData, isLoading: chLoading } = trpc.analytics.channelBreakdown.useQuery(range, { staleTime: 60_000 });
+  const CHANNEL_COLORS: Record<string, string> = {
+    card: "#4F46E5",
+    bank_transfer: "#10B981",
+    mobile_money: "#F59E0B",
+    ussd: "#8B5CF6",
+    qr: "#06B6D4",
+    bnpl: "#EF4444",
+  };
+  const channelSeries = (channelData ?? []).map((r: any) => ({
+    ...r,
+    volume: Number(r.volume ?? 0),
+    label: r.channel?.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+  }));
 
   const isLoading = oLoading || tsLoading;
   const series = (timeSeries ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) }));
@@ -287,6 +301,104 @@ export default function Analytics() {
               />
             </ComposedChart>
           </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Channel Breakdown Section ─────────────────────────────────────── */}
+      <div className="flex items-center gap-2 pt-2">
+        <Layers className="w-5 h-5 text-indigo-500" />
+        <h2 className="text-lg font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Payment Channel Breakdown</h2>
+        <span className="text-xs text-muted-foreground">Volume by channel in selected period</span>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* Pie chart */}
+        <div className="bg-card rounded-xl border border-border p-6">
+          <h3 className="font-semibold mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Volume Share by Channel</h3>
+          <p className="text-sm text-muted-foreground mb-4">Proportion of total transaction volume</p>
+          {chLoading ? <Skeleton className="h-52 w-full" /> : channelSeries.length === 0 ? (
+            <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">No data in this period</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={channelSeries} dataKey="volume" nameKey="label" cx="50%" cy="50%" outerRadius={80} label={({ label, percent }) => `${label} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                  {channelSeries.map((entry: any) => (
+                    <Cell key={entry.channel} fill={CHANNEL_COLORS[entry.channel] ?? "#94A3B8"} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                  formatter={(v: number) => [fmt(v), "Volume"]} />
+                <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Bar chart: volume + success rate */}
+        <div className="bg-card rounded-xl border border-border p-6">
+          <h3 className="font-semibold mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Volume & Success Rate by Channel</h3>
+          <p className="text-sm text-muted-foreground mb-4">Transaction volume (bars) and success rate % (line)</p>
+          {chLoading ? <Skeleton className="h-52 w-full" /> : channelSeries.length === 0 ? (
+            <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={channelSeries}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={fmt} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                  formatter={(v: number, name: string) => [name === "Success Rate" ? `${v}%` : fmt(v), name]} />
+                <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                <Bar yAxisId="left" dataKey="volume" name="Volume" fill="#4F46E5" radius={[4, 4, 0, 0]}>
+                  {channelSeries.map((entry: any) => (
+                    <Cell key={entry.channel} fill={CHANNEL_COLORS[entry.channel] ?? "#94A3B8"} />
+                  ))}
+                </Bar>
+                <Line yAxisId="right" type="monotone" dataKey="successRate" name="Success Rate" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* Channel table */}
+      <div className="bg-card rounded-xl border border-border p-6">
+        <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Channel Performance Table</h3>
+        {chLoading ? <Skeleton className="h-32 w-full" /> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3 text-muted-foreground font-medium">Channel</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground font-medium">Volume</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground font-medium">Transactions</th>
+                  <th className="text-right py-2 px-3 text-muted-foreground font-medium">Success Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {channelSeries.length === 0 ? (
+                  <tr><td colSpan={4} className="text-center py-6 text-muted-foreground">No data in this period</td></tr>
+                ) : channelSeries.map((r: any) => (
+                  <tr key={r.channel} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: CHANNEL_COLORS[r.channel] ?? "#94A3B8" }} />
+                        <span className="font-medium">{r.label}</span>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono">{fmt(r.volume)}</td>
+                    <td className="py-2.5 px-3 text-right">{Number(r.count).toLocaleString()}</td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className={`font-medium ${Number(r.successRate) >= 90 ? "text-emerald-600" : Number(r.successRate) >= 70 ? "text-amber-600" : "text-red-600"}`}>
+                        {Number(r.successRate ?? 0).toFixed(1)}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

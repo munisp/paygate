@@ -1,1 +1,0 @@
-impl warp::Filter + warp::filter::FilterBase<Extract = (std::option::Option<std::string::String>,), Error = Rejection> + std::marker::Copy

@@ -2958,6 +2958,7 @@ dependencies = [
  "bincode",
  "bs58 0.5.1",
  "bytes",
+ "ed25519-dalek",
  "hex",
  "serde",
  "serde_json",

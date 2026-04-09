@@ -367,6 +367,19 @@ export async function getRevenueTimeSeries(merchantId: string, from: Date, to: D
     .orderBy(sql`DATE(created_at)`);
 }
 
+export async function getChannelBreakdown(merchantId: string, from: Date, to: Date) {
+  const db = await getDb(); if (!db) return [];
+  return db.select({
+    channel: transactions.channel,
+    volume: sum(transactions.amount),
+    count: count(),
+    successRate: sql<number>`ROUND(100.0 * SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)`,
+  }).from(transactions)
+    .where(and(eq(transactions.merchantId, merchantId), gte(transactions.createdAt, from), lte(transactions.createdAt, to)))
+    .groupBy(transactions.channel)
+    .orderBy(desc(sum(transactions.amount)));
+}
+
 // ─── Fraud Alerts ──────────────────────────────────────────────────────────────
 
 export async function listFraudAlerts(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {

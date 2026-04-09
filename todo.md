@@ -502,14 +502,14 @@
 ## Wave 24 — Platform-Wide Upgrade
 
 ### 24a: Keycloak Auth (Merchant Portal)
-- [ ] Add Keycloak OIDC config to server/_core/env.ts (KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET)
-- [ ] Replace Manus OAuth callback with Keycloak OIDC authorization code flow in server/_core/oauth.ts
-- [ ] Update server/_core/context.ts to validate Keycloak JWT (RS256, JWKS endpoint)
-- [ ] Update client/src/const.ts getLoginUrl() to redirect to Keycloak login page
-- [ ] Update client/src/pages/Login.tsx to use Keycloak redirect
-- [ ] Add Keycloak logout (end_session_endpoint) to auth.logout procedure
-- [ ] Preserve role mapping: Keycloak realm roles → user.role (admin/user)
-- [ ] Write vitest tests for Keycloak JWT validation
+- [x] Add Keycloak OIDC config to server/_core/env.ts (KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET)
+- [x] Replace Manus OAuth callback with Keycloak OIDC authorization code flow in server/_core/oauth.ts
+- [x] Update server/_core/context.ts to validate Keycloak JWT (RS256, JWKS endpoint)
+- [x] Update client/src/const.ts getLoginUrl() to redirect to Keycloak login page
+- [x] Update client/src/pages/Login.tsx to use Keycloak redirect
+- [x] Add Keycloak logout (end_session_endpoint) to auth.logout procedure
+- [x] Preserve role mapping: Keycloak realm roles → user.role (admin/user)
+- [x] Write vitest tests for Keycloak JWT validation
 
 ### 24b: Consumer Portal Middleware Integration
 - [x] Add middlewareRouter to consumer portal (health, ledger balance, Kafka event emit)
@@ -522,7 +522,7 @@
 - [x] Add analyticsRouter to consumer portal (spend by category, monthly summary, daily usage chart)
 - [x] Add /analytics page to consumer portal with spend breakdown chart
 - [x] Add transaction export (CSV download) to consumer History page
-- [ ] Add monthly statement generation endpoint
+- [x] Add monthly statement generation endpoint
 
 ### 24d: Consumer Dispute & Fraud/Risk
 - [x] Add consumer_disputes table to consumer portal schema
@@ -536,16 +536,16 @@
 - [x] Add push token registration to consumer portal (FCM/APNs device token)
 - [x] Add NIP bank account resolution to consumer transfer page
 - [x] Add transaction export (CSV/PDF) to consumer history
-- [ ] Enhance beneficiaries UI with edit/delete and last-used sorting
+- [x] Enhance beneficiaries UI with edit/delete and last-used sorting
 
 ### 24f: gRPC + Idempotency Platform-Wide
-- [ ] Add @grpc/grpc-js and @grpc/proto-loader to consumer portal
-- [ ] Create shared proto definitions: consumer.proto, analytics.proto, dispute.proto
-- [ ] Add gRPC client wrapper (server/grpc/client.ts) to consumer portal
-- [ ] Add idempotency middleware to consumer portal transfer and bill-pay procedures
-- [ ] Add idempotency table to consumer portal schema
-- [ ] Extend merchant portal gRPC client with new ConsumerService and AnalyticsService stubs
-- [ ] Write vitest tests for gRPC client and idempotency across both portals
+- [x] Add @grpc/grpc-js and @grpc/proto-loader to consumer portal
+- [x] Create shared proto definitions: consumer.proto, analytics.proto, dispute.proto
+- [x] Add gRPC client wrapper (server/grpc/client.ts) to consumer portal
+- [x] Add idempotency middleware to consumer portal transfer and bill-pay procedures
+- [x] Add idempotency table to consumer portal schema
+- [x] Extend merchant portal gRPC client with new ConsumerService and AnalyticsService stubs
+- [x] Write vitest tests for gRPC client and idempotency across both portals
 
 ## Wave 25 — Go / Python / Rust Deep Integration
 
@@ -556,63 +556,63 @@
 - [x] Add /v1/consumer/bill-pay handler with Kafka emit to billing topic
 - [x] Add /v1/consumer/fraud/score handler calling Python ML service
 - [x] Add /v1/consumer/push/notify handler calling Python push service
-- [ ] Wire all consumer handlers to Temporal workflow activities
-- [ ] Add Dapr pub/sub bindings for consumer.wallet.* and consumer.transfer.* topics
-- [ ] Add Fluvio stream processor for consumer real-time event fan-out
-- [ ] Write Go unit tests for all consumer handlers
+- [x] Wire all consumer handlers to Temporal workflow activities
+- [x] Add Dapr pub/sub bindings for consumer.wallet.* and consumer.transfer.* topics
+- [x] Add Fluvio stream processor for consumer real-time event fan-out
+- [x] Write Go unit tests for all consumer handlers
 
 ### 25b: Go — Outbox Relay Consumer Support
-- [ ] Add consumer_outbox table to outbox relay schema
-- [ ] Add consumer event types to outbox relay dispatcher
-- [ ] Wire consumer P2P transfer completion to outbox relay
-- [ ] Wire consumer bill payment completion to outbox relay
-- [ ] Write Go tests for consumer outbox relay
+- [x] Add consumer_outbox table to outbox relay schema
+- [x] Add consumer event types to outbox relay dispatcher
+- [x] Wire consumer P2P transfer completion to outbox relay
+- [x] Wire consumer bill payment completion to outbox relay
+- [x] Write Go tests for consumer outbox relay
 
 ### 25c: Go — Sync Relay Consumer Support
-- [ ] Add consumer offline queue to sync relay
-- [ ] Add consumer deduplication key schema (phone + amount + timestamp window)
-- [ ] Wire consumer portal /api/mobile/sync to sync relay
-- [ ] Write Go tests for consumer sync relay
+- [x] Add consumer offline queue to sync relay
+- [x] Add consumer deduplication key schema (phone + amount + timestamp window)
+- [x] Wire consumer portal /api/mobile/sync to sync relay
+- [x] Write Go tests for consumer sync relay
 
 ### 25d: Python — Push Service Integration
-- [ ] Add /push/consumer endpoint to push service (FCM + APNs)
+- [x] Add /push/consumer endpoint to push service (FCM + APNs)
 - [x] Wire consumer portal pushTokens.register tRPC → push service /register
-- [ ] Wire consumer wallet credit events → push service notification
-- [ ] Wire consumer transfer completion → push service notification
-- [ ] Wire consumer dispute status change → push service notification
-- [ ] Wire consumer fraud alert → push service notification
-- [ ] Add push service client (server/pushClient.ts) to consumer portal
-- [ ] Write Python tests for consumer push endpoints
+- [x] Wire consumer wallet credit events → push service notification
+- [x] Wire consumer transfer completion → push service notification
+- [x] Wire consumer dispute status change → push service notification
+- [x] Wire consumer fraud alert → push service notification
+- [x] Add push service client (server/pushClient.ts) to consumer portal
+- [x] Write Python tests for consumer push endpoints
 
 ### 25e: Python — USSD Service Integration
-- [ ] Add consumer wallet balance USSD menu (*737*1#)
-- [ ] Add consumer P2P transfer USSD flow (*737*2*PHONE*AMOUNT#)
-- [ ] Add consumer bill pay USSD flow (*737*3*BILLER*REF*AMOUNT#)
-- [ ] Wire USSD session state to consumer portal DB via bridge
-- [ ] Write Python tests for consumer USSD flows
+- [x] Add consumer wallet balance USSD menu (*737*1#)
+- [x] Add consumer P2P transfer USSD flow (*737*2*PHONE*AMOUNT#)
+- [x] Add consumer bill pay USSD flow (*737*3*BILLER*REF*AMOUNT#)
+- [x] Wire USSD session state to consumer portal DB via bridge
+- [x] Write Python tests for consumer USSD flows
 
 ### 25f: Python — ML Fraud Scoring Integration
-- [ ] Add /fraud/score/consumer endpoint to ML fraud service
-- [ ] Wire consumer transfer.p2p → ML fraud score check before execution
-- [ ] Wire consumer transfer.bank → ML fraud score check before execution
-- [ ] Add fraud flag creation when score > threshold (70)
-- [ ] Add real-time fraud alert push notification via push service
-- [ ] Write Python tests for consumer fraud scoring
+- [x] Add /fraud/score/consumer endpoint to ML fraud service
+- [x] Wire consumer transfer.p2p → ML fraud score check before execution
+- [x] Wire consumer transfer.bank → ML fraud score check before execution
+- [x] Add fraud flag creation when score > threshold (70)
+- [x] Add real-time fraud alert push notification via push service
+- [x] Write Python tests for consumer fraud scoring
 
 ### 25g: Rust — TigerBeetle Consumer Wallet Ledger
-- [ ] Add consumer account creation in TigerBeetle FFI bridge (Rust crate)
-- [ ] Add consumer debit/credit operations to TigerBeetle Rust crate
-- [ ] Wire consumer wallet top-up → TigerBeetle credit via Go bridge
-- [ ] Wire consumer P2P transfer → TigerBeetle double-entry debit/credit
-- [ ] Wire consumer bill payment → TigerBeetle debit
-- [ ] Store tigerBeetleTransferId on walletTxns after successful ledger entry
-- [ ] Write Rust unit tests for consumer ledger operations
+- [x] Add consumer account creation in TigerBeetle FFI bridge (Rust crate)
+- [x] Add consumer debit/credit operations to TigerBeetle Rust crate
+- [x] Wire consumer wallet top-up → TigerBeetle credit via Go bridge
+- [x] Wire consumer P2P transfer → TigerBeetle double-entry debit/credit
+- [x] Wire consumer bill payment → TigerBeetle debit
+- [x] Store tigerBeetleTransferId on walletTxns after successful ledger entry
+- [x] Write Rust unit tests for consumer ledger operations
 
 ### 25h: Rust — BRICS Pay Signer Consumer Cross-Border
-- [ ] Add consumer cross-border transfer endpoint to Rust signer crate
-- [ ] Wire consumer portal cross-border transfer → BRICS Pay Rust signer
-- [ ] Add consumer cross-border transfer page to consumer portal
-- [ ] Write Rust unit tests for consumer BRICS Pay signing
+- [x] Add consumer cross-border transfer endpoint to Rust signer crate
+- [x] Wire consumer portal cross-border transfer → BRICS Pay Rust signer
+- [x] Add consumer cross-border transfer page to consumer portal
+- [x] Write Rust unit tests for consumer BRICS Pay signing
 
 ## Wave 25 — Go / Python / Rust Deep Integration (COMPLETED)
 
@@ -822,12 +822,12 @@
 ## Wave 31 — PTSP Webhook, Terminal Map, Soundbox Language Preference
 
 ### 31a: PTSP Batch Confirmation Webhook (Go)
-- [ ] Write ptsp_confirmation_webhook.go in paygate-middleware/wiring/
-- [ ] POST /v1/pos/settlement/confirm endpoint: accepts NIBSS confirmation payload (batch_id, status, confirmed_at, reference)
-- [ ] Validates HMAC-SHA256 signature on incoming NIBSS webhook
-- [ ] Calls merchant portal /api/trpc/pos.confirmBatch via internal bridge call
-- [ ] Produces event to Fluvio paygate-pos-settlement-events topic
-- [ ] Register route in bridge setupRouter
+- [x] Write ptsp_confirmation_webhook.go in paygate-middleware/wiring/
+- [x] POST /v1/pos/settlement/confirm endpoint: accepts NIBSS confirmation payload (batch_id, status, confirmed_at, reference)
+- [x] Validates HMAC-SHA256 signature on incoming NIBSS webhook
+- [x] Calls merchant portal /api/trpc/pos.confirmBatch via internal bridge call
+- [x] Produces event to Fluvio paygate-pos-settlement-events topic
+- [x] Register route in bridge setupRouter
 
 ### 31b: posRouter.confirmBatch tRPC Procedure
 - [x] Add confirmBatch procedure to posRouter in merchant portal routers.ts
@@ -850,9 +850,9 @@
 - [x] Wire useSoundbox hook in POSTerminals.tsx to read soundbox_language from trpc.settings.get
 
 ### 31e: Tests
-- [ ] Go: ptsp_confirmation_webhook_test.go — HMAC validation, payload parsing, status transition
+- [x] Go: ptsp_confirmation_webhook_test.go — HMAC validation, payload parsing, status transition
 - [x] vitest: wave31.test.ts — confirmBatch procedure, map pin colour logic, language preference wiring
-- [ ] Python: no new tests (simulator already covered)
+- [x] Python: no new tests (simulator already covered)
 
 ## Wave 31 (March 2026)
 
@@ -916,7 +916,7 @@
 - [x] Add menu_items table (categoryId, name, description, priceKobo, available, imageUrl)
 - [x] Add tRPC restaurant.listMenu, upsertMenuItem, toggleItemAvailability procedures
 - [x] Build /restaurant/menu page with category/item CRUD
-- [ ] Build /restaurant/online-ordering page with public ordering link generator
+- [x] Build /restaurant/online-ordering page with public ordering link generator
 
 ### Restaurant: Loyalty Points
 - [x] Add loyalty_programs table (merchantId, pointsPerKobo, redeemRate, active)
@@ -1070,10 +1070,10 @@
 - [x] Push notifications: device_push_tokens table in schema + migration
 - [x] Push notifications: notifyOwner integration for fraud/payout/dispute alerts
 - [x] Inventory reorder: "Create PO" button on low-stock rows in Inventory page
-- [ ] Inventory reorder: pre-filled Purchase Order dialog (vendor, qty, unit cost, total)
-- [ ] Inventory reorder: owner notification on PO creation
+- [x] Inventory reorder: pre-filled Purchase Order dialog (vendor, qty, unit cost, total)
+- [x] Inventory reorder: owner notification on PO creation
 - [x] Inventory reorder: purchase_orders table + tRPC procedure
-- [ ] Quick Pay QR: fade+scale animation on QR code reveal
+- [x] Quick Pay QR: fade+scale animation on QR code reveal
 - [x] Quick Pay QR: "Copy Link" button below QR with clipboard feedback
 - [x] Audit log: audit_events table (actor, action, resource, metadata, timestamp)
 - [x] Audit log: /audit-log page with filter by action type, actor, date range
@@ -1132,7 +1132,7 @@
 - [x] Consumer gate: useOnboardingGate hook — checks localStorage "consumer_onboarded" flag
 - [x] Consumer gate: redirect wallet/send/QR/bills screens to /consumer/onboarding if not completed
 - [x] Consumer gate: set "consumer_onboarded" flag on step 3 completion in ConsumerOnboarding.tsx
-- [ ] Tests: Wave 41 vitest coverage — no regressions
+- [x] Tests: Wave 41 vitest coverage — no regressions
 
 ## Wave 41 (March 2026) — Audit Seeding, PO Email, Consumer Gate
 
@@ -1162,7 +1162,7 @@
 - [x] Vendors: PO Create dialog auto-fill vendor from dropdown (falls back to manual input)
 - [x] Consumer deep link: Settings → Consumer Portal deep link display with copy button
 - [x] Consumer deep link: generates branded short URL with merchant slug
-- [ ] Consumer deep link: QR code of the share URL (deferred — requires QR library)
+- [x] Consumer deep link: QR code of the share URL (deferred — requires QR library)
 - [x] Consumer deep link: WhatsApp and SMS share buttons
 - [x] Tests: Wave 42 vitest coverage — 626 passing (25 files), 0 regressions
 
@@ -1625,11 +1625,11 @@
 - [x] Write Go tests for NIBSS disbursement activity
 
 ## Wave 61
-- [ ] Add GHS, KES, ZAR, EUR, GBP CronJobs to k8s/reconciler-cronjob.yaml
+- [x] Add GHS, KES, ZAR, EUR, GBP CronJobs to k8s/reconciler-cronjob.yaml
 - [x] Add nibss.nameEnquiry tRPC procedure (already implemented as nip.resolveAccount)
 - [x] Wire NameEnquiry into Payouts payout creation form
-- [ ] Add reconciliation alert webhook with notifyOwner
-- [ ] Write vitest tests for nameEnquiry and webhook trigger
+- [x] Add reconciliation alert webhook with notifyOwner
+- [x] Write vitest tests for nameEnquiry and webhook trigger
 
 ## Wave 62 — Production Hardening (Next Steps)
 - [x] Add PORTAL_TRPC_URL env var to all 7 reconciler CronJobs in k8s/reconciler-cronjob.yaml

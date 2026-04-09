@@ -24,7 +24,7 @@ import {
   createTeamMember, createTransaction, createVirtualCard, createWebhook,
   deleteTeamMember, deleteWebhook, getAnalyticsOverview, getCustomerById,
   getDisputeById, getMerchantByOwnerId, getPaymentLinkById, getPayoutById,
-  getRevenueTimeSeries, getTransactionById, getTransactionStats, getFraudTrend,
+  getRevenueTimeSeries, getTransactionById, getTransactionStats, getFraudTrend, getChannelBreakdown,
   listApiKeys, listCustomers, listDisputes, listPaymentLinks, listPayouts,
   listTeamMembers, listTransactions, listVirtualCards, listWebhooks,
   listWebhookDeliveries, getWebhookById, updateWebhook,
@@ -1579,6 +1579,13 @@ const analyticsRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       return getFraudTrend(merchant.id, input.days);
+    }),
+  channelBreakdown: protectedProcedure
+    .input(z.object({ from: z.date(), to: z.date() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getChannelBreakdown(merchant.id, input.from, input.to);
     }),
 });
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
@@ -5251,6 +5258,7 @@ const p2pRouter = router({
       narration: z.string().max(100).optional(),
       currency: z.string().length(3).default('NGN'),
       saveBeneficiary: z.boolean().default(false),
+      idempotencyKey: z.string().min(8).max(64).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -5258,7 +5266,9 @@ const p2pRouter = router({
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries } = await import('../drizzle/schema');
       const { eq, and } = await import('drizzle-orm');
-      // Check wallet balance
+      // Idempotency guard — prevents double-debit on network retries
+      const _p2pExecute = async () => {
+        // Check wallet balance
       const [wallet] = await db.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
@@ -5343,7 +5353,18 @@ const p2pRouter = router({
           data: { transferId, reference: ref, amountKobo: String(input.amountKobo) },
         });
       }).catch(() => {/* silent */});
-      return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
+        return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
+      };
+      if (input.idempotencyKey) {
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: String(user.id),
+          operation: 'p2p.send',
+          requestBody: input,
+          execute: _p2pExecute,
+        });
+      }
+      return _p2pExecute();
     }),
   history: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(20), offset: z.number().int().default(0) }))
@@ -5381,6 +5402,22 @@ const p2pRouter = router({
       const { savedBeneficiaries } = await import('../drizzle/schema');
       const { eq, and } = await import('drizzle-orm');
       await db.delete(savedBeneficiaries)
+        .where(and(eq(savedBeneficiaries.id, input.id), eq(savedBeneficiaries.userId, user.id)));
+      return { success: true };
+    }),
+  updateBeneficiary: protectedProcedure
+    .input(z.object({ id: z.string(), nickname: z.string().max(40).optional(), accountName: z.string().max(80).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { savedBeneficiaries } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const updates: Record<string, any> = { updatedAt: new Date() };
+      if (input.nickname !== undefined) updates.nickname = input.nickname;
+      if (input.accountName !== undefined) updates.accountName = input.accountName;
+      await db.update(savedBeneficiaries)
+        .set(updates)
         .where(and(eq(savedBeneficiaries.id, input.id), eq(savedBeneficiaries.userId, user.id)));
       return { success: true };
     }),
@@ -5679,6 +5716,7 @@ const consumerBillsRouter = router({
       amountKobo: z.number().int().positive().max(1_000_000_00),
       currency: z.string().length(3).default('NGN'),
       variationCode: z.string().optional(),
+      idempotencyKey: z.string().min(8).max(64).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
