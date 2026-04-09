@@ -5909,3 +5909,5 @@ import { usdcRouter } from './usdcRouter';
 // tier1to5Router is served on the same /api/trpc endpoint via server/index.ts
 import { tier1to5Router } from "./tier1to5Router";
 export { tier1to5Router };
+
+export { tier6to8Router } from './tier6to8Router';

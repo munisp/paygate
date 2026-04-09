@@ -356,3 +356,298 @@ global_rules:
       opentelemetry:
         sampler:
           name: always_on
+
+# ─── Tier 6-8 Routes ────────────────────────────────────────────────────────
+
+- id: insurance-service
+  uri: /api/insurance/*
+  name: insurance-service
+  upstream:
+    type: roundrobin
+    nodes:
+      insurance-service:8110: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 30
+      burst: 15
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on
+
+- id: carbon-credit-service
+  uri: /api/carbon/*
+  name: carbon-credit-service
+  upstream:
+    type: roundrobin
+    nodes:
+      carbon-credit-service:8111: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 20
+      burst: 10
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: nft-service
+  uri: /api/nft/*
+  name: nft-service
+  upstream:
+    type: roundrobin
+    nodes:
+      nft-service:8112: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 20
+      burst: 10
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: bnpl-v2-service
+  uri: /api/bnpl/v2/*
+  name: bnpl-v2-service
+  upstream:
+    type: roundrobin
+    nodes:
+      bnpl-v2-service:8113: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 50
+      burst: 25
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on
+
+- id: crypto-ramp-service
+  uri: /api/crypto/*
+  name: crypto-ramp-service
+  upstream:
+    type: roundrobin
+    nodes:
+      crypto-ramp-service:8114: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 20
+      burst: 10
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: escrow-service
+  uri: /api/escrow/*
+  name: escrow-service
+  upstream:
+    type: roundrobin
+    nodes:
+      escrow-service:8115: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 30
+      burst: 15
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on
+
+- id: bulk-scheduler-service
+  uri: /api/bulk-scheduler/*
+  name: bulk-scheduler-service
+  upstream:
+    type: roundrobin
+    nodes:
+      bulk-scheduler-service:8116: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 10
+      burst: 5
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: tax-withholding-service
+  uri: /api/tax/*
+  name: tax-withholding-service
+  upstream:
+    type: roundrobin
+    nodes:
+      tax-withholding-service:8117: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 30
+      burst: 15
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: regulatory-sandbox-service
+  uri: /api/reg-sandbox/*
+  name: regulatory-sandbox-service
+  upstream:
+    type: roundrobin
+    nodes:
+      regulatory-sandbox-service:8118: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 10
+      burst: 5
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: multi-currency-wallet-service
+  uri: /api/multi-currency/*
+  name: multi-currency-wallet-service
+  upstream:
+    type: roundrobin
+    nodes:
+      multi-currency-wallet-service:8119: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 50
+      burst: 25
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on
+
+- id: rtgs-service
+  uri: /api/rtgs/*
+  name: rtgs-service
+  upstream:
+    type: roundrobin
+    nodes:
+      rtgs-service:8120: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 50
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on
+
+- id: iso20022-service
+  uri: /api/iso20022/*
+  name: iso20022-service
+  upstream:
+    type: roundrobin
+    nodes:
+      iso20022-service:8121: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 50
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on
+
+- id: open-finance-hub
+  uri: /api/open-finance/*
+  name: open-finance-hub
+  upstream:
+    type: roundrobin
+    nodes:
+      open-finance-hub:8122: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 30
+      burst: 15
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: white-label-sdk-service
+  uri: /api/white-label/*
+  name: white-label-sdk-service
+  upstream:
+    type: roundrobin
+    nodes:
+      white-label-sdk-service:8123: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 20
+      burst: 10
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: super-app-service
+  uri: /api/super-app/*
+  name: super-app-service
+  upstream:
+    type: roundrobin
+    nodes:
+      super-app-service:8124: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 50
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: lakehouse-v2-service
+  uri: /api/lakehouse/v2/*
+  name: lakehouse-v2-service
+  upstream:
+    type: roundrobin
+    nodes:
+      lakehouse-v2-service:8125: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 20
+      burst: 10
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+- id: payroll-v2-service
+  uri: /api/payroll/v2/*
+  name: payroll-v2-service
+  upstream:
+    type: roundrobin
+    nodes:
+      payroll-v2-service:8126: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 30
+      burst: 15
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+    opentelemetry:
+      sampler:
+        name: always_on

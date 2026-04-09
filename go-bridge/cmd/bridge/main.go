@@ -196,6 +196,36 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("POST /v1/consumer/fraud/score", authMiddleware(handlers.ConsumerFraudScore))
 	mux.HandleFunc("POST /api/mobile/sync", authMiddleware(handlers.ConsumerMobileSync))
 
+	// ── Lending & Credit ────────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/lending/applications", authMiddleware(handlers.CreateLoanApplication))
+	mux.HandleFunc("POST /v1/lending/applications/{id}/disburse", authMiddleware(handlers.DisburseLoan))
+	mux.HandleFunc("POST /v1/lending/applications/{id}/repay", authMiddleware(handlers.RecordLoanRepayment))
+	mux.HandleFunc("GET /v1/lending/applications/{id}/status", authMiddleware(handlers.GetLoanStatus))
+
+	// ── Split Payments ───────────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/split-payments/rules", authMiddleware(handlers.CreateSplitRule))
+	mux.HandleFunc("POST /v1/split-payments/execute", authMiddleware(handlers.ExecuteSplitPayment))
+	mux.HandleFunc("GET /v1/split-payments/ledger", authMiddleware(handlers.GetSplitLedger))
+	mux.HandleFunc("POST /v1/split-payments/settle", authMiddleware(handlers.TriggerSplitSettlement))
+
+	// ── Dynamic Currency Conversion ──────────────────────────────────────────
+	mux.HandleFunc("GET /v1/dcc/rate", authMiddleware(handlers.GetDCCRate))
+	mux.HandleFunc("POST /v1/dcc/convert", authMiddleware(handlers.ExecuteDCCConversion))
+	mux.HandleFunc("GET /v1/dcc/margin-config", authMiddleware(handlers.GetDCCMarginConfig))
+	mux.HandleFunc("PUT /v1/dcc/margin-config", authMiddleware(handlers.UpdateDCCMarginConfig))
+
+	// ── Invoices ─────────────────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/invoices", authMiddleware(handlers.CreateInvoice))
+	mux.HandleFunc("POST /v1/invoices/{id}/send", authMiddleware(handlers.SendInvoice))
+	mux.HandleFunc("POST /v1/invoices/{id}/payment", authMiddleware(handlers.RecordInvoicePayment))
+	mux.HandleFunc("GET /v1/invoices/{id}", authMiddleware(handlers.GetInvoice))
+	mux.HandleFunc("GET /v1/invoices", authMiddleware(handlers.ListMerchantInvoices))
+
+	// ── Embedded Finance / Open Banking ──────────────────────────────────────
+	mux.HandleFunc("POST /v1/embedded/sdk-token", authMiddleware(handlers.IssueSDKToken))
+	mux.HandleFunc("POST /v1/embedded/open-banking/data", authMiddleware(handlers.GetOpenBankingData))
+	mux.HandleFunc("POST /v1/embedded/webhooks/register", authMiddleware(handlers.RegisterWebhookEndpoint))
+
 	// ── Server ───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")
 	if port == "" {

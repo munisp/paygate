@@ -101,6 +101,23 @@ import LoyaltyEngine from "./pages/tier1to5/LoyaltyEngine";
 import EmbeddedFinance from "./pages/tier1to5/EmbeddedFinance";
 import AIInsights from "./pages/tier1to5/AIInsights";
 import FraudHeatmap from "./pages/tier1to5/FraudHeatmap";
+import InsurancePremium from "./pages/tier6to8/InsurancePremium";
+import CarbonCredit from "./pages/tier6to8/CarbonCredit";
+import NFTBadges from "./pages/tier6to8/NFTBadges";
+import BNPLv2 from "./pages/tier6to8/BNPLv2";
+import CryptoRamp from "./pages/tier6to8/CryptoRamp";
+import EscrowService from "./pages/tier6to8/EscrowService";
+import BulkScheduler from "./pages/tier6to8/BulkScheduler";
+import TaxWithholding from "./pages/tier6to8/TaxWithholding";
+import RegulatorySandbox from "./pages/tier6to8/RegulatorySandbox";
+import MultiCurrencyWallet from "./pages/tier6to8/MultiCurrencyWallet";
+import RTGSDashboard from "./pages/tier6to8/RTGSDashboard";
+import ISO20022 from "./pages/tier6to8/ISO20022";
+import OpenFinanceHub from "./pages/tier6to8/OpenFinanceHub";
+import WhiteLabelSDK from "./pages/tier6to8/WhiteLabelSDK";
+import SuperApp from "./pages/tier6to8/SuperApp";
+import LakehouseV2 from "./pages/tier6to8/LakehouseV2";
+import PayrollV2 from "./pages/tier6to8/PayrollV2";
 
 function Router() {
   const [location] = useLocation();
@@ -232,6 +249,24 @@ function Router() {
         <Route path="/embedded-finance" component={EmbeddedFinance} />
         <Route path="/ai-insights" component={AIInsights} />
         <Route path="/fraud-heatmap" component={FraudHeatmap} />
+        {/* Tier 6-8 New Features */}
+        <Route path="/insurance" component={InsurancePremium} />
+        <Route path="/carbon-credit" component={CarbonCredit} />
+        <Route path="/nft-badges" component={NFTBadges} />
+        <Route path="/bnpl-v2" component={BNPLv2} />
+        <Route path="/crypto-ramp" component={CryptoRamp} />
+        <Route path="/escrow" component={EscrowService} />
+        <Route path="/bulk-scheduler" component={BulkScheduler} />
+        <Route path="/tax-withholding" component={TaxWithholding} />
+        <Route path="/regulatory-sandbox" component={RegulatorySandbox} />
+        <Route path="/multi-currency-wallet" component={MultiCurrencyWallet} />
+        <Route path="/rtgs" component={RTGSDashboard} />
+        <Route path="/iso20022" component={ISO20022} />
+        <Route path="/open-finance" component={OpenFinanceHub} />
+        <Route path="/white-label-sdk" component={WhiteLabelSDK} />
+        <Route path="/super-app" component={SuperApp} />
+        <Route path="/lakehouse-v2" component={LakehouseV2} />
+        <Route path="/payroll-v2" component={PayrollV2} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

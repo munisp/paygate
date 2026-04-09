@@ -779,3 +779,248 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
+
+  # ─── Tier 6-8 Services ────────────────────────────────────────────────────
+
+  insurance-service:
+    image: paygate/insurance-service:${INSURANCE_VERSION:-latest}
+    container_name: paygate-insurance
+    restart: unless-stopped
+    ports: ["8110:8110"]
+    environment:
+      PORT: "8110"
+      INSURANCE_PROVIDER_URL: "${INSURANCE_PROVIDER_URL:-https://api.leadway.com/v1}"
+      INSURANCE_API_KEY: "${INSURANCE_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, redis]
+
+  carbon-credit-service:
+    image: paygate/carbon-credit:${CARBON_VERSION:-latest}
+    container_name: paygate-carbon-credit
+    restart: unless-stopped
+    ports: ["8111:8111"]
+    environment:
+      PORT: "8111"
+      CARBON_REGISTRY_URL: "${CARBON_REGISTRY_URL:-https://api.verra.org/v1}"
+      CARBON_API_KEY: "${CARBON_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+
+  nft-service:
+    image: paygate/nft-service:${NFT_VERSION:-latest}
+    container_name: paygate-nft-service
+    restart: unless-stopped
+    ports: ["8112:8112"]
+    environment:
+      PORT: "8112"
+      NFT_RPC_URL: "${NFT_RPC_URL:-https://polygon-rpc.com}"
+      NFT_CONTRACT_ADDRESS: "${NFT_CONTRACT_ADDRESS:-0x0000000000000000000000000000000000000000}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+
+  bnpl-v2-service:
+    image: paygate/bnpl-v2:${BNPL_V2_VERSION:-latest}
+    container_name: paygate-bnpl-v2
+    restart: unless-stopped
+    ports: ["8113:8113"]
+    environment:
+      PORT: "8113"
+      CREDIT_BUREAU_URL: "${CREDIT_BUREAU_URL:-https://api.crc.ng/v1}"
+      CREDIT_BUREAU_API_KEY: "${CREDIT_BUREAU_API_KEY}"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+
+  crypto-ramp-service:
+    image: paygate/crypto-ramp:${CRYPTO_RAMP_VERSION:-latest}
+    container_name: paygate-crypto-ramp
+    restart: unless-stopped
+    ports: ["8114:8114"]
+    environment:
+      PORT: "8114"
+      YELLOW_CARD_API_URL: "${YELLOW_CARD_API_URL:-https://api.yellowcard.io/v1}"
+      YELLOW_CARD_API_KEY: "${YELLOW_CARD_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+
+  escrow-service:
+    image: paygate/escrow-service:${ESCROW_VERSION:-latest}
+    container_name: paygate-escrow
+    restart: unless-stopped
+    ports: ["8115:8115"]
+    environment:
+      PORT: "8115"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-paygate-prod}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+
+  bulk-scheduler-service:
+    image: paygate/bulk-scheduler:${BULK_SCHED_VERSION:-latest}
+    container_name: paygate-bulk-scheduler
+    restart: unless-stopped
+    ports: ["8116:8116"]
+    environment:
+      PORT: "8116"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-paygate-prod}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+
+  tax-withholding-service:
+    image: paygate/tax-withholding:${TAX_VERSION:-latest}
+    container_name: paygate-tax-withholding
+    restart: unless-stopped
+    ports: ["8117:8117"]
+    environment:
+      PORT: "8117"
+      FIRS_TIN_URL: "${FIRS_TIN_URL:-https://api.firs.gov.ng/v1}"
+      FIRS_API_KEY: "${FIRS_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+
+  regulatory-sandbox-service:
+    image: paygate/regulatory-sandbox:${REG_SANDBOX_VERSION:-latest}
+    container_name: paygate-reg-sandbox
+    restart: unless-stopped
+    ports: ["8118:8118"]
+    environment:
+      PORT: "8118"
+      CBN_SANDBOX_URL: "${CBN_SANDBOX_URL:-https://sandbox.cbn.gov.ng/api/v1}"
+      CBN_SANDBOX_KEY: "${CBN_SANDBOX_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+
+  multi-currency-wallet-service:
+    image: paygate/multi-currency-wallet:${MULTI_CURR_VERSION:-latest}
+    container_name: paygate-multi-currency
+    restart: unless-stopped
+    ports: ["8119:8119"]
+    environment:
+      PORT: "8119"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      FLUVIO_ENDPOINT: "${FLUVIO_ENDPOINT:-localhost:9003}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+
+  rtgs-service:
+    image: paygate/rtgs-service:${RTGS_VERSION:-latest}
+    container_name: paygate-rtgs
+    restart: unless-stopped
+    ports: ["8120:8120"]
+    environment:
+      PORT: "8120"
+      NIBSS_RTGS_URL: "${NIBSS_RTGS_URL:-https://rtgs.nibss-plc.com.ng/api/v1}"
+      NIBSS_RTGS_KEY: "${NIBSS_RTGS_KEY}"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+
+  iso20022-service:
+    image: paygate/iso20022:${ISO20022_VERSION:-latest}
+    container_name: paygate-iso20022
+    restart: unless-stopped
+    ports: ["8121:8121"]
+    environment:
+      PORT: "8121"
+      SWIFT_GPI_URL: "${SWIFT_GPI_URL:-https://api.swift.com/swift-apitracker/v4}"
+      SWIFT_API_KEY: "${SWIFT_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+
+  open-finance-hub:
+    image: paygate/open-finance-hub:${OPEN_FINANCE_VERSION:-latest}
+    container_name: paygate-open-finance
+    restart: unless-stopped
+    ports: ["8122:8122"]
+    environment:
+      PORT: "8122"
+      OPEN_FINANCE_REGISTRY_URL: "${OPEN_FINANCE_REGISTRY_URL:-https://directory.openbanking.org.ng/v1}"
+      OPEN_FINANCE_API_KEY: "${OPEN_FINANCE_API_KEY}"
+      KEYCLOAK_URL: "${KEYCLOAK_URL:-https://auth.paygate.ng}"
+      KEYCLOAK_REALM: "${KEYCLOAK_REALM:-paygate}"
+      PERMIFY_URL: "${PERMIFY_URL:-http://permify:3476}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+
+  white-label-sdk-service:
+    image: paygate/white-label-sdk:${WHITE_LABEL_VERSION:-latest}
+    container_name: paygate-white-label-sdk
+    restart: unless-stopped
+    ports: ["8123:8123"]
+    environment:
+      PORT: "8123"
+      SDK_CDN_URL: "${SDK_CDN_URL:-https://cdn.paygate.ng/sdk}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+
+  super-app-service:
+    image: paygate/super-app:${SUPER_APP_VERSION:-latest}
+    container_name: paygate-super-app
+    restart: unless-stopped
+    ports: ["8124:8124"]
+    environment:
+      PORT: "8124"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, redis]
+
+  lakehouse-v2-service:
+    image: paygate/lakehouse-v2:${LAKEHOUSE_V2_VERSION:-latest}
+    container_name: paygate-lakehouse-v2
+    restart: unless-stopped
+    ports: ["8125:8125"]
+    environment:
+      PORT: "8125"
+      DELTA_LAKE_URL: "${DELTA_LAKE_URL:-http://spark:8998}"
+      SPARK_THRIFT_URL: "${SPARK_THRIFT_URL:-jdbc:hive2://spark:10000}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+
+  payroll-v2-service:
+    image: paygate/payroll-v2:${PAYROLL_V2_VERSION:-latest}
+    container_name: paygate-payroll-v2
+    restart: unless-stopped
+    ports: ["8126:8126"]
+    environment:
+      PORT: "8126"
+      PENSION_ADMIN_URL: "${PENSION_ADMIN_URL:-https://api.pencom.gov.ng/v1}"
+      PENSION_API_KEY: "${PENSION_API_KEY}"
+      NHF_URL: "${NHF_URL:-https://api.fmbn.gov.ng/v1}"
+      NHF_API_KEY: "${NHF_API_KEY}"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-paygate-prod}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]

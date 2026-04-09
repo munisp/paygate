@@ -10,7 +10,10 @@ import {
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
   Rocket, Crown, Server, FileText, Banknote, Scale, Coins,
   TrendingUp, Repeat, ArrowUpDown, FileSpreadsheet, FilePlus2,
-  ShieldCheck, Fingerprint, BookOpen, Gift, Cpu, LineChart, Flame} from "lucide-react";
+  ShieldCheck, Fingerprint, BookOpen, Gift, Cpu, LineChart, Flame,
+  Umbrella, Leaf, Gem, Bitcoin, Lock, CalendarClock, Receipt, FlaskConical,
+  Landmark, Radio, MessageSquareCode, Network, Layers3, Tablet, Satellite,
+  Database} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLocation as useWouterLocation } from "wouter";
@@ -86,6 +89,24 @@ const navItems = [
   { icon: Cpu, label: "Embedded Finance", path: "/embedded-finance", badge: "New" },
   { icon: LineChart, label: "AI Insights", path: "/ai-insights", badge: "AI" },
   { icon: Flame, label: "Fraud Heatmap", path: "/fraud-heatmap", badge: "New" },
+  // ─── Tier 6-8 New Features ───────────────────────────────────────────
+  { icon: Umbrella, label: "Insurance", path: "/insurance", badge: "New" },
+  { icon: Leaf, label: "Carbon Credits", path: "/carbon-credit", badge: "New" },
+  { icon: Gem, label: "NFT Badges", path: "/nft-badges", badge: "New" },
+  { icon: Layers3, label: "BNPL v2", path: "/bnpl-v2", badge: "New" },
+  { icon: Bitcoin, label: "Crypto Ramp", path: "/crypto-ramp", badge: "New" },
+  { icon: Lock, label: "Escrow", path: "/escrow", badge: "New" },
+  { icon: CalendarClock, label: "Bulk Scheduler", path: "/bulk-scheduler", badge: "New" },
+  { icon: Receipt, label: "Tax Withholding", path: "/tax-withholding", badge: "New" },
+  { icon: FlaskConical, label: "Reg Sandbox", path: "/regulatory-sandbox", badge: "New" },
+  { icon: Landmark, label: "Multi-Currency", path: "/multi-currency-wallet", badge: "New" },
+  { icon: Radio, label: "RTGS", path: "/rtgs", badge: "New" },
+  { icon: MessageSquareCode, label: "ISO 20022", path: "/iso20022", badge: "New" },
+  { icon: Network, label: "Open Finance", path: "/open-finance", badge: "New" },
+  { icon: Satellite, label: "White-Label SDK", path: "/white-label-sdk", badge: "New" },
+  { icon: Tablet, label: "Super App", path: "/super-app", badge: "New" },
+  { icon: Database, label: "Lakehouse v2", path: "/lakehouse-v2", badge: "New" },
+  { icon: DollarSign, label: "Payroll v2", path: "/payroll-v2", badge: "New" },
 ];
 
 const devItems = [

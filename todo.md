@@ -1999,3 +1999,40 @@
 - [x] All 20 pages registered in App.tsx routing
 - [x] All 20 features added to Layout.tsx sidebar navigation
 - [x] 1272 tests passing, 0 TypeScript errors
+
+## Tier 6-8 — All Features Completed (2026-04-09)
+- [x] Insurance Premium Collection (Go handler, Python service, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Carbon Credit Marketplace (Go handler, Python service, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] NFT Loyalty Badges (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] BNPL v2 with Credit Bureau (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Crypto On/Off Ramp (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Escrow Service (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Bulk Payment Scheduler (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Tax Withholding Engine (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Regulatory Sandbox Mode (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Multi-Currency Wallet v2 (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Real-Time Gross Settlement (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] ISO 20022 Message Bus (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Open Finance Hub (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Merchant White-Label SDK (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Consumer Super App Shell (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Platform Analytics Lakehouse v2 (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Payroll-as-a-Service v2 (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Agent Banking Network v2 (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Cross-Border Remittance v2 (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+- [x] Merchant POS Terminal v2 (Go handler, tRPC router, React UI, Docker, APISIX route, K8s manifest, vitest tests)
+
+## Production Wiring Completed (2026-04-09)
+- [x] Go bridge main.go wired with all 19 new handler routes (lending, split_payments, dcc, invoices, embedded_finance + 14 tier6-8 handlers)
+- [x] All 6 Python microservice Dockerfiles and requirements.txt created
+- [x] All 2 new Rust service Dockerfiles created
+- [x] tier1to5.test.ts — 52 vitest tests covering all 15 Tier 1-5 procedure groups
+- [x] tier6to8.test.ts — 61 vitest tests covering all 20 Tier 6-8 procedure groups
+- [x] All 70+ production env defaults wired in server/_core/env.ts
+- [x] docker-compose.prod.yml updated with all 17 new Tier 6-8 services
+- [x] APISIX routes.yaml updated with all 17 new Tier 6-8 routes
+- [x] K8s microservices-deployment.yaml updated with all new service deployments
+- [x] trpc3 client and provider wired in main.tsx for tier6to8Router
+- [x] All 17 Tier 6-8 pages added to App.tsx routes
+- [x] All 17 Tier 6-8 nav items added to Layout.tsx sidebar
+- [x] 1,385 tests passing, 0 TypeScript errors
