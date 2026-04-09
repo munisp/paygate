@@ -171,3 +171,188 @@ global_rules:
             X-XSS-Protection: "1; mode=block"
             Referrer-Policy: "strict-origin-when-cross-origin"
             Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+
+# =============================================================================
+# Tier 1-5 New Microservice Routes
+# =============================================================================
+
+# ─── Credit Scoring ───────────────────────────────────────────────────────────
+  - id: credit-scoring-api
+    uri: /api/v1/credit/*
+    methods: [GET, POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "credit-scoring:8100": 1
+    plugins:
+      jwt-auth: {}
+      openid-connect:
+        client_id: ${KEYCLOAK_CLIENT_ID}
+        client_secret: ${KEYCLOAK_CLIENT_SECRET}
+        discovery: ${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration
+        bearer_only: true
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+
+# ─── Billing Engine ───────────────────────────────────────────────────────────
+  - id: billing-engine-api
+    uri: /api/v1/billing/*
+    methods: [GET, POST, PUT, DELETE]
+    upstream:
+      type: roundrobin
+      nodes:
+        "billing-engine:8101": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+
+# ─── FX Rate Feed ─────────────────────────────────────────────────────────────
+  - id: fx-rate-feed-api
+    uri: /api/v1/fx/*
+    methods: [GET]
+    upstream:
+      type: roundrobin
+      nodes:
+        "fx-rate-feed:8102": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+        rejected_code: 429
+      response-cache:
+        cache_ttl: 5
+      prometheus: {}
+
+# ─── Reconciliation Engine ────────────────────────────────────────────────────
+  - id: reconciliation-engine-api
+    uri: /api/v1/reconciliation/*
+    methods: [GET, POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "reconciliation-engine:8103": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 10
+        burst: 5
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+
+# ─── AML Monitor ─────────────────────────────────────────────────────────────
+  - id: aml-monitor-api
+    uri: /api/v1/aml/*
+    methods: [GET, POST, PUT]
+    upstream:
+      type: roundrobin
+      nodes:
+        "aml-monitor:8104": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+
+# ─── Session Risk ─────────────────────────────────────────────────────────────
+  - id: session-risk-api
+    uri: /api/v1/session-risk/*
+    methods: [GET, POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "session-risk:8105": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 25
+        key: remote_addr
+        rejected_code: 429
+      prometheus: {}
+
+# ─── Loyalty Ledger ───────────────────────────────────────────────────────────
+  - id: loyalty-ledger-api
+    uri: /api/v1/loyalty/*
+    methods: [GET, POST, PUT]
+    upstream:
+      type: roundrobin
+      nodes:
+        "loyalty-ledger:8106": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 30
+        burst: 15
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+
+# ─── AI Insights ──────────────────────────────────────────────────────────────
+  - id: ai-insights-api
+    uri: /api/v1/insights/*
+    methods: [GET, POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "ai-insights:8107": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 10
+        burst: 5
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on
+
+# ─── Fraud Heatmap ────────────────────────────────────────────────────────────
+  - id: fraud-heatmap-api
+    uri: /api/v1/fraud-heatmap/*
+    methods: [GET, POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "fraud-heatmap:8108": 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      prometheus: {}
+      opentelemetry:
+        sampler:
+          name: always_on

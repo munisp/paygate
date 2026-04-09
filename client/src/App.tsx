@@ -86,6 +86,21 @@ import AuditLog from "./pages/AuditLog";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import Vendors from "./pages/Vendors";
 import Settlements from "./pages/Settlements";
+import MerchantLending from "./pages/MerchantLending";
+import SplitPayments from "./pages/SplitPayments";
+import RecurringBilling from "./pages/tier1to5/RecurringBilling";
+import DCCDashboard from "./pages/tier1to5/DCCDashboard";
+import ReconciliationEngine from "./pages/tier1to5/ReconciliationEngine";
+import InvoiceBuilder from "./pages/tier1to5/InvoiceBuilder";
+import ChargebackAutomation from "./pages/tier1to5/ChargebackAutomation";
+import AMLMonitor from "./pages/tier1to5/AMLMonitor";
+import KYBWorkflow from "./pages/tier1to5/KYBWorkflow";
+import SessionRisk from "./pages/tier1to5/SessionRisk";
+import OpenBanking from "./pages/tier1to5/OpenBanking";
+import LoyaltyEngine from "./pages/tier1to5/LoyaltyEngine";
+import EmbeddedFinance from "./pages/tier1to5/EmbeddedFinance";
+import AIInsights from "./pages/tier1to5/AIInsights";
+import FraudHeatmap from "./pages/tier1to5/FraudHeatmap";
 
 function Router() {
   const [location] = useLocation();
@@ -201,6 +216,22 @@ function Router() {
         <Route path="/purchase-orders" component={PurchaseOrders} />
         <Route path="/vendors" component={Vendors} />
         <Route path="/settlements" component={Settlements} />
+        {/* Tier 1-5 New Features */}
+        <Route path="/lending" component={MerchantLending} />
+        <Route path="/split-payments" component={SplitPayments} />
+        <Route path="/recurring-billing" component={RecurringBilling} />
+        <Route path="/dcc" component={DCCDashboard} />
+        <Route path="/reconciliation" component={ReconciliationEngine} />
+        <Route path="/invoice-builder" component={InvoiceBuilder} />
+        <Route path="/chargeback-automation" component={ChargebackAutomation} />
+        <Route path="/aml-monitor" component={AMLMonitor} />
+        <Route path="/kyb-workflow" component={KYBWorkflow} />
+        <Route path="/session-risk" component={SessionRisk} />
+        <Route path="/open-banking" component={OpenBanking} />
+        <Route path="/loyalty-engine" component={LoyaltyEngine} />
+        <Route path="/embedded-finance" component={EmbeddedFinance} />
+        <Route path="/ai-insights" component={AIInsights} />
+        <Route path="/fraud-heatmap" component={FraudHeatmap} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

@@ -1015,3 +1015,805 @@ spec:
     requests:
       storage: 100Gi
   storageClassName: fast-ssd
+
+# =============================================================================
+# Tier 1-5 New Microservices — Kubernetes Deployments
+# =============================================================================
+
+---
+# ─── Credit Scoring Service ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credit-scoring
+  namespace: paygate
+  labels:
+    app: credit-scoring
+    tier: tier1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: credit-scoring
+  template:
+    metadata:
+      labels:
+        app: credit-scoring
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "credit-scoring"
+        dapr.io/app-port: "8100"
+    spec:
+      containers:
+        - name: credit-scoring
+          image: paygate/credit-scoring:latest
+          ports:
+            - containerPort: 8100
+          env:
+            - name: PORT
+              value: "8100"
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: TEMPORAL_HOST_PORT
+              value: "temporal:7233"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-credit-scoring"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: credit-scoring
+  namespace: paygate
+spec:
+  selector:
+    app: credit-scoring
+  ports:
+    - port: 8100
+      targetPort: 8100
+---
+# ─── Billing Engine ───────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-engine
+  namespace: paygate
+  labels:
+    app: billing-engine
+    tier: tier1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: billing-engine
+  template:
+    metadata:
+      labels:
+        app: billing-engine
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "billing-engine"
+        dapr.io/app-port: "8101"
+    spec:
+      containers:
+        - name: billing-engine
+          image: paygate/billing-engine:latest
+          ports:
+            - containerPort: 8101
+          env:
+            - name: PORT
+              value: "8101"
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: TEMPORAL_HOST_PORT
+              value: "temporal:7233"
+            - name: TEMPORAL_NAMESPACE
+              value: "paygate"
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: STRIPE_SECRET_KEY
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-billing-engine"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8101
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8101
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing-engine
+  namespace: paygate
+spec:
+  selector:
+    app: billing-engine
+  ports:
+    - port: 8101
+      targetPort: 8101
+---
+# ─── FX Rate Feed ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fx-rate-feed
+  namespace: paygate
+  labels:
+    app: fx-rate-feed
+    tier: tier1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fx-rate-feed
+  template:
+    metadata:
+      labels:
+        app: fx-rate-feed
+    spec:
+      containers:
+        - name: fx-rate-feed
+          image: paygate/fx-rate-feed:latest
+          ports:
+            - containerPort: 8102
+          env:
+            - name: PORT
+              value: "8102"
+            - name: FLUVIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: FLUVIO_ENDPOINT
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-fx-rate-feed"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8102
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8102
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fx-rate-feed
+  namespace: paygate
+spec:
+  selector:
+    app: fx-rate-feed
+  ports:
+    - port: 8102
+      targetPort: 8102
+---
+# ─── Reconciliation Engine ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reconciliation-engine
+  namespace: paygate
+  labels:
+    app: reconciliation-engine
+    tier: tier2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reconciliation-engine
+  template:
+    metadata:
+      labels:
+        app: reconciliation-engine
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "reconciliation-engine"
+        dapr.io/app-port: "8103"
+    spec:
+      containers:
+        - name: reconciliation-engine
+          image: paygate/reconciliation-engine:latest
+          ports:
+            - containerPort: 8103
+          env:
+            - name: PORT
+              value: "8103"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: LAKEHOUSE_URL
+              value: "http://lakehouse-audit:8085"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-reconciliation-engine"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8103
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8103
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reconciliation-engine
+  namespace: paygate
+spec:
+  selector:
+    app: reconciliation-engine
+  ports:
+    - port: 8103
+      targetPort: 8103
+---
+# ─── AML Monitor ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aml-monitor
+  namespace: paygate
+  labels:
+    app: aml-monitor
+    tier: tier3
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aml-monitor
+  template:
+    metadata:
+      labels:
+        app: aml-monitor
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "aml-monitor"
+        dapr.io/app-port: "8104"
+    spec:
+      containers:
+        - name: aml-monitor
+          image: paygate/aml-monitor:latest
+          ports:
+            - containerPort: 8104
+          env:
+            - name: PORT
+              value: "8104"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: PERMIFY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PERMIFY_URL
+            - name: PERMIFY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PERMIFY_API_KEY
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-aml-monitor"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8104
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8104
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aml-monitor
+  namespace: paygate
+spec:
+  selector:
+    app: aml-monitor
+  ports:
+    - port: 8104
+      targetPort: 8104
+---
+# ─── Session Risk ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-risk
+  namespace: paygate
+  labels:
+    app: session-risk
+    tier: tier3
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: session-risk
+  template:
+    metadata:
+      labels:
+        app: session-risk
+    spec:
+      containers:
+        - name: session-risk
+          image: paygate/session-risk:latest
+          ports:
+            - containerPort: 8105
+          env:
+            - name: PORT
+              value: "8105"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: PERMIFY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PERMIFY_URL
+            - name: PERMIFY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PERMIFY_API_KEY
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-session-risk"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8105
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8105
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-risk
+  namespace: paygate
+spec:
+  selector:
+    app: session-risk
+  ports:
+    - port: 8105
+      targetPort: 8105
+---
+# ─── Loyalty Ledger ───────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loyalty-ledger
+  namespace: paygate
+  labels:
+    app: loyalty-ledger
+    tier: tier4
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: loyalty-ledger
+  template:
+    metadata:
+      labels:
+        app: loyalty-ledger
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "loyalty-ledger"
+        dapr.io/app-port: "8106"
+    spec:
+      containers:
+        - name: loyalty-ledger
+          image: paygate/loyalty-ledger:latest
+          ports:
+            - containerPort: 8106
+          env:
+            - name: PORT
+              value: "8106"
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-loyalty-ledger"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8106
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8106
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loyalty-ledger
+  namespace: paygate
+spec:
+  selector:
+    app: loyalty-ledger
+  ports:
+    - port: 8106
+      targetPort: 8106
+---
+# ─── AI Insights ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-insights
+  namespace: paygate
+  labels:
+    app: ai-insights
+    tier: tier5
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-insights
+  template:
+    metadata:
+      labels:
+        app: ai-insights
+    spec:
+      containers:
+        - name: ai-insights
+          image: paygate/ai-insights:latest
+          ports:
+            - containerPort: 8107
+          env:
+            - name: PORT
+              value: "8107"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: LAKEHOUSE_URL
+              value: "http://lakehouse-audit:8085"
+            - name: BUILT_IN_FORGE_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: BUILT_IN_FORGE_API_URL
+            - name: BUILT_IN_FORGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: BUILT_IN_FORGE_API_KEY
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-ai-insights"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8107
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8107
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-insights
+  namespace: paygate
+spec:
+  selector:
+    app: ai-insights
+  ports:
+    - port: 8107
+      targetPort: 8107
+---
+# ─── Fraud Heatmap ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-heatmap
+  namespace: paygate
+  labels:
+    app: fraud-heatmap
+    tier: tier5
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fraud-heatmap
+  template:
+    metadata:
+      labels:
+        app: fraud-heatmap
+    spec:
+      containers:
+        - name: fraud-heatmap
+          image: paygate/fraud-heatmap:latest
+          ports:
+            - containerPort: 8108
+          env:
+            - name: PORT
+              value: "8108"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            - name: FLUVIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: FLUVIO_ENDPOINT
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "paygate-fraud-heatmap"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8108
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8108
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-heatmap
+  namespace: paygate
+spec:
+  selector:
+    app: fraud-heatmap
+  ports:
+    - port: 8108
+      targetPort: 8108
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fraud-heatmap-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fraud-heatmap
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

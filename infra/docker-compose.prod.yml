@@ -503,6 +503,267 @@ services:
     networks:
       - paygate-net
 
+  # ─── Tier 1: Credit Scoring Service (Rust FFI + Python wrapper) ──────────────
+  credit-scoring:
+    image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
+    container_name: paygate-credit-scoring
+    restart: unless-stopped
+    environment:
+      PORT: "8100"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      TEMPORAL_HOST_PORT: temporal:7233
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-credit-scoring
+    ports:
+      - "8100:8100"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 1: Billing Engine (Rust proration + Temporal dunning) ──────────────
+  billing-engine:
+    image: paygate/billing-engine:${BILLING_VERSION:-latest}
+    container_name: paygate-billing-engine
+    restart: unless-stopped
+    environment:
+      PORT: "8101"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      TEMPORAL_HOST_PORT: temporal:7233
+      TEMPORAL_NAMESPACE: paygate
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-billing-engine
+    ports:
+      - "8101:8101"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 1: FX Rate Feed (Python + Fluvio streaming) ────────────────────────
+  fx-rate-feed:
+    image: paygate/fx-rate-feed:${FX_RATE_VERSION:-latest}
+    container_name: paygate-fx-rate-feed
+    restart: unless-stopped
+    environment:
+      PORT: "8102"
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-fx-rate-feed
+    ports:
+      - "8102:8102"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8102/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 2: Reconciliation Engine (Python + lakehouse + Kafka) ──────────────
+  reconciliation-engine:
+    image: paygate/reconciliation-engine:${RECON_ENGINE_VERSION:-latest}
+    container_name: paygate-reconciliation-engine
+    restart: unless-stopped
+    environment:
+      PORT: "8103"
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      LAKEHOUSE_URL: http://lakehouse-audit:8085
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-reconciliation-engine
+    ports:
+      - "8103:8103"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 3: AML Monitor (Python rule engine + Redis velocity + Kafka) ────────
+  aml-monitor:
+    image: paygate/aml-monitor:${AML_VERSION:-latest}
+    container_name: paygate-aml-monitor
+    restart: unless-stopped
+    environment:
+      PORT: "8104"
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+      PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-aml-monitor
+    ports:
+      - "8104:8104"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8104/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 3: Session Risk (Go risk scorer + Redis session store) ──────────────
+  session-risk:
+    image: paygate/session-risk:${SESSION_RISK_VERSION:-latest}
+    container_name: paygate-session-risk
+    restart: unless-stopped
+    environment:
+      PORT: "8105"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+      PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-session-risk
+    ports:
+      - "8105:8105"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8105/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 4: Loyalty Ledger (Rust + Dapr state + Kafka events) ───────────────
+  loyalty-ledger:
+    image: paygate/loyalty-ledger:${LOYALTY_VERSION:-latest}
+    container_name: paygate-loyalty-ledger
+    restart: unless-stopped
+    environment:
+      PORT: "8106"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-loyalty-ledger
+    ports:
+      - "8106:8106"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8106/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 5: AI Insights (Python + LLM + lakehouse aggregator) ───────────────
+  ai-insights:
+    image: paygate/ai-insights:${AI_INSIGHTS_VERSION:-latest}
+    container_name: paygate-ai-insights
+    restart: unless-stopped
+    environment:
+      PORT: "8107"
+      DATABASE_URL: ${DATABASE_URL}
+      LAKEHOUSE_URL: http://lakehouse-audit:8085
+      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-ai-insights
+    ports:
+      - "8107:8107"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8107/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Tier 5: Fraud Heatmap (Python ML clustering + Fluvio streaming) ─────────
+  fraud-heatmap:
+    image: paygate/fraud-heatmap:${FRAUD_HEATMAP_VERSION:-latest}
+    container_name: paygate-fraud-heatmap
+    restart: unless-stopped
+    environment:
+      PORT: "8108"
+      DATABASE_URL: ${DATABASE_URL}
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-fraud-heatmap
+    ports:
+      - "8108:8108"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8108/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 volumes:
   redis-data:
   tb-data-1:

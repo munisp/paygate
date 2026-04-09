@@ -5903,3 +5903,9 @@ export type AppRouter = typeof appRouter;
 // NOTE: appRouter is already exported above; we extend it by re-exporting a merged type.
 // The actual routers are registered via a separate import at the bottom of this file.
 import { usdcRouter } from './usdcRouter';
+
+
+// ─── Tier 1–5 router registration ─────────────────────────────────────────────
+// tier1to5Router is served on the same /api/trpc endpoint via server/index.ts
+import { tier1to5Router } from "./tier1to5Router";
+export { tier1to5Router };

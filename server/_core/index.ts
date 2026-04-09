@@ -8,7 +8,7 @@ import { logger, logRequest } from "../logger";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerKeycloakRoutes } from "./keycloakRoutes";
-import { appRouter } from "../routers";
+import { appRouter, tier1to5Router } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
@@ -1094,6 +1094,21 @@ async function startServer() {
           logger.error("trpc_internal_error", { path, type, message: error.message, stack: error.stack });
         } else if (error.code !== "UNAUTHORIZED" && error.code !== "NOT_FOUND") {
           logger.warn("trpc_error", { path, type, code: error.code, message: error.message });
+        }
+      },
+    })
+  );
+  // ─── Tier 1–5 tRPC API (lending, split payments, recurring billing, DCC, etc.) ─
+  app.use(
+    "/api/trpc2",
+    createExpressMiddleware({
+      router: tier1to5Router,
+      createContext,
+      onError: ({ error, path, type }) => {
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          logger.error("trpc2_internal_error", { path, type, message: error.message, stack: error.stack });
+        } else if (error.code !== "UNAUTHORIZED" && error.code !== "NOT_FOUND") {
+          logger.warn("trpc2_error", { path, type, code: error.code, message: error.message });
         }
       },
     })

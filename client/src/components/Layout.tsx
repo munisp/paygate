@@ -8,7 +8,9 @@ import {
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
-  Rocket, Crown, Server, FileText, Banknote, Scale, Coins} from "lucide-react";
+  Rocket, Crown, Server, FileText, Banknote, Scale, Coins,
+  TrendingUp, Repeat, ArrowUpDown, FileSpreadsheet, FilePlus2,
+  ShieldCheck, Fingerprint, BookOpen, Gift, Cpu, LineChart, Flame} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLocation as useWouterLocation } from "wouter";
@@ -68,6 +70,22 @@ const navItems = [
   { icon: ShoppingCart, label: "Purchase Orders", path: "/purchase-orders", badge: "New" },
   { icon: Building2, label: "Vendor Directory", path: "/vendors" },
   { icon: Banknote, label: "Settlements", path: "/settlements" },
+  // ─── Tier 1-5 New Features ───────────────────────────────────────────
+  { icon: TrendingUp, label: "Merchant Lending", path: "/lending", badge: "New" },
+  { icon: ArrowUpDown, label: "Split Payments", path: "/split-payments", badge: "New" },
+  { icon: Repeat, label: "Recurring Billing", path: "/recurring-billing", badge: "New" },
+  { icon: Globe, label: "DCC Checkout", path: "/dcc", badge: "New" },
+  { icon: FileSpreadsheet, label: "Recon Engine", path: "/reconciliation", badge: "New" },
+  { icon: FilePlus2, label: "Invoice Builder", path: "/invoice-builder", badge: "New" },
+  { icon: ShieldCheck, label: "Chargeback Auto", path: "/chargeback-automation", badge: "New" },
+  { icon: Shield, label: "AML Monitor", path: "/aml-monitor", badge: "New" },
+  { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow", badge: "New" },
+  { icon: Fingerprint, label: "Session Risk", path: "/session-risk", badge: "New" },
+  { icon: BookOpen, label: "Open Banking", path: "/open-banking", badge: "New" },
+  { icon: Gift, label: "Loyalty Engine", path: "/loyalty-engine", badge: "New" },
+  { icon: Cpu, label: "Embedded Finance", path: "/embedded-finance", badge: "New" },
+  { icon: LineChart, label: "AI Insights", path: "/ai-insights", badge: "AI" },
+  { icon: Flame, label: "Fraud Heatmap", path: "/fraud-heatmap", badge: "New" },
 ];
 
 const devItems = [
