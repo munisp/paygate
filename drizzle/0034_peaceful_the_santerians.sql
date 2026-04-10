@@ -1,0 +1,1 @@
+ALTER TABLE "bnpl_loans" ADD COLUMN "paid_amount" bigint DEFAULT 0;

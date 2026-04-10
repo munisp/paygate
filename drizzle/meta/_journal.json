@@ -239,6 +239,20 @@
       "when": 1775820123810,
       "tag": "0033_absent_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1775854177912,
+      "tag": "0034_peaceful_the_santerians",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1775854284655,
+      "tag": "0035_next_blob",
+      "breakpoints": true
     }
   ]
 }

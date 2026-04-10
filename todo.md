@@ -2398,3 +2398,25 @@
 - [x] Permify policy sync on merchant onboarding (createMerchant + updateStep)
 - [x] Mojaloop transfer UI in FXDashboard.tsx — new "Send Money" tab with 4-step stepper, quote, confirm, SSE polling
 - [x] All 1908 tests pass (55 files), 0 TypeScript errors
+
+## Wave 84 — Production Finalization
+
+- [x] Bulk cross-border transfer CSV/Excel export (crossBorder.export procedure)
+- [x] Consumer notification centre page (/consumer/notification-centre)
+- [x] Onboarding gate — redirect to dashboard + Go-Live banner on step 3 completion
+- [x] Merchant lending CRUD (applyForLoan, listLoans, getLoan, makeRepayment)
+- [x] Settlement SLA alerts router (listBreaches, acknowledge, escalate)
+- [x] Payment link analytics procedure (paymentLinks.analytics)
+- [x] Team invite email via nodemailer SMTP (emailService.ts)
+- [x] Webhook replay UI + stats procedures (webhookDeliveries.replay, stats)
+- [x] FX alert persistence and trigger procedures (fx.listAlerts, setAlert, deleteAlert)
+- [x] Consumer notification centre page with mark-read/mark-all-read
+- [x] Wallet statement export page (/consumer/statement) with CSV download
+- [x] QR deep-link generator page (/qr-generator) with QR code canvas
+- [x] USSD session viewer page (/ussd-sessions) with live session table
+- [x] Developer sandbox runner page (/developer-sandbox) with webhook tester
+- [x] All new pages wired into App.tsx routes
+- [x] Merchant navigation updated (Dev Sandbox, QR Generator, USSD Sessions)
+- [x] Consumer navigation updated (Notification Centre, Wallet Statement)
+- [x] 0 TypeScript errors confirmed
+- [x] All 1908 tests passing

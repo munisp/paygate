@@ -2345,3 +2345,68 @@ export async function updatePortalSubscription(merchantId: string, data: Partial
   const [r] = await db.update(portalSubscriptions).set({ ...data, updatedAt: new Date() }).where(eq(portalSubscriptions.merchantId, merchantId)).returning();
   return r ?? null;
 }
+
+// ─── Merchant Loans ───────────────────────────────────────────────────────────
+import { merchantLoans, loanInstalments, type MerchantLoan } from "../drizzle/schema";
+
+export async function listMerchantLoans(merchantId: string, opts: { limit?: number; offset?: number; status?: string } = {}): Promise<MerchantLoan[]> {
+  const db = await getDb(); if (!db) return [];
+  if (opts.status) {
+    return db.select().from(merchantLoans)
+      .where(and(eq(merchantLoans.merchantId, merchantId), eq(merchantLoans.status, opts.status)))
+      .orderBy(desc(merchantLoans.createdAt)).limit(opts.limit ?? 20).offset(opts.offset ?? 0);
+  }
+  return db.select().from(merchantLoans)
+    .where(eq(merchantLoans.merchantId, merchantId))
+    .orderBy(desc(merchantLoans.createdAt)).limit(opts.limit ?? 20).offset(opts.offset ?? 0);
+}
+
+export async function getMerchantLoanById(loanId: string): Promise<MerchantLoan | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.select().from(merchantLoans).where(eq(merchantLoans.loanId, loanId)).limit(1);
+  return r ?? null;
+}
+
+export async function createMerchantLoan(data: {
+  loanId: string; merchantId: string; requestedKobo: number;
+  purposeCode?: string; notes?: string; termDays?: number;
+}): Promise<MerchantLoan | null> {
+  const db = await getDb(); if (!db) return null;
+  await db.insert(merchantLoans).values({
+    ...data,
+    status: "pending_review",
+    creditScore: Math.floor(Math.random() * 200) + 600, // simulated score
+    riskBand: "B",
+    rateAnnualPct: "24.0",
+    termDays: data.termDays ?? 90,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return getMerchantLoanById(data.loanId);
+}
+
+export async function updateMerchantLoan(loanId: string, data: Partial<MerchantLoan>): Promise<MerchantLoan | null> {
+  const db = await getDb(); if (!db) return null;
+  await db.update(merchantLoans).set({ ...data, updatedAt: new Date() }).where(eq(merchantLoans.loanId, loanId));
+  return getMerchantLoanById(loanId);
+}
+
+export async function getLoanInstalments(loanId: string) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(loanInstalments).where(eq(loanInstalments.loanId, loanId)).orderBy(loanInstalments.dueDate);
+}
+
+export async function payLoanInstalment(id: string, paidKobo: number) {
+  const db = await getDb(); if (!db) return null;
+  await db.update(loanInstalments).set({ paidKobo, status: "paid", paidAt: new Date() }).where(eq(loanInstalments.id, id));
+  return id;
+}
+
+// ─── Settlement SLA Alerts ────────────────────────────────────────────────────
+export async function getSettlementSLABreaches(merchantId: string, opts: { limit?: number } = {}) {
+  const db = await getDb(); if (!db) return [];
+  const { settlements } = await import("../drizzle/schema");
+  return db.select().from(settlements).where(
+    and(eq(settlements.merchantId, merchantId), eq(settlements.status, "sla_breached"))
+  ).orderBy(desc(settlements.createdAt)).limit(opts.limit ?? 50);
+}

@@ -72,6 +72,13 @@ const MORE_SECTIONS = [
       { path: "/consumer-insurance", label: "Insurance", icon: Umbrella },
     ],
   },
+  {
+    title: "Notifications & Statements",
+    items: [
+      { path: "/consumer/notification-centre", label: "Notification Centre", icon: Bell },
+      { path: "/consumer/statement", label: "Wallet Statement", icon: FileText },
+    ],
+  },
 ];
 
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {

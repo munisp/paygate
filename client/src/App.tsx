@@ -183,6 +183,12 @@ import TemporalWorkflowMgmt from "./pages/wave80/TemporalWorkflowMgmt";
 import GrpcHealthCheck from "./pages/wave80/GrpcHealthCheck";
 import UssdSessionV2 from "./pages/wave80/UssdSessionV2";
 import RealtimeNotifications from "./pages/wave80/RealtimeNotifications";
+// Wave 84 Pages
+import QRGenerator from "./pages/QRGenerator";
+import USSDSessions from "./pages/USSDSessions";
+import DeveloperSandbox from "./pages/DeveloperSandbox";
+import NotificationCentre from "./pages/consumer/NotificationCentre";
+import WalletStatement from "./pages/consumer/WalletStatement";
 
 function Router() {
   const [location] = useLocation();
@@ -236,6 +242,9 @@ function Router() {
           <Route path="/consumer/cross-border" component={ConsumerCrossBorder} />
           <Route path="/consumer/analytics" component={ConsumerAnalytics} />
           <Route path="/consumer/disputes" component={ConsumerDisputes} />
+          {/* Wave 84 Consumer Routes */}
+          <Route path="/consumer/notification-centre" component={NotificationCentre} />
+          <Route path="/consumer/statement" component={WalletStatement} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -399,6 +408,10 @@ function Router() {
         <Route path="/grpc-health" component={GrpcHealthCheck} />
         <Route path="/ussd-v2" component={UssdSessionV2} />
         <Route path="/realtime-notifications" component={RealtimeNotifications} />
+        {/* Wave 84 Routes */}
+        <Route path="/qr-generator" component={QRGenerator} />
+        <Route path="/ussd-sessions" component={USSDSessions} />
+        <Route path="/developer-sandbox" component={DeveloperSandbox} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

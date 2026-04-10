@@ -214,6 +214,7 @@ const navGroups: NavGroup[] = [
       { icon: Network, label: "Agent Network v2", path: "/agent-network" },
       { icon: Network, label: "Super-Agent V2", path: "/super-agent-v2", badge: "New" },
       { icon: Radio, label: "USSD Session V2", path: "/ussd-v2", badge: "New" },
+      { icon: Radio, label: "USSD Sessions", path: "/ussd-sessions", badge: "New" },
     ],
   },
   {
@@ -284,6 +285,8 @@ const devItems: NavItem[] = [
   { icon: Key, label: "API Keys", path: "/api-keys" },
   { icon: Webhook, label: "Webhooks", path: "/webhooks" },
   { icon: Code2, label: "Developer", path: "/developer" },
+  { icon: Code2, label: "Dev Sandbox", path: "/developer-sandbox", badge: "New" },
+  { icon: QrCode, label: "QR Generator", path: "/qr-generator", badge: "New" },
   { icon: BookMarked, label: "API Docs Portal", path: "/api-docs" },
   { icon: Shield, label: "Role Sync", path: "/role-sync" },
   { icon: Building2, label: "NIP Banks", path: "/nip-banks", badge: "CBN" },

@@ -50,11 +50,22 @@ export default function Webhooks() {
       if (result.success) {
         toast.success(`Test delivered — HTTP ${result.responseStatus} in ${result.latencyMs}ms`);
       } else {
-        toast.error(`Test failed — ${result.errorMessage ?? `HTTP ${result.responseStatus}`}`);
+        toast.error(`Test failed — HTTP ${result.responseStatus ?? 'unknown'}`);
       }
       utils.webhookDeliveries.list.invalidate();
     },
     onError: (e) => { setTestingWebhookId(null); toast.error(e.message); },
+  });
+  const retryDelivery = trpc.webhookDeliveries.retry.useMutation({
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(`Retry delivered — HTTP ${result.responseStatus} in ${result.latencyMs}ms`);
+      } else {
+        toast.error(`Retry failed — HTTP ${result.responseStatus ?? 'unknown'}`);
+      }
+      utils.webhookDeliveries.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
   });
   const updateEventTypes = trpc.webhooks.updateEventTypes.useMutation({
     onSuccess: () => {
@@ -257,7 +268,7 @@ export default function Webhooks() {
                             {statusBadge(d.status)}
                             <span className="font-mono text-muted-foreground">{d.eventType}</span>
                           </div>
-                          <div className="flex items-center gap-4 text-muted-foreground">
+                          <div className="flex items-center gap-3 text-muted-foreground">
                             {d.responseStatus && (
                               <span className={`font-mono font-medium ${d.responseStatus >= 200 && d.responseStatus < 300 ? "text-emerald-600" : "text-red-500"}`}>
                                 HTTP {d.responseStatus}
@@ -269,6 +280,17 @@ export default function Webhooks() {
                               </span>
                             )}
                             <span>{new Date(d.createdAt).toLocaleString()}</span>
+                            {d.status === "failed" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-xs"
+                                disabled={retryDelivery.isPending}
+                                onClick={() => retryDelivery.mutate({ deliveryId: d.id })}
+                              >
+                                Retry
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))}

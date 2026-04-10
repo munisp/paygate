@@ -484,7 +484,7 @@ export type KycSubmission = typeof kycSubmissions.$inferSelect;
 export type InsertKycSubmission = typeof kycSubmissions.$inferInsert;
 
 // ─── BNPL Loans ───────────────────────────────────────────────────────────────
-export const bnplStatusEnum = pgEnum("bnpl_status", ["pending", "active", "completed", "defaulted", "cancelled"]);
+export const bnplStatusEnum = pgEnum("bnpl_status", ["pending", "active", "completed", "paid", "defaulted", "cancelled"]);
 
 export const bnplLoans = pgTable("bnpl_loans", {
   id: text("id").primaryKey(),
@@ -503,6 +503,7 @@ export const bnplLoans = pgTable("bnpl_loans", {
   defaultedAt: timestamp("defaulted_at"),
   customerEmail: text("customer_email"),
   customerName: text("customer_name"),
+  paidAmount: bigint("paid_amount", { mode: "number" }).default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

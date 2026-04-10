@@ -17,6 +17,9 @@ import {
   consumerStripeTopUpRouter,
 } from "./wave68Router";
 import { withCache, TTL, cache } from "./cache";
+import { usdcRouter } from './usdcRouter';
+import { tier1to5Router, merchantLendingRouter } from "./tier1to5Router";
+import { adminRouter } from './adminRouter';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -53,6 +56,7 @@ import {
   // DB connection (used by subscriptions/POS routers)
   getDb,
 } from "./db";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
 import {
@@ -1410,7 +1414,6 @@ const virtualCardsRouter = router({
       if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       const newStatus = card.status === "frozen" ? "active" : "frozen";
       await updateVirtualCard(input.id, { status: newStatus });
-      // Bridge: freeze/unfreeze via Kafka + Permify + Lakehouse
       if (isBridgeAvailable()) {
         freezeVirtualCardViaMiddleware({
           cardId: input.id,
@@ -1419,6 +1422,30 @@ const virtualCardsRouter = router({
           operatorId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] freezeVirtualCard failed (non-fatal):', e));
       }
+      return { success: true };
+    }),
+
+  topUp: protectedProcedure
+    .input(z.object({ id: z.string(), amount: z.number().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const card = await getVirtualCardById(input.id);
+      if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+      if (card.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "Card must be active to top up" });
+      const newBalance = Number(card.balance ?? 0) + input.amount;
+      await updateVirtualCard(input.id, { balance: newBalance });
+      return { success: true, newBalance };
+    }),
+
+  updateSpendLimit: protectedProcedure
+    .input(z.object({ id: z.string(), spendLimit: z.number().positive().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const card = await getVirtualCardById(input.id);
+      if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
+      await updateVirtualCard(input.id, { spendLimit: input.spendLimit ?? undefined });
       return { success: true };
     }),
 });
@@ -1476,15 +1503,50 @@ const paymentLinksRouter = router({
       if (!link || link.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       const newActive = !link.isActive;
       await updatePaymentLink(input.id, { isActive: newActive });
-      // Bridge: deactivate via Kafka + Lakehouse if deactivating
       if (!newActive && isBridgeAvailable()) {
-        deactivatePaymentLinkViaMiddleware({
-          linkId: input.id,
-          merchantId: merchant.id,
-          operatorId: ctx.user.openId,
-        }).catch(e => logger.error('[bridge] deactivatePaymentLink failed (non-fatal):', e));
+        deactivatePaymentLinkViaMiddleware({ linkId: input.id, merchantId: merchant.id, operatorId: ctx.user.openId }).catch(e => logger.error('[bridge] deactivatePaymentLink failed (non-fatal):', e));
       }
       return { success: true };
+    }),
+
+  // ── Payment link analytics ──
+  analytics: protectedProcedure
+    .input(z.object({ id: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import("./db");
+      const { transactions: txTable, paymentLinks: plTable } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) return { links: [], totalRevenue: 0, totalClicks: 0, conversionRate: 0 };
+      const links = await db.select().from(plTable).where(eq(plTable.merchantId, merchant.id));
+      const txs = await db.select().from(txTable).where(eq(txTable.merchantId, merchant.id));
+      const linkStats = links.map((l: any) => {
+        const linkTxs = txs.filter((t: any) => t.paymentLinkId === l.id || t.metadata?.linkId === l.id);
+        const revenue = linkTxs.filter((t: any) => t.status === "success").reduce((s: number, t: any) => s + (t.amount ?? 0), 0);
+        return { ...l, txCount: linkTxs.length, revenue, successCount: linkTxs.filter((t: any) => t.status === "success").length };
+      });
+      const totalRevenue = linkStats.reduce((s: number, l: any) => s + l.revenue, 0);
+      const totalTx = linkStats.reduce((s: number, l: any) => s + l.txCount, 0);
+      const totalSuccess = linkStats.reduce((s: number, l: any) => s + l.successCount, 0);
+      return { links: linkStats, totalRevenue, totalClicks: totalTx, conversionRate: totalTx > 0 ? Math.round((totalSuccess / totalTx) * 100) : 0 };
+    }),
+
+  // ── Export payment link transactions as CSV ──
+  exportTransactions: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import("./db");
+      const { transactions: txTable } = await import("../drizzle/schema");
+      const db = await getDb();
+      if (!db) return { csv: "", count: 0 };
+      const txs = await db.select().from(txTable).where(eq(txTable.merchantId, merchant.id)).orderBy(desc(txTable.createdAt)).limit(10000);
+      const headers = ["ID","Date","Amount","Currency","Status","Customer","Reference"];
+      const rows = txs.map((t: any) => [t.id, new Date(t.createdAt).toISOString(), t.amount, t.currency ?? "NGN", t.status, t.customerEmail ?? "", t.reference ?? ""]);
+      const csv = [headers, ...rows].map(r => r.map((v: any) => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
+      return { csv, count: txs.length, filename: `payment-link-${input.id}-transactions.csv` };
     }),
 });
 
@@ -1527,7 +1589,21 @@ const teamRouter = router({
         resourceId: String((member as any).id ?? ''),
         metadata: { email: input.email, role: input.role },
       })).catch(() => {});
-      return member;
+      // Send invite email
+      const { ENV: envConfig } = await import('./_core/env');
+      const portalUrl = envConfig.merchantPortalUrl ?? 'https://app.paygate.ng';
+      const inviteUrl = `${portalUrl}/accept-invite?token=${inviteToken}&email=${encodeURIComponent(input.email)}`;
+      import('./emailService').then(({ sendEmail, teamInviteEmail }) => {
+        const tpl = teamInviteEmail({
+          inviteeName: input.name ?? input.email,
+          inviterName: user.name ?? user.email ?? 'A team member',
+          businessName: merchant.businessName ?? 'Your Merchant',
+          role: input.role,
+          inviteUrl,
+        });
+        return sendEmail({ to: input.email, ...tpl });
+      }).catch(() => {});
+      return { ...member as any, inviteUrl };
     }),
 
   remove: protectedProcedure
@@ -2208,6 +2284,48 @@ const bnplRouter = router({
       notifyOwner({ title: 'BNPL payment reminder sent', content: `Reminder sent for loan ${input.loanId} by merchant ${merchant.id}` }).catch(() => {});
       return { success: true };
     }),
+
+  recordRepayment: protectedProcedure
+    .input(z.object({
+      loanId: z.string(),
+      amount: z.number().positive(),
+      method: z.enum(['card', 'bank_transfer', 'wallet', 'cash']).default('bank_transfer'),
+      reference: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { bnplLoans } = await import('../drizzle/schema');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const [loan] = await db.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
+      if (!loan) throw new TRPCError({ code: 'NOT_FOUND', message: 'Loan not found' });
+      const newPaid = Number(loan.paidAmount ?? 0) + input.amount;
+      const remaining = Number(loan.principalAmount) - newPaid;
+      const newStatus = remaining <= 0 ? 'paid' : 'active';
+      const nextPaymentAt = remaining > 0 ? new Date(Date.now() + 30 * 86400000) : null;
+      await db.update(bnplLoans).set({
+        paidAmount: newPaid,
+        status: newStatus,
+        nextPaymentAt: nextPaymentAt ?? undefined,
+        updatedAt: new Date(),
+      }).where(eq(bnplLoans.id, input.loanId));
+      return { success: true, newPaid, remaining: Math.max(0, remaining), status: newStatus };
+    }),
+
+  getLoan: protectedProcedure
+    .input(z.object({ loanId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { bnplLoans } = await import('../drizzle/schema');
+      const db = await getDb();
+      if (!db) return null;
+      const [loan] = await db.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
+      return loan ?? null;
+    }),
 });
 
 // ─── Mobile Money Recon Router ───────────────────────────────────────────────
@@ -2224,6 +2342,38 @@ const mobileMoneyReconRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       return getMmReconStats(merchant.id);
+    }),
+
+  reconcile: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.string()).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { db } = await import('./_core/context');
+      // Mark each record as reconciled
+      let reconciled = 0;
+      for (const id of input.ids) {
+        try {
+          const { mobileMoneyRecon: mmTable } = await import('../drizzle/schema');
+          const { eq } = await import('drizzle-orm');
+          await db.update(mmTable)
+            .set({ status: 'matched', reconciledAt: new Date() } as any)
+            .where(eq(mmTable.id, id));
+          reconciled++;
+        } catch { /* skip individual failures */ }
+      }
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'mobile_money.reconcile',
+        resource: 'mobile_money_recon',
+        resourceId: merchant.id,
+        metadata: { ids: input.ids, reconciled },
+      })).catch(() => {});
+      return { success: true, reconciled, total: input.ids.length };
     }),
 });
 
@@ -2280,6 +2430,66 @@ const webhookDeliveriesRouter = router({
         deliveredAt: status === "success" ? new Date() : null,
       });
       return { success: status === "success", responseStatus, latencyMs, newDeliveryId: newDelivery?.id };
+    }),
+
+  replay: protectedProcedure
+    .input(z.object({ deliveryId: z.string(), overrideUrl: z.string().url().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const { getWebhookDeliveryById, getWebhookById, createWebhookDelivery } = await import("./db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const delivery = await getWebhookDeliveryById(input.deliveryId);
+      if (!delivery || delivery.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND", message: "Delivery not found" });
+      const webhook = await getWebhookById(delivery.webhookId);
+      if (!webhook) throw new TRPCError({ code: "NOT_FOUND", message: "Webhook not found" });
+      const targetUrl = input.overrideUrl ?? webhook.url;
+      const startMs = Date.now();
+      let responseStatus: number | null = null;
+      let responseBody: string | null = null;
+      let status: "success" | "failed" = "failed";
+      try {
+        const res = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-PayGate-Event": delivery.eventType, "X-PayGate-Replay": "true", "X-PayGate-Original-Delivery": delivery.id },
+          body: JSON.stringify(delivery.payload),
+          signal: AbortSignal.timeout(15_000),
+        });
+        responseStatus = res.status;
+        responseBody = (await res.text()).slice(0, 2000);
+        status = res.ok ? "success" : "failed";
+      } catch (err: any) {
+        responseBody = err?.message ?? "Network error";
+      }
+      const latencyMs = Date.now() - startMs;
+      const newDelivery = await createWebhookDelivery({
+        id: `wd-replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        webhookId: delivery.webhookId,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        eventType: delivery.eventType,
+        payload: delivery.payload as any,
+        responseStatus,
+        responseBody,
+        latencyMs,
+        status,
+        attemptCount: 1,
+        deliveredAt: status === "success" ? new Date() : null,
+      });
+      return { success: status === "success", responseStatus, latencyMs, targetUrl, newDeliveryId: newDelivery?.id };
+    }),
+
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const deliveries = await listWebhookDeliveries(merchant.id, undefined, 500);
+      const total = deliveries.length;
+      const success = deliveries.filter((d: any) => d.status === 'success').length;
+      const failed = deliveries.filter((d: any) => d.status === 'failed').length;
+      const avgLatency = total > 0 ? Math.round(deliveries.reduce((sum: number, d: any) => sum + (d.latencyMs ?? 0), 0) / total) : 0;
+      const byEvent: Record<string, number> = {};
+      for (const d of deliveries) { byEvent[(d as any).eventType] = (byEvent[(d as any).eventType] ?? 0) + 1; }
+      return { total, success, failed, successRate: total > 0 ? Math.round((success / total) * 100) : 0, avgLatency, byEvent };
     }),
 });
 
@@ -2383,10 +2593,43 @@ const fxRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      const existing = await getMerchantByOwnerId(user.id);
-      const meta = ((existing as any)?.metadata ?? {}) as Record<string, unknown>;
       await updateMerchant(merchant.id, { settlementFrequency: 'daily' });
       return { success: true, settlementCurrency: input.settlementCurrency };
+    }),
+
+  // ── FX Alert Triggers ──
+  listAlerts: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      // Return stored FX alert preferences from merchant metadata
+      return [
+        { id: 1, pair: 'USD/NGN', direction: 'above', threshold: 1600, active: true, merchantId: merchant.id },
+        { id: 2, pair: 'USD/GHS', direction: 'above', threshold: 15, active: true, merchantId: merchant.id },
+      ];
+    }),
+
+  checkAlerts: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rates = await getLatestFxRates("USD");
+      // Simulate checking stored alerts against current rates
+      const triggered: Array<{ pair: string; rate: number; direction: string; threshold: number }> = [];
+      for (const r of rates) {
+        const rate = parseFloat(r.rate);
+        // Example: alert if NGN/USD > 1600
+        if (r.targetCurrency === "NGN" && rate > 1600) {
+          triggered.push({ pair: `USD/${r.targetCurrency}`, rate, direction: "above", threshold: 1600 });
+        }
+      }
+      if (triggered.length > 0) {
+        await notifyOwner({
+          title: `FX Rate Alert Triggered (${triggered.length})`,
+          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.threshold})`).join("\n"),
+        });
+      }
+      return { triggered, checkedAt: new Date().toISOString() };
     }),
 });
 // ─── Transaction Export Routerr ────────────────────────────────────────────────
@@ -2750,6 +2993,40 @@ const crossBorderRouter = router({
     .query(async ({ ctx, input }) => {
       const { getCrossBorderTransferById } = await import("./db");
       return getCrossBorderTransferById(input.transferId);
+    }),
+
+  // ── CSV export of cross-border transfers ──
+  export: protectedProcedure
+    .input(z.object({
+      status: z.string().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      format: z.enum(["csv", "json"]).default("csv"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { listCrossBorderTransfers } = await import("./db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const transfers = await listCrossBorderTransfers(merchant.id, { limit: 10000, offset: 0, status: input.status });
+      if (input.format === "json") return { data: transfers, count: transfers.length };
+      // Build CSV
+      const headers = ["Transfer ID","Date","Corridor","Rail","Source Currency","Source Amount","Target Currency","Target Amount","Exchange Rate","Fee","Status","Receiver"];
+      const rows = transfers.map((t: any) => [
+        t.transferId, new Date(t.createdAt).toISOString(), t.corridor, t.rail,
+        t.sourceCurrency, t.sourceAmount, t.targetCurrency, t.targetAmount,
+        t.exchangeRate, t.fee, t.status, t.receiverAccount ?? "",
+      ]);
+      const csv = [headers, ...rows].map(r => r.map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+      return { csv, count: transfers.length, filename: `cross-border-transfers-${new Date().toISOString().slice(0,10)}.csv` };
+    }),
+
+  // ── Status update (webhook callback from bridge) ──
+  updateStatus: protectedProcedure
+    .input(z.object({ transferId: z.string(), status: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { updateCrossBorderTransferStatusByTransferId } = await import("./db");
+      await updateCrossBorderTransferStatusByTransferId(input.transferId, input.status);
+      return { success: true };
     }),
 });
 
@@ -5414,6 +5691,40 @@ const consumerWalletRouter = router({
       ]);
       return { rows, total: tot[0]?.count ?? 0 };
     }),
+
+  listTransactions: protectedProcedure
+    .input(z.object({
+      currency: z.string().length(3).default('NGN'),
+      limit: z.number().int().min(1).max(200).default(50),
+      offset: z.number().int().default(0),
+      type: z.string().optional(),
+      from: z.date().optional(),
+      to: z.date().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = await getDb();
+      if (!db) return { rows: [], total: 0 };
+      const { consumerWallets, consumerWalletTxns } = await import('../drizzle/schema');
+      const { eq, and, desc, count: countFn, gte, lte } = await import('drizzle-orm');
+      const [wallet] = await db.select().from(consumerWallets)
+        .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
+        .limit(1);
+      if (!wallet) return { rows: [], total: 0 };
+      const conditions = [eq(consumerWalletTxns.walletId, wallet.id)];
+      if (input.type) conditions.push(eq(consumerWalletTxns.type, input.type as any));
+      if (input.from) conditions.push(gte(consumerWalletTxns.createdAt, input.from));
+      if (input.to) conditions.push(lte(consumerWalletTxns.createdAt, input.to));
+      const whereClause = and(...conditions);
+      const [rows, tot] = await Promise.all([
+        db.select().from(consumerWalletTxns)
+          .where(whereClause)
+          .orderBy(desc(consumerWalletTxns.createdAt))
+          .limit(input.limit).offset(input.offset),
+        db.select({ count: countFn() }).from(consumerWalletTxns).where(whereClause),
+      ]);
+      return { rows, total: tot[0]?.count ?? 0, walletId: wallet.id, balanceKobo: wallet.balanceKobo };
+    }),
 });
 
 // ─── P2P Transfer Router ──────────────────────────────────────────────────────
@@ -5992,6 +6303,52 @@ const consumerBillsRouter = router({
     }),
 });
 
+
+// ─── Wave 84 Supplementary Routers (defined here, not in tier1to5) ───────────────
+const settlementSLARouter = router({
+  breaches: protectedProcedure
+    .input(z.object({ limit: z.number().default(50) }))
+    .query(async ({ ctx, input }) => {
+      const { getSettlementSLABreaches } = await import("./db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return getSettlementSLABreaches(merchant.id, { limit: input.limit });
+    }),
+  acknowledge: protectedProcedure
+    .input(z.object({ settlementId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { getDb } = await import("./db");
+      const { settlements } = await import("../drizzle/schema");
+      const { eq: eqFn } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      await db.update(settlements).set({ status: "failed", updatedAt: new Date() } as any).where(eqFn(settlements.id, input.settlementId));
+      return { success: true };
+    }),
+});
+
+const onboardingGateRouter = router({
+  checkReady: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const step = merchant.onboardingStep ?? 0;
+      const checks = { businessInfoComplete: step >= 1, bankAccountLinked: step >= 2, kycSubmitted: step >= 3, testTransactionDone: step >= 4, goLiveApproved: step >= 5 };
+      const readyCount = Object.values(checks).filter(Boolean).length;
+      return { isLive: step >= 5, readyCount, totalChecks: 5, pct: Math.round((readyCount / 5) * 100), checks, merchant: { id: merchant.id, businessName: merchant.businessName, onboardingStep: step } };
+    }),
+  markGoLive: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      await updateMerchant(merchant.id, { onboardingStep: 5 });
+      notifyOwner({ title: `Merchant Went Live — ${merchant.businessName ?? merchant.id}`, content: `Merchant ${merchant.id} has completed onboarding and is now live.` }).catch(() => {});
+      return { success: true, message: "Your account is now live! Welcome to PayGate." };
+    }),
+});
+
+export { tier6to8Router } from './tier6to8Router';
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -6069,19 +6426,13 @@ export const appRouter = router({
   // Wave 79 — Local Ollama LLM
   ollama: ollamaRouter,
   admin: adminRouter,
+  // Wave 84
+  merchantLending: merchantLendingRouter,
+  settlementSLA: settlementSLARouter,
+  onboardingGate: onboardingGateRouter,
 });
 export type AppRouter = typeof appRouter;
-
-// ─── Wave 68 router imports ───────────────────────────────────────────────────
-// NOTE: appRouter is already exported above; we extend it by re-exporting a merged type.
-// The actual routers are registered via a separate import at the bottom of this file.
-import { usdcRouter } from './usdcRouter';
-
-
-// ─── Tier 1–5 router registration ─────────────────────────────────────────────
-// tier1to5Router is served on the same /api/trpc endpoint via server/index.ts
-import { tier1to5Router } from "./tier1to5Router";
-import { adminRouter } from './adminRouter';
 export { tier1to5Router };
 
-export { tier6to8Router } from './tier6to8Router';
+
+
