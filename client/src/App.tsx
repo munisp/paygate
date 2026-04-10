@@ -120,6 +120,15 @@ import LakehouseV2 from "./pages/tier6to8/LakehouseV2";
 import PayrollV2 from "./pages/tier6to8/PayrollV2";
 import SettlementForecast from "./pages/SettlementForecast";
 import TaxEngine from "./pages/TaxEngine";
+import AgentNetwork from "./pages/tier6to8/AgentNetwork";
+import SDKPortal from "./pages/tier6to8/SDKPortal";
+import CohortAnalytics from "./pages/tier1to5/CohortAnalytics";
+import POSv2 from "./pages/tier6to8/POSv2";
+import RemittanceV2 from "./pages/tier6to8/RemittanceV2";
+import DisputeAutomation from "./pages/tier1to5/DisputeAutomation";
+import OpenBankingPortal from "./pages/tier1to5/OpenBankingPortal";
+import MerchantLendingV2 from "./pages/tier1to5/MerchantLending";
+import MobilePOS from "./pages/MobilePOS";
 
 function Router() {
   const [location] = useLocation();
@@ -271,6 +280,16 @@ function Router() {
         <Route path="/payroll-v2" component={PayrollV2} />
         <Route path="/settlement-forecast" component={SettlementForecast} />
         <Route path="/tax-engine" component={TaxEngine} />
+        {/* New Production Pages */}
+        <Route path="/agent-network" component={AgentNetwork} />
+        <Route path="/sdk-portal" component={SDKPortal} />
+        <Route path="/cohort-analytics" component={CohortAnalytics} />
+        <Route path="/pos-v2" component={POSv2} />
+        <Route path="/remittance-v2" component={RemittanceV2} />
+        <Route path="/dispute-automation" component={DisputeAutomation} />
+        <Route path="/open-banking-portal" component={OpenBankingPortal} />
+        <Route path="/merchant-lending-v2" component={MerchantLendingV2} />
+        <Route path="/mobile-pos" component={MobilePOS} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

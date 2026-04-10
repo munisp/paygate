@@ -109,6 +109,16 @@ const navItems = [
   { icon: DollarSign, label: "Payroll v2", path: "/payroll-v2", badge: "New" },
   { icon: TrendingUp, label: "Settlement Forecast", path: "/settlement-forecast", badge: "New" },
   { icon: Receipt, label: "Tax Engine", path: "/tax-engine", badge: "New" },
+  // ─── New Production Features ─────────────────────────────────────────
+  { icon: Network, label: "Agent Network v2", path: "/agent-network", badge: "New" },
+  { icon: Code2, label: "SDK Portal", path: "/sdk-portal", badge: "New" },
+  { icon: LineChart, label: "Cohort Analytics", path: "/cohort-analytics", badge: "New" },
+  { icon: Tablet, label: "POS v2", path: "/pos-v2", badge: "New" },
+  { icon: Globe, label: "Remittance v2", path: "/remittance-v2", badge: "New" },
+  { icon: AlertOctagon, label: "Dispute Automation", path: "/dispute-automation", badge: "New" },
+  { icon: BookOpen, label: "Open Banking Portal", path: "/open-banking-portal", badge: "New" },
+  { icon: Landmark, label: "Merchant Lending v2", path: "/merchant-lending", badge: "New" },
+  { icon: Tablet, label: "Mobile POS", path: "/mobile-pos", badge: "New" },
 ];
 
 const devItems = [

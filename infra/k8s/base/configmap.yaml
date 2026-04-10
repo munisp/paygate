@@ -1,0 +1,67 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paygate-config
+  namespace: paygate
+  labels:
+    app.kubernetes.io/name: paygate
+data:
+  # Service URLs
+  MIDDLEWARE_BRIDGE_URL: "http://paygate-go-bridge:8080"
+  PORTAL_TRPC_URL: "http://paygate-portal:3000/api/trpc"
+  FRAUD_SCORING_URL: "http://paygate-fraud-scoring:9010"
+  SETTLEMENT_FORECAST_URL: "http://paygate-settlement-forecast:9011"
+  COHORT_ANALYTICS_URL: "http://paygate-cohort-analytics:9015"
+  CARBON_ORACLE_URL: "http://paygate-carbon-oracle:9012"
+  INSURANCE_PRICING_URL: "http://paygate-insurance-pricing:9013"
+  TAX_ENGINE_URL: "http://paygate-tax-engine:9014"
+  ISO20022_PARSER_URL: "http://paygate-iso20022-parser:9016"
+  USSD_GATEWAY_URL: "http://paygate-ussd-gateway:9020"
+
+  # Temporal
+  TEMPORAL_HOST_PORT: "temporal-frontend:7233"
+  TEMPORAL_NAMESPACE: "paygate-prod"
+
+  # Kafka
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-broker-0:9092,kafka-broker-1:9092,kafka-broker-2:9092"
+
+  # Fluvio
+  FLUVIO_ENDPOINT: "fluvio-sc:9003"
+
+  # Permify
+  PERMIFY_URL: "http://permify:3476"
+
+  # NIBSS
+  NIBSS_GATEWAY_URL: "https://nibss.paygate.ng/nip/v2"
+
+  # APISIX
+  APISIX_ADMIN_URL: "http://apisix-admin:9180"
+
+  # Keycloak
+  KEYCLOAK_URL: "https://auth.paygate.ng"
+  KEYCLOAK_REALM: "paygate"
+  KEYCLOAK_CLIENT_ID: "paygate-portal"
+  VITE_KEYCLOAK_URL: "https://auth.paygate.ng"
+
+  # OAuth
+  OAUTH_SERVER_URL: "https://api.manus.im"
+  VITE_OAUTH_PORTAL_URL: "https://auth.manus.im"
+
+  # OpenTelemetry
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  OTEL_SERVICE_NAME: "paygate-portal"
+
+  # App
+  MERCHANT_PORTAL_URL: "https://portal.paygate.ng"
+  PAYMENT_LINK_BASE_URL: "https://pay.paygate.ng"
+  ALLOWED_ORIGINS: "https://portal.paygate.ng,https://pay.paygate.ng,https://app.paygate.ng"
+  LOG_LEVEL: "info"
+  VITE_APP_TITLE: "PayGate Merchant Portal"
+  VTPASS_SANDBOX: "false"
+
+  # Push notifications
+  VAPID_SUBJECT: "mailto:ops@paygate.ng"
+
+  # Sync relay
+  SYNC_RELAY_URL: "http://paygate-sync-relay:9030"

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/paygate/go-bridge/internal/fluvio"
+	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
@@ -337,6 +338,30 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("GET /pos-v2/health", authMiddleware(handlers.GetPOSTerminalHealthV2))
 	mux.HandleFunc("POST /pos-v2/push-config", authMiddleware(handlers.PushPOSConfigV2))
 	mux.HandleFunc("GET /pos-v2/transactions", authMiddleware(handlers.GetPOSTransactionsV2))
+	// ── Agent Banking (v3) ──────────────────────────────────────────────────
+	agentH := handlers.NewAgentBankingHandler(pgdb.Get(), redis.Get(), kafka.GetProducer(), tb.Get())
+	mux.HandleFunc("POST /agent/register", authMiddleware(agentH.RegisterAgent))
+	mux.HandleFunc("POST /agent/{agentId}/float/topup", authMiddleware(agentH.TopUpFloat))
+	mux.HandleFunc("POST /agent/{agentId}/deposit", authMiddleware(agentH.ProcessAgentDeposit))
+	mux.HandleFunc("POST /agent/{agentId}/withdrawal", authMiddleware(agentH.ProcessAgentWithdrawal))
+	mux.HandleFunc("POST /agent/{agentId}/commission", authMiddleware(agentH.RecordAgentCommission))
+	mux.HandleFunc("GET /agent/network", authMiddleware(agentH.GetAgentNetwork))
+	mux.HandleFunc("GET /agent/{agentId}/float", authMiddleware(agentH.GetFloatBalance))
+
+	// ── Loyalty Merchant ────────────────────────────────────────────────────
+	loyaltyH := handlers.NewLoyaltyMerchantHandler(pgdb.Get(), redis.Get(), kafka.GetProducer())
+	mux.HandleFunc("POST /loyalty/configure", authMiddleware(loyaltyH.ConfigureLoyaltyProgram))
+	mux.HandleFunc("GET /loyalty/analytics", authMiddleware(loyaltyH.GetLoyaltyAnalytics))
+	mux.HandleFunc("POST /loyalty/coalition", authMiddleware(loyaltyH.CreateCoalition))
+	mux.HandleFunc("GET /loyalty/redemption-stats", authMiddleware(loyaltyH.GetRedemptionStats))
+
+	// ── SDK Relay ────────────────────────────────────────────────────────────
+	sdkH := handlers.NewSDKRelayHandler(pgdb.Get(), redis.Get(), kafka.GetProducer())
+	mux.HandleFunc("POST /sdk/keys", authMiddleware(sdkH.GenerateSDKKey))
+	mux.HandleFunc("GET /sdk/keys", authMiddleware(sdkH.ListSDKIntegrations))
+	mux.HandleFunc("GET /sdk/keys/{keyId}/analytics", authMiddleware(sdkH.GetSDKAnalytics))
+	mux.HandleFunc("POST /sdk/keys/{keyId}/rotate", authMiddleware(sdkH.RotateSDKKey))
+	mux.HandleFunc("POST /sdk/webhook/relay", authMiddleware(sdkH.RelayWebhook))
 
 	// ── Server───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")

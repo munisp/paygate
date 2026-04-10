@@ -946,6 +946,159 @@ const taxEngineRouter = router({
   }),
 });
 
+// ─── Agent Banking V3 ─────────────────────────────────────────────────────────
+const agentBankingV3Router = router({
+  listAgents: protectedProcedure
+    .input(z.object({ status: z.enum(["active","suspended","pending","all"]).default("all"), page: z.number().default(1) }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/agent-banking/agents?merchantId=${ctx.user.id}&status=${input.status}&page=${input.page}`);
+      return res as { agents: { agentId: string; name: string; phone: string; location: string; floatBalanceKobo: number; status: string; totalTransactions: number }[]; total: number };
+    }),
+  registerAgent: protectedProcedure
+    .input(z.object({ name: z.string(), phone: z.string(), bvn: z.string(), location: z.string(), lgaCode: z.string(), initialFloatKobo: z.number().min(1000000) }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await bridgePost("/agent-banking/register", { ...input, merchantId: ctx.user.id });
+      return res as { agentId: string; accountNumber: string; status: string };
+    }),
+  topUpFloat: protectedProcedure
+    .input(z.object({ agentId: z.string(), amountKobo: z.number().min(100000) }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await bridgePost("/agent-banking/float/topup", { ...input, merchantId: ctx.user.id });
+      return res as { transactionId: string; newBalanceKobo: number; status: string };
+    }),
+  getAgentTransactions: protectedProcedure
+    .input(z.object({ agentId: z.string(), from: z.string().optional(), to: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/agent-banking/transactions?agentId=${input.agentId}&merchantId=${ctx.user.id}&from=${input.from ?? ""}&to=${input.to ?? ""}`);
+      return res as { transactions: { id: string; type: string; amountKobo: number; fee: number; timestamp: string; status: string }[]; total: number };
+    }),
+  getNetworkStats: protectedProcedure.query(async ({ ctx }) => {
+    const res = await bridgeGet(`/agent-banking/stats?merchantId=${ctx.user.id}`);
+    return res as { totalAgents: number; activeAgents: number; totalFloatKobo: number; dailyVolumeKobo: number; commissionEarnedKobo: number };
+  }),
+});
+
+// ─── Loyalty Merchant ─────────────────────────────────────────────────────────
+const loyaltyMerchantRouter = router({
+  getProgram: protectedProcedure.query(async ({ ctx }) => {
+    const res = await bridgeGet(`/loyalty/program?merchantId=${ctx.user.id}`);
+    return res as { programId: string; name: string; pointsPerNgn: number; pointValueNgn: number; totalMembers: number; totalPointsIssued: number; totalPointsRedeemed: number };
+  }),
+  updateProgram: protectedProcedure
+    .input(z.object({ name: z.string().optional(), pointsPerNgn: z.number().optional(), pointValueNgn: z.number().optional(), expiryDays: z.number().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await bridgePost("/loyalty/program/update", { ...input, merchantId: ctx.user.id });
+      return res as { success: boolean; programId: string };
+    }),
+  getLeaderboard: protectedProcedure
+    .input(z.object({ limit: z.number().default(10) }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/loyalty/leaderboard?merchantId=${ctx.user.id}&limit=${input.limit}`);
+      return res as { members: { customerId: string; name: string; points: number; tier: string; totalSpendKobo: number }[] };
+    }),
+  issuePoints: protectedProcedure
+    .input(z.object({ customerId: z.string(), points: z.number().min(1), reason: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await bridgePost("/loyalty/points/issue", { ...input, merchantId: ctx.user.id });
+      return res as { success: boolean; newBalance: number; transactionId: string };
+    }),
+  redeemPoints: protectedProcedure
+    .input(z.object({ customerId: z.string(), points: z.number().min(100), orderId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await bridgePost("/loyalty/points/redeem", { ...input, merchantId: ctx.user.id });
+      return res as { success: boolean; discountKobo: number; remainingPoints: number };
+    }),
+  getAnalytics: protectedProcedure
+    .input(z.object({ period: z.enum(["7d","30d","90d","1y"]).default("30d") }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/loyalty/analytics?merchantId=${ctx.user.id}&period=${input.period}`);
+      return res as { pointsIssued: number; pointsRedeemed: number; redemptionRate: number; avgPointsPerMember: number; topTiers: { tier: string; count: number }[] };
+    }),
+});
+
+// ─── SDK Portal ───────────────────────────────────────────────────────────────
+const sdkPortalRouter = router({
+  getSDKConfig: protectedProcedure.query(async ({ ctx }) => {
+    const res = await bridgeGet(`/sdk-relay/config?merchantId=${ctx.user.id}`);
+    return res as { publicKey: string; allowedOrigins: string[]; webhookUrl: string; checkoutTheme: Record<string, string>; enabledMethods: string[] };
+  }),
+  updateSDKConfig: protectedProcedure
+    .input(z.object({ allowedOrigins: z.array(z.string()).optional(), webhookUrl: z.string().url().optional(), checkoutTheme: z.record(z.string(), z.unknown()).optional(), enabledMethods: z.array(z.string()).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await bridgePost("/sdk-relay/config/update", { ...input, merchantId: ctx.user.id });
+      return res as { success: boolean };
+    }),
+  rotatePublicKey: protectedProcedure.mutation(async ({ ctx }) => {
+    const res = await bridgePost("/sdk-relay/rotate-key", { merchantId: ctx.user.id });
+    return res as { newPublicKey: string; expiresAt: string };
+  }),
+  getSDKAnalytics: protectedProcedure
+    .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/sdk-relay/analytics?merchantId=${ctx.user.id}&period=${input.period}`);
+      return res as { checkoutImpressions: number; checkoutConversions: number; conversionRate: number; avgCheckoutTimeMs: number; topPaymentMethods: { method: string; count: number }[] };
+    }),
+  listWebhookDeliveries: protectedProcedure
+    .input(z.object({ page: z.number().default(1), status: z.enum(["success","failed","all"]).default("all") }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/sdk-relay/webhooks?merchantId=${ctx.user.id}&page=${input.page}&status=${input.status}`);
+      return res as { deliveries: { id: string; event: string; status: string; statusCode: number; timestamp: string; retries: number }[]; total: number };
+    }),
+});
+
+// ─── Cohort Analytics ─────────────────────────────────────────────────────────
+const cohortAnalyticsRouter = router({
+  getCohortRetention: protectedProcedure
+    .input(z.object({ cohortPeriod: z.enum(["weekly","monthly"]).default("monthly"), numPeriods: z.number().min(1).max(12).default(6) }))
+    .query(async ({ ctx, input }) => {
+      const COHORT_URL = process.env.COHORT_ANALYTICS_URL ?? "http://cohort-analytics:8095";
+      const res = await fetch(`${COHORT_URL}/cohort/retention`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchantId: ctx.user.id, ...input }),
+      });
+      if (!res.ok) throw new Error("Cohort analytics unavailable");
+      return res.json() as Promise<{ cohorts: { period: string; size: number; retentionRates: number[] }[] }>;
+    }),
+  getRevenueBySegment: protectedProcedure
+    .input(z.object({ segment: z.enum(["channel","product","region","customer_tier"]).default("channel") }))
+    .query(async ({ ctx, input }) => {
+      const COHORT_URL = process.env.COHORT_ANALYTICS_URL ?? "http://cohort-analytics:8095";
+      const res = await fetch(`${COHORT_URL}/revenue/segment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchantId: ctx.user.id, segment: input.segment }),
+      });
+      if (!res.ok) throw new Error("Cohort analytics unavailable");
+      return res.json() as Promise<{ segments: { name: string; revenueKobo: number; transactionCount: number; avgOrderValueKobo: number }[] }>;
+    }),
+  getLTVPrediction: protectedProcedure
+    .input(z.object({ customerId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const COHORT_URL = process.env.COHORT_ANALYTICS_URL ?? "http://cohort-analytics:8095";
+      const res = await fetch(`${COHORT_URL}/ltv/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchantId: ctx.user.id, customerId: input.customerId }),
+      });
+      if (!res.ok) throw new Error("Cohort analytics unavailable");
+      return res.json() as Promise<{ customerId: string; predictedLTVKobo: number; confidenceScore: number; segment: string; churnRisk: number }>;
+    }),
+  getChurnPredictions: protectedProcedure
+    .input(z.object({ riskThreshold: z.number().min(0).max(1).default(0.7), limit: z.number().default(20) }))
+    .query(async ({ ctx, input }) => {
+      const COHORT_URL = process.env.COHORT_ANALYTICS_URL ?? "http://cohort-analytics:8095";
+      const res = await fetch(`${COHORT_URL}/churn/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchantId: ctx.user.id, ...input }),
+      });
+      if (!res.ok) throw new Error("Cohort analytics unavailable");
+      return res.json() as Promise<{ customers: { customerId: string; name: string; churnProbability: number; lastTransactionDate: string; totalSpendKobo: number }[] }>;
+    }),
+});
+
+
 // ─── Tier 6-8 Combined Router ─────────────────────────────────────────────────
 export const tier6to8Router = router({
   insurance: insuranceRouter,
@@ -970,4 +1123,12 @@ export const tier6to8Router = router({
   posTerminalV2: posTerminalV2Router,
   settlementForecast: settlementForecastRouter,
   taxEngine: taxEngineRouter,
+  agentBankingV3: agentBankingV3Router,
+  loyaltyMerchant: loyaltyMerchantRouter,
+  sdkPortal: sdkPortalRouter,
+  cohortAnalytics: cohortAnalyticsRouter,
 });
+
+// ─── Extend tier6to8Router with new routers ──────────────────────────────────
+// These are added to the existing tier6to8Router export
+

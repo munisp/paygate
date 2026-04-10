@@ -1,0 +1,156 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: paygate-alerts
+  namespace: paygate
+  labels:
+    app: paygate
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: paygate.portal
+      interval: 30s
+      rules:
+        - alert: PortalHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{app="paygate-portal",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{app="paygate-portal"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Portal error rate > 5%"
+            description: "Portal HTTP 5xx error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+        - alert: PortalHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{app="paygate-portal"}[5m])) by (le)
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Portal P95 latency > 2s"
+            description: "Portal P95 response time is {{ $value }}s."
+
+        - alert: PortalPodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{namespace="paygate",pod=~"paygate-portal.*"}[15m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Portal pod is crash-looping"
+
+    - name: paygate.go-bridge
+      interval: 30s
+      rules:
+        - alert: BridgeHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{app="paygate-go-bridge",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{app="paygate-go-bridge"}[5m])) > 0.02
+          for: 3m
+          labels:
+            severity: critical
+            team: payments
+          annotations:
+            summary: "Go bridge error rate > 2%"
+
+        - alert: BridgeNIBSSLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(nibss_request_duration_seconds_bucket[5m])) by (le)
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+            team: payments
+          annotations:
+            summary: "NIBSS P99 latency > 5s"
+
+    - name: paygate.payments
+      interval: 60s
+      rules:
+        - alert: PaymentSuccessRateLow
+          expr: |
+            sum(rate(payment_transactions_total{status="success"}[10m]))
+            /
+            sum(rate(payment_transactions_total[10m])) < 0.90
+          for: 10m
+          labels:
+            severity: critical
+            team: payments
+          annotations:
+            summary: "Payment success rate < 90%"
+            description: "Payment success rate is {{ $value | humanizePercentage }}."
+
+        - alert: HighFraudRate
+          expr: |
+            sum(rate(payment_transactions_total{fraud_flagged="true"}[10m]))
+            /
+            sum(rate(payment_transactions_total[10m])) > 0.03
+          for: 10m
+          labels:
+            severity: warning
+            team: fraud
+          annotations:
+            summary: "Fraud rate > 3%"
+
+        - alert: SettlementDelayed
+          expr: |
+            time() - paygate_last_settlement_timestamp_seconds > 86400
+          for: 30m
+          labels:
+            severity: critical
+            team: settlements
+          annotations:
+            summary: "Settlement not processed in 24h"
+
+    - name: paygate.infrastructure
+      interval: 60s
+      rules:
+        - alert: TigerBeetleDown
+          expr: up{app="tigerbeetle"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "TigerBeetle ledger is down"
+
+        - alert: KafkaConsumerLag
+          expr: |
+            kafka_consumer_group_lag{group="paygate-workers"} > 10000
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Kafka consumer lag > 10k messages"
+
+        - alert: RedisMemoryHigh
+          expr: |
+            redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Redis memory usage > 85%"
+
+        - alert: TemporalWorkflowFailures
+          expr: |
+            sum(rate(temporal_workflow_failed_total[10m])) > 5
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Temporal workflow failures > 5/min"

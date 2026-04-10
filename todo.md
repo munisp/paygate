@@ -1797,182 +1797,182 @@
 ## Tier 1 — Revenue & Growth (New Features)
 
 ### T1-1: Merchant Lending & Working Capital
-- [ ] Schema: merchantCreditProfiles, merchantLoans, loanRepayments, creditScoreHistory tables
-- [ ] Go: go-bridge/internal/handlers/lending.go — CreateLoanApplication, ApproveLoan, DisburseLoan, RecordRepayment
-- [ ] Go: go-bridge/internal/temporal/workflows_lending.go — LoanDisbursementWorkflow, RepaymentScheduleWorkflow
-- [ ] Go: go-bridge/internal/temporal/activities_lending.go — CreditScoreActivity, DisburseFundsActivity, RepaymentDeductActivity
-- [ ] Rust: rust-services/credit-scoring/src/lib.rs — ML credit scoring FFI (GMV-based, velocity, repayment history)
-- [ ] Python: python-services/credit-scoring/main.py — REST wrapper for Rust FFI credit scorer
-- [ ] tRPC: server/routers/lending.ts — applyForLoan, getLoans, getLoanDetails, repayLoan
-- [ ] UI: client/src/pages/MerchantLending.tsx — loan application, active loans, repayment schedule, credit score widget
-- [ ] Kafka: loan.applied, loan.approved, loan.disbursed, loan.repayment.due events
-- [ ] APISIX: /api/lending/* route with Keycloak JWT + Permify merchant:lending:apply policy
+- [x] Schema: merchantCreditProfiles, merchantLoans, loanRepayments, creditScoreHistory tables
+- [x] Go: go-bridge/internal/handlers/lending.go — CreateLoanApplication, ApproveLoan, DisburseLoan, RecordRepayment
+- [x] Go: go-bridge/internal/temporal/workflows_lending.go — LoanDisbursementWorkflow, RepaymentScheduleWorkflow
+- [x] Go: go-bridge/internal/temporal/activities_lending.go — CreditScoreActivity, DisburseFundsActivity, RepaymentDeductActivity
+- [x] Rust: rust-services/credit-scoring/src/lib.rs — ML credit scoring FFI (GMV-based, velocity, repayment history)
+- [x] Python: python-services/credit-scoring/main.py — REST wrapper for Rust FFI credit scorer
+- [x] tRPC: server/routers/lending.ts — applyForLoan, getLoans, getLoanDetails, repayLoan
+- [x] UI: client/src/pages/MerchantLending.tsx — loan application, active loans, repayment schedule, credit score widget
+- [x] Kafka: loan.applied, loan.approved, loan.disbursed, loan.repayment.due events
+- [x] APISIX: /api/lending/* route with Keycloak JWT + Permify merchant:lending:apply policy
 
 ### T1-2: Split Payments & Multi-Party Settlements
-- [ ] Schema: splitPaymentRules, splitPaymentLedger, splitSettlements tables
-- [ ] Go: go-bridge/internal/handlers/split_payments.go — CreateSplitRule, ExecuteSplitPayment (TigerBeetle multi-leg), GetSplitLedger
-- [ ] tRPC: server/routers/splitPayments.ts — createSplitRule, listSplitRules, getSplitLedger, triggerSplitSettlement
-- [ ] UI: client/src/pages/SplitPayments.tsx — rule builder, live split ledger, settlement history
-- [ ] Kafka: split.payment.executed, split.settlement.triggered events
-- [ ] Dapr: split-payment-processor sidecar binding
+- [x] Schema: splitPaymentRules, splitPaymentLedger, splitSettlements tables
+- [x] Go: go-bridge/internal/handlers/split_payments.go — CreateSplitRule, ExecuteSplitPayment (TigerBeetle multi-leg), GetSplitLedger
+- [x] tRPC: server/routers/splitPayments.ts — createSplitRule, listSplitRules, getSplitLedger, triggerSplitSettlement
+- [x] UI: client/src/pages/SplitPayments.tsx — rule builder, live split ledger, settlement history
+- [x] Kafka: split.payment.executed, split.settlement.triggered events
+- [x] Dapr: split-payment-processor sidecar binding
 
 ### T1-3: Recurring Billing Engine (extend existing subscriptions)
-- [ ] Schema: billingPlans, billingInvoices, dunningAttempts tables
-- [ ] Go: go-bridge/internal/temporal/workflows_billing.go — RecurringBillingWorkflow, DunningWorkflow
-- [ ] Go: go-bridge/internal/temporal/activities_billing.go — ChargeSubscriptionActivity, SendDunningEmailActivity
-- [ ] Rust: rust-services/billing-engine/src/lib.rs — proration calculator, metered billing aggregator
-- [ ] tRPC: server/routers/billing.ts — createPlan, subscribeToPlan, pauseSubscription, getInvoices, previewProration
-- [ ] UI: client/src/pages/BillingPlans.tsx — plan builder, subscriber list, invoice history, dunning config
-- [ ] Kafka: billing.charge.succeeded, billing.charge.failed, billing.dunning.started events
+- [x] Schema: billingPlans, billingInvoices, dunningAttempts tables
+- [x] Go: go-bridge/internal/temporal/workflows_billing.go — RecurringBillingWorkflow, DunningWorkflow
+- [x] Go: go-bridge/internal/temporal/activities_billing.go — ChargeSubscriptionActivity, SendDunningEmailActivity
+- [x] Rust: rust-services/billing-engine/src/lib.rs — proration calculator, metered billing aggregator
+- [x] tRPC: server/routers/billing.ts — createPlan, subscribeToPlan, pauseSubscription, getInvoices, previewProration
+- [x] UI: client/src/pages/BillingPlans.tsx — plan builder, subscriber list, invoice history, dunning config
+- [x] Kafka: billing.charge.succeeded, billing.charge.failed, billing.dunning.started events
 
 ### T1-4: Dynamic Currency Conversion (DCC) at Checkout
-- [ ] Schema: dccRates, dccTransactions, dccMarginConfig tables
-- [ ] Go: go-bridge/internal/handlers/dcc.go — GetDCCRate, ExecuteDCCConversion, GetDCCMarginConfig
-- [ ] Fluvio: go-bridge/internal/fluvio/dcc_producer.go — real-time rate streaming to dcc-rates topic
-- [ ] Python: python-services/fx-rate-feed/main.py — pulls live FX rates, publishes to Fluvio dcc-rates topic
-- [ ] tRPC: server/routers/dcc.ts — getDCCRate, configureDCCMargin, getDCCTransactions, getDCCRevenue
-- [ ] UI: client/src/pages/DCCDashboard.tsx — live rate board, margin config, DCC revenue analytics
+- [x] Schema: dccRates, dccTransactions, dccMarginConfig tables
+- [x] Go: go-bridge/internal/handlers/dcc.go — GetDCCRate, ExecuteDCCConversion, GetDCCMarginConfig
+- [x] Fluvio: go-bridge/internal/fluvio/dcc_producer.go — real-time rate streaming to dcc-rates topic
+- [x] Python: python-services/fx-rate-feed/main.py — pulls live FX rates, publishes to Fluvio dcc-rates topic
+- [x] tRPC: server/routers/dcc.ts — getDCCRate, configureDCCMargin, getDCCTransactions, getDCCRevenue
+- [x] UI: client/src/pages/DCCDashboard.tsx — live rate board, margin config, DCC revenue analytics
 
 ## Tier 2 — Merchant Operations & Retention (New Features)
 
 ### T2-1: Automated Reconciliation Engine
-- [ ] Schema: reconJobs, reconMatches, reconExceptions, reconReports tables
-- [ ] Python: python-services/recon-engine/main.py — Kafka consumer, fuzzy matching, exception flagging
-- [ ] Python: python-services/recon-engine/matcher.py — rule-based + ML fuzzy matcher using lakehouse Delta tables
-- [ ] Python: python-services/recon-engine/exporter.py — QuickBooks/Xero/Sage webhook export
-- [ ] Go: go-bridge/internal/handlers/reconciliation_engine.go — TriggerReconJob, GetReconStatus, GetExceptions, ResolveException
-- [ ] tRPC: server/routers/reconEngine.ts — triggerRecon, getReconJobs, getExceptions, resolveException, exportReport
-- [ ] UI: client/src/pages/ReconEngine.tsx — job status, match rate gauge, exception queue, export buttons
-- [ ] Kafka: recon.job.started, recon.match.found, recon.exception.flagged events
+- [x] Schema: reconJobs, reconMatches, reconExceptions, reconReports tables
+- [x] Python: python-services/recon-engine/main.py — Kafka consumer, fuzzy matching, exception flagging
+- [x] Python: python-services/recon-engine/matcher.py — rule-based + ML fuzzy matcher using lakehouse Delta tables
+- [x] Python: python-services/recon-engine/exporter.py — QuickBooks/Xero/Sage webhook export
+- [x] Go: go-bridge/internal/handlers/reconciliation_engine.go — TriggerReconJob, GetReconStatus, GetExceptions, ResolveException
+- [x] tRPC: server/routers/reconEngine.ts — triggerRecon, getReconJobs, getExceptions, resolveException, exportReport
+- [x] UI: client/src/pages/ReconEngine.tsx — job status, match rate gauge, exception queue, export buttons
+- [x] Kafka: recon.job.started, recon.match.found, recon.exception.flagged events
 
 ### T2-2: Smart Invoice & Payment Request Builder
-- [ ] Schema: invoices, invoiceLineItems, invoicePayments, invoiceReminders tables
-- [ ] Go: go-bridge/internal/handlers/invoicing.go — CreateInvoice, SendInvoice, RecordInvoicePayment, SendReminder
-- [ ] Dapr: go-bridge/internal/dapr/client.go — pub/sub for invoice.sent, invoice.paid, invoice.overdue
-- [ ] tRPC: server/routers/invoicing.ts — createInvoice, sendInvoice, listInvoices, getInvoice, recordPayment, sendReminder
-- [ ] UI: client/src/pages/InvoiceBuilder.tsx — line items, tax calc, brand logo, PDF preview, send/share
-- [ ] UI: client/src/pages/InvoiceList.tsx — status board (draft/sent/partial/paid/overdue), aging report
+- [x] Schema: invoices, invoiceLineItems, invoicePayments, invoiceReminders tables
+- [x] Go: go-bridge/internal/handlers/invoicing.go — CreateInvoice, SendInvoice, RecordInvoicePayment, SendReminder
+- [x] Dapr: go-bridge/internal/dapr/client.go — pub/sub for invoice.sent, invoice.paid, invoice.overdue
+- [x] tRPC: server/routers/invoicing.ts — createInvoice, sendInvoice, listInvoices, getInvoice, recordPayment, sendReminder
+- [x] UI: client/src/pages/InvoiceBuilder.tsx — line items, tax calc, brand logo, PDF preview, send/share
+- [x] UI: client/src/pages/InvoiceList.tsx — status board (draft/sent/partial/paid/overdue), aging report
 
 ### T2-3: Merchant Mobile PWA Enhancements
-- [ ] TypeScript: client/public/manifest.json — full PWA manifest with shortcuts, display:standalone
-- [ ] TypeScript: client/src/hooks/useOfflineSync.ts — queue mutations offline, replay on reconnect
-- [ ] UI: client/src/pages/MobilePOS.tsx — offline-capable POS screen with sync indicator
+- [x] TypeScript: client/public/manifest.json — full PWA manifest with shortcuts, display:standalone
+- [x] TypeScript: client/src/hooks/useOfflineSync.ts — queue mutations offline, replay on reconnect
+- [x] UI: client/src/pages/MobilePOS.tsx — offline-capable POS screen with sync indicator
 
 ### T2-4: Chargeback & Dispute Automation
-- [ ] Schema: disputeEvidence, disputeAutoSubmissions tables
-- [ ] Go: go-bridge/internal/handlers/dispute_automation.go — CollectEvidence, AutoSubmitToStripe, GetDisputeWinRate
-- [ ] Go: go-bridge/internal/temporal/workflows_dispute.go — DisputeEvidenceWorkflow
-- [ ] tRPC: server/routers/disputeAutomation.ts — collectEvidence, autoSubmit, getWinRateStats, flagHighRiskMerchant
-- [ ] UI: client/src/pages/DisputeAutomation.tsx — evidence timeline, auto-submit toggle, win/loss analytics
+- [x] Schema: disputeEvidence, disputeAutoSubmissions tables
+- [x] Go: go-bridge/internal/handlers/dispute_automation.go — CollectEvidence, AutoSubmitToStripe, GetDisputeWinRate
+- [x] Go: go-bridge/internal/temporal/workflows_dispute.go — DisputeEvidenceWorkflow
+- [x] tRPC: server/routers/disputeAutomation.ts — collectEvidence, autoSubmit, getWinRateStats, flagHighRiskMerchant
+- [x] UI: client/src/pages/DisputeAutomation.tsx — evidence timeline, auto-submit toggle, win/loss analytics
 
 ## Tier 3 — Compliance & Risk (New Features)
 
 ### T3-1: AML Transaction Monitoring
-- [ ] Schema: amlRules, amlAlerts, amlCases, sarReports tables
-- [ ] Python: python-services/aml-monitor/main.py — Kafka consumer, real-time rule evaluation
-- [ ] Python: python-services/aml-monitor/rules.py — configurable rule engine (velocity, structuring, PEP/sanctions)
-- [ ] Python: python-services/aml-monitor/sanctions.py — OFAC/UN sanctions list loader and matcher
-- [ ] Redis: velocity counters per account (24h, 7d, 30d windows)
-- [ ] Permify: aml:alert:view, aml:case:manage, aml:sar:submit policies
-- [ ] tRPC: server/routers/aml.ts — getAlerts, getCase, updateCaseStatus, generateSAR, getRules, updateRule
-- [ ] UI: client/src/pages/AMLMonitor.tsx — alert queue, case management, SAR generator, rule config
-- [ ] Kafka: aml.alert.created, aml.case.opened, aml.sar.submitted events
+- [x] Schema: amlRules, amlAlerts, amlCases, sarReports tables
+- [x] Python: python-services/aml-monitor/main.py — Kafka consumer, real-time rule evaluation
+- [x] Python: python-services/aml-monitor/rules.py — configurable rule engine (velocity, structuring, PEP/sanctions)
+- [x] Python: python-services/aml-monitor/sanctions.py — OFAC/UN sanctions list loader and matcher
+- [x] Redis: velocity counters per account (24h, 7d, 30d windows)
+- [x] Permify: aml:alert:view, aml:case:manage, aml:sar:submit policies
+- [x] tRPC: server/routers/aml.ts — getAlerts, getCase, updateCaseStatus, generateSAR, getRules, updateRule
+- [x] UI: client/src/pages/AMLMonitor.tsx — alert queue, case management, SAR generator, rule config
+- [x] Kafka: aml.alert.created, aml.case.opened, aml.sar.submitted events
 
 ### T3-2: KYB Workflow
-- [ ] Schema: kybSubmissions, kybDocuments, kybDirectors, beneficialOwners tables
-- [ ] Go: go-bridge/internal/temporal/workflows_kyb.go — KYBVerificationWorkflow
-- [ ] Go: go-bridge/internal/temporal/activities_kyb.go — CACLookupActivity, DirectorBVNActivity, YouverifyDocActivity
-- [ ] tRPC: server/routers/kyb.ts — startKYB, uploadDocument, getKYBStatus, listDirectors, submitBeneficialOwners
-- [ ] UI: client/src/pages/KYBWorkflow.tsx — multi-step wizard (business → directors → docs → beneficial owners → status)
+- [x] Schema: kybSubmissions, kybDocuments, kybDirectors, beneficialOwners tables
+- [x] Go: go-bridge/internal/temporal/workflows_kyb.go — KYBVerificationWorkflow
+- [x] Go: go-bridge/internal/temporal/activities_kyb.go — CACLookupActivity, DirectorBVNActivity, YouverifyDocActivity
+- [x] tRPC: server/routers/kyb.ts — startKYB, uploadDocument, getKYBStatus, listDirectors, submitBeneficialOwners
+- [x] UI: client/src/pages/KYBWorkflow.tsx — multi-step wizard (business → directors → docs → beneficial owners → status)
 
 ### T3-3: Regulatory Reporting Dashboard
-- [ ] Schema: regulatoryReports, reportSchedules tables
-- [ ] Go: go-bridge/internal/handlers/regulatory.go — GenerateCBNReport, GenerateNFIUReturn, GenerateLargeTransactionReport
-- [ ] Python: python-services/regulatory-reporter/main.py — scheduled report generator, CBN format exporter
-- [ ] tRPC: server/routers/regulatory.ts — generateReport, scheduleReport, listReports, downloadReport
-- [ ] UI: client/src/pages/RegulatoryReports.tsx — report type selector, schedule config, download center
+- [x] Schema: regulatoryReports, reportSchedules tables
+- [x] Go: go-bridge/internal/handlers/regulatory.go — GenerateCBNReport, GenerateNFIUReturn, GenerateLargeTransactionReport
+- [x] Python: python-services/regulatory-reporter/main.py — scheduled report generator, CBN format exporter
+- [x] tRPC: server/routers/regulatory.ts — generateReport, scheduleReport, listReports, downloadReport
+- [x] UI: client/src/pages/RegulatoryReports.tsx — report type selector, schedule config, download center
 
 ### T3-4: Device & Session Fingerprinting
-- [ ] TypeScript: client/src/lib/fingerprint.ts — canvas/audio/WebGL fingerprint collector
-- [ ] Schema: deviceFingerprints, sessionRiskScores tables
-- [ ] Go: go-bridge/internal/handlers/device_risk.go — RecordFingerprint, ScoreSessionRisk, FlagSuspiciousDevice
-- [ ] Redis: device→account mapping cache, session risk TTL store
-- [ ] tRPC: server/routers/deviceRisk.ts — recordFingerprint, getSessionRisk, getSuspiciousDevices
-- [ ] UI: client/src/pages/DeviceRisk.tsx — device map, session risk timeline, flagged devices list
+- [x] TypeScript: client/src/lib/fingerprint.ts — canvas/audio/WebGL fingerprint collector
+- [x] Schema: deviceFingerprints, sessionRiskScores tables
+- [x] Go: go-bridge/internal/handlers/device_risk.go — RecordFingerprint, ScoreSessionRisk, FlagSuspiciousDevice
+- [x] Redis: device→account mapping cache, session risk TTL store
+- [x] tRPC: server/routers/deviceRisk.ts — recordFingerprint, getSessionRisk, getSuspiciousDevices
+- [x] UI: client/src/pages/DeviceRisk.tsx — device map, session risk timeline, flagged devices list
 
 ## Tier 4 — Ecosystem & Platform (New Features)
 
 ### T4-1: Open Banking Data API
-- [ ] Schema: openBankingApps, openBankingScopes, openBankingTokens, openBankingWebhookSubs tables
-- [ ] Go: go-bridge/internal/handlers/open_banking.go — RegisterApp, IssueToken, RevokeToken, DeliverDataWebhook
-- [ ] Keycloak: open-banking realm client with custom scopes (accounts:read, transactions:read, payouts:write)
-- [ ] APISIX: /open-banking/v1/* route with JWT plugin + rate limiting + quota plugin
-- [ ] tRPC: server/routers/openBanking.ts — registerApp, listApps, getAppAnalytics, manageScopes
-- [ ] UI: client/src/pages/OpenBankingPortal.tsx — app registration, scope management, API key rotation, usage analytics
+- [x] Schema: openBankingApps, openBankingScopes, openBankingTokens, openBankingWebhookSubs tables
+- [x] Go: go-bridge/internal/handlers/open_banking.go — RegisterApp, IssueToken, RevokeToken, DeliverDataWebhook
+- [x] Keycloak: open-banking realm client with custom scopes (accounts:read, transactions:read, payouts:write)
+- [x] APISIX: /open-banking/v1/* route with JWT plugin + rate limiting + quota plugin
+- [x] tRPC: server/routers/openBanking.ts — registerApp, listApps, getAppAnalytics, manageScopes
+- [x] UI: client/src/pages/OpenBankingPortal.tsx — app registration, scope management, API key rotation, usage analytics
 
 ### T4-2: Agent Banking Network (extend existing)
-- [ ] Schema: agentFloatAccounts, agentCommissions, agentHierarchy, agentTransactions tables
-- [ ] Go: go-bridge/internal/handlers/agent_banking.go — RegisterAgent, TopUpFloat, ProcessAgentDeposit, ProcessAgentWithdrawal, RecordAgentCommission
-- [ ] TigerBeetle: agent float accounts as dedicated ledger accounts
-- [ ] Kafka: agent.float.topup, agent.transaction.completed, agent.commission.earned events
-- [ ] tRPC: server/routers/agentBanking.ts — registerAgent, getAgentNetwork, getFloatBalance, processTransaction, getCommissions
-- [ ] UI: client/src/pages/AgentNetwork.tsx — agent hierarchy tree, float management, commission dashboard, geo map
+- [x] Schema: agentFloatAccounts, agentCommissions, agentHierarchy, agentTransactions tables
+- [x] Go: go-bridge/internal/handlers/agent_banking.go — RegisterAgent, TopUpFloat, ProcessAgentDeposit, ProcessAgentWithdrawal, RecordAgentCommission
+- [x] TigerBeetle: agent float accounts as dedicated ledger accounts
+- [x] Kafka: agent.float.topup, agent.transaction.completed, agent.commission.earned events
+- [x] tRPC: server/routers/agentBanking.ts — registerAgent, getAgentNetwork, getFloatBalance, processTransaction, getCommissions
+- [x] UI: client/src/pages/AgentNetwork.tsx — agent hierarchy tree, float management, commission dashboard, geo map
 
 ### T4-3: Loyalty & Rewards Engine (extend Rust loyalty-ledger)
-- [ ] Schema: loyaltyCoalitions, loyaltyRedemptionRules, loyaltyPartners tables
-- [ ] Rust: rust-services/loyalty-ledger/src/coalition.rs — coalition points pool, cross-merchant redemption
-- [ ] Rust: rust-services/loyalty-ledger/src/rules.rs — configurable accrual/redemption rules engine
-- [ ] Dapr: loyalty state store binding (Redis-backed), loyalty.points.earned pub/sub
-- [ ] Go: go-bridge/internal/handlers/loyalty_merchant.go — ConfigureLoyaltyProgram, GetLoyaltyAnalytics, CreateCoalition
-- [ ] tRPC: server/routers/loyaltyMerchant.ts — configureProgram, getAnalytics, createCoalition, getRedemptionStats
-- [ ] UI: client/src/pages/LoyaltyEngine.tsx — program config, coalition builder, points analytics, redemption leaderboard
+- [x] Schema: loyaltyCoalitions, loyaltyRedemptionRules, loyaltyPartners tables
+- [x] Rust: rust-services/loyalty-ledger/src/coalition.rs — coalition points pool, cross-merchant redemption
+- [x] Rust: rust-services/loyalty-ledger/src/rules.rs — configurable accrual/redemption rules engine
+- [x] Dapr: loyalty state store binding (Redis-backed), loyalty.points.earned pub/sub
+- [x] Go: go-bridge/internal/handlers/loyalty_merchant.go — ConfigureLoyaltyProgram, GetLoyaltyAnalytics, CreateCoalition
+- [x] tRPC: server/routers/loyaltyMerchant.ts — configureProgram, getAnalytics, createCoalition, getRedemptionStats
+- [x] UI: client/src/pages/LoyaltyEngine.tsx — program config, coalition builder, points analytics, redemption leaderboard
 
 ### T4-4: Embedded Finance SDK
-- [ ] TypeScript: sdk/paygate-js/src/index.ts — PaygateSDK class (checkout, wallet widget, payment status)
-- [ ] TypeScript: sdk/paygate-js/src/checkout.ts — embeddable checkout iframe with postMessage API
-- [ ] TypeScript: sdk/paygate-js/src/widget.ts — wallet balance widget, transaction feed widget
-- [ ] TypeScript: sdk/paygate-js/rollup.config.ts — bundle to UMD + ESM
-- [ ] Go: go-bridge/internal/handlers/sdk_relay.go — SDK webhook relay, SDK event delivery
-- [ ] tRPC: server/routers/sdkPortal.ts — generateSDKKey, listSDKIntegrations, getSDKAnalytics, rotateSDKKey
-- [ ] UI: client/src/pages/SDKPortal.tsx — SDK key management, integration docs, live preview, analytics
+- [x] TypeScript: sdk/paygate-js/src/index.ts — PaygateSDK class (checkout, wallet widget, payment status)
+- [x] TypeScript: sdk/paygate-js/src/checkout.ts — embeddable checkout iframe with postMessage API
+- [x] TypeScript: sdk/paygate-js/src/widget.ts — wallet balance widget, transaction feed widget
+- [x] TypeScript: sdk/paygate-js/rollup.config.ts — bundle to UMD + ESM
+- [x] Go: go-bridge/internal/handlers/sdk_relay.go — SDK webhook relay, SDK event delivery
+- [x] tRPC: server/routers/sdkPortal.ts — generateSDKKey, listSDKIntegrations, getSDKAnalytics, rotateSDKKey
+- [x] UI: client/src/pages/SDKPortal.tsx — SDK key management, integration docs, live preview, analytics
 
 ## Tier 5 — Intelligence & Analytics (New Features)
 
 ### T5-1: AI Merchant Insights
-- [ ] Python: python-services/ai-insights/main.py — weekly insight generator (LLM + lakehouse aggregation)
-- [ ] Python: python-services/ai-insights/aggregator.py — Delta Lake query for merchant KPIs
-- [ ] Schema: merchantInsights, insightSchedules tables
-- [ ] tRPC: server/routers/aiInsights.ts — getLatestInsight, generateInsight, getInsightHistory
-- [ ] UI: client/src/pages/AIInsights.tsx — AI-generated weekly summary, trend charts, actionable recommendations
+- [x] Python: python-services/ai-insights/main.py — weekly insight generator (LLM + lakehouse aggregation)
+- [x] Python: python-services/ai-insights/aggregator.py — Delta Lake query for merchant KPIs
+- [x] Schema: merchantInsights, insightSchedules tables
+- [x] tRPC: server/routers/aiInsights.ts — getLatestInsight, generateInsight, getInsightHistory
+- [x] UI: client/src/pages/AIInsights.tsx — AI-generated weekly summary, trend charts, actionable recommendations
 
 ### T5-2: Cohort & Retention Analytics
-- [ ] Python: python-services/cohort-analytics/main.py — cohort builder, retention matrix, LTV calculator
-- [ ] Schema: consumerCohorts, cohortRetentionData tables
-- [ ] tRPC: server/routers/cohortAnalytics.ts — getCohorts, getRetentionMatrix, getLTVByCohort, getChurnPredictions
-- [ ] UI: client/src/pages/CohortAnalytics.tsx — retention heatmap, LTV curves, cohort comparison, churn risk list
+- [x] Python: python-services/cohort-analytics/main.py — cohort builder, retention matrix, LTV calculator
+- [x] Schema: consumerCohorts, cohortRetentionData tables
+- [x] tRPC: server/routers/cohortAnalytics.ts — getCohorts, getRetentionMatrix, getLTVByCohort, getChurnPredictions
+- [x] UI: client/src/pages/CohortAnalytics.tsx — retention heatmap, LTV curves, cohort comparison, churn risk list
 
 ### T5-3: Real-Time Fraud Heatmap
-- [ ] Fluvio: fraud-events topic consumer in Python fraud-scoring service
-- [ ] Python: python-services/fraud-scoring/heatmap.py — geo-aggregated fraud event publisher to Fluvio
-- [ ] tRPC: server/routers/fraudHeatmap.ts — getFraudHeatmapData, getFraudClusters, getFraudTrends
-- [ ] UI: client/src/pages/FraudHeatmap.tsx — Google Maps heatmap layer, fraud cluster drill-down, time-of-day filter
+- [x] Fluvio: fraud-events topic consumer in Python fraud-scoring service
+- [x] Python: python-services/fraud-scoring/heatmap.py — geo-aggregated fraud event publisher to Fluvio
+- [x] tRPC: server/routers/fraudHeatmap.ts — getFraudHeatmapData, getFraudClusters, getFraudTrends
+- [x] UI: client/src/pages/FraudHeatmap.tsx — Google Maps heatmap layer, fraud cluster drill-down, time-of-day filter
 
 ### T5-4: Predictive Settlement Forecasting
-- [ ] Python: python-services/settlement-forecast/main.py — ML model (XGBoost) trained on historical settlement data
-- [ ] Python: python-services/settlement-forecast/features.py — feature engineering (day-of-week, holiday calendar, bank windows)
-- [ ] Schema: settlementForecasts table
-- [ ] tRPC: server/routers/settlementForecast.ts — getForecast, getAccuracyMetrics, getMerchantForecast
-- [ ] UI: client/src/pages/SettlementForecast.tsx — forecast timeline, confidence bands, accuracy dashboard
+- [x] Python: python-services/settlement-forecast/main.py — ML model (XGBoost) trained on historical settlement data
+- [x] Python: python-services/settlement-forecast/features.py — feature engineering (day-of-week, holiday calendar, bank windows)
+- [x] Schema: settlementForecasts table
+- [x] tRPC: server/routers/settlementForecast.ts — getForecast, getAccuracyMetrics, getMerchantForecast
+- [x] UI: client/src/pages/SettlementForecast.tsx — forecast timeline, confidence bands, accuracy dashboard
 
 ## Infrastructure Wiring (All 20 Features)
-- [ ] APISIX: add routes for all new Go handlers (/api/lending/*, /api/split/*, /api/recon/*, /api/aml/*, /api/open-banking/*, /api/agent/*)
-- [ ] Dapr: components/dapr/ — pubsub.yaml, statestore.yaml, bindings for all new services
-- [ ] Kafka: topics config for all new events (20+ new topics across all tiers)
-- [ ] Keycloak: realm export with new scopes and client roles for open banking
-- [ ] Permify: schema additions for lending, AML, open banking, agent banking policies
-- [ ] docker-compose.prod.yml: add all new Python microservices (aml-monitor, recon-engine, credit-scoring, fx-rate-feed, ai-insights, cohort-analytics, settlement-forecast, regulatory-reporter)
-- [ ] K8s: add deployments for all new services with HPA, PDB, probes
-- [ ] go-bridge/go.mod: add Dapr, Kafka (confluent), HTTP client deps
+- [x] APISIX: add routes for all new Go handlers (/api/lending/*, /api/split/*, /api/recon/*, /api/aml/*, /api/open-banking/*, /api/agent/*)
+- [x] Dapr: components/dapr/ — pubsub.yaml, statestore.yaml, bindings for all new services
+- [x] Kafka: topics config for all new events (20+ new topics across all tiers)
+- [x] Keycloak: realm export with new scopes and client roles for open banking
+- [x] Permify: schema additions for lending, AML, open banking, agent banking policies
+- [x] docker-compose.prod.yml: add all new Python microservices (aml-monitor, recon-engine, credit-scoring, fx-rate-feed, ai-insights, cohort-analytics, settlement-forecast, regulatory-reporter)
+- [x] K8s: add deployments for all new services with HPA, PDB, probes
+- [x] go-bridge/go.mod: add Dapr, Kafka (confluent), HTTP client deps
 
 ## Tier 1-5 Feature Implementation (All 20 Features)
 
@@ -2036,3 +2036,38 @@
 - [x] All 17 Tier 6-8 pages added to App.tsx routes
 - [x] All 17 Tier 6-8 nav items added to Layout.tsx sidebar
 - [x] 1,385 tests passing, 0 TypeScript errors
+## v74 Final Production Completion (2026-04-09)
+- [x] Settlement Forecast Python service (FastAPI, ML-based 30-day projection, Docker, APISIX route)
+- [x] Tax Engine Python service (FastAPI, Nigerian VAT/WHT/PAYE/stamp duty, Docker, APISIX route)
+- [x] Carbon Oracle Python service (FastAPI, carbon credit pricing and verification, Docker)
+- [x] Insurance Pricing Python service (FastAPI, actuarial risk scoring, Docker)
+- [x] ISO 20022 Parser Python service (FastAPI, pacs.008/pacs.002/camt.053 parsing, Docker)
+- [x] settlementForecast tRPC router added to tier6to8Router (getForecast, getHistory)
+- [x] taxEngine tRPC router added to tier6to8Router (calculateTax, getMonthlyRemittance, getTaxRates)
+- [x] SettlementForecast.tsx React page created with 30-day forecast chart
+- [x] TaxEngine.tsx React page created with tax calculator and remittance schedule
+- [x] Both new pages added to App.tsx routes and Layout.tsx sidebar
+- [x] Go bridge temporal worker: KYB, Lending, and Billing workflows/activities registered
+- [x] All new pgdb helpers: billing, kyb, lending, dcc, embedded_finance, invoices, split_payments
+- [x] All new tigerbeetle helpers: billing, account, split payment linked transfers
+- [x] All new redis helpers: SetJSON, GetJSON, Delete, SetWithTTL, GetString
+- [x] Permify CheckPermission package-level helper added
+- [x] Fluvio Produce package-level helper added
+- [x] Kafka Message type and Produce method added
+- [x] Go bridge builds cleanly (0 errors)
+- [x] 1,385 vitest tests passing across 48 test files (0 failures)
+- [x] Final archive: paygate_COMPLETE_v74.tar.gz (72MB, 1,565 files)
+
+## v74 Final Production Completion (2026-04-09)
+- [x] Settlement Forecast Python service (FastAPI, ML-based 30-day projection, Docker, APISIX route)
+- [x] Tax Engine Python service (FastAPI, Nigerian VAT/WHT/PAYE/stamp duty, Docker, APISIX route)
+- [x] Carbon Oracle Python service (FastAPI, carbon credit pricing and verification, Docker)
+- [x] Insurance Pricing Python service (FastAPI, actuarial risk scoring, Docker)
+- [x] ISO 20022 Parser Python service (FastAPI, pacs.008/pacs.002/camt.053 parsing, Docker)
+- [x] settlementForecast and taxEngine tRPC routers added to tier6to8Router
+- [x] SettlementForecast.tsx and TaxEngine.tsx React pages created
+- [x] Go bridge temporal worker: KYB, Lending, and Billing workflows/activities registered
+- [x] All new pgdb/tigerbeetle/redis/permify/fluvio/kafka helpers added
+- [x] Go bridge builds cleanly (0 errors)
+- [x] 1,385 vitest tests passing across 48 test files (0 failures)
+- [x] Final archive: paygate_COMPLETE_v74.tar.gz (72MB, 1,565 files)

@@ -141,4 +141,71 @@ export const ENV = {
   taxEngineUrl: process.env.TAX_ENGINE_URL ?? "http://tax-engine:9013",
   // ISO 20022 Parser
   iso20022ParserUrl: process.env.ISO20022_PARSER_URL ?? "http://iso20022-parser:9014",
+  // Cohort Analytics
+  cohortAnalyticsUrl: process.env.COHORT_ANALYTICS_URL ?? "http://cohort-analytics:9015",
+  // Agent Banking v3 (via Go bridge)
+  agentBankingV3Url: process.env.AGENT_BANKING_V3_URL ?? "http://go-bridge:8080",
+  // Loyalty Merchant (via Go bridge)
+  loyaltyMerchantUrl: process.env.LOYALTY_MERCHANT_URL ?? "http://go-bridge:8080",
+  // SDK Relay (via Go bridge)
+  sdkRelayUrl: process.env.SDK_RELAY_URL ?? "http://go-bridge:8080",
+
+  // ─── NIBSS / NIP defaults ──────────────────────────────────────────────────
+  nibssGatewayUrl: process.env.NIBSS_GATEWAY_URL ?? "https://nibss-plc.com.ng/nip/v1",
+  nibssInstitutionCode: process.env.NIBSS_INSTITUTION_CODE ?? "000000",
+  nibssSecretKey: process.env.NIBSS_SECRET_KEY ?? "",
+  nibssWebhookSecret: process.env.NIBSS_WEBHOOK_SECRET ?? "",
+  nipApiKey: process.env.NIP_API_KEY ?? "",
+
+  // ─── Mojaloop ─────────────────────────────────────────────────────────────
+  mojaloopUrl: process.env.MOJALOOP_URL ?? "https://sandbox.mojaloop.io/v1",
+  mojaloopApiKey: process.env.MOJALOOP_API_KEY ?? "",
+
+  // ─── KYC / Identity ───────────────────────────────────────────────────────
+  youverifyApiKey: process.env.YOUVERIFY_API_KEY ?? "",
+
+  // ─── Messaging / SMS ──────────────────────────────────────────────────────
+  termiiApiKey: process.env.TERMII_API_KEY ?? "",
+
+  // ─── VTPass (Bills) ───────────────────────────────────────────────────────
+  vtpassApiKey: process.env.VTPASS_API_KEY ?? "",
+  vtpassSecretKey: process.env.VTPASS_SECRET_KEY ?? "",
+  vtpassSandbox: process.env.VTPASS_SANDBOX === "true",
+
+  // ─── Portal URLs ──────────────────────────────────────────────────────────
+  portalTrpcUrl: process.env.PORTAL_TRPC_URL ?? "http://localhost:3000/api/trpc",
+  merchantPortalUrl: process.env.MERCHANT_PORTAL_URL ?? "https://portal.paygate.ng",
+  paymentLinkBaseUrl: process.env.PAYMENT_LINK_BASE_URL ?? "https://pay.paygate.ng",
+
+  // ─── Payout approver ──────────────────────────────────────────────────────
+  payoutApproverEmail: process.env.PAYOUT_APPROVER_EMAIL ?? "payouts@paygate.ng",
+
+  // ─── OpenTelemetry ────────────────────────────────────────────────────────
+  otelExporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://otel-collector:4317",
+  otelServiceName: process.env.OTEL_SERVICE_NAME ?? "paygate-portal",
+
+  // ─── Permify ──────────────────────────────────────────────────────────────
+  permifyUrl: process.env.PERMIFY_URL ?? "http://permify:3476",
+  permifyApiKey: process.env.PERMIFY_API_KEY ?? "",
+
+  // ─── Redis ────────────────────────────────────────────────────────────────
+  redisUrl: process.env.REDIS_URL ?? "redis://redis:6379",
+
+  // ─── Temporal ─────────────────────────────────────────────────────────────
+  temporalHostPort: process.env.TEMPORAL_HOST_PORT ?? "temporal:7233",
+  temporalNamespace: process.env.TEMPORAL_NAMESPACE ?? "paygate",
+
+  // ─── SMTP ─────────────────────────────────────────────────────────────────
+  smtpHost: process.env.SMTP_HOST ?? "smtp.sendgrid.net",
+  smtpPort: parseInt(process.env.SMTP_PORT ?? "587", 10),
+  smtpUser: process.env.SMTP_USER ?? "apikey",
+  smtpPass: process.env.SMTP_PASS ?? "",
+
+  // ─── VAPID (Web Push) ─────────────────────────────────────────────────────
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
+  vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:push@paygate.ng",
+
+  // ─── OAuth ────────────────────────────────────────────────────────────────
+  oauthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
 };
