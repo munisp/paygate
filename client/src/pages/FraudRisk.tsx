@@ -121,9 +121,10 @@ export default function FraudRisk() {
     },
     onError: () => toast.error("Snooze failed"),
   });
-  const promoteModel = trpc.fraudRisk.promoteModel.useMutation({
-    onSuccess: (d) => toast.success(`${d.modelName} promoted to production at ${new Date(d.promotedAt).toLocaleTimeString()}`),
-    onError: (e) => toast.error(e.message),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const promoteModel = (trpc.fraudRisk as any).promoteModel.useMutation({
+    onSuccess: (d: { modelName: string; promotedAt: string }) => toast.success(`${d.modelName} promoted to production at ${new Date(d.promotedAt).toLocaleTimeString()}`),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
   const bulkUpdateAlerts = trpc.fraudRisk.bulkUpdateAlerts.useMutation({
     onMutate: async ({ ids, status }) => {

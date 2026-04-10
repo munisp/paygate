@@ -457,7 +457,7 @@ export default function FXDashboard() {
               </div>
             </div>
 
-            <Button className="w-full" disabled={savePrefsMutation.isPending} onClick={() => savePrefsMutation.mutate({ settlementCurrency, autoConvert: false, preferredProvider: "internal" })}>
+            <Button className="w-full" disabled={savePrefsMutation.isPending} onClick={() => savePrefsMutation.mutate({ settlementCurrency, autoConvert: false })}>
               {savePrefsMutation.isPending ? "Saving..." : "Save Preferences"}
             </Button>
           </div>

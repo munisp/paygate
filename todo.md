@@ -2364,3 +2364,24 @@
 - [x] All TypeScript tests pass (55 files, 1908 tests)
 - [x] Wave 80 seed data already populated in database (22 tables)
 - [x] 3 GitHub Actions CI/CD workflows created (ci.yml, deploy.yml, db-backup.yml)
+
+## Wave 82 — UI Audit + Middleware Integration (Complete)
+- [x] Fix missing /merchant-lending route in App.tsx
+- [x] Wire DisputeWorkflow escalate/accept buttons to real mutations
+- [x] Wire FXDashboard Convert and Save Preferences buttons to real mutations
+- [x] Wire FraudRisk Promote to Production button to real mutation
+- [x] Add disputes.escalate and disputes.accept mutations to routers.ts
+- [x] Add fx.convertCurrency and fx.savePreferences mutations to routers.ts
+- [x] Add fraudRisk.promoteModel mutation to routers.ts
+- [x] Add Keycloak admin client package (go-bridge/internal/keycloak/client.go)
+- [x] Add Kafka consumer group handler (go-bridge/internal/kafka/consumer.go)
+- [x] Add Dapr HTTP sidecar pub/sub client (go-bridge/internal/dapr/dapr.go)
+- [x] Add Fluvio SSE consumer endpoint (go-bridge/internal/fluvio/consumer.go)
+- [x] Add APISIX admin client (go-bridge/internal/apisix/client.go)
+- [x] Add Solana helper functions (go-bridge/internal/solana/helpers.go)
+- [x] Fix Go bridge tests (activities_test.go Corridor field, NIBSS env unset, solana import)
+- [x] Wire new middleware clients into bridge main.go (Keycloak, Dapr, APISIX, Kafka consumer, Fluvio SSE)
+- [x] Fix notifyDisputeEscalated call signature in escalate mutation
+- [x] Fix notifyDisputeResolved call signature in accept mutation
+- [x] Fix savePreferences to use settlementFrequency instead of metadata
+- [x] All 1908 tests pass (55 files)

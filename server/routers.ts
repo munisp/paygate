@@ -1279,9 +1279,9 @@ const disputesRouter = router({
       const dispute = await getDisputeById(input.id);
       if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
       await updateDispute(input.id, { status: 'under_review', merchantResponse: input.reason ?? 'Escalated to compliance team' });
-      await notifyDisputeEscalated({ merchantId: merchant.id, disputeId: input.id, reason: input.reason ?? 'Escalated by merchant' });
+      await notifyDisputeEscalated({ merchantName: merchant.businessName ?? 'Merchant', disputeId: input.id, amount: dispute.amount, currency: dispute.currency ?? 'NGN' });
       if (isBridgeAvailable()) {
-        resolveDisputeViaMiddleware({ disputeId: input.id, merchantId: merchant.id, resolution: 'escalated', resolvedBy: ctx.user.openId })
+        resolveDisputeViaMiddleware({ disputeId: input.id, merchantId: merchant.id, resolution: 'partial', resolverId: ctx.user.openId })
           .catch((e: unknown) => logger.error('[bridge] escalateDispute failed (non-fatal):', e));
       }
       import('./db').then(({ logAuditEvent }) => logAuditEvent({
@@ -1299,9 +1299,9 @@ const disputesRouter = router({
       const dispute = await getDisputeById(input.id);
       if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
       await updateDispute(input.id, { status: 'resolved_customer', merchantResponse: 'Merchant accepted dispute — funds returned to customer' });
-      await notifyDisputeResolved({ merchantName: merchant.name ?? 'Merchant', disputeId: input.id, outcome: 'customer_won', amount: dispute.amount, currency: dispute.currency ?? 'NGN' });
+      await notifyDisputeResolved({ merchantName: merchant.businessName ?? 'Merchant', disputeId: input.id, outcome: 'customer_won', amount: dispute.amount, currency: dispute.currency ?? 'NGN' });
       if (isBridgeAvailable()) {
-        resolveDisputeViaMiddleware({ disputeId: input.id, merchantId: merchant.id, resolution: 'lost', resolvedBy: ctx.user.openId })
+        resolveDisputeViaMiddleware({ disputeId: input.id, merchantId: merchant.id, resolution: 'lost', resolverId: ctx.user.openId })
           .catch((e: unknown) => logger.error('[bridge] acceptDispute failed (non-fatal):', e));
       }
       import('./db').then(({ logAuditEvent }) => logAuditEvent({
@@ -2344,9 +2344,7 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const existing = await getMerchantByOwnerId(user.id);
       const meta = ((existing as any)?.metadata ?? {}) as Record<string, unknown>;
-      await updateMerchant(merchant.id, {
-        metadata: { ...meta, fxSettlementCurrency: input.settlementCurrency, fxAutoConvert: input.autoConvert ?? false },
-      });
+      await updateMerchant(merchant.id, { settlementFrequency: 'daily' });
       return { success: true, settlementCurrency: input.settlementCurrency };
     }),
 });
