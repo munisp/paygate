@@ -198,6 +198,8 @@ async function startServer() {
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
+        // Allow Vite's SharedWorker blob URL in dev mode
+        workerSrc: isDev ? ["'self'", "blob:"] : ["'self'"],
         upgradeInsecureRequests: isDev ? null : [],
       },
     },

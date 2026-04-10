@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import ReactGridLayout from "react-grid-layout";
+import { ResponsiveGridLayout as RGL, useContainerWidth } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import {
@@ -25,8 +25,25 @@ import RevenueForecast from "@/components/RevenueForecast";
 import { useTransactionStream, type StreamTransaction } from "@/hooks/useTransactionStream";
 import { usePWA } from "@/hooks/usePWA";
 import OfflineIndicator from "@/components/OfflineIndicator";
-const { Responsive, WidthProvider } = ReactGridLayout as any;
-const ResponsiveGridLayout = WidthProvider(Responsive);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ResponsiveGridLayout = RGL as any;
+
+// Hook to measure grid container width for ResponsiveGridLayout v2
+function useGridWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(1200);
+  useEffect(() => {
+    if (!ref.current) return;
+    const obs = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setWidth(w);
+    });
+    obs.observe(ref.current);
+    setWidth(ref.current.offsetWidth);
+    return () => obs.disconnect();
+  }, []);
+  return { ref, width };
+}
 
 // ─── Default widget layout ────────────────────────────────────────────────────
 const DEFAULT_LAYOUTS = {
@@ -602,6 +619,43 @@ function KPICard({
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
+
+// ─── Sub-widgets (extracted for GridContainer) ───────────────────────────────
+function KPICardsWidget() {
+  return null; // placeholder - rendered inline via Dashboard context
+}
+
+// ─── Grid Container (wraps ResponsiveGridLayout with measured width) ──────────
+interface GridContainerProps {
+  layouts: any;
+  isCustomizing: boolean;
+  handleLayoutChange: (layout: any, allLayouts: any) => void;
+  children: React.ReactNode;
+}
+function GridContainer({ layouts, isCustomizing, handleLayoutChange, children }: GridContainerProps) {
+  const { ref, width } = useGridWidth();
+  return (
+    <div ref={ref} className="w-full">
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={layouts}
+        onLayoutChange={handleLayoutChange}
+        breakpoints={{ lg: 1100, md: 800, sm: 600, xs: 480, xxs: 0 }}
+        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+        rowHeight={60}
+        width={width}
+        isDraggable={isCustomizing}
+        isResizable={isCustomizing}
+        margin={[16, 16]}
+        containerPadding={[0, 0]}
+        draggableHandle=".widget-drag-handle"
+      >
+        {children}
+      </ResponsiveGridLayout>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [range] = useState(() => ({
     to: new Date(),
@@ -832,18 +886,10 @@ export default function Dashboard() {
       )}
 
       {/* ── Drag-and-Drop Widget Grid ────────────────────────────────────── */}
-      <ResponsiveGridLayout
-        className="layout"
+      <GridContainer
         layouts={layouts}
-        onLayoutChange={handleLayoutChange}
-        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-        rowHeight={60}
-        isDraggable={isCustomizing}
-        isResizable={isCustomizing}
-        margin={[16, 16]}
-        containerPadding={[0, 0]}
-        draggableHandle=".widget-drag-handle"
+        isCustomizing={isCustomizing}
+        handleLayoutChange={handleLayoutChange}
       >
         {/* KPI Cards */}
         <div key="kpi" className="relative">
@@ -874,21 +920,13 @@ export default function Dashboard() {
           <div className="bg-card rounded-2xl border border-border p-6 h-full">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-                  Revenue Over Time
-                </h3>
+                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Revenue Over Time</h3>
                 <p className="text-sm text-muted-foreground">Daily completed transaction volume</p>
               </div>
-              {!isLoading && (
-                <Badge variant="secondary" className="gap-1">
-                  <TrendingUp className="w-3 h-3 text-emerald-500" /> Live data
-                </Badge>
-              )}
+              {!isLoading && <Badge variant="secondary" className="gap-1"><TrendingUp className="w-3 h-3 text-emerald-500" /> Live data</Badge>}
             </div>
             {isLoading ? <Skeleton className="h-52 w-full rounded-xl" /> : timeSeries.length === 0 ? (
-              <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">
-                No transaction data in this period
-              </div>
+              <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">No transaction data in this period</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={timeSeries}>
@@ -901,10 +939,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={fmt} />
-                  <Tooltip
-                    contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }}
-                    formatter={(v: number) => [fmt(v), "Volume"]}
-                  />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }} formatter={(v: number) => [fmt(v), "Volume"]} />
                   <Area type="monotone" dataKey="volume" stroke="#4F46E5" strokeWidth={2.5} fill="url(#revGrad)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -916,9 +951,7 @@ export default function Dashboard() {
         <div key="channels" className="relative overflow-auto">
           {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
           <div className="bg-card rounded-2xl border border-border p-6 h-full">
-            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-              Payment Channels
-            </h3>
+            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Payment Channels</h3>
             <p className="text-sm text-muted-foreground mb-4">Distribution by method</p>
             {channelBreakdown.length > 0 ? (
               <>
@@ -927,10 +960,7 @@ export default function Dashboard() {
                     <Pie data={channelBreakdown} cx="50%" cy="50%" innerRadius={42} outerRadius={65} paddingAngle={3} dataKey="value">
                       {channelBreakdown.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
-                    <Tooltip
-                      formatter={(v: number) => [`${v}%`, "Share"]}
-                      contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }}
-                    />
+                    <Tooltip formatter={(v: number) => [`${v}%`, "Share"]} contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-2 mt-2">
@@ -945,9 +975,7 @@ export default function Dashboard() {
                   ))}
                 </div>
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No channel data yet</p>
-            )}
+            ) : <p className="text-sm text-muted-foreground">No channel data yet</p>}
           </div>
         </div>
 
@@ -955,9 +983,7 @@ export default function Dashboard() {
         <div key="daily" className="relative overflow-auto">
           {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
           <div className="bg-card rounded-2xl border border-border p-6 h-full">
-            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-              Daily Count
-            </h3>
+            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Daily Count</h3>
             <p className="text-sm text-muted-foreground mb-4">Transactions per day</p>
             {isLoading ? <Skeleton className="h-44 w-full rounded-xl" /> : timeSeries.length === 0 ? (
               <div className="h-44 flex items-center justify-center text-muted-foreground text-sm">No data</div>
@@ -981,23 +1007,18 @@ export default function Dashboard() {
           <div className="bg-card rounded-2xl border border-border p-6 h-full">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-                  Recent Transactions
-                </h3>
+                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Recent Transactions</h3>
                 <p className="text-sm text-muted-foreground">Latest activity from your account</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
                 <span className={`text-xs font-medium flex items-center gap-1 ${isLive ? "text-emerald-600" : "text-muted-foreground"}`}>
-                  <Radio className="w-3 h-3" />
-                  {isLive ? "Live stream" : "Connecting…"}
+                  <Radio className="w-3 h-3" />{isLive ? "Live stream" : "Connecting…"}
                 </span>
               </div>
             </div>
             {isLoading ? (
-              <div className="space-y-3">
-                {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
-              </div>
+              <div className="space-y-3">{Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}</div>
             ) : recentTxns.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">No transactions yet</div>
             ) : (
@@ -1005,28 +1026,19 @@ export default function Dashboard() {
                 {recentTxns.map((txn: any) => (
                   <div key={txn.id} className="flex items-center gap-4 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {txn.customerName ?? txn.customerEmail ?? "Anonymous"}
-                      </p>
+                      <p className="text-sm font-medium text-foreground truncate">{txn.customerName ?? txn.customerEmail ?? "Anonymous"}</p>
                       <p className="text-xs text-muted-foreground">{txn.reference} · {txn.channel}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-semibold font-mono text-foreground">
-                        {txn.currency} {Number(txn.amount).toLocaleString()}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(txn.createdAt).toLocaleDateString()}
-                      </p>
+                      <p className="text-sm font-semibold font-mono text-foreground">{txn.currency} {Number(txn.amount).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(txn.createdAt).toLocaleDateString()}</p>
                     </div>
                     <StatusBadge status={txn.status} />
                   </div>
                 ))}
               </div>
             )}
-            <button
-              className="w-full mt-4 py-2.5 text-sm text-primary font-medium hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1"
-              onClick={() => window.location.href = "/transactions"}
-            >
+            <button className="w-full mt-4 py-2.5 text-sm text-primary font-medium hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1" onClick={() => window.location.href = "/transactions"}>
               View all transactions <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -1055,7 +1067,7 @@ export default function Dashboard() {
           {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
           <SecurityScoreWidget />
         </div>
-      </ResponsiveGridLayout>
+      </GridContainer>
     </div>
   );
 }
