@@ -2172,3 +2172,36 @@
 - [x] Full test suite: 1,541 tests / 51 files — 0 failures
 - [x] TypeScript: 0 errors
 - [x] Go bridge: 0 compilation errors
+
+## Wave 78 — Final Production Completion (Apr 2026)
+
+- [ ] seed.mjs: Add seed blocks for all 26 new Wave 76/77 tables
+- [ ] server/webhookDispatch.ts: Add generic dispatchWebhook helper for all event types
+- [ ] server/newFeaturesRouter.ts: Fire webhook events on gold purchase, insurance created, remittance initiated, pension contribution, cashback earned
+- [ ] server/portalBillingRouter.ts: Stripe webhook handler for subscription events (checkout.session.completed, customer.subscription.updated, customer.subscription.deleted)
+- [ ] infra/prometheus/prometheus.yml: Add scrape targets for all 17 Wave 77 microservices
+- [ ] infra/prometheus/alert-rules.yaml: Add alert rules for all 17 Wave 77 services
+- [ ] infra/grafana/wave77-dashboard.json: Grafana dashboard for all Wave 77 services
+- [ ] server/wave78.test.ts: Vitest tests for webhook dispatch, seed data validation, Stripe webhook handler
+- [ ] Full test suite: 0 failures
+- [ ] TypeScript: 0 errors
+- [ ] Go bridge: 0 compilation errors
+- [ ] Generate final comprehensive archive paygate_COMPLETE_v78.tar.gz
+
+## Wave 78 — Production Complete (All Items)
+- [x] Seed all 26 new Wave 76/77 feature tables (seed-wave78.mjs)
+- [x] Wire webhook delivery events for all 20 new product mutations
+- [x] Add Stripe price IDs with production defaults (starter/growth/enterprise)
+- [x] Create portalBillingRouter.ts with Stripe checkout, subscription management, billing portal
+- [x] Create Billing.tsx page with plan selection and subscription management UI
+- [x] Wire /billing route in App.tsx and Layout sidebar
+- [x] Create 10 Python microservices (digital-gold, mutual-funds, pension-nps, cashback-rewards, soundbox, wealth-management, emi-service, bulk-collections, salary-accounts, intl-remittance)
+- [x] Add Prometheus scrape targets for all 10 new microservices
+- [x] Add Alertmanager rules for all 10 new microservices (Wave 78 alert group)
+- [x] Create Wave 78 Grafana dashboard (paygate-wave78-dashboard.json)
+- [x] Add Docker Compose services for all new Wave 78 microservices
+- [x] Add K8s deployments for all new Wave 78 microservices
+- [x] Write wave78.production.test.ts (73 tests)
+- [x] All 1,614 tests passing (52 test files)
+- [x] TypeScript: 0 errors
+- [x] Go bridge: 0 compilation errors

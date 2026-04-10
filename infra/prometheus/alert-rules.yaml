@@ -179,3 +179,154 @@ groups:
         annotations:
           summary: "Stripe is in test mode"
           description: "The portal is using Stripe test keys. Switch to live keys before processing real payments."
+
+  # ─── Wave 78 New Feature Microservices ────────────────────────────────────
+  - name: paygate.wave78
+    interval: 30s
+    rules:
+      - alert: DigitalGoldServiceDown
+        expr: up{job="paygate-digital-gold"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: digital-gold
+        annotations:
+          summary: "Digital Gold service is down"
+          description: "digital-gold microservice unreachable for 2+ min. Gold purchases and sales unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/digital-gold-down"
+
+      - alert: MutualFundsServiceDown
+        expr: up{job="paygate-mutual-funds"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: mutual-funds
+        annotations:
+          summary: "Mutual Funds service is down"
+          description: "mutual-funds microservice unreachable. Investment operations unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/mutual-funds-down"
+
+      - alert: PensionNPSServiceDown
+        expr: up{job="paygate-pension-nps"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: pension-nps
+        annotations:
+          summary: "Pension NPS service is down"
+          description: "pension-nps microservice unreachable. Pension contributions unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/pension-down"
+
+      - alert: CashbackRewardsServiceDown
+        expr: up{job="paygate-cashback-rewards"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: cashback-rewards
+        annotations:
+          summary: "Cashback Rewards service is down"
+          description: "cashback-rewards microservice unreachable."
+
+      - alert: SoundboxServiceDown
+        expr: up{job="paygate-soundbox"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: soundbox
+        annotations:
+          summary: "Soundbox service is down"
+          description: "soundbox microservice unreachable. Voice payment alerts unavailable."
+
+      - alert: WealthManagementServiceDown
+        expr: up{job="paygate-wealth-management"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: wealth-management
+        annotations:
+          summary: "Wealth Management service is down"
+          description: "wealth-management microservice unreachable."
+
+      - alert: EMIServiceDown
+        expr: up{job="paygate-emi-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: emi-service
+        annotations:
+          summary: "EMI Checkout service is down"
+          description: "emi-service microservice unreachable. EMI checkout unavailable."
+
+      - alert: BulkCollectionsServiceDown
+        expr: up{job="paygate-bulk-collections"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: bulk-collections
+        annotations:
+          summary: "Bulk Collections service is down"
+          description: "bulk-collections microservice unreachable."
+
+      - alert: SalaryAccountsServiceDown
+        expr: up{job="paygate-salary-accounts"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: salary-accounts
+        annotations:
+          summary: "Salary Accounts service is down"
+          description: "salary-accounts microservice unreachable."
+
+      - alert: IntlRemittanceServiceDown
+        expr: up{job="paygate-intl-remittance"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: intl-remittance
+        annotations:
+          summary: "International Remittance service is down"
+          description: "intl-remittance microservice unreachable. Cross-border transfers unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/intl-remittance-down"
+
+      - alert: GoldPriceFeedStale
+        expr: time() - paygate_gold_price_updated_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: digital-gold
+        annotations:
+          summary: "Gold price feed is stale (>5 min)"
+          description: "Gold price has not been updated in {{ $value }}s. Check GoldTech API connectivity."
+
+      - alert: RemittanceHighFailureRate
+        expr: rate(paygate_remittance_failures_total[10m]) / rate(paygate_remittance_transfers_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: risk
+          service: intl-remittance
+        annotations:
+          summary: "High remittance failure rate (>5%)"
+          description: "{{ $value | humanizePercentage }} of remittance transfers are failing."
+
+      - alert: EMIHighDelinquencyRate
+        expr: paygate_emi_overdue_instalments / paygate_emi_total_instalments > 0.05
+        for: 1h
+        labels:
+          severity: warning
+          team: risk
+          service: emi-service
+        annotations:
+          summary: "High EMI delinquency rate (>5%)"
+          description: "{{ $value | humanizePercentage }} of EMI instalments are overdue."

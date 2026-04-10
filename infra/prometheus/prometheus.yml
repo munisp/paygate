@@ -78,3 +78,54 @@ scrape_configs:
       - targets: ["temporal:8000"]
     metrics_path: /metrics
     scrape_interval: 30s
+  # ─── Wave 78 New Feature Microservices ────────────────────────────────────
+  - job_name: paygate-digital-gold
+    static_configs:
+      - targets: ["digital-gold:9020"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-mutual-funds
+    static_configs:
+      - targets: ["mutual-funds:9021"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-pension-nps
+    static_configs:
+      - targets: ["pension-nps:9022"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-cashback-rewards
+    static_configs:
+      - targets: ["cashback-rewards:9023"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-soundbox
+    static_configs:
+      - targets: ["soundbox:9024"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-wealth-management
+    static_configs:
+      - targets: ["wealth-management:9025"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-emi-service
+    static_configs:
+      - targets: ["emi-service:9026"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-bulk-collections
+    static_configs:
+      - targets: ["bulk-collections:9027"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-salary-accounts
+    static_configs:
+      - targets: ["salary-accounts:9028"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-intl-remittance
+    static_configs:
+      - targets: ["intl-remittance:9029"]
+    metrics_path: /metrics
+    scrape_interval: 30s

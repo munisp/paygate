@@ -12,6 +12,13 @@ import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { logger } from "./logger";
 import { portalBillingRouter } from "./portalBillingRouter";
+import {
+  onGoldPurchased, onGoldSold, onMutualFundInvested, onMutualFundRedeemed,
+  onInsurancePolicyCreated, onInsuranceClaimSubmitted, onPensionContributionPosted,
+  onCashbackEarned, onCashbackRedeemed, onSoundboxDeviceRegistered,
+  onEmiContractCreated, onBulkCollectionCreated, onPosSaleCompleted,
+  onRemittanceInitiated, onSubscriptionV2Created, onReportReady,
+} from "./webhookEventHooks";
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
@@ -54,14 +61,16 @@ export const digitalGoldRouter = router({
   buyGold: protectedProcedure
     .input(z.object({ amountKobo: z.number().min(50000), fundingSource: z.enum(["wallet", "bank"]) }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/digital-gold/buy", { ...input, userId: ctx.user.id });
-      return res as { transactionId: string; gramsAcquired: number; totalCostKobo: number; status: string };
+      const res = await bridgePost("/digital-gold/buy", { ...input, userId: ctx.user.id }) as { transactionId: string; gramsAcquired: number; totalCostKobo: number; status: string };
+      onGoldPurchased(ctx.user.id.toString(), { ...res, userId: ctx.user.id });
+      return res;
     }),
   sellGold: protectedProcedure
     .input(z.object({ grams: z.number().positive(), destinationAccount: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/digital-gold/sell", { ...input, userId: ctx.user.id });
-      return res as { transactionId: string; proceedsKobo: number; status: string };
+      const res = await bridgePost("/digital-gold/sell", { ...input, userId: ctx.user.id }) as { transactionId: string; proceedsKobo: number; status: string };
+      onGoldSold(ctx.user.id.toString(), { ...res, userId: ctx.user.id });
+      return res;
     }),
   setupSIP: protectedProcedure
     .input(z.object({ amountKobo: z.number().min(10000), frequency: z.enum(["daily", "weekly", "monthly"]), startDate: z.string() }))
@@ -98,14 +107,16 @@ export const mutualFundsRouter = router({
   invest: protectedProcedure
     .input(z.object({ fundId: z.string(), amountKobo: z.number().min(50000), investmentType: z.enum(["lumpsum", "sip"]), sipFrequency: z.enum(["monthly", "weekly"]).optional() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/mutual-funds/invest", { ...input, userId: ctx.user.id });
-      return res as { orderId: string; units: number; nav: number; amountKobo: number; status: string };
+      const res = await bridgePost("/mutual-funds/invest", { ...input, userId: ctx.user.id }) as { orderId: string; units: number; nav: number; amountKobo: number; status: string };
+      onMutualFundInvested(ctx.user.id.toString(), { transactionId: res.orderId, fundId: input.fundId, units: res.units, amountKobo: res.amountKobo, userId: ctx.user.id });
+      return res;
     }),
   redeem: protectedProcedure
     .input(z.object({ fundId: z.string(), units: z.number().positive(), destinationAccount: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/mutual-funds/redeem", { ...input, userId: ctx.user.id });
-      return res as { redemptionId: string; units: number; estimatedProceedsKobo: number; settlementDate: string; status: string };
+      const res = await bridgePost("/mutual-funds/redeem", { ...input, userId: ctx.user.id }) as { redemptionId: string; units: number; estimatedProceedsKobo: number; settlementDate: string; status: string };
+      onMutualFundRedeemed(ctx.user.id.toString(), { transactionId: res.redemptionId, fundId: input.fundId, units: res.units, proceedsKobo: res.estimatedProceedsKobo, userId: ctx.user.id });
+      return res;
     }),
 });
 
@@ -124,14 +135,16 @@ export const consumerInsuranceRouter = router({
   purchasePolicy: protectedProcedure
     .input(z.object({ productId: z.string(), coverageDetails: z.record(z.string(), z.string()), paymentSource: z.enum(["wallet", "card", "bank"]) }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/consumer-insurance/purchase", { ...input, userId: ctx.user.id });
-      return res as { policyId: string; policyNumber: string; certificateUrl: string; premiumKobo: number; status: string };
+      const res = await bridgePost("/consumer-insurance/purchase", { ...input, userId: ctx.user.id }) as { policyId: string; policyNumber: string; certificateUrl: string; premiumKobo: number; status: string; policyType?: string; providerName?: string };
+      onInsurancePolicyCreated(ctx.user.id.toString(), { policyId: res.policyId, policyType: res.policyType ?? input.productId, providerName: res.providerName ?? "Partner Insurer", premiumKobo: res.premiumKobo, userId: ctx.user.id });
+      return res;
     }),
   fileClaim: protectedProcedure
     .input(z.object({ policyId: z.string(), claimType: z.string(), description: z.string(), amountKobo: z.number().positive(), evidenceUrls: z.array(z.string()).optional() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/consumer-insurance/claim", { ...input, userId: ctx.user.id });
-      return res as { claimId: string; claimNumber: string; status: string; estimatedResolutionDate: string };
+      const res = await bridgePost("/consumer-insurance/claim", { ...input, userId: ctx.user.id }) as { claimId: string; claimNumber: string; status: string; estimatedResolutionDate: string };
+      onInsuranceClaimSubmitted(ctx.user.id.toString(), { claimId: res.claimId, policyId: input.policyId, claimAmountKobo: input.amountKobo, userId: ctx.user.id });
+      return res;
     }),
   getClaims: protectedProcedure.query(async ({ ctx }) => {
     const res = await bridgeGet(`/consumer-insurance/claims?userId=${ctx.user.id}`);
@@ -154,8 +167,9 @@ export const pensionRouter = router({
   makeContribution: protectedProcedure
     .input(z.object({ amountKobo: z.number().min(100000), contributionType: z.enum(["voluntary", "mandatory"]) }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/pension/contribute", { ...input, userId: ctx.user.id });
-      return res as { transactionId: string; amountKobo: number; status: string; newBalanceKobo: number };
+      const res = await bridgePost("/pension/contribute", { ...input, userId: ctx.user.id }) as { transactionId: string; amountKobo: number; status: string; newBalanceKobo: number; pensionAccountId?: string };
+      onPensionContributionPosted(ctx.user.id.toString(), { pensionAccountId: res.pensionAccountId ?? "unknown", totalKobo: res.amountKobo, periodMonth: new Date().toISOString().slice(0, 7), userId: ctx.user.id });
+      return res;
     }),
   getStatements: protectedProcedure
     .input(z.object({ year: z.number().int().min(2000).max(2100) }))
@@ -184,8 +198,9 @@ export const cashbackRewardsRouter = router({
   redeemCashback: protectedProcedure
     .input(z.object({ amountKobo: z.number().min(10000), destinationType: z.enum(["wallet", "bank", "airtime"]) }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/cashback/redeem", { ...input, userId: ctx.user.id });
-      return res as { redemptionId: string; amountKobo: number; status: string; newBalanceKobo: number };
+      const res = await bridgePost("/cashback/redeem", { ...input, userId: ctx.user.id }) as { redemptionId: string; amountKobo: number; status: string; newBalanceKobo: number };
+      onCashbackRedeemed(ctx.user.id.toString(), { points: Math.floor(res.amountKobo / 100), koboEquivalent: res.amountKobo, userId: ctx.user.id });
+      return res;
     }),
   getActiveCampaigns: publicProcedure.query(async () => {
     const res = await bridgeGet("/cashback/campaigns");
@@ -212,8 +227,9 @@ export const voicePaymentsRouter = router({
   registerDevice: protectedProcedure
     .input(z.object({ serialNumber: z.string(), model: z.enum(["SB-1", "SB-2", "SB-Pro", "SB-Mini"]), location: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/soundbox/register", { ...input, merchantId: ctx.user.id });
-      return res as { deviceId: string; activationCode: string; status: string };
+      const res = await bridgePost("/soundbox/register", { ...input, merchantId: ctx.user.id }) as { deviceId: string; activationCode: string; status: string };
+      onSoundboxDeviceRegistered(ctx.user.id.toString(), { deviceId: res.deviceId, merchantName: ctx.user.name ?? ctx.user.email ?? "Merchant" });
+      return res;
     }),
   configureAudio: protectedProcedure
     .input(z.object({ deviceId: z.string(), language: z.enum(["en", "yo", "ig", "ha", "pcm"]), volume: z.number().min(0).max(100), customGreeting: z.string().optional() }))
@@ -289,8 +305,9 @@ export const emiCheckoutRouter = router({
   initiateEMI: protectedProcedure
     .input(z.object({ planId: z.string(), orderId: z.string(), cardToken: z.string().optional(), bankCode: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/emi/initiate", { ...input, userId: ctx.user.id });
-      return res as { emiId: string; planId: string; tenure: number; monthlyInstalment: number; firstDebitDate: string; status: string; redirectUrl: string | null };
+      const res = await bridgePost("/emi/initiate", { ...input, userId: ctx.user.id }) as { emiId: string; planId: string; tenure: number; monthlyInstalment: number; firstDebitDate: string; status: string; redirectUrl: string | null };
+      onEmiContractCreated(ctx.user.id.toString(), { contractId: res.emiId, productName: input.orderId, principalKobo: res.monthlyInstalment * res.tenure, tenureMonths: res.tenure, userId: ctx.user.id });
+      return res;
     }),
   getEMISchedule: protectedProcedure
     .input(z.object({ emiId: z.string() }))
@@ -324,8 +341,9 @@ export const bulkCollectionsRouter = router({
       expiryDate: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/bulk-collections/create", { ...input, merchantId: ctx.user.id });
-      return res as { collectionId: string; totalItems: number; totalAmountKobo: number; status: string; paymentLinks: { reference: string; paymentUrl: string }[] };
+      const res = await bridgePost("/bulk-collections/create", { ...input, merchantId: ctx.user.id }) as { collectionId: string; totalItems: number; totalAmountKobo: number; status: string; paymentLinks: { reference: string; paymentUrl: string }[] };
+      onBulkCollectionCreated(ctx.user.id.toString(), { collectionId: res.collectionId, name: input.name, totalAmountKobo: res.totalAmountKobo, itemCount: res.totalItems });
+      return res;
     }),
   listCollections: protectedProcedure
     .input(z.object({ status: z.enum(["pending", "partial", "completed", "expired", "all"]).default("all"), page: z.number().default(1) }))
@@ -523,8 +541,9 @@ export const reportsRouter = router({
   generateTransactionReport: protectedProcedure
     .input(z.object({ from: z.string(), to: z.string(), format: z.enum(["csv", "pdf", "xlsx"]), filters: z.object({ status: z.string().optional(), channel: z.string().optional(), minAmountKobo: z.number().optional(), maxAmountKobo: z.number().optional() }).optional() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/reports/transactions", { ...input, merchantId: ctx.user.id });
-      return res as { reportId: string; downloadUrl: string; expiresAt: string; rowCount: number };
+      const res = await bridgePost("/reports/transactions", { ...input, merchantId: ctx.user.id }) as { reportId: string; downloadUrl: string; expiresAt: string; rowCount: number };
+      onReportReady(ctx.user.id.toString(), { reportId: res.reportId, reportType: "transactions", downloadUrl: res.downloadUrl, format: input.format });
+      return res;
     }),
   generateSettlementReport: protectedProcedure
     .input(z.object({ from: z.string(), to: z.string(), format: z.enum(["csv", "pdf", "xlsx"]) }))
@@ -665,8 +684,9 @@ export const smartRetailPOSRouter = router({
       applyDiscount: z.number().default(0),
     }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/smart-retail/sale", { ...input, merchantId: ctx.user.id });
-      return res as { saleId: string; totalAmountKobo: number; discountKobo: number; taxKobo: number; loyaltyPointsEarned: number; receiptUrl: string; status: string };
+      const res = await bridgePost("/smart-retail/sale", { ...input, merchantId: ctx.user.id }) as { saleId: string; totalAmountKobo: number; discountKobo: number; taxKobo: number; loyaltyPointsEarned: number; receiptUrl: string; status: string };
+      onPosSaleCompleted(ctx.user.id.toString(), { saleId: res.saleId, totalKobo: res.totalAmountKobo, paymentMethod: input.paymentMethod, itemCount: input.items.length });
+      return res;
     }),
   getInventoryAlerts: protectedProcedure.query(async ({ ctx }) => {
     const res = await bridgeGet(`/smart-retail/inventory-alerts?merchantId=${ctx.user.id}`);
@@ -701,8 +721,9 @@ export const internationalRemittanceRouter = router({
   initiateTransfer: protectedProcedure
     .input(z.object({ quoteId: z.string(), recipientName: z.string(), recipientPhone: z.string(), recipientAccountNumber: z.string().optional(), recipientBankCode: z.string().optional(), purpose: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const res = await bridgePost("/intl-remittance/transfer", { ...input, userId: ctx.user.id });
-      return res as { transferId: string; trackingNumber: string; status: string; estimatedDelivery: string };
+      const res = await bridgePost("/intl-remittance/transfer", { ...input, userId: ctx.user.id }) as { transferId: string; trackingNumber: string; status: string; estimatedDelivery: string; sourceAmountKobo?: number; destinationCurrency?: string; destinationCountry?: string };
+      onRemittanceInitiated(ctx.user.id.toString(), { transferId: res.transferId, sourceAmountKobo: res.sourceAmountKobo ?? 0, destinationCurrency: res.destinationCurrency ?? "USD", destinationCountry: res.destinationCountry ?? "unknown", userId: ctx.user.id });
+      return res;
     }),
   trackTransfer: protectedProcedure
     .input(z.object({ trackingNumber: z.string() }))
