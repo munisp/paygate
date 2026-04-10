@@ -153,6 +153,27 @@ const navItems = [
   { icon: Zap, label: "Admin: System Health", path: "/admin/health", badge: "Admin" },
   { icon: ScrollText, label: "Admin: Audit Trail", path: "/admin/audit", badge: "Admin" },
   { icon: Settings, label: "Admin: Config", path: "/admin/config", badge: "Admin" },
+  // ─── Wave 80 Features ───────────────────────────────────────────────────
+  { icon: BookOpen, label: "Open Banking V2", path: "/open-banking-v2", badge: "New" },
+  { icon: Leaf, label: "Carbon Credits V2", path: "/carbon-credits-v2", badge: "New" },
+  { icon: Users2, label: "Agent Banking V4", path: "/agent-banking-v4", badge: "New" },
+  { icon: Network, label: "Super-Agent V2", path: "/super-agent-v2", badge: "New" },
+  { icon: Shield, label: "Escrow V2", path: "/escrow-v2", badge: "New" },
+  { icon: ShoppingBag, label: "Marketplace Pay", path: "/marketplace-pay", badge: "New" },
+  { icon: Star, label: "Loyalty V3", path: "/loyalty-v3", badge: "New" },
+  { icon: Bitcoin, label: "Crypto Off-Ramp V2", path: "/crypto-offramp-v2", badge: "New" },
+  { icon: Smartphone, label: "NFC Tap-to-Pay", path: "/nfc-pay", badge: "New" },
+  { icon: QrCode, label: "QR Analytics", path: "/qr-analytics", badge: "New" },
+  { icon: FilePlus2, label: "Invoice Financing V2", path: "/invoice-financing-v2", badge: "New" },
+  { icon: DollarSign, label: "Payroll V3", path: "/payroll-v3", badge: "New" },
+  { icon: Receipt, label: "Tax Filing", path: "/tax-filing", badge: "New" },
+  { icon: Scale, label: "Regulatory Reporting", path: "/regulatory-reporting", badge: "New" },
+  { icon: Coins, label: "USDC V2", path: "/usdc-v2", badge: "New" },
+  { icon: Landmark, label: "Multi-Currency Ledger", path: "/multi-currency-ledger", badge: "New" },
+  { icon: Activity, label: "Temporal Workflows", path: "/temporal-workflows", badge: "New" },
+  { icon: Server, label: "gRPC Health Check", path: "/grpc-health", badge: "New" },
+  { icon: Radio, label: "USSD Session V2", path: "/ussd-v2", badge: "New" },
+  { icon: Bell, label: "Realtime Notifications", path: "/realtime-notifications", badge: "New" },
 ];
 
 const devItems = [

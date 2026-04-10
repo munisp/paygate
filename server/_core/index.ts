@@ -10,6 +10,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerKeycloakRoutes } from "./keycloakRoutes";
 import { appRouter, tier1to5Router, tier6to8Router } from "../routers";
 import { newFeaturesRouter } from "../newFeaturesRouter";
+import { wave80Router } from "../wave80Router";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
@@ -1142,6 +1143,21 @@ async function startServer() {
           logger.error("trpc4_internal_error", { path, type, message: error.message, stack: error.stack });
         } else if (error.code !== "UNAUTHORIZED" && error.code !== "NOT_FOUND") {
           logger.warn("trpc4_error", { path, type, code: error.code, message: error.message });
+        }
+      },
+    })
+  );
+  // ─── Wave 80 New Features tRPC API ───────────────────────────────────────
+  app.use(
+    "/api/trpc5",
+    createExpressMiddleware({
+      router: wave80Router,
+      createContext,
+      onError: ({ error, path, type }) => {
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          logger.error("trpc5_internal_error", { path, type, message: error.message, stack: error.stack });
+        } else if (error.code !== "UNAUTHORIZED" && error.code !== "NOT_FOUND") {
+          logger.warn("trpc5_error", { path, type, code: error.code, message: error.message });
         }
       },
     })

@@ -162,6 +162,27 @@ import SmartRetailPOS from "./pages/SmartRetailPOS";
 import InternationalRemittance from "./pages/InternationalRemittance";
 import SubscriptionBillingV2 from "./pages/SubscriptionBillingV2";
 import Billing from "./pages/Billing";
+// Wave 80 Pages
+import OpenBankingV2 from "./pages/wave80/OpenBankingV2";
+import CarbonCreditsV2 from "./pages/wave80/CarbonCreditsV2";
+import AgentBankingV4 from "./pages/wave80/AgentBankingV4";
+import SuperAgentV2 from "./pages/wave80/SuperAgentV2";
+import EscrowV2 from "./pages/wave80/EscrowV2";
+import MarketplacePay from "./pages/wave80/MarketplacePay";
+import LoyaltyV3 from "./pages/wave80/LoyaltyV3";
+import CryptoOfframpV2 from "./pages/wave80/CryptoOfframpV2";
+import NfcPay from "./pages/wave80/NfcPay";
+import QrMerchantAnalytics from "./pages/wave80/QrMerchantAnalytics";
+import InvoiceFinancingV2 from "./pages/wave80/InvoiceFinancingV2";
+import PayrollV3 from "./pages/wave80/PayrollV3";
+import TaxFiling from "./pages/wave80/TaxFiling";
+import RegulatoryReporting from "./pages/wave80/RegulatoryReporting";
+import UsdcV2 from "./pages/wave80/UsdcV2";
+import MultiCurrencyLedger from "./pages/wave80/MultiCurrencyLedger";
+import TemporalWorkflowMgmt from "./pages/wave80/TemporalWorkflowMgmt";
+import GrpcHealthCheck from "./pages/wave80/GrpcHealthCheck";
+import UssdSessionV2 from "./pages/wave80/UssdSessionV2";
+import RealtimeNotifications from "./pages/wave80/RealtimeNotifications";
 
 function Router() {
   const [location] = useLocation();
@@ -356,6 +377,27 @@ function Router() {
         <Route path="/intl-remittance" component={InternationalRemittance} />
         <Route path="/subscription-billing-v2" component={SubscriptionBillingV2} />
         <Route path="/billing" component={Billing} />
+        {/* Wave 80 Routes */}
+        <Route path="/open-banking-v2" component={OpenBankingV2} />
+        <Route path="/carbon-credits-v2" component={CarbonCreditsV2} />
+        <Route path="/agent-banking-v4" component={AgentBankingV4} />
+        <Route path="/super-agent-v2" component={SuperAgentV2} />
+        <Route path="/escrow-v2" component={EscrowV2} />
+        <Route path="/marketplace-pay" component={MarketplacePay} />
+        <Route path="/loyalty-v3" component={LoyaltyV3} />
+        <Route path="/crypto-offramp-v2" component={CryptoOfframpV2} />
+        <Route path="/nfc-pay" component={NfcPay} />
+        <Route path="/qr-analytics" component={QrMerchantAnalytics} />
+        <Route path="/invoice-financing-v2" component={InvoiceFinancingV2} />
+        <Route path="/payroll-v3" component={PayrollV3} />
+        <Route path="/tax-filing" component={TaxFiling} />
+        <Route path="/regulatory-reporting" component={RegulatoryReporting} />
+        <Route path="/usdc-v2" component={UsdcV2} />
+        <Route path="/multi-currency-ledger" component={MultiCurrencyLedger} />
+        <Route path="/temporal-workflows" component={TemporalWorkflowMgmt} />
+        <Route path="/grpc-health" component={GrpcHealthCheck} />
+        <Route path="/ussd-v2" component={UssdSessionV2} />
+        <Route path="/realtime-notifications" component={RealtimeNotifications} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

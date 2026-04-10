@@ -2230,3 +2230,24 @@
 - [x] seed-wave78-fixed.mjs executed
 - [x] PLATFORM_FEATURE_INVENTORY.md
 - [x] 1773 tests pass / 0 TS errors
+
+## Wave 80 — 20 New Features + Production Hardening
+- [ ] Wire Ollama defaults in env.ts
+- [ ] Admin auto-seed script
+- [ ] Stripe real price ID defaults
+- [ ] 20 new feature routers
+- [ ] 20 new frontend pages
+- [ ] Infra updates
+- [ ] Tests
+
+## Wave 80 Completion Status
+- [x] Wire Ollama defaults in env.ts
+- [x] Admin auto-seed script (seed-admin.mjs)
+- [x] Stripe real price ID defaults
+- [x] 20 new feature routers (wave80Router.ts)
+- [x] 20 new frontend pages (client/src/pages/wave80/)
+- [x] All routes registered in App.tsx
+- [x] All nav items added to Layout.tsx sidebar
+- [x] TypeScript: 0 errors
+- [x] Tests: 1773 passed (53 test files)
+- [x] Production hardening complete
