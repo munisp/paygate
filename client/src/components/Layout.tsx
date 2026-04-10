@@ -15,7 +15,7 @@ import {
   Landmark, Radio, MessageSquareCode, Network, Layers3, Tablet, Satellite,
   Database, ShieldPlus, Briefcase, PercentSquare, Volume2, PiggyBank,
   SplitSquareHorizontal, ListChecks, BookMarked, UserCheck, EyeOff,
-  BarChart2, Building, ShoppingBag, Send} from "lucide-react";
+  BarChart2, Building, ShoppingBag, Send, ChevronDown} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLocation as useWouterLocation } from "wouter";
@@ -29,158 +29,253 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { usePWA } from "@/hooks/usePWA";
 import { Download, WifiOff } from "lucide-react";
 
-const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-  { icon: ArrowLeftRight, label: "Transactions", path: "/transactions", badge: "Live" },
-  { icon: Users, label: "Customers", path: "/customers" },
-  { icon: CreditCard, label: "Virtual Cards", path: "/virtual-cards" },
-  { icon: Wallet, label: "Payouts", path: "/payouts" },
-  { icon: Coins, label: "USDC Payouts", path: "/usdc-payouts" },
-  { icon: AlertTriangle, label: "Disputes", path: "/disputes" },
-  { icon: BarChart3, label: "Analytics", path: "/analytics" },
-  { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
-  { icon: Link2, label: "Payment Links", path: "/payment-links" },
-  { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
-  { icon: Scale, label: "Recon Alerts", path: "/reconciliation-alerts" },
-  { icon: BNPLIcon, label: "BNPL", path: "/bnpl" },
-  { icon: Globe, label: "FX & Rates", path: "/fx" },
-  { icon: Users, label: "Team & Roles", path: "/team" },
-  { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
-  { icon: QrCode, label: "QR Payments", path: "/qr-payments" },
-  { icon: Globe, label: "Cross-Border", path: "/cross-border", badge: "New" },
-  { icon: FileCheck, label: "Compliance & KYC", path: "/compliance" },
-  { icon: RefreshCw, label: "Subscriptions", path: "/subscriptions", badge: "New" },
-  { icon: Monitor, label: "POS Terminals", path: "/pos-terminals", badge: "New" },
-  { icon: Map, label: "Terminal Map", path: "/terminal-map" },
-  { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
-  { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement", badge: "New" },
-  { icon: Layers, label: "PTSP Batches", path: "/ptsp-batches" },
-  { icon: ShieldAlert, label: "Geofence Alerts", path: "/geofence-alerts" },
-  { icon: Server, label: "Service Health", path: "/microservice-health" },
-  { icon: Crown, label: "Admin Setup", path: "/admin-setup" },
-  { icon: Rocket, label: "Go-Live Checklist", path: "/go-live" },
-  { icon: Users2, label: "Agent Banking", path: "/agent-banking" },
-  { icon: Activity, label: "Kiosk Health", path: "/kiosk-health" },
-  { icon: UtensilsCrossed, label: "Floor Plan", path: "/restaurant/floor-plan" },
-  { icon: UtensilsCrossed, label: "Orders", path: "/restaurant/orders" },
-  { icon: UtensilsCrossed, label: "Menu", path: "/restaurant/menu" },
-  { icon: Star, label: "Loyalty", path: "/restaurant/loyalty" },
-  { icon: Globe, label: "Online Ordering", path: "/restaurant/online-ordering", badge: "New" },
-  { icon: ChefHat, label: "Kitchen Display", path: "/kitchen-display" },
-  { icon: Package, label: "Inventory", path: "/inventory" },
-  { icon: DollarSign, label: "Payroll", path: "/payroll" },
-  { icon: Zap, label: "Quick Pay", path: "/quick-pay", badge: "New" },
-  { icon: Bell, label: "Notifications", path: "/notifications" },
-  { icon: FileText, label: "Audit Log", path: "/audit-log", badge: "Admin" },
-  { icon: ShoppingCart, label: "Purchase Orders", path: "/purchase-orders", badge: "New" },
-  { icon: Building2, label: "Vendor Directory", path: "/vendors" },
-  { icon: Banknote, label: "Settlements", path: "/settlements" },
-  // ─── Tier 1-5 New Features ───────────────────────────────────────────
-  { icon: TrendingUp, label: "Merchant Lending", path: "/lending", badge: "New" },
-  { icon: ArrowUpDown, label: "Split Payments", path: "/split-payments", badge: "New" },
-  { icon: Repeat, label: "Recurring Billing", path: "/recurring-billing", badge: "New" },
-  { icon: Globe, label: "DCC Checkout", path: "/dcc", badge: "New" },
-  { icon: FileSpreadsheet, label: "Recon Engine", path: "/reconciliation", badge: "New" },
-  { icon: FilePlus2, label: "Invoice Builder", path: "/invoice-builder", badge: "New" },
-  { icon: ShieldCheck, label: "Chargeback Auto", path: "/chargeback-automation", badge: "New" },
-  { icon: Shield, label: "AML Monitor", path: "/aml-monitor", badge: "New" },
-  { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow", badge: "New" },
-  { icon: Fingerprint, label: "Session Risk", path: "/session-risk", badge: "New" },
-  { icon: BookOpen, label: "Open Banking", path: "/open-banking", badge: "New" },
-  { icon: Gift, label: "Loyalty Engine", path: "/loyalty-engine", badge: "New" },
-  { icon: Cpu, label: "Embedded Finance", path: "/embedded-finance", badge: "New" },
-  { icon: LineChart, label: "AI Insights", path: "/ai-insights", badge: "AI" },
-  { icon: Flame, label: "Fraud Heatmap", path: "/fraud-heatmap", badge: "New" },
-  // ─── Tier 6-8 New Features ───────────────────────────────────────────
-  { icon: Umbrella, label: "Insurance", path: "/insurance", badge: "New" },
-  { icon: Leaf, label: "Carbon Credits", path: "/carbon-credit", badge: "New" },
-  { icon: Gem, label: "NFT Badges", path: "/nft-badges", badge: "New" },
-  { icon: Layers3, label: "BNPL v2", path: "/bnpl-v2", badge: "New" },
-  { icon: Bitcoin, label: "Crypto Ramp", path: "/crypto-ramp", badge: "New" },
-  { icon: Lock, label: "Escrow", path: "/escrow", badge: "New" },
-  { icon: CalendarClock, label: "Bulk Scheduler", path: "/bulk-scheduler", badge: "New" },
-  { icon: Receipt, label: "Tax Withholding", path: "/tax-withholding", badge: "New" },
-  { icon: FlaskConical, label: "Reg Sandbox", path: "/regulatory-sandbox", badge: "New" },
-  { icon: Landmark, label: "Multi-Currency", path: "/multi-currency-wallet", badge: "New" },
-  { icon: Radio, label: "RTGS", path: "/rtgs", badge: "New" },
-  { icon: MessageSquareCode, label: "ISO 20022", path: "/iso20022", badge: "New" },
-  { icon: Network, label: "Open Finance", path: "/open-finance", badge: "New" },
-  { icon: Satellite, label: "White-Label SDK", path: "/white-label-sdk", badge: "New" },
-  { icon: Tablet, label: "Super App", path: "/super-app", badge: "New" },
-  { icon: Database, label: "Lakehouse v2", path: "/lakehouse-v2", badge: "New" },
-  { icon: DollarSign, label: "Payroll v2", path: "/payroll-v2", badge: "New" },
-  { icon: TrendingUp, label: "Settlement Forecast", path: "/settlement-forecast", badge: "New" },
-  { icon: Receipt, label: "Tax Engine", path: "/tax-engine", badge: "New" },
-  // ─── New Production Features ─────────────────────────────────────────
-  { icon: Network, label: "Agent Network v2", path: "/agent-network", badge: "New" },
-  { icon: Code2, label: "SDK Portal", path: "/sdk-portal", badge: "New" },
-  { icon: LineChart, label: "Cohort Analytics", path: "/cohort-analytics", badge: "New" },
-  { icon: Tablet, label: "POS v2", path: "/pos-v2", badge: "New" },
-  { icon: Globe, label: "Remittance v2", path: "/remittance-v2", badge: "New" },
-  { icon: AlertOctagon, label: "Dispute Automation", path: "/dispute-automation", badge: "New" },
-  { icon: BookOpen, label: "Open Banking Portal", path: "/open-banking-portal", badge: "New" },
-  { icon: Landmark, label: "Merchant Lending v2", path: "/merchant-lending", badge: "New" },
-  { icon: Tablet, label: "Mobile POS", path: "/mobile-pos", badge: "New" },
-  // ─── New Feature Pages ────────────────────────────────────────────────
-  { icon: Gem, label: "Digital Gold", path: "/digital-gold", badge: "New" },
-  { icon: TrendingUp, label: "Mutual Funds", path: "/mutual-funds", badge: "New" },
-  { icon: ShieldPlus, label: "Consumer Insurance", path: "/consumer-insurance", badge: "New" },
-  { icon: PiggyBank, label: "Pension & NPS", path: "/pension-nps", badge: "New" },
-  { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards", badge: "New" },
-  { icon: Volume2, label: "Voice Payments", path: "/voice-payments", badge: "New" },
-  { icon: Briefcase, label: "Wealth Management", path: "/wealth-management", badge: "New" },
-  { icon: SplitSquareHorizontal, label: "EMI Checkout", path: "/emi-checkout", badge: "New" },
-  { icon: ListChecks, label: "Bulk Collections", path: "/bulk-collections", badge: "New" },
-  { icon: BookMarked, label: "API Docs Portal", path: "/api-docs", badge: "New" },
-  { icon: UserCheck, label: "Salary Accounts", path: "/salary-accounts", badge: "New" },
-  { icon: EyeOff, label: "Privacy Payments", path: "/privacy-payments", badge: "New" },
-  { icon: BarChart2, label: "Reports Center", path: "/reports-center", badge: "New" },
-  { icon: Brain, label: "AI Insights v2", path: "/ai-insights-v2", badge: "AI" },
-  { icon: Building, label: "Nodal Accounts", path: "/nodal-accounts", badge: "New" },
-  { icon: ShoppingBag, label: "Smart Retail POS", path: "/smart-pos", badge: "New" },
-  { icon: Send, label: "Intl Remittance", path: "/intl-remittance", badge: "New" },
-  { icon: Repeat, label: "Subscription Billing v2", path: "/subscription-billing-v2", badge: "New" },
-  { icon: CreditCard, label: "Portal Billing", path: "/billing", badge: "New" },
-  { icon: Bot, label: "Ollama AI Chat", path: "/ollama-chat", badge: "AI" },
-  { icon: LayoutDashboard, label: "Admin Overview", path: "/admin", badge: "Admin" },
-  { icon: Users, label: "Admin: Merchants", path: "/admin/merchants", badge: "Admin" },
-  { icon: ShieldCheck, label: "Admin: KYC Review", path: "/admin/kyc", badge: "Admin" },
-  { icon: AlertTriangle, label: "Admin: Disputes", path: "/admin/disputes", badge: "Admin" },
-  { icon: Brain, label: "Admin: Fraud", path: "/admin/fraud", badge: "Admin" },
-  { icon: BarChart3, label: "Admin: Revenue", path: "/admin/revenue", badge: "Admin" },
-  { icon: ArrowLeftRight, label: "Admin: Settlements", path: "/admin/settlements", badge: "Admin" },
-  { icon: Shield, label: "Admin: Compliance", path: "/admin/compliance", badge: "Admin" },
-  { icon: Zap, label: "Admin: System Health", path: "/admin/health", badge: "Admin" },
-  { icon: ScrollText, label: "Admin: Audit Trail", path: "/admin/audit", badge: "Admin" },
-  { icon: Settings, label: "Admin: Config", path: "/admin/config", badge: "Admin" },
-  // ─── Wave 80 Features ───────────────────────────────────────────────────
-  { icon: BookOpen, label: "Open Banking V2", path: "/open-banking-v2", badge: "New" },
-  { icon: Leaf, label: "Carbon Credits V2", path: "/carbon-credits-v2", badge: "New" },
-  { icon: Users2, label: "Agent Banking V4", path: "/agent-banking-v4", badge: "New" },
-  { icon: Network, label: "Super-Agent V2", path: "/super-agent-v2", badge: "New" },
-  { icon: Shield, label: "Escrow V2", path: "/escrow-v2", badge: "New" },
-  { icon: ShoppingBag, label: "Marketplace Pay", path: "/marketplace-pay", badge: "New" },
-  { icon: Star, label: "Loyalty V3", path: "/loyalty-v3", badge: "New" },
-  { icon: Bitcoin, label: "Crypto Off-Ramp V2", path: "/crypto-offramp-v2", badge: "New" },
-  { icon: Smartphone, label: "NFC Tap-to-Pay", path: "/nfc-pay", badge: "New" },
-  { icon: QrCode, label: "QR Analytics", path: "/qr-analytics", badge: "New" },
-  { icon: FilePlus2, label: "Invoice Financing V2", path: "/invoice-financing-v2", badge: "New" },
-  { icon: DollarSign, label: "Payroll V3", path: "/payroll-v3", badge: "New" },
-  { icon: Receipt, label: "Tax Filing", path: "/tax-filing", badge: "New" },
-  { icon: Scale, label: "Regulatory Reporting", path: "/regulatory-reporting", badge: "New" },
-  { icon: Coins, label: "USDC V2", path: "/usdc-v2", badge: "New" },
-  { icon: Landmark, label: "Multi-Currency Ledger", path: "/multi-currency-ledger", badge: "New" },
-  { icon: Activity, label: "Temporal Workflows", path: "/temporal-workflows", badge: "New" },
-  { icon: Server, label: "gRPC Health Check", path: "/grpc-health", badge: "New" },
-  { icon: Radio, label: "USSD Session V2", path: "/ussd-v2", badge: "New" },
-  { icon: Bell, label: "Realtime Notifications", path: "/realtime-notifications", badge: "New" },
+// ─── Grouped Navigation ──────────────────────────────────────────────────────
+type NavItem = { icon: React.ElementType; label: string; path: string; badge?: string };
+type NavGroup = { title: string; icon: React.ElementType; items: NavItem[] };
+
+const navGroups: NavGroup[] = [
+  {
+    title: "Overview",
+    icon: LayoutDashboard,
+    items: [
+      { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
+      { icon: BarChart3, label: "Analytics", path: "/analytics" },
+      { icon: BarChart2, label: "Reports Center", path: "/reports-center" },
+      { icon: Brain, label: "AI Insights", path: "/ai-insights", badge: "AI" },
+      { icon: Brain, label: "AI Insights v2", path: "/ai-insights-v2", badge: "AI" },
+      { icon: Bell, label: "Notifications", path: "/notifications" },
+      { icon: Rocket, label: "Go-Live Checklist", path: "/go-live" },
+    ],
+  },
+  {
+    title: "Payments",
+    icon: ArrowLeftRight,
+    items: [
+      { icon: ArrowLeftRight, label: "Transactions", path: "/transactions", badge: "Live" },
+      { icon: Users, label: "Customers", path: "/customers" },
+      { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
+      { icon: Link2, label: "Payment Links", path: "/payment-links" },
+      { icon: QrCode, label: "QR Payments", path: "/qr-payments" },
+      { icon: QrCode, label: "QR Analytics", path: "/qr-analytics" },
+      { icon: Zap, label: "Quick Pay", path: "/quick-pay" },
+      { icon: Smartphone, label: "NFC Tap-to-Pay", path: "/nfc-pay", badge: "New" },
+      { icon: ShoppingBag, label: "Marketplace Pay", path: "/marketplace-pay", badge: "New" },
+      { icon: SplitSquareHorizontal, label: "EMI Checkout", path: "/emi-checkout" },
+      { icon: ArrowUpDown, label: "Split Payments", path: "/split-payments" },
+      { icon: ListChecks, label: "Bulk Collections", path: "/bulk-collections" },
+      { icon: EyeOff, label: "Privacy Payments", path: "/privacy-payments" },
+      { icon: Volume2, label: "Voice Payments", path: "/voice-payments" },
+    ],
+  },
+  {
+    title: "Subscriptions & Billing",
+    icon: RefreshCw,
+    items: [
+      { icon: RefreshCw, label: "Subscriptions", path: "/subscriptions" },
+      { icon: Repeat, label: "Recurring Billing", path: "/recurring-billing" },
+      { icon: Repeat, label: "Subscription Billing v2", path: "/subscription-billing-v2" },
+      { icon: Globe, label: "DCC Checkout", path: "/dcc" },
+      { icon: CreditCard, label: "Portal Billing", path: "/billing" },
+    ],
+  },
+  {
+    title: "Cards & Wallets",
+    icon: CreditCard,
+    items: [
+      { icon: CreditCard, label: "Virtual Cards", path: "/virtual-cards" },
+      { icon: BNPLIcon, label: "BNPL", path: "/bnpl" },
+      { icon: Layers3, label: "BNPL v2", path: "/bnpl-v2" },
+      { icon: Coins, label: "USDC Payouts", path: "/usdc-payouts" },
+      { icon: Coins, label: "USDC V2", path: "/usdc-v2", badge: "New" },
+      { icon: Bitcoin, label: "Crypto Off-Ramp V2", path: "/crypto-offramp-v2", badge: "New" },
+      { icon: Bitcoin, label: "Crypto Ramp", path: "/crypto-ramp" },
+      { icon: Gem, label: "Digital Gold", path: "/digital-gold" },
+    ],
+  },
+  {
+    title: "FX & Cross-Border",
+    icon: Globe,
+    items: [
+      { icon: Globe, label: "FX & Rates", path: "/fx" },
+      { icon: Globe, label: "Cross-Border", path: "/cross-border" },
+      { icon: Send, label: "Intl Remittance", path: "/intl-remittance" },
+      { icon: Send, label: "Remittance v2", path: "/remittance-v2" },
+      { icon: Landmark, label: "Multi-Currency Ledger", path: "/multi-currency-ledger", badge: "New" },
+      { icon: Landmark, label: "Multi-Currency Wallet", path: "/multi-currency-wallet" },
+      { icon: Building, label: "Nodal Accounts", path: "/nodal-accounts" },
+      { icon: Radio, label: "RTGS", path: "/rtgs" },
+      { icon: MessageSquareCode, label: "ISO 20022", path: "/iso20022" },
+    ],
+  },
+  {
+    title: "Payouts & Settlements",
+    icon: Wallet,
+    items: [
+      { icon: Wallet, label: "Payouts", path: "/payouts" },
+      { icon: Banknote, label: "Settlements", path: "/settlements" },
+      { icon: TrendingUp, label: "Settlement Forecast", path: "/settlement-forecast" },
+      { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement" },
+      { icon: Layers, label: "PTSP Batches", path: "/ptsp-batches" },
+      { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
+      { icon: FileSpreadsheet, label: "Recon Engine", path: "/reconciliation" },
+      { icon: Scale, label: "Recon Alerts", path: "/reconciliation-alerts" },
+    ],
+  },
+  {
+    title: "Fraud & Risk",
+    icon: Shield,
+    items: [
+      { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
+      { icon: Flame, label: "Fraud Heatmap", path: "/fraud-heatmap" },
+      { icon: Shield, label: "AML Monitor", path: "/aml-monitor" },
+      { icon: Fingerprint, label: "Session Risk", path: "/session-risk" },
+      { icon: ShieldAlert, label: "Geofence Alerts", path: "/geofence-alerts" },
+      { icon: AlertTriangle, label: "Disputes", path: "/disputes" },
+      { icon: AlertOctagon, label: "Dispute Automation", path: "/dispute-automation" },
+      { icon: ShieldCheck, label: "Chargeback Auto", path: "/chargeback-automation" },
+    ],
+  },
+  {
+    title: "Compliance & KYC",
+    icon: FileCheck,
+    items: [
+      { icon: FileCheck, label: "Compliance & KYC", path: "/compliance" },
+      { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow" },
+      { icon: Receipt, label: "Tax Filing", path: "/tax-filing", badge: "New" },
+      { icon: Receipt, label: "Tax Withholding", path: "/tax-withholding" },
+      { icon: Receipt, label: "Tax Engine", path: "/tax-engine" },
+      { icon: Scale, label: "Regulatory Reporting", path: "/regulatory-reporting", badge: "New" },
+      { icon: FlaskConical, label: "Reg Sandbox", path: "/regulatory-sandbox" },
+      { icon: ScrollText, label: "Audit Log", path: "/audit-log" },
+    ],
+  },
+  {
+    title: "Lending & Finance",
+    icon: TrendingUp,
+    items: [
+      { icon: TrendingUp, label: "Merchant Lending", path: "/lending" },
+      { icon: Landmark, label: "Merchant Lending v2", path: "/merchant-lending" },
+      { icon: FilePlus2, label: "Invoice Builder", path: "/invoice-builder" },
+      { icon: FilePlus2, label: "Invoice Financing V2", path: "/invoice-financing-v2", badge: "New" },
+      { icon: Shield, label: "Escrow", path: "/escrow" },
+      { icon: Shield, label: "Escrow V2", path: "/escrow-v2", badge: "New" },
+      { icon: TrendingUp, label: "Mutual Funds", path: "/mutual-funds" },
+      { icon: ShieldPlus, label: "Consumer Insurance", path: "/consumer-insurance" },
+      { icon: Umbrella, label: "Insurance", path: "/insurance" },
+      { icon: PiggyBank, label: "Pension & NPS", path: "/pension-nps" },
+      { icon: Briefcase, label: "Wealth Management", path: "/wealth-management" },
+      { icon: Cpu, label: "Embedded Finance", path: "/embedded-finance" },
+    ],
+  },
+  {
+    title: "Open Banking & Crypto",
+    icon: BookOpen,
+    items: [
+      { icon: BookOpen, label: "Open Banking", path: "/open-banking" },
+      { icon: BookOpen, label: "Open Banking V2", path: "/open-banking-v2", badge: "New" },
+      { icon: Network, label: "Open Finance", path: "/open-finance" },
+      { icon: BookOpen, label: "Open Banking Portal", path: "/open-banking-portal" },
+      { icon: Leaf, label: "Carbon Credits", path: "/carbon-credit" },
+      { icon: Leaf, label: "Carbon Credits V2", path: "/carbon-credits-v2", badge: "New" },
+      { icon: Gem, label: "NFT Badges", path: "/nft-badges" },
+      { icon: Gift, label: "Loyalty Engine", path: "/loyalty-engine" },
+      { icon: Star, label: "Loyalty V3", path: "/loyalty-v3", badge: "New" },
+      { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards" },
+    ],
+  },
+  {
+    title: "POS & Terminals",
+    icon: Monitor,
+    items: [
+      { icon: Monitor, label: "POS Terminals", path: "/pos-terminals" },
+      { icon: Map, label: "Terminal Map", path: "/terminal-map" },
+      { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
+      { icon: ShoppingBag, label: "Smart Retail POS", path: "/smart-pos" },
+      { icon: Tablet, label: "POS v2", path: "/pos-v2" },
+      { icon: Tablet, label: "Mobile POS", path: "/mobile-pos" },
+      { icon: Activity, label: "Kiosk Health", path: "/kiosk-health" },
+    ],
+  },
+  {
+    title: "Agent & USSD",
+    icon: Users2,
+    items: [
+      { icon: Users2, label: "Agent Banking", path: "/agent-banking" },
+      { icon: Users2, label: "Agent Banking V4", path: "/agent-banking-v4", badge: "New" },
+      { icon: Network, label: "Agent Network v2", path: "/agent-network" },
+      { icon: Network, label: "Super-Agent V2", path: "/super-agent-v2", badge: "New" },
+      { icon: Radio, label: "USSD Session V2", path: "/ussd-v2", badge: "New" },
+      { icon: Bell, label: "Realtime Notifications", path: "/realtime-notifications", badge: "New" },
+    ],
+  },
+  {
+    title: "Retail & Restaurant",
+    icon: UtensilsCrossed,
+    items: [
+      { icon: UtensilsCrossed, label: "Floor Plan", path: "/restaurant/floor-plan" },
+      { icon: UtensilsCrossed, label: "Orders", path: "/restaurant/orders" },
+      { icon: UtensilsCrossed, label: "Menu", path: "/restaurant/menu" },
+      { icon: Star, label: "Loyalty", path: "/restaurant/loyalty" },
+      { icon: Globe, label: "Online Ordering", path: "/restaurant/online-ordering" },
+      { icon: ChefHat, label: "Kitchen Display", path: "/kitchen-display" },
+      { icon: Package, label: "Inventory", path: "/inventory" },
+      { icon: ShoppingCart, label: "Purchase Orders", path: "/purchase-orders" },
+      { icon: Building2, label: "Vendor Directory", path: "/vendors" },
+      { icon: Tablet, label: "Super App", path: "/super-app" },
+    ],
+  },
+  {
+    title: "HR & Payroll",
+    icon: DollarSign,
+    items: [
+      { icon: DollarSign, label: "Payroll", path: "/payroll" },
+      { icon: DollarSign, label: "Payroll v2", path: "/payroll-v2" },
+      { icon: DollarSign, label: "Payroll V3", path: "/payroll-v3", badge: "New" },
+      { icon: UserCheck, label: "Salary Accounts", path: "/salary-accounts" },
+      { icon: Users, label: "Team & Roles", path: "/team" },
+    ],
+  },
+  {
+    title: "Operations",
+    icon: Server,
+    items: [
+      { icon: Server, label: "Service Health", path: "/microservice-health" },
+      { icon: Activity, label: "Temporal Workflows", path: "/temporal-workflows", badge: "New" },
+      { icon: Server, label: "gRPC Health Check", path: "/grpc-health", badge: "New" },
+      { icon: GitBranch, label: "Workflows", path: "/workflows" },
+      { icon: Database, label: "Lakehouse v2", path: "/lakehouse-v2" },
+      { icon: Satellite, label: "White-Label SDK", path: "/white-label-sdk" },
+      { icon: Code2, label: "SDK Portal", path: "/sdk-portal" },
+      { icon: LineChart, label: "Cohort Analytics", path: "/cohort-analytics" },
+      { icon: CalendarClock, label: "Bulk Scheduler", path: "/bulk-scheduler" },
+      { icon: Bot, label: "Ollama AI Chat", path: "/ollama-chat", badge: "AI" },
+    ],
+  },
+  {
+    title: "Platform Admin",
+    icon: Crown,
+    items: [
+      { icon: LayoutDashboard, label: "Admin Overview", path: "/admin", badge: "Admin" },
+      { icon: Users, label: "Merchants", path: "/admin/merchants", badge: "Admin" },
+      { icon: ShieldCheck, label: "KYC Review", path: "/admin/kyc", badge: "Admin" },
+      { icon: AlertTriangle, label: "Disputes", path: "/admin/disputes", badge: "Admin" },
+      { icon: Brain, label: "Fraud", path: "/admin/fraud", badge: "Admin" },
+      { icon: BarChart3, label: "Revenue", path: "/admin/revenue", badge: "Admin" },
+      { icon: ArrowLeftRight, label: "Settlements", path: "/admin/settlements", badge: "Admin" },
+      { icon: Shield, label: "Compliance", path: "/admin/compliance", badge: "Admin" },
+      { icon: Zap, label: "System Health", path: "/admin/health", badge: "Admin" },
+      { icon: ScrollText, label: "Audit Trail", path: "/admin/audit", badge: "Admin" },
+      { icon: Settings, label: "Config", path: "/admin/config", badge: "Admin" },
+      { icon: Crown, label: "Admin Setup", path: "/admin-setup" },
+    ],
+  },
 ];
 
-const devItems = [
+const devItems: NavItem[] = [
   { icon: Key, label: "API Keys", path: "/api-keys" },
   { icon: Webhook, label: "Webhooks", path: "/webhooks" },
   { icon: Code2, label: "Developer", path: "/developer" },
-  { icon: GitBranch, label: "Workflows", path: "/workflows", badge: "Ops" },
+  { icon: BookMarked, label: "API Docs Portal", path: "/api-docs" },
   { icon: Shield, label: "Role Sync", path: "/role-sync" },
   { icon: Building2, label: "NIP Banks", path: "/nip-banks", badge: "CBN" },
   { icon: Settings, label: "Settings", path: "/settings" },
@@ -205,6 +300,27 @@ export default function Layout({ children }: LayoutProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
 
+  // Track which groups are expanded; default: expand the group containing the active route
+  const activeGroup = navGroups.find(g => g.items.some(i => i.path === location || (location === "/" && i.path === "/dashboard")));
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(activeGroup ? [activeGroup.title] : ["Overview"])
+  );
+
+  const toggleGroup = (title: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  };
+
+  // Auto-expand the group of the active route when navigating
+  useEffect(() => {
+    const group = navGroups.find(g => g.items.some(i => i.path === location));
+    if (group) setExpandedGroups(prev => new Set(Array.from(prev).concat(group.title)));
+  }, [location]);
+
   const { user, logout } = useAuth();
 
   // ─── Fraud Alert Banner ──────────────────────────────────────────────────
@@ -226,11 +342,11 @@ export default function Layout({ children }: LayoutProps) {
 
   // ─── Stripe Mode Banner ─────────────────────────────────────────────────
   const { data: checklistData } = trpc.system.goLiveChecklist.useQuery(undefined, {
-    refetchInterval: 300_000, // 5 min
+    refetchInterval: 300_000,
     staleTime: 240_000,
   });
   const stripeItem = checklistData?.items.find((i: any) => i.id === "stripe_live_keys");
-  const isTestMode = stripeItem?.status !== "ok"; // show banner if not on live keys
+  const isTestMode = stripeItem?.status !== "ok";
   const [dismissedStripeBanner, setDismissedStripeBanner] = useState(false);
 
   // ─── SLA Breach Banner ───────────────────────────────────────────────────
@@ -244,8 +360,6 @@ export default function Layout({ children }: LayoutProps) {
   );
 
   // ─── Reconciliation Alert Badge ──────────────────────────────────────────
-  // Polls every 60 s so operators notice open balance discrepancies on login.
-  // Badge only shows when open alert count >= merchant-configured threshold.
   const { data: reconStats } = trpc.reconciliation.getStats.useQuery(
     { merchantId: undefined },
     { refetchInterval: 60_000, staleTime: 50_000 }
@@ -301,6 +415,51 @@ export default function Layout({ children }: LayoutProps) {
   const merchantEmail = user?.email ?? "";
   const initials = merchantName.slice(0, 2).toUpperCase();
 
+  const renderNavItem = (item: NavItem) => {
+    const isActive = location === item.path || (location === "/" && item.path === "/dashboard");
+    const isReconItem = item.path === "/reconciliation-alerts";
+    return (
+      <Link
+        key={item.path}
+        href={item.path}
+        className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+        onClick={() => setMobileOpen(false)}
+      >
+        <item.icon className="w-4 h-4 flex-shrink-0" />
+        {!collapsed && (
+          <>
+            <span className="flex-1 text-sm">{item.label}</span>
+            {isReconItem && showReconBadge && (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setReconDrawerOpen(true); }}
+                className="focus:outline-none"
+                title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? "s" : ""}`}
+              >
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-red-500/20 text-red-400 border-0 min-w-[1.25rem] text-center hover:bg-red-500/30 transition-colors">
+                  {openReconCount > 99 ? "99+" : openReconCount}
+                </Badge>
+              </button>
+            )}
+            {!isReconItem && item.badge && (
+              <Badge variant="secondary" className={`text-xs px-1.5 py-0 ${
+                item.badge === "Live" ? "bg-emerald-500/20 text-emerald-400 border-0"
+                : item.badge === "AI" ? "bg-violet-500/20 text-violet-400 border-0"
+                : item.badge === "Admin" ? "bg-amber-500/20 text-amber-400 border-0"
+                : "bg-blue-500/20 text-blue-400 border-0"
+              }`}>
+                {item.badge}
+              </Badge>
+            )}
+          </>
+        )}
+        {collapsed && isReconItem && showReconBadge && (
+          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+        )}
+      </Link>
+    );
+  };
+
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -310,7 +469,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
         {!collapsed && (
           <div>
-            <span className="font-bold text-sidebar-foreground text-lg" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>
+            <span className="font-bold text-sidebar-foreground text-lg" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
               PayGate
             </span>
             <div className="text-xs text-sidebar-foreground/50">Merchant Portal</div>
@@ -319,95 +478,89 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {!collapsed && (
-          <p className="text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-3 mb-2">
-            Overview
-          </p>
-        )}
-        {navItems.map((item) => {
-          const isActive = location === item.path || (location === "/" && item.path === "/dashboard");
-          // Dynamic alert count badge for the Reconciliation Alerts nav item
-          const isReconItem = item.path === "/reconciliation-alerts";
+      <nav className="flex-1 px-2 py-3 overflow-y-auto">
+        {navGroups.map((group) => {
+          const isExpanded = expandedGroups.has(group.title);
+          const hasActive = group.items.some(i => i.path === location || (location === "/" && i.path === "/dashboard"));
+
+          if (collapsed) {
+            // Collapsed: show only icons, no group headers
+            return (
+              <div key={group.title} className="mb-1">
+                {group.items.map(renderNavItem)}
+              </div>
+            );
+          }
+
           return (
-            <Link
-              key={item.path}
-              href={item.path}
-              className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
-              onClick={() => setMobileOpen(false)}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1">{item.label}</span>
-                  {/* Dynamic open-alert count badge for Recon Alerts — click to open drawer */}
-                  {isReconItem && showReconBadge && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setReconDrawerOpen(true); }}
-                      className="focus:outline-none"
-                      title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? 's' : ''} — click to view`}
-                    >
-                      <Badge
-                        variant="secondary"
-                        className="text-xs px-1.5 py-0 bg-red-500/20 text-red-400 border-0 min-w-[1.25rem] text-center hover:bg-red-500/30 transition-colors"
-                      >
-                        {openReconCount > 99 ? '99+' : openReconCount}
-                      </Badge>
-                    </button>
-                  )}
-                  {/* Static label badges for other nav items */}
-                  {!isReconItem && item.badge && (
-                    <Badge
-                      variant="secondary"
-                      className={`text-xs px-1.5 py-0 ${
-                        item.badge === "Live"
-                          ? "bg-emerald-500/20 text-emerald-400 border-0"
-                          : item.badge === "AI"
-                          ? "bg-violet-500/20 text-violet-400 border-0"
-                          : "bg-blue-500/20 text-blue-400 border-0"
-                      }`}
-                    >
-                      {item.badge}
-                    </Badge>
-                  )}
-                </>
+            <div key={group.title} className="mb-1">
+              {/* Group header — clickable to expand/collapse */}
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.title)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  hasActive
+                    ? "text-sidebar-primary"
+                    : "text-sidebar-foreground/40 hover:text-sidebar-foreground/70"
+                }`}
+              >
+                <group.icon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="flex-1 text-left">{group.title}</span>
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+              </button>
+
+              {/* Group items */}
+              {isExpanded && (
+                <div className="ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2">
+                  {group.items.map(renderNavItem)}
+                </div>
               )}
-              {/* Collapsed sidebar: show red dot indicator when there are open recon alerts */}
-              {collapsed && isReconItem && showReconBadge && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setReconDrawerOpen(true); }}
-                  className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 hover:bg-red-400 transition-colors focus:outline-none"
-                  title={`${openReconCount} open reconciliation alert${openReconCount !== 1 ? 's' : ''}`}
-                />
-              )}
-            </Link>
+            </div>
           );
         })}
 
+        {/* Developer section */}
         {!collapsed && (
-          <p className="text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider px-3 mt-5 mb-2">
-            Developer
-          </p>
+          <button
+            type="button"
+            onClick={() => toggleGroup("__dev__")}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors mt-1"
+          >
+            <Code2 className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="flex-1 text-left">Developer</span>
+            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${expandedGroups.has("__dev__") ? "rotate-180" : ""}`} />
+          </button>
         )}
-        {devItems.map((item) => {
-          const isActive = location === item.path;
-          return (
-            <Link
-              key={item.path}
-              href={item.path}
-              className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
-              onClick={() => setMobileOpen(false)}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
+        {(collapsed || expandedGroups.has("__dev__")) && (
+          <div className={!collapsed ? "ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2" : ""}>
+            {devItems.map((item) => {
+              const isActive = location === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-sm">{item.label}</span>
+                      {item.badge && (
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-blue-500/20 text-blue-400 border-0">
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
-      {/* Onboarding Progress Tracker — visible until complete */}
+      {/* Onboarding Progress Tracker */}
       {!collapsed && !onboardingComplete && (
         <div className="px-4 py-3 border-t border-sidebar-border">
           <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
@@ -465,7 +618,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Desktop Sidebar */}
       <aside
         className={`hidden lg:flex flex-col bg-sidebar transition-all duration-300 flex-shrink-0 ${
-          collapsed ? "w-16" : "w-60"
+          collapsed ? "w-16" : "w-64"
         }`}
       >
         <SidebarContent />
@@ -473,7 +626,7 @@ export default function Layout({ children }: LayoutProps) {
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="absolute top-1/2 -translate-y-1/2 translate-x-full bg-sidebar border border-sidebar-border rounded-r-lg p-1 text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors z-10"
-          style={{ left: collapsed ? "3.5rem" : "14.5rem" }}
+          style={{ left: collapsed ? "3.5rem" : "15.5rem" }}
         >
           {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
         </button>
@@ -483,7 +636,7 @@ export default function Layout({ children }: LayoutProps) {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="fixed inset-0 bg-black/60" onClick={() => setMobileOpen(false)} />
-          <aside className="relative w-64 bg-sidebar flex flex-col">
+          <aside className="relative w-72 bg-sidebar flex flex-col">
             <SidebarContent />
           </aside>
         </div>
@@ -491,7 +644,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Fraud Alert Banner — sticky, high-severity only */}
+        {/* Fraud Alert Banner */}
         {visibleAlerts.length > 0 && (
           <div className="bg-red-600 text-white px-4 py-2 flex items-center gap-3 flex-shrink-0 z-20">
             <AlertOctagon className="w-4 h-4 flex-shrink-0 animate-pulse" />
@@ -526,7 +679,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         )}
 
-        {/* SLA Breach Banner — dismissible, orange */}
+        {/* SLA Breach Banner */}
         {visibleSlaBreaches.length > 0 && (
           <div className="bg-orange-600 text-white px-4 py-2 flex items-center gap-3 flex-shrink-0 z-20">
             <AlertTriangle className="w-4 h-4 flex-shrink-0 animate-pulse" />
@@ -553,22 +706,16 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </div>
         )}
+
         {/* PWA Install Banner */}
         {showPwaBanner && (
           <div className="flex items-center gap-3 px-6 py-2 bg-indigo-600 text-white text-sm">
             <Download className="w-4 h-4 flex-shrink-0" />
             <span className="flex-1">Install PayGate as an app for faster access — works offline too.</span>
-            <button
-              onClick={() => { promptInstall(); }}
-              className="px-3 py-1 rounded bg-white text-indigo-700 font-semibold text-xs hover:bg-indigo-50 transition-colors"
-            >
+            <button onClick={() => { promptInstall(); }} className="px-3 py-1 rounded bg-white text-indigo-700 font-semibold text-xs hover:bg-indigo-50 transition-colors">
               Install
             </button>
-            <button
-              onClick={() => { dismissInstall(); }}
-              className="p-1 rounded hover:bg-indigo-500 transition-colors"
-              aria-label="Dismiss"
-            >
+            <button onClick={() => { dismissInstall(); }} className="p-1 rounded hover:bg-indigo-500 transition-colors" aria-label="Dismiss">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -584,14 +731,10 @@ export default function Layout({ children }: LayoutProps) {
 
         {/* Top Bar */}
         <header className="flex items-center gap-4 px-6 py-4 bg-card border-b border-border flex-shrink-0">
-          <button
-            className="lg:hidden text-muted-foreground hover:text-foreground"
-            onClick={() => setMobileOpen(true)}
-          >
+          <button className="lg:hidden text-muted-foreground hover:text-foreground" onClick={() => setMobileOpen(true)}>
             <Menu className="w-5 h-5" />
           </button>
 
-          {/* Search */}
           <div className="flex-1 max-w-md">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -604,17 +747,12 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {/* Stripe mode indicator */}
             {checklistData && !dismissedStripeBanner && (
               isTestMode ? (
                 <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-50 border border-orange-200">
                   <div className="w-2 h-2 rounded-full bg-orange-400" />
                   <span className="text-xs font-medium text-orange-700">Test Mode</span>
-                  <button
-                    onClick={() => setDismissedStripeBanner(true)}
-                    className="ml-1 text-orange-400 hover:text-orange-600"
-                    title="Dismiss"
-                  >
+                  <button onClick={() => setDismissedStripeBanner(true)} className="ml-1 text-orange-400 hover:text-orange-600" title="Dismiss">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -625,7 +763,6 @@ export default function Layout({ children }: LayoutProps) {
                 </div>
               )
             )}
-            {/* Live indicator (fallback when checklist not loaded) */}
             {!checklistData && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -633,7 +770,6 @@ export default function Layout({ children }: LayoutProps) {
               </div>
             )}
 
-            {/* Fraud alert count badge on bell */}
             <button
               onClick={() => setNotifOpen(true)}
               className="relative p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
@@ -646,7 +782,6 @@ export default function Layout({ children }: LayoutProps) {
               )}
             </button>
 
-            {/* Globe / Region */}
             <button className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
               <Globe className="w-5 h-5" />
             </button>
@@ -662,7 +797,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Notification Panel */}
       <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
 
-      {/* ─── Reconciliation Alert Slide-over Drawer ─────────────────────────── */}
+      {/* Reconciliation Alert Drawer */}
       <Sheet open={reconDrawerOpen} onOpenChange={setReconDrawerOpen}>
         <SheetContent side="right" className="w-[420px] sm:w-[480px] flex flex-col gap-0 p-0">
           <SheetHeader className="px-6 py-4 border-b border-border">
@@ -675,69 +810,35 @@ export default function Layout({ children }: LayoutProps) {
             </SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-            {!reconAlerts ? (
-              <div className="space-y-3">
-                {[1,2,3].map(i => (
-                  <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />
-                ))}
-              </div>
-            ) : reconAlerts.alerts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <CheckCircle2 className="w-10 h-10 text-emerald-500 mb-3" />
-                <p className="font-medium">No open alerts</p>
-                <p className="text-xs text-muted-foreground mt-1">All reconciliation balances are in sync.</p>
+            {!reconAlerts || reconAlerts.alerts.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-500" />
+                No open reconciliation alerts
               </div>
             ) : (
               reconAlerts.alerts.map((alert: any) => (
-                <div key={alert.id} className="rounded-xl border border-border bg-card p-4 space-y-2">
+                <div key={alert.id} className="rounded-lg border border-border p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-sm font-semibold">{alert.currency} — {alert.delta > 0 ? 'Surplus' : 'Shortfall'}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Delta: <span className={alert.delta > 0 ? 'text-emerald-600' : 'text-red-600'}>
-                          {alert.delta > 0 ? '+' : ''}{(alert.delta / 100).toFixed(2)} {alert.currency}
-                        </span>
-                      </p>
-                      {alert.notes && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{alert.notes}</p>}
-                      <p className="text-xs text-muted-foreground mt-1">{new Date(alert.createdAt).toLocaleString()}</p>
+                      <p className="text-sm font-medium text-foreground">{alert.alertType?.replace(/_/g, " ")}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{alert.merchantId} · {new Date(alert.createdAt).toLocaleDateString()}</p>
                     </div>
-                    <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
-                      {alert.status}
-                    </span>
+                    <Badge variant="secondary" className={`text-xs ${alert.severity === "critical" ? "bg-red-500/20 text-red-400" : "bg-orange-500/20 text-orange-400"} border-0`}>
+                      {alert.severity}
+                    </Badge>
                   </div>
+                  {alert.description && <p className="text-xs text-muted-foreground">{alert.description}</p>}
                   <div className="flex gap-2 pt-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 text-xs h-7"
-                      disabled={resolveReconAlert.isPending}
-                      onClick={() => resolveReconAlert.mutate({ id: alert.id, status: 'resolved' })}
-                    >
-                      <CheckCircle2 className="w-3 h-3 mr-1" />Resolve
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => resolveReconAlert.mutate({ id: alert.id, status: "resolved" })}>
+                      Resolve
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="flex-1 text-xs h-7 text-muted-foreground"
-                      disabled={dismissReconAlert.isPending}
-                      onClick={() => dismissReconAlert.mutate({ id: alert.id })}
-                    >
-                      <X className="w-3 h-3 mr-1" />Dismiss
+                    <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => dismissReconAlert.mutate({ id: alert.id })}>
+                      Dismiss
                     </Button>
                   </div>
                 </div>
               ))
             )}
-          </div>
-          <div className="px-6 py-4 border-t border-border">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-xs"
-              onClick={() => { setReconDrawerOpen(false); window.location.href = '/reconciliation-alerts'; }}
-            >
-              View All Alerts
-            </Button>
           </div>
         </SheetContent>
       </Sheet>

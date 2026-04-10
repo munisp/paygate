@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
-import { getDb } from "./db";
+import { getDb, getUserByOpenId, getMerchantByOwnerId, getReconciliationStats } from "./db";
 import { TRPCError } from "@trpc/server";
 import {
   openBankingConsentsV2, openBankingAccountsV2,
@@ -663,8 +663,85 @@ const realtimeNotificationsRouter = router({
   }),
 });
 
+// ─── Proxy routers (called via trpc5 context from Layout.tsx) ───────────────
+const reconciliationProxyRouter = router({
+  getStats: protectedProcedure
+    .input(z.object({ merchantId: z.string().optional() }))
+    .query(async ({ input }) => {
+      return getReconciliationStats(input.merchantId ?? null);
+    }),
+  listAlerts: protectedProcedure
+    .input(z.object({ merchantId: z.string().optional(), status: z.string().optional(), limit: z.number().optional() }))
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      const { reconciliationAlerts } = await import('../drizzle/schema');
+      const { desc: descOp } = await import('drizzle-orm');
+      return db.select().from(reconciliationAlerts).orderBy(descOp(reconciliationAlerts.createdAt)).limit(20);
+    }),
+  dismissAlert: protectedProcedure
+    .input(z.object({ alertId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { success: false };
+      const { reconciliationAlerts } = await import('../drizzle/schema');
+      const { eq: eqOp } = await import('drizzle-orm');
+      await db.update(reconciliationAlerts).set({ status: 'dismissed' as any, updatedAt: new Date() }).where(eqOp(reconciliationAlerts.id, input.alertId));
+      return { success: true };
+    }),
+  updateAlert: protectedProcedure
+    .input(z.object({ alertId: z.string(), status: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { success: false };
+      const { reconciliationAlerts } = await import('../drizzle/schema');
+      const { eq: eqOp } = await import('drizzle-orm');
+      await db.update(reconciliationAlerts).set({ status: input.status as any, updatedAt: new Date() }).where(eqOp(reconciliationAlerts.id, input.alertId));
+      return { success: true };
+    }),
+});
+
+const settingsProxyRouter = router({
+  getReconAlertSettings: protectedProcedure.query(async ({ ctx }) => {
+    const user = await getUserByOpenId(ctx.user.openId);
+    if (!user) return { reconAlertBadgeEnabled: true, reconAlertThreshold: 1 };
+    const merchant = await getMerchantByOwnerId(user.id);
+    return {
+      reconAlertBadgeEnabled: merchant?.reconAlertBadgeEnabled ?? true,
+      reconAlertThreshold: merchant?.reconAlertThreshold ?? 1,
+    };
+  }),
+});
+
+const onboardingProxyRouter = router({
+  getStatus: protectedProcedure.query(async ({ ctx }) => {
+    const user = await getUserByOpenId(ctx.user.openId);
+    if (!user) return { user: null, merchant: null, isComplete: false };
+    const merchant = await getMerchantByOwnerId(user.id);
+    return {
+      user,
+      merchant,
+      isComplete: !!merchant && (merchant.onboardingStep ?? 0) >= 3,
+    };
+  }),
+});
+
+const settlementsProxyRouter = router({
+  listBreached: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    const { payouts } = await import('../drizzle/schema');
+    const { eq: eqOp } = await import('drizzle-orm');
+    return db.select().from(payouts).where(eqOp(payouts.status, 'failed' as any)).limit(10);
+  }),
+});
+
 // ─── Combined Wave 80 Router ──────────────────────────────────────────────────
 export const wave80Router = router({
+  reconciliation: reconciliationProxyRouter,
+  settings: settingsProxyRouter,
+  onboarding: onboardingProxyRouter,
+  settlements: settlementsProxyRouter,
   openBankingV2: openBankingV2Router,
   carbonCreditsV2: carbonCreditsV2Router,
   agentBankingV4: agentBankingV4Router,

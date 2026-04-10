@@ -1,8 +1,8 @@
-import { trpc } from "@/lib/trpc";
-import { trpc2 } from "@/lib/trpc2";
-import { trpc3 } from "@/lib/trpc3";
-import { trpc4 } from "@/lib/trpc4";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc, TrpcMainContext } from "@/lib/trpc";
+import { trpc2, TrpcContext2 } from "@/lib/trpc2";
+import { trpc3, TrpcContext3 } from "@/lib/trpc3";
+import { trpc4, TrpcContext4 } from "@/lib/trpc4";
+import { trpc5, TrpcContext5 } from "@/lib/trpc5";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
@@ -28,7 +28,14 @@ function showRateLimitToast(message: string) {
   });
 }
 
+// ── Each tRPC client gets its own QueryClient to prevent context collision ────
+// When multiple tRPC providers share the same queryClient, the innermost
+// provider's client wins for ALL hooks — causing wrong endpoint routing.
 const queryClient = new QueryClient();
+const queryClient2 = new QueryClient();
+const queryClient3 = new QueryClient();
+const queryClient4 = new QueryClient();
+const queryClient5 = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -49,6 +56,7 @@ function handleGlobalError(error: unknown) {
   }
 }
 
+// Attach error handlers to the primary queryClient only
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
@@ -82,17 +90,20 @@ const trpc5Client = trpc5.createClient({
 });
 
 createRoot(document.getElementById("root")!).render(
-  <trpc.Provider client={trpcClient} queryClient={queryClient}>
-    <trpc2.Provider client={trpc2Client} queryClient={queryClient}>
-      <trpc3.Provider client={trpc3Client} queryClient={queryClient}>
-        <trpc4.Provider client={trpc4Client} queryClient={queryClient}>
-          <trpc5.Provider client={trpc5Client} queryClient={queryClient}>
-            <QueryClientProvider client={queryClient}>
+  // Each provider uses its own QueryClient to prevent context collision.
+  // The primary QueryClientProvider (queryClient) is the one used by useQuery/useMutation
+  // directly (not via tRPC) and by the main trpc client.
+  <QueryClientProvider client={queryClient}>
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <trpc2.Provider client={trpc2Client} queryClient={queryClient2}>
+        <trpc3.Provider client={trpc3Client} queryClient={queryClient3}>
+          <trpc4.Provider client={trpc4Client} queryClient={queryClient4}>
+            <trpc5.Provider client={trpc5Client} queryClient={queryClient5}>
               <App />
-            </QueryClientProvider>
-          </trpc5.Provider>
-        </trpc4.Provider>
-      </trpc3.Provider>
-    </trpc2.Provider>
-  </trpc.Provider>
+            </trpc5.Provider>
+          </trpc4.Provider>
+        </trpc3.Provider>
+      </trpc2.Provider>
+    </trpc.Provider>
+  </QueryClientProvider>
 );
