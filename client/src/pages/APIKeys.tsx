@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Key, Copy, Eye, EyeOff, Plus, Trash2, Shield } from "lucide-react";
+import { Key, Copy, Eye, EyeOff, Plus, Trash2, Shield, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ export default function APIKeys() {
   const [env, setEnv] = useState<"live" | "test">("live");
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const utils = trpc.useUtils();
 
   const { data, isLoading } = trpc.apiKeys.list.useQuery(undefined, { staleTime: 60_000 });
@@ -22,7 +23,10 @@ export default function APIKeys() {
     onError: (e) => toast.error(e.message),
   });
 
-  const keys = data ?? [];
+  const allKeys = data ?? [];
+  const keys = allKeys.filter(k =>
+    !searchQuery || k.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const copyKey = (k: string) => { navigator.clipboard.writeText(k); toast.success("Copied to clipboard"); };
 
@@ -33,7 +37,19 @@ export default function APIKeys() {
           <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>API Keys</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Manage your API credentials</p>
         </div>
-        <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4 mr-1.5" />Create Key</Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search keys..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="h-8 pl-8 pr-3 text-sm rounded-md border border-input bg-background w-40 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4 mr-1.5" />Create Key</Button>
+        </div>
       </div>
 
       <div className="flex bg-muted rounded-lg p-1 w-fit gap-1">

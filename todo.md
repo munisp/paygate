@@ -2385,3 +2385,16 @@
 - [x] Fix notifyDisputeResolved call signature in accept mutation
 - [x] Fix savePreferences to use settlementFrequency instead of metadata
 - [x] All 1908 tests pass (55 files)
+
+## Wave 83 — Navigation, CRUD, TigerBeetle Recon, Permify, Mojaloop (Apr 10, 2026)
+- [x] Reorganize merchant navigation (Layout.tsx) — fix missing icon imports, verify all 18 nav sections
+- [x] Reorganize consumer navigation (ConsumerLayout.tsx) — add "More" drawer exposing all 20+ pages in categorized sections
+- [x] Fix Analytics.tsx — add search/filter bar + channel filter + refresh button
+- [x] Fix APIKeys.tsx — add search bar for filtering API keys
+- [x] Wire ConsumerProfile.tsx to real auth.updateProfile tRPC mutation with inline editing
+- [x] Fix Discover.tsx — add search bar + wallet balance banner via consumerWallet.getWallet
+- [x] Add auth.updateProfile mutation to authRouter in routers.ts
+- [x] Implement Rust TigerBeetle reconciliation service (rust-services/tigerbeetle-recon/)
+- [x] Permify policy sync on merchant onboarding (createMerchant + updateStep)
+- [x] Mojaloop transfer UI in FXDashboard.tsx — new "Send Money" tab with 4-step stepper, quote, confirm, SSE polling
+- [x] All 1908 tests pass (55 files), 0 TypeScript errors

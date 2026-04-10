@@ -3,12 +3,14 @@
  * WeChat-style feature grid linking to every consumer capability.
  * Accessible from the "Discover" tab in the bottom nav.
  */
+import { useState } from "react";
 import { useLocation } from "wouter";
 import {
   QrCode, ArrowDownToLine, Users, Gift, Receipt, CreditCard,
   RefreshCw, Scissors, Shield, BadgeCheck, Phone, Star, Tag,
-  Send, Bell, Clock, Wallet, ChevronRight,
+  Send, Bell, Clock, Wallet, ChevronRight, Search,
 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 interface FeatureSection {
   title: string;
@@ -63,6 +65,23 @@ const SECTIONS: FeatureSection[] = [
 
 export default function Discover() {
   const [, navigate] = useLocation();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Fetch wallet balance for the quick stats banner
+  const { data: walletData } = trpc.consumerWallet.getBalance.useQuery(
+    { currency: "NGN" },
+    { staleTime: 60_000 }
+  );
+  const balanceKobo = walletData?.balanceKobo ?? 0;
+  const balanceNGN = (balanceKobo / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" });
+
+  // Filter sections by search query
+  const filteredSections = SECTIONS.map(section => ({
+    ...section,
+    items: section.items.filter(item =>
+      !searchQuery || item.label.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+  })).filter(section => section.items.length > 0);
 
   return (
     <div className="p-4 space-y-6 pb-8">
@@ -72,8 +91,36 @@ export default function Discover() {
         <p className="text-sm text-muted-foreground mt-0.5">All your financial tools in one place</p>
       </div>
 
+      {/* Wallet Balance Banner */}
+      {walletData && (
+        <div className="bg-primary/10 rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-muted-foreground font-medium">NGN Wallet Balance</p>
+            <p className="text-xl font-bold text-primary mt-0.5">{balanceNGN}</p>
+          </div>
+          <button
+            onClick={() => navigate("/consumer")}
+            className="text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-xl hover:bg-primary/90 transition-colors"
+          >
+            Top Up
+          </button>
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Search features..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="w-full h-10 pl-9 pr-4 text-sm rounded-xl border border-input bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+
       {/* Feature Sections */}
-      {SECTIONS.map((section) => (
+      {filteredSections.map((section) => (
         <div key={section.title}>
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             {section.title}

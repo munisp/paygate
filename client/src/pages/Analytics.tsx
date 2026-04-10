@@ -3,7 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, LineChart, Line, ComposedChart, Legend, PieChart, Pie, Cell,
 } from "recharts";
-import { TrendingUp, TrendingDown, Download, Calendar, ShieldAlert, Layers } from "lucide-react";
+import { TrendingUp, TrendingDown, Download, Calendar, ShieldAlert, Layers, Search, Filter, RefreshCw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,6 +28,8 @@ function fmtDate(d: string) {
 export default function Analytics() {
   const [period, setPeriod] = useState("30d");
   const [days, setDays] = useState(30);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [channelFilter, setChannelFilter] = useState("all");
   const [range, setRange] = useState(() => ({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
     to: new Date(),
@@ -38,6 +40,10 @@ export default function Analytics() {
     const d = val === "7d" ? 7 : val === "90d" ? 90 : val === "1y" ? 365 : 30;
     setDays(d);
     setRange({ from: new Date(Date.now() - d * 24 * 60 * 60 * 1000), to: new Date() });
+  };
+
+  const handleRefresh = () => {
+    setRange({ from: new Date(Date.now() - days * 24 * 60 * 60 * 1000), to: new Date() });
   };
 
   const handleExport = () => {
@@ -105,7 +111,35 @@ export default function Analytics() {
           <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Analytics</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Live data from your transactions</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search input */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search metrics..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="h-8 pl-8 pr-3 text-sm rounded-md border border-input bg-background w-40 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          {/* Channel filter */}
+          <Select value={channelFilter} onValueChange={setChannelFilter}>
+            <SelectTrigger className="w-32 h-8 text-sm">
+              <Filter className="w-3 h-3 mr-1" />
+              <SelectValue placeholder="Channel" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Channels</SelectItem>
+              <SelectItem value="card">Card</SelectItem>
+              <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+              <SelectItem value="mobile_money">Mobile Money</SelectItem>
+              <SelectItem value="ussd">USSD</SelectItem>
+              <SelectItem value="qr">QR</SelectItem>
+              <SelectItem value="bnpl">BNPL</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* Period selector */}
           <Select value={period} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-28 h-8 text-sm">
               <Calendar className="w-3 h-3 mr-1" />
@@ -118,6 +152,9 @@ export default function Analytics() {
               <SelectItem value="1y">Last year</SelectItem>
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" onClick={handleRefresh}>
+            <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="w-3 h-3 mr-1" /> Export CSV
           </Button>

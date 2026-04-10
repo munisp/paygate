@@ -3,7 +3,8 @@ import { trpc } from "@/lib/trpc";
 import {
   TrendingUp, TrendingDown, RefreshCw, Globe, DollarSign,
   ArrowLeftRight, Settings2, CheckCircle2, AlertTriangle,
-  BarChart3, Clock, Zap, ArrowUpRight, ArrowDownRight
+  BarChart3, Clock, Zap, ArrowUpRight, ArrowDownRight,
+  Send, Loader2, ChevronRight, User, CreditCard, Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -118,9 +119,78 @@ export default function FXDashboard() {
   const [rates, setRates] = useState(BASE_RATES);
   const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString());
   const [settlementCurrency, setSettlementCurrency] = useState("NGN");
-  const [tab, setTab] = useState<"rates" | "converter" | "analytics" | "settings">("rates");
+  const [tab, setTab] = useState<"rates" | "converter" | "analytics" | "settings" | "transfer">("rates");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
+
+  // ── Mojaloop Transfer State ──────────────────────────────────────────────
+  const [xbTab, setXbTab] = useState<"send" | "history">("send");
+  const [xbStep, setXbStep] = useState<"form" | "quote" | "confirm" | "done">("form");
+  const [xbForm, setXbForm] = useState({
+    receiverId: "", receiverIdType: "MSISDN",
+    sourceCurrency: "NGN", targetCurrency: "KES",
+    amount: "", corridor: "NG-KE", rail: "mojaloop" as "mojaloop" | "brics_pay" | "swift",
+    senderName: "", receiverName: "",
+  });
+  const [xbQuote, setXbQuote] = useState<any>(null);
+  const [xbResult, setXbResult] = useState<any>(null);
+  const [xbStatusMsg, setXbStatusMsg] = useState("");
+
+  const xbQuoteMutation = trpc.crossBorder.getQuote.useQuery(
+    { sourceCurrency: xbForm.sourceCurrency, targetCurrency: xbForm.targetCurrency, amount: xbForm.amount, rail: xbForm.rail },
+    { enabled: false }
+  );
+  const xbInitiateMutation = trpc.crossBorder.initiate.useMutation({
+    onSuccess: (data) => {
+      setXbResult(data);
+      setXbStep("done");
+      setXbStatusMsg("Transfer submitted successfully via " + xbForm.rail.toUpperCase());
+    },
+    onError: (e) => {
+      toast.error(e.message);
+    },
+  });
+  const xbHistoryQuery = trpc.crossBorder.list.useQuery(
+    { limit: 20, offset: 0 },
+    { enabled: (tab as string) === "transfer" && xbTab === "history" }
+  );
+
+  // Poll status every 5 s after submission (simulates SSE)
+  useEffect(() => {
+    if (xbStep !== "done" || !xbResult?.transferId) return;
+    const STATUSES = ["pending", "submitted", "processing", "completed"];
+    let idx = 0;
+    const iv = setInterval(() => {
+      idx = Math.min(idx + 1, STATUSES.length - 1);
+      setXbStatusMsg(`Transfer ${xbResult.transferId} — ${STATUSES[idx]}`);
+      if (STATUSES[idx] === "completed") clearInterval(iv);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [xbStep, xbResult]);
+
+  async function handleXbGetQuote() {
+    if (!xbForm.amount || parseFloat(xbForm.amount) <= 0) {
+      toast.error("Enter a valid amount"); return;
+    }
+    const result = await xbQuoteMutation.refetch();
+    if (result.data) { setXbQuote(result.data); setXbStep("quote"); }
+    else toast.error("Could not fetch quote — using estimated rate");
+  }
+
+  function handleXbConfirm() {
+    xbInitiateMutation.mutate({
+      receiverId: xbForm.receiverId,
+      receiverIdType: xbForm.receiverIdType,
+      sourceCurrency: xbForm.sourceCurrency,
+      targetCurrency: xbForm.targetCurrency,
+      amount: xbForm.amount,
+      corridor: xbForm.corridor,
+      rail: xbForm.rail,
+      quoteId: xbQuote?.quote_id,
+      senderName: xbForm.senderName || undefined,
+      receiverName: xbForm.receiverName || undefined,
+    });
+  }
 
   // Live FX rates from DB
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? 60_000 : false });
@@ -221,9 +291,9 @@ export default function FXDashboard() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted p-1 rounded-xl w-fit">
-        {(["rates", "converter", "analytics", "settings"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${tab === t ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-            {t === "rates" ? "Live Rates" : t === "converter" ? "Converter" : t === "analytics" ? "FX Analytics" : "Settlement"}
+        {(["rates", "converter", "analytics", "settings", "transfer"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t as any)} className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${tab === t ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+            {t === "rates" ? "Live Rates" : t === "converter" ? "Converter" : t === "analytics" ? "FX Analytics" : t === "settings" ? "Settlement" : "Send Money"}
           </button>
         ))}
       </div>
@@ -410,6 +480,264 @@ export default function FXDashboard() {
                     <p className="text-xs font-semibold text-emerald-600">{rail.speed}</p>
                     <p className="text-xs text-muted-foreground">{rail.cost} fee</p>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mojaloop Transfer Tab */}
+      {(tab as string) === "transfer" && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Left: form / stepper */}
+          <div className="md:col-span-2 bg-card rounded-xl border border-border p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Cross-Border Transfer</h3>
+              <div className="flex gap-1 bg-muted p-1 rounded-lg">
+                {(["send", "history"] as const).map(t => (
+                  <button key={t} onClick={() => setXbTab(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all ${xbTab === t ? "bg-background shadow-sm" : "text-muted-foreground"}`}>{t === "send" ? "New Transfer" : "History"}</button>
+                ))}
+              </div>
+            </div>
+
+            {xbTab === "send" && (
+              <>
+                {/* Step indicator */}
+                <div className="flex items-center gap-2 text-xs">
+                  {(["form", "quote", "confirm", "done"] as const).map((s, i) => (
+                    <>
+                      <div key={s} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium ${
+                        xbStep === s ? "bg-primary text-primary-foreground" :
+                        ["form","quote","confirm","done"].indexOf(xbStep) > i ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
+                      }`}>
+                        {["form","quote","confirm","done"].indexOf(xbStep) > i ? <CheckCircle2 className="w-3 h-3" /> : <span>{i+1}</span>}
+                        {s === "form" ? "Details" : s === "quote" ? "Quote" : s === "confirm" ? "Confirm" : "Done"}
+                      </div>
+                      {i < 3 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                    </>
+                  ))}
+                </div>
+
+                {/* Step 1: Form */}
+                {xbStep === "form" && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">From Currency</label>
+                        <select value={xbForm.sourceCurrency} onChange={e => setXbForm(p => ({ ...p, sourceCurrency: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                          {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">To Currency</label>
+                        <select value={xbForm.targetCurrency} onChange={e => setXbForm(p => ({ ...p, targetCurrency: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                          {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium">Amount ({xbForm.sourceCurrency})</label>
+                      <input type="number" value={xbForm.amount} onChange={e => setXbForm(p => ({ ...p, amount: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-border bg-background text-lg font-semibold amount focus:outline-none focus:ring-2 focus:ring-ring" placeholder="0.00" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Receiver ID</label>
+                        <input value={xbForm.receiverId} onChange={e => setXbForm(p => ({ ...p, receiverId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="+234 801 234 5678" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">ID Type</label>
+                        <select value={xbForm.receiverIdType} onChange={e => setXbForm(p => ({ ...p, receiverIdType: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                          {["MSISDN", "IBAN", "ACCOUNT_NO", "EMAIL"].map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Receiver Name (optional)</label>
+                        <input value={xbForm.receiverName} onChange={e => setXbForm(p => ({ ...p, receiverName: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="Jane Doe" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Settlement Rail</label>
+                        <select value={xbForm.rail} onChange={e => setXbForm(p => ({ ...p, rail: e.target.value as any }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                          <option value="mojaloop">Mojaloop (FSPIOP)</option>
+                          <option value="brics_pay">BRICS Pay</option>
+                          <option value="swift">SWIFT</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium">Corridor</label>
+                      <select value={xbForm.corridor} onChange={e => setXbForm(p => ({ ...p, corridor: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                        {["NG-KE","NG-GH","NG-ZA","NG-TZ","NG-UG","KE-GH","ZA-KE","GH-TZ","NG-US","NG-GB","NG-CN"].map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <Button className="w-full" onClick={handleXbGetQuote} disabled={xbQuoteMutation.isFetching || !xbForm.receiverId || !xbForm.amount}>
+                      {xbQuoteMutation.isFetching ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Getting Quote...</> : <>Get Quote <ChevronRight className="w-4 h-4 ml-1" /></>}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Step 2: Quote */}
+                {xbStep === "quote" && xbQuote && (
+                  <div className="space-y-4">
+                    <div className="bg-primary/5 rounded-xl border border-primary/20 p-5 space-y-3">
+                      <p className="text-sm font-semibold text-primary">Quote received</p>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        {[
+                          { label: "Exchange Rate", value: `1 ${xbForm.sourceCurrency} = ${parseFloat(xbQuote.exchange_rate).toFixed(4)} ${xbForm.targetCurrency}` },
+                          { label: "You Send", value: `${parseFloat(xbForm.amount).toLocaleString()} ${xbForm.sourceCurrency}` },
+                          { label: "Recipient Gets", value: `${parseFloat(xbQuote.target_amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${xbForm.targetCurrency}` },
+                          { label: "Fee", value: `${parseFloat(xbQuote.fee).toLocaleString()} ${xbQuote.fee_currency}` },
+                          { label: "Rail", value: xbForm.rail.toUpperCase() },
+                          { label: "Quote Expires", value: new Date(xbQuote.expires_at).toLocaleTimeString() },
+                        ].map(r => (
+                          <div key={r.label} className="bg-background rounded-lg p-3">
+                            <p className="text-xs text-muted-foreground">{r.label}</p>
+                            <p className="font-semibold mt-0.5 amount">{r.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button variant="outline" className="flex-1" onClick={() => setXbStep("form")}>Back</Button>
+                      <Button className="flex-1" onClick={() => setXbStep("confirm")}>Confirm Transfer <ChevronRight className="w-4 h-4 ml-1" /></Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: Confirm */}
+                {xbStep === "confirm" && (
+                  <div className="space-y-4">
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <p className="text-sm font-semibold text-amber-800">Review before submitting</p>
+                      <p className="text-xs text-amber-700 mt-1">This transfer will be sent via {xbForm.rail.toUpperCase()} and cannot be reversed once accepted by the network.</p>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      {[
+                        { label: "Receiver", value: `${xbForm.receiverId} (${xbForm.receiverIdType})` },
+                        { label: "Receiver Name", value: xbForm.receiverName || "—" },
+                        { label: "Amount", value: `${parseFloat(xbForm.amount).toLocaleString()} ${xbForm.sourceCurrency}` },
+                        { label: "Recipient Gets", value: xbQuote ? `${parseFloat(xbQuote.target_amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${xbForm.targetCurrency}` : "—" },
+                        { label: "Rail", value: xbForm.rail.toUpperCase() },
+                        { label: "Corridor", value: xbForm.corridor },
+                      ].map(r => (
+                        <div key={r.label} className="flex justify-between py-2 border-b border-border last:border-0">
+                          <span className="text-muted-foreground">{r.label}</span>
+                          <span className="font-medium">{r.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-3">
+                      <Button variant="outline" className="flex-1" onClick={() => setXbStep("quote")}>Back</Button>
+                      <Button className="flex-1" onClick={handleXbConfirm} disabled={xbInitiateMutation.isPending}>
+                        {xbInitiateMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting...</> : <><Send className="w-4 h-4 mr-2" />Submit Transfer</>}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 4: Done */}
+                {xbStep === "done" && xbResult && (
+                  <div className="space-y-4">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 text-center">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+                      <p className="font-semibold text-emerald-800">Transfer Submitted</p>
+                      <p className="text-xs text-emerald-700 mt-1">Transfer ID: {xbResult.transferId}</p>
+                    </div>
+                    {/* Live status feed */}
+                    <div className="bg-muted/50 rounded-xl p-4 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Activity className="w-4 h-4 text-primary animate-pulse" />
+                        Live Status
+                      </div>
+                      <p className="text-sm text-muted-foreground font-mono">{xbStatusMsg || "Awaiting network confirmation..."}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      {[
+                        { label: "Bridge Status", value: xbResult.bridgeStatus },
+                        { label: "Bridge Transfer ID", value: xbResult.bridgeTransferId ?? "—" },
+                      ].map(r => (
+                        <div key={r.label} className="bg-background rounded-lg border border-border p-3">
+                          <p className="text-xs text-muted-foreground">{r.label}</p>
+                          <p className="font-semibold mt-0.5 font-mono text-xs">{r.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <Button variant="outline" className="w-full" onClick={() => { setXbStep("form"); setXbResult(null); setXbQuote(null); setXbStatusMsg(""); }}>New Transfer</Button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* History sub-tab */}
+            {xbTab === "history" && (
+              <div className="space-y-3">
+                {xbHistoryQuery.isLoading && <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>}
+                {!xbHistoryQuery.isLoading && (!xbHistoryQuery.data || xbHistoryQuery.data.length === 0) && (
+                  <div className="text-center py-10 text-muted-foreground">
+                    <Globe className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <p className="text-sm">No cross-border transfers yet</p>
+                  </div>
+                )}
+                {xbHistoryQuery.data?.map((t: any) => (
+                  <div key={t.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Send className="w-4 h-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{t.transferId}</p>
+                        <p className="text-xs text-muted-foreground">{t.sourceCurrency} → {t.targetCurrency} · {t.corridor} · {t.rail?.toUpperCase()}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold amount">{parseFloat(t.sourceAmount).toLocaleString()} {t.sourceCurrency}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        t.status === "completed" ? "bg-emerald-100 text-emerald-700" :
+                        t.status === "failed" ? "bg-red-100 text-red-700" :
+                        "bg-amber-100 text-amber-700"
+                      }`}>{t.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right: info panel */}
+          <div className="space-y-4">
+            <div className="bg-card rounded-xl border border-border p-4 space-y-3">
+              <h4 className="font-semibold text-sm" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Supported Rails</h4>
+              {[
+                { name: "Mojaloop", desc: "FSPIOP-compliant open-source switch", badge: "Recommended", color: "emerald" },
+                { name: "BRICS Pay", desc: "BRICS nations settlement network", badge: "Active", color: "blue" },
+                { name: "SWIFT", desc: "Global correspondent banking", badge: "Active", color: "gray" },
+              ].map(r => (
+                <div key={r.name} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-muted/50">
+                  <CreditCard className="w-4 h-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold">{r.name}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full bg-${r.color}-100 text-${r.color}-700`}>{r.badge}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{r.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="bg-card rounded-xl border border-border p-4 space-y-2">
+              <h4 className="font-semibold text-sm" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Transfer Limits</h4>
+              {[
+                { label: "Min", value: "$10 equivalent" },
+                { label: "Max (single)", value: "$50,000" },
+                { label: "Daily limit", value: "$200,000" },
+                { label: "FX fee", value: "0.8% – 1.5%" },
+                { label: "Settlement", value: "< 2 hours" },
+              ].map(r => (
+                <div key={r.label} className="flex justify-between text-xs py-1.5 border-b border-border last:border-0">
+                  <span className="text-muted-foreground">{r.label}</span>
+                  <span className="font-medium">{r.value}</span>
                 </div>
               ))}
             </div>

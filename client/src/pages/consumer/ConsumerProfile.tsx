@@ -1,6 +1,6 @@
 /**
  * Consumer Profile Page
- * Shows user info, links to all account features, security settings, biometric auth.
+ * Shows user info, allows profile editing, links to all account features, security settings.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -13,9 +13,11 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BiometricAuth } from "@/components/BiometricAuth";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 import {
   Shield, Bell, HelpCircle, LogOut, ChevronRight,
   CreditCard, Users, RefreshCw, Star, Lock, BadgeCheck,
+  Edit2, Check, X,
 } from "lucide-react";
 
 function NotificationsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -103,6 +105,23 @@ export default function ConsumerProfile() {
   const [securityOpen, setSecurityOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
 
+  // Inline edit state
+  const [editingName, setEditingName] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [nameValue, setNameValue] = useState(user?.name ?? "");
+  const [emailValue, setEmailValue] = useState(user?.email ?? "");
+
+  const utils = trpc.useUtils();
+  const updateProfile = trpc.auth.updateProfile.useMutation({
+    onSuccess: () => {
+      toast.success("Profile updated");
+      utils.auth.me.invalidate();
+      setEditingName(false);
+      setEditingEmail(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const initials = user?.name
     ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
@@ -114,9 +133,76 @@ export default function ConsumerProfile() {
         <Avatar className="w-20 h-20">
           <AvatarFallback className="text-2xl font-bold bg-primary/10 text-primary">{initials}</AvatarFallback>
         </Avatar>
-        <div className="text-center">
-          <h2 className="text-xl font-bold">{user?.name || "User"}</h2>
-          <p className="text-sm text-muted-foreground">{user?.email || ""}</p>
+        <div className="text-center w-full space-y-2">
+          {/* Editable Name */}
+          {editingName ? (
+            <div className="flex items-center gap-2 justify-center">
+              <input
+                value={nameValue}
+                onChange={e => setNameValue(e.target.value)}
+                className="text-xl font-bold text-center border-b border-primary bg-transparent focus:outline-none w-48"
+                autoFocus
+              />
+              <button
+                onClick={() => updateProfile.mutate({ name: nameValue })}
+                disabled={updateProfile.isPending}
+                className="p-1 rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => { setEditingName(false); setNameValue(user?.name ?? ""); }}
+                className="p-1 rounded-full bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 justify-center">
+              <h2 className="text-xl font-bold">{user?.name || "User"}</h2>
+              <button
+                onClick={() => { setEditingName(true); setNameValue(user?.name ?? ""); }}
+                className="p-1 rounded-full hover:bg-muted transition-colors"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          )}
+
+          {/* Editable Email */}
+          {editingEmail ? (
+            <div className="flex items-center gap-2 justify-center">
+              <input
+                value={emailValue}
+                onChange={e => setEmailValue(e.target.value)}
+                className="text-sm text-center border-b border-primary bg-transparent focus:outline-none w-52"
+                autoFocus
+              />
+              <button
+                onClick={() => updateProfile.mutate({ email: emailValue })}
+                disabled={updateProfile.isPending}
+                className="p-1 rounded-full bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => { setEditingEmail(false); setEmailValue(user?.email ?? ""); }}
+                className="p-1 rounded-full bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 justify-center">
+              <p className="text-sm text-muted-foreground">{user?.email || ""}</p>
+              <button
+                onClick={() => { setEditingEmail(true); setEmailValue(user?.email ?? ""); }}
+                className="p-1 rounded-full hover:bg-muted transition-colors"
+              >
+                <Edit2 className="w-3 h-3 text-muted-foreground" />
+              </button>
+            </div>
+          )}
         </div>
         <Badge variant="outline" className="text-xs">Verified Account</Badge>
       </div>

@@ -210,6 +210,24 @@ const authRouter = router({
     ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
     return { success: true } as const;
   }),
+
+  updateProfile: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(255).optional(),
+      email: z.string().email().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { getDb, schema } = await import('./db');
+      const { eq } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const user = await resolveUser(ctx.user.openId);
+      const [updated] = await db.update(schema.users)
+        .set({ ...(input.name ? { name: input.name } : {}), ...(input.email ? { email: input.email } : {}), updatedAt: new Date() })
+        .where(eq(schema.users.id, user.id))
+        .returning();
+      return updated;
+    }),
 });
 
 // ─── Onboarding Router ────────────────────────────────────────────────────────
@@ -238,13 +256,24 @@ const onboardingRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const existing = await getMerchantByOwnerId(user.id);
       if (existing) return existing;
-      return createMerchant({
+      const merchant = await createMerchant({
         id: nanoid("mch_"),
         ownerId: user.id,
         tenantId: "ten_default",
         ...input,
         onboardingStep: 1,
       });
+      if (!merchant) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create merchant" });
+      // Permify policy sync — fire-and-forget (non-blocking)
+      syncRolesToPermifyViaMiddleware({
+        userId: String(user.id),
+        merchantId: merchant.id,
+        keycloakSubject: ctx.user.openId,
+        roles: ['merchant:owner'],
+      }).catch((e: Error) => {
+        console.warn('[onboarding] Permify sync failed (non-fatal):', e?.message);
+      });
+      return merchant;
     }),
 
   updateStep: protectedProcedure
@@ -252,7 +281,19 @@ const onboardingRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return updateMerchant(merchant.id, { onboardingStep: input.step });
+      const updated = await updateMerchant(merchant.id, { onboardingStep: input.step });
+      // When onboarding completes (step >= 3), sync full role set to Permify
+      if (input.step >= 3) {
+        syncRolesToPermifyViaMiddleware({
+          userId: String(user.id),
+          merchantId: merchant.id,
+          keycloakSubject: ctx.user.openId,
+          roles: ['merchant:owner', 'merchant:admin', 'merchant:transactions:read', 'merchant:payouts:write'],
+        }).catch((e: Error) => {
+          console.warn('[onboarding] Permify full-sync failed (non-fatal):', e?.message);
+        });
+      }
+      return updated;
     }),
 });
 
