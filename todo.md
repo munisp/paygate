@@ -2420,3 +2420,20 @@
 - [x] Consumer navigation updated (Notification Centre, Wallet Statement)
 - [x] 0 TypeScript errors confirmed
 - [x] All 1908 tests passing
+
+## Wave 84 — Production Finalization
+
+- [x] Bulk cross-border transfer export (CSV/JSON) via crossBorder.export tRPC procedure
+- [x] Consumer notification centre page wired to real notifications.list procedure
+- [x] Onboarding gate: Permify sync fires on createMerchant and updateStep ≥ 3
+- [x] Merchant lending CRUD: apply, list, getById, approve, disburse, repay procedures
+- [x] Settlement SLA alerts: settlementSLARouter with list and markReviewed
+- [x] Payment link analytics tab with click/conversion metrics in PaymentLinks.tsx
+- [x] Virtual card top-up mutation and spend limit editor in VirtualCards.tsx
+- [x] BNPL repayment mutation wired to bnplRouter.repay
+- [x] Webhook retry/replay button in Webhooks.tsx deliveries table
+- [x] Payout batchStatus procedure and listPayoutsByIds DB helper
+- [x] Mobile money reconciliation: reconcile mutation added to mobileMoneyReconRouter
+- [x] USSD sessions: ussd_sessions schema, ussdRouter (list/stats/ingest), USSDSessions.tsx wired
+- [x] Production hardening verified: helmet, rate-limit, CSP, health-check, default env constants all present
+- [x] All 1908 tests pass (55 test files)
