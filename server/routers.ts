@@ -2584,7 +2584,7 @@ const crossBorderRouter = router({
             merchantId: merchant.id,
             tenantId: merchant.tenantId ?? "ten_default",
             operation: "crossBorder.initiate",
-            requestHash: require("crypto").createHash("sha256").update(JSON.stringify(input)).digest("hex"),
+            requestHash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex"),
             responseStatus: 200,
             responseBody: result as any,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -3313,7 +3313,7 @@ const stripeRouter = router({
   }),
 
   // Used by the go-live checklist and Settings page.
-  getKeyMode: publicProcedure.query(() => {
+  getKeyMode: publicProcedure.query(async () => {
     const key = process.env.STRIPE_SECRET_KEY ?? '';
     const publishable = process.env.VITE_STRIPE_PUBLISHABLE_KEY ?? '';
     if (!key) return { mode: 'unconfigured' as const, sandboxClaimUrl: 'https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVEFBTkRSaTdHR0FyY3hXLDE3NzM5MzcwNjcv100Ox49WXeJ', sandboxExpiry: '2026-05-11T16:17:47.000Z' };
@@ -3439,8 +3439,8 @@ const pushTokensRouter = router({
     }),
   // Web Push (VAPID) subscription management
   getVapidPublicKey: publicProcedure
-    .query(() => {
-      const { getVapidPublicKey } = require('./webPush');
+    .query(async () => {
+      const { getVapidPublicKey } = await import('./webPush');
       return { publicKey: getVapidPublicKey() as string };
     }),
   subscribeWebPush: protectedProcedure

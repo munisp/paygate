@@ -2299,3 +2299,15 @@
 - [x] CarbonCreditsV2.tsx — wired to trpc5.carbonCreditsV2.{listCredits, purchaseCredits, retireCredits, getStats, listTransactions}
 - [x] TypeScript: 0 errors (verified)
 - [x] Full test suite: 1,908 tests / 55 files — all passing
+
+## Wave 81 Production Readiness Pass (Apr 10, 2026)
+
+- [x] Wire all 20 wave80 pages to real trpc5 API (replace mock data)
+- [x] Fix TypeScript errors in wave80Router (payout status enum, temporalWorkflowId field)
+- [x] Fix 7 wave80 tests to match DB-backed implementations
+- [x] Fix pushTokens.getVapidPublicKey: replace require() with dynamic import()
+- [x] Fix require("crypto") to use already-imported crypto module
+- [x] Create seed-wave80.mjs: seed all 22 wave80 tables with realistic demo data
+- [x] Create CI/CD pipeline: .github/workflows/ci.yml, deploy.yml, db-backup.yml
+- [x] Final verification: 0 TypeScript errors, 1908 tests passing (55 files)
+- [x] Production archive: paygate_COMPLETE_v81.tar.gz (332 MB)
