@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ArrowLeftRight, Users, CreditCard, BarChart3,
   ShoppingCart, Wallet, AlertTriangle, Key, Webhook, Settings,
   ChevronLeft, ChevronRight, Bell, Search, LogOut, Menu,
-  Zap, Globe, Shield, Link2, Brain, CreditCard as BNPLIcon,
+  Zap, Globe, Shield, Link2, Brain, Bot, ScrollText, CreditCard as BNPLIcon,
   QrCode, Smartphone, Code2, FileCheck, CheckCircle2, X, AlertOctagon,
   GitBranch, Building2, RefreshCw, Monitor, Map,
   ShieldAlert, Users2, Activity, UtensilsCrossed, ChefHat, Package, DollarSign, Star, Layers,
@@ -141,6 +141,18 @@ const navItems = [
   { icon: Send, label: "Intl Remittance", path: "/intl-remittance", badge: "New" },
   { icon: Repeat, label: "Subscription Billing v2", path: "/subscription-billing-v2", badge: "New" },
   { icon: CreditCard, label: "Portal Billing", path: "/billing", badge: "New" },
+  { icon: Bot, label: "Ollama AI Chat", path: "/ollama-chat", badge: "AI" },
+  { icon: LayoutDashboard, label: "Admin Overview", path: "/admin", badge: "Admin" },
+  { icon: Users, label: "Admin: Merchants", path: "/admin/merchants", badge: "Admin" },
+  { icon: ShieldCheck, label: "Admin: KYC Review", path: "/admin/kyc", badge: "Admin" },
+  { icon: AlertTriangle, label: "Admin: Disputes", path: "/admin/disputes", badge: "Admin" },
+  { icon: Brain, label: "Admin: Fraud", path: "/admin/fraud", badge: "Admin" },
+  { icon: BarChart3, label: "Admin: Revenue", path: "/admin/revenue", badge: "Admin" },
+  { icon: ArrowLeftRight, label: "Admin: Settlements", path: "/admin/settlements", badge: "Admin" },
+  { icon: Shield, label: "Admin: Compliance", path: "/admin/compliance", badge: "Admin" },
+  { icon: Zap, label: "Admin: System Health", path: "/admin/health", badge: "Admin" },
+  { icon: ScrollText, label: "Admin: Audit Trail", path: "/admin/audit", badge: "Admin" },
+  { icon: Settings, label: "Admin: Config", path: "/admin/config", badge: "Admin" },
 ];
 
 const devItems = [

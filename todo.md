@@ -2205,3 +2205,28 @@
 - [x] All 1,614 tests passing (52 test files)
 - [x] TypeScript: 0 errors
 - [x] Go bridge: 0 compilation errors
+
+## Wave 79 — Ollama, Consumer Portal, Admin Portal, Feature Inventory
+- [ ] Implement Ollama server helper (server/ollama.ts)
+- [ ] Add ollamaRouter tRPC procedures (chat, embed, list models, health check)
+- [ ] Create OllamaChat.tsx page with streaming chat UI
+- [ ] Add Ollama Docker Compose service and K8s deployment
+- [ ] Add consumer-specific missing pages: ConsumerGold.tsx, ConsumerMutualFunds.tsx, ConsumerPension.tsx, ConsumerInsurancePortal.tsx, ConsumerEMI.tsx, ConsumerRemittance.tsx, ConsumerSubscriptions.tsx
+- [ ] Add consumer tRPC router (server/consumerRouter.ts) with all consumer procedures
+- [ ] Build full Admin Portal: AdminDashboard.tsx, AdminMerchants.tsx, AdminUsers.tsx, AdminTransactions.tsx, AdminDisputes.tsx, AdminCompliance.tsx, AdminFraud.tsx, AdminFees.tsx, AdminSettlements.tsx, AdminAudit.tsx
+- [ ] Add admin tRPC router (server/adminRouter.ts) with all admin procedures
+- [ ] Add /admin/* routes in App.tsx with AdminLayout
+- [ ] Create AdminLayout.tsx sidebar component
+- [ ] Execute Stripe price ID defaults (set production defaults in env.ts)
+- [ ] Run seed-wave78.mjs against the database
+- [ ] Wire microservice health check endpoints in MicroserviceHealth.tsx
+- [ ] Compile PLATFORM_FEATURES.md comprehensive feature inventory
+- [ ] Write wave79.test.ts vitest tests
+
+## Wave 79 — Admin Portal, Ollama AI
+- [x] adminRouter with 12 sub-routers
+- [x] 12 admin pages + AdminLayout
+- [x] ollamaRouter + OllamaChat page
+- [x] seed-wave78-fixed.mjs executed
+- [x] PLATFORM_FEATURE_INVENTORY.md
+- [x] 1773 tests pass / 0 TS errors

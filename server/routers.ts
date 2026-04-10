@@ -1,3 +1,4 @@
+import { ollamaRouter } from "./ollamaRouter";
 import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';
 import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
@@ -5896,6 +5897,9 @@ export const appRouter = router({
   consumerAnalytics: consumerAnalyticsRouter,
   consumerDisputes: consumerDisputeRouter,
   consumerFraud: consumerFraudRouter,
+  // Wave 79 — Local Ollama LLM
+  ollama: ollamaRouter,
+  admin: adminRouter,
 });
 export type AppRouter = typeof appRouter;
 
@@ -5908,6 +5912,7 @@ import { usdcRouter } from './usdcRouter';
 // ─── Tier 1–5 router registration ─────────────────────────────────────────────
 // tier1to5Router is served on the same /api/trpc endpoint via server/index.ts
 import { tier1to5Router } from "./tier1to5Router";
+import { adminRouter } from './adminRouter';
 export { tier1to5Router };
 
 export { tier6to8Router } from './tier6to8Router';

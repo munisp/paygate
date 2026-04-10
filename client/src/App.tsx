@@ -79,6 +79,19 @@ import Payroll from "./pages/Payroll";
 import GeofenceAlerts from "./pages/GeofenceAlerts";
 import MicroserviceHealth from "./pages/MicroserviceHealth";
 import AdminSetup from "./pages/AdminSetup";
+import AdminPlatformOverview from "./pages/admin/AdminPlatformOverview";
+import AdminMerchantManagement from "./pages/admin/AdminMerchantManagement";
+import AdminKYCReview from "./pages/admin/AdminKYCReview";
+import AdminDisputeManagement from "./pages/admin/AdminDisputeManagement";
+import AdminFraudOversight from "./pages/admin/AdminFraudOversight";
+import AdminRevenue from "./pages/admin/AdminRevenue";
+import AdminSettlements from "./pages/admin/AdminSettlements";
+import AdminCompliance from "./pages/admin/AdminCompliance";
+import AdminSystemHealth from "./pages/admin/AdminSystemHealth";
+import AdminAuditTrail from "./pages/admin/AdminAuditTrail";
+import AdminNotifications from "./pages/admin/AdminNotifications";
+import AdminConfig from "./pages/admin/AdminConfig";
+import OllamaChat from "./pages/OllamaChat";
 import GoLiveChecklist from "./pages/GoLiveChecklist";
 import QuickPay from "./pages/QuickPay";
 import NotificationsCenter from "./pages/NotificationsCenter";
@@ -257,6 +270,19 @@ function Router() {
         <Route path="/geofence-alerts" component={GeofenceAlerts} />
       <Route path="/microservice-health" component={MicroserviceHealth} />
       <Route path="/admin-setup" component={AdminSetup} />
+      <Route path="/admin" component={AdminPlatformOverview} />
+      <Route path="/admin/merchants" component={AdminMerchantManagement} />
+      <Route path="/admin/kyc" component={AdminKYCReview} />
+      <Route path="/admin/disputes" component={AdminDisputeManagement} />
+      <Route path="/admin/fraud" component={AdminFraudOversight} />
+      <Route path="/admin/revenue" component={AdminRevenue} />
+      <Route path="/admin/settlements" component={AdminSettlements} />
+      <Route path="/admin/compliance" component={AdminCompliance} />
+      <Route path="/admin/health" component={AdminSystemHealth} />
+      <Route path="/admin/audit" component={AdminAuditTrail} />
+      <Route path="/admin/notifications" component={AdminNotifications} />
+      <Route path="/admin/config" component={AdminConfig} />
+      <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
         <Route path="/quick-pay" component={QuickPay} />
         <Route path="/notifications" component={NotificationsCenter} />
