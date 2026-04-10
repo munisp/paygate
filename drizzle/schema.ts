@@ -2820,3 +2820,385 @@ export const portalSubscriptions = pgTable("portal_subscriptions", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [index("psub_merchant_idx").on(t.merchantId)]);
 export type PortalSubscription = typeof portalSubscriptions.$inferSelect;
+
+
+// ─── Wave 80: Open Banking V2 ─────────────────────────────────────────────────
+export const openBankingConsentsV2 = pgTable("open_banking_consents_v2", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  bankCode: text("bank_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  scopes: text("scopes").notNull().default("accounts"),
+  status: text("status").notNull().default("pending"),
+  consentToken: text("consent_token"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("ob_v2_merchant_idx").on(t.merchantId)]);
+export type OpenBankingConsentV2 = typeof openBankingConsentsV2.$inferSelect;
+
+export const openBankingAccountsV2 = pgTable("open_banking_accounts_v2", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  consentId: text("consent_id").notNull(),
+  bankCode: text("bank_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountType: text("account_type").notNull().default("current"),
+  currency: text("currency").notNull().default("NGN"),
+  balance: integer("balance").notNull().default(0),
+  lastSyncAt: timestamp("last_sync_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ob_v2_acc_merchant_idx").on(t.merchantId)]);
+export type OpenBankingAccountV2 = typeof openBankingAccountsV2.$inferSelect;
+
+// ─── Wave 80: Carbon Credits V2 ──────────────────────────────────────────────
+export const carbonCreditsV2 = pgTable("carbon_credits_v2", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  projectName: text("project_name").notNull(),
+  projectType: text("project_type").notNull().default("reforestation"),
+  country: text("country").notNull().default("NG"),
+  vintageYear: integer("vintage_year").notNull().default(2024),
+  quantity: integer("quantity").notNull().default(0),
+  pricePerTonne: integer("price_per_tonne").notNull().default(0),
+  status: text("status").notNull().default("available"),
+  certificationBody: text("certification_body").default("Gold Standard"),
+  serialNumber: text("serial_number"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("cc_v2_merchant_idx").on(t.merchantId)]);
+export type CarbonCreditV2 = typeof carbonCreditsV2.$inferSelect;
+
+export const carbonCreditTransactionsV2 = pgTable("carbon_credit_transactions_v2", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  creditId: text("credit_id").notNull(),
+  type: text("type").notNull().default("purchase"),
+  quantity: integer("quantity").notNull().default(0),
+  totalAmount: integer("total_amount").notNull().default(0),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("cc_v2_tx_merchant_idx").on(t.merchantId)]);
+export type CarbonCreditTransactionV2 = typeof carbonCreditTransactionsV2.$inferSelect;
+
+// ─── Wave 80: Agent Banking V4 ───────────────────────────────────────────────
+export const agentBankingV4Agents = pgTable("agent_banking_v4_agents", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  agentCode: text("agent_code").notNull().unique(),
+  agentName: text("agent_name").notNull(),
+  phone: text("phone").notNull(),
+  state: text("state").notNull().default("Lagos"),
+  lga: text("lga").notNull().default("Ikeja"),
+  status: text("status").notNull().default("active"),
+  tier: text("tier").notNull().default("standard"),
+  floatBalance: integer("float_balance").notNull().default(0),
+  dailyLimit: integer("daily_limit").notNull().default(500000),
+  totalTransactions: integer("total_transactions").notNull().default(0),
+  totalVolume: integer("total_volume").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("ab_v4_merchant_idx").on(t.merchantId)]);
+export type AgentBankingV4Agent = typeof agentBankingV4Agents.$inferSelect;
+
+// ─── Wave 80: Super-Agent V2 ─────────────────────────────────────────────────
+export const superAgentV2Networks = pgTable("super_agent_v2_networks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  networkName: text("network_name").notNull(),
+  totalAgents: integer("total_agents").notNull().default(0),
+  activeAgents: integer("active_agents").notNull().default(0),
+  totalFloat: integer("total_float").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("sa_v2_merchant_idx").on(t.merchantId)]);
+export type SuperAgentV2Network = typeof superAgentV2Networks.$inferSelect;
+
+// ─── Wave 80: Escrow V2 ──────────────────────────────────────────────────────
+export const escrowContractsV2 = pgTable("escrow_contracts_v2", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  buyerId: text("buyer_id"),
+  sellerId: text("seller_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  amount: integer("amount").notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending"),
+  releaseConditions: text("release_conditions"),
+  disputeReason: text("dispute_reason"),
+  milestones: text("milestones"),
+  expiresAt: timestamp("expires_at"),
+  releasedAt: timestamp("released_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("escrow_v2_merchant_idx").on(t.merchantId)]);
+export type EscrowContractV2 = typeof escrowContractsV2.$inferSelect;
+
+// ─── Wave 80: Marketplace Pay ────────────────────────────────────────────────
+export const marketplaceOrders = pgTable("marketplace_orders", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  buyerEmail: text("buyer_email").notNull(),
+  sellerMerchantId: text("seller_merchant_id"),
+  items: text("items").notNull().default("[]"),
+  subtotal: integer("subtotal").notNull().default(0),
+  platformFee: integer("platform_fee").notNull().default(0),
+  totalAmount: integer("total_amount").notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending"),
+  paymentMethod: text("payment_method").default("card"),
+  escrowId: text("escrow_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("mp_order_merchant_idx").on(t.merchantId)]);
+export type MarketplaceOrder = typeof marketplaceOrders.$inferSelect;
+
+// ─── Wave 80: Loyalty V3 ─────────────────────────────────────────────────────
+export const loyaltyV3Programs = pgTable("loyalty_v3_programs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  programName: text("program_name").notNull(),
+  pointsPerNaira: integer("points_per_naira").notNull().default(1),
+  redemptionRate: integer("redemption_rate").notNull().default(100),
+  expiryDays: integer("expiry_days").notNull().default(365),
+  tiers: text("tiers").notNull().default("[]"),
+  status: text("status").notNull().default("active"),
+  totalMembers: integer("total_members").notNull().default(0),
+  totalPointsIssued: integer("total_points_issued").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("loyalty_v3_merchant_idx").on(t.merchantId)]);
+export type LoyaltyV3Program = typeof loyaltyV3Programs.$inferSelect;
+
+export const loyaltyV3Members = pgTable("loyalty_v3_members", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  programId: text("program_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  pointsBalance: integer("points_balance").notNull().default(0),
+  lifetimePoints: integer("lifetime_points").notNull().default(0),
+  tier: text("tier").notNull().default("bronze"),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+}, (t) => [index("loyalty_v3_member_merchant_idx").on(t.merchantId)]);
+export type LoyaltyV3Member = typeof loyaltyV3Members.$inferSelect;
+
+// ─── Wave 80: Crypto Off-Ramp V2 ─────────────────────────────────────────────
+export const cryptoOfframpV2Transactions = pgTable("crypto_offramp_v2_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  cryptoAsset: text("crypto_asset").notNull().default("USDT"),
+  cryptoAmount: text("crypto_amount").notNull().default("0"),
+  fiatCurrency: text("fiat_currency").notNull().default("NGN"),
+  fiatAmount: integer("fiat_amount").notNull().default(0),
+  exchangeRate: text("exchange_rate").notNull().default("0"),
+  bankCode: text("bank_code"),
+  accountNumber: text("account_number"),
+  status: text("status").notNull().default("pending"),
+  txHash: text("tx_hash"),
+  walletAddress: text("wallet_address"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("crypto_offramp_v2_merchant_idx").on(t.merchantId)]);
+export type CryptoOfframpV2Transaction = typeof cryptoOfframpV2Transactions.$inferSelect;
+
+// ─── Wave 80: NFC Tap-to-Pay ─────────────────────────────────────────────────
+export const nfcDevices = pgTable("nfc_devices", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  deviceId: text("device_id").notNull().unique(),
+  deviceName: text("device_name").notNull(),
+  deviceType: text("device_type").notNull().default("android"),
+  status: text("status").notNull().default("active"),
+  lastSeen: timestamp("last_seen"),
+  totalTransactions: integer("total_transactions").notNull().default(0),
+  totalVolume: integer("total_volume").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("nfc_device_merchant_idx").on(t.merchantId)]);
+export type NfcDevice = typeof nfcDevices.$inferSelect;
+
+export const nfcTransactions = pgTable("nfc_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  deviceId: text("device_id").notNull(),
+  amount: integer("amount").notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  cardScheme: text("card_scheme").notNull().default("mastercard"),
+  maskedPan: text("masked_pan"),
+  status: text("status").notNull().default("approved"),
+  responseCode: text("response_code").default("00"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("nfc_tx_merchant_idx").on(t.merchantId)]);
+export type NfcTransaction = typeof nfcTransactions.$inferSelect;
+
+// ─── Wave 80: Invoice Financing V2 ───────────────────────────────────────────
+export const invoiceFinancingV2Applications = pgTable("invoice_financing_v2_applications", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  invoiceId: text("invoice_id"),
+  invoiceAmount: integer("invoice_amount").notNull().default(0),
+  requestedAmount: integer("requested_amount").notNull().default(0),
+  approvedAmount: integer("approved_amount"),
+  interestRate: text("interest_rate").notNull().default("3.5"),
+  tenorDays: integer("tenor_days").notNull().default(30),
+  status: text("status").notNull().default("pending"),
+  disbursedAt: timestamp("disbursed_at"),
+  repaidAt: timestamp("repaid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("inv_fin_v2_merchant_idx").on(t.merchantId)]);
+export type InvoiceFinancingV2Application = typeof invoiceFinancingV2Applications.$inferSelect;
+
+// ─── Wave 80: Payroll V3 ─────────────────────────────────────────────────────
+export const payrollV3Runs = pgTable("payroll_v3_runs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  runName: text("run_name").notNull(),
+  period: text("period").notNull(),
+  totalEmployees: integer("total_employees").notNull().default(0),
+  totalGross: integer("total_gross").notNull().default(0),
+  totalDeductions: integer("total_deductions").notNull().default(0),
+  totalNet: integer("total_net").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("payroll_v3_merchant_idx").on(t.merchantId)]);
+export type PayrollV3Run = typeof payrollV3Runs.$inferSelect;
+
+export const payrollV3Employees = pgTable("payroll_v3_employees", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  department: text("department").notNull().default("General"),
+  bankCode: text("bank_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  grossSalary: integer("gross_salary").notNull().default(0),
+  taxPin: text("tax_pin"),
+  pensionPin: text("pension_pin"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("payroll_v3_emp_merchant_idx").on(t.merchantId)]);
+export type PayrollV3Employee = typeof payrollV3Employees.$inferSelect;
+
+// ─── Wave 80: Tax Filing ─────────────────────────────────────────────────────
+export const taxFilingRecords = pgTable("tax_filing_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  taxType: text("tax_type").notNull().default("VAT"),
+  period: text("period").notNull(),
+  taxableAmount: integer("taxable_amount").notNull().default(0),
+  taxAmount: integer("tax_amount").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  filedAt: timestamp("filed_at"),
+  receiptNumber: text("receipt_number"),
+  dueDate: timestamp("due_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("tax_filing_merchant_idx").on(t.merchantId)]);
+export type TaxFilingRecord = typeof taxFilingRecords.$inferSelect;
+
+// ─── Wave 80: Regulatory Reporting ───────────────────────────────────────────
+export const regulatoryReports = pgTable("regulatory_reports", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  reportType: text("report_type").notNull().default("CBN_MONTHLY"),
+  period: text("period").notNull(),
+  regulator: text("regulator").notNull().default("CBN"),
+  status: text("status").notNull().default("pending"),
+  submittedAt: timestamp("submitted_at"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  reportData: text("report_data"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("reg_report_merchant_idx").on(t.merchantId)]);
+export type RegulatoryReport = typeof regulatoryReports.$inferSelect;
+
+// ─── Wave 80: USDC V2 ────────────────────────────────────────────────────────
+export const usdcV2Wallets = pgTable("usdc_v2_wallets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  walletAddress: text("wallet_address").notNull(),
+  network: text("network").notNull().default("polygon"),
+  balanceUsdc: text("balance_usdc").notNull().default("0"),
+  balanceNgn: integer("balance_ngn").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("usdc_v2_wallet_merchant_idx").on(t.merchantId)]);
+export type UsdcV2Wallet = typeof usdcV2Wallets.$inferSelect;
+
+export const usdcV2Transactions = pgTable("usdc_v2_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull().default("receive"),
+  amountUsdc: text("amount_usdc").notNull().default("0"),
+  amountNgn: integer("amount_ngn"),
+  txHash: text("tx_hash"),
+  fromAddress: text("from_address"),
+  toAddress: text("to_address"),
+  network: text("network").notNull().default("polygon"),
+  status: text("status").notNull().default("confirmed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("usdc_v2_tx_merchant_idx").on(t.merchantId)]);
+export type UsdcV2Transaction = typeof usdcV2Transactions.$inferSelect;
+
+// ─── Wave 80: Multi-Currency Ledger ──────────────────────────────────────────
+export const multiCurrencyLedgerAccounts = pgTable("multi_currency_ledger_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  currency: text("currency").notNull(),
+  balance: integer("balance").notNull().default(0),
+  availableBalance: integer("available_balance").notNull().default(0),
+  reservedBalance: integer("reserved_balance").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("mcl_merchant_idx").on(t.merchantId)]);
+export type MultiCurrencyLedgerAccount = typeof multiCurrencyLedgerAccounts.$inferSelect;
+
+export const multiCurrencyLedgerEntries = pgTable("multi_currency_ledger_entries", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  accountId: text("account_id").notNull(),
+  type: text("type").notNull().default("credit"),
+  amount: integer("amount").notNull().default(0),
+  currency: text("currency").notNull(),
+  description: text("description"),
+  reference: text("reference"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("mcl_entry_merchant_idx").on(t.merchantId)]);
+export type MultiCurrencyLedgerEntry = typeof multiCurrencyLedgerEntries.$inferSelect;
+
+// ─── Wave 80: Realtime Notifications ─────────────────────────────────────────
+export const realtimeNotificationPreferences = pgTable("realtime_notification_preferences", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  webhookEnabled: integer("webhook_enabled").notNull().default(1),
+  emailEnabled: integer("email_enabled").notNull().default(1),
+  smsEnabled: integer("sms_enabled").notNull().default(0),
+  pushEnabled: integer("push_enabled").notNull().default(1),
+  inAppEnabled: integer("in_app_enabled").notNull().default(1),
+  eventPayment: integer("event_payment").notNull().default(1),
+  eventDispute: integer("event_dispute").notNull().default(1),
+  eventPayout: integer("event_payout").notNull().default(1),
+  eventFraud: integer("event_fraud").notNull().default(1),
+  eventKyc: integer("event_kyc").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("rtn_pref_merchant_idx").on(t.merchantId)]);
+export type RealtimeNotificationPreference = typeof realtimeNotificationPreferences.$inferSelect;
+
+export const realtimeNotificationHistory = pgTable("realtime_notification_history", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  channel: text("channel").notNull().default("email"),
+  eventType: text("event_type").notNull(),
+  title: text("title").notNull(),
+  body: text("body"),
+  status: text("status").notNull().default("delivered"),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("rtn_hist_merchant_idx").on(t.merchantId)]);
+export type RealtimeNotificationHistoryRecord = typeof realtimeNotificationHistory.$inferSelect;
