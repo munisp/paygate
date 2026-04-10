@@ -726,3 +726,199 @@ global_rules:
       key: consumer_name
       rejected_code: 429
     prometheus: {}
+
+# ─── Wave 76/77 New Feature Routes ───────────────────────────────────────────
+- id: digital-gold
+  uri: /api/digital-gold/*
+  upstream:
+    type: roundrobin
+    nodes:
+      digital-gold-service:9020: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/digital-gold/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 50
+      key: consumer_name
+
+- id: mutual-funds
+  uri: /api/mutual-funds/*
+  upstream:
+    type: roundrobin
+    nodes:
+      mutual-funds-service:9021: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/mutual-funds/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 50
+      key: consumer_name
+
+- id: consumer-insurance
+  uri: /api/consumer-insurance/*
+  upstream:
+    type: roundrobin
+    nodes:
+      insurance-service:9022: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/consumer-insurance/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: pension
+  uri: /api/pension/*
+  upstream:
+    type: roundrobin
+    nodes:
+      pension-service:9023: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/pension/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: cashback
+  uri: /api/cashback/*
+  upstream:
+    type: roundrobin
+    nodes:
+      cashback-service:9024: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/cashback/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: voice-payments
+  uri: /api/voice-payments/*
+  upstream:
+    type: roundrobin
+    nodes:
+      voice-payments-service:9025: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/voice-payments/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: wealth
+  uri: /api/wealth/*
+  upstream:
+    type: roundrobin
+    nodes:
+      wealth-service:9026: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/wealth/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: emi
+  uri: /api/emi/*
+  upstream:
+    type: roundrobin
+    nodes:
+      emi-service:9027: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/emi/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: bulk-collections
+  uri: /api/bulk-collections/*
+  upstream:
+    type: roundrobin
+    nodes:
+      bulk-collections-service:9028: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/bulk-collections/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: salary
+  uri: /api/salary/*
+  upstream:
+    type: roundrobin
+    nodes:
+      salary-service:9029: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/salary/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: privacy-payments
+  uri: /api/privacy-payments/*
+  upstream:
+    type: roundrobin
+    nodes:
+      privacy-payments-service:9030: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/privacy-payments/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: reports
+  uri: /api/reports/*
+  upstream:
+    type: roundrobin
+    nodes:
+      reports-service:9031: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/reports/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: ai-insights-v2
+  uri: /api/ai-insights-v2/*
+  upstream:
+    type: roundrobin
+    nodes:
+      ai-insights-v2-service:9032: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/ai-insights-v2/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: nodal-accounts
+  uri: /api/nodal-accounts/*
+  upstream:
+    type: roundrobin
+    nodes:
+      nodal-accounts-service:9033: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/nodal-accounts/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: smart-retail-pos
+  uri: /api/smart-retail-pos/*
+  upstream:
+    type: roundrobin
+    nodes:
+      smart-retail-pos-service:9034: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/smart-retail-pos/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: intl-remittance
+  uri: /api/intl-remittance/*
+  upstream:
+    type: roundrobin
+    nodes:
+      intl-remittance-service:9035: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/intl-remittance/(.*)", "/$1"]
+    jwt-auth: {}
+
+- id: subscription-billing-v2
+  uri: /api/subscription-billing-v2/*
+  upstream:
+    type: roundrobin
+    nodes:
+      subscription-billing-v2-service:9036: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/subscription-billing-v2/(.*)", "/$1"]
+    jwt-auth: {}

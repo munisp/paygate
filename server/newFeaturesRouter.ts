@@ -11,6 +11,7 @@ import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { logger } from "./logger";
+import { portalBillingRouter } from "./portalBillingRouter";
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
@@ -775,4 +776,5 @@ export const newFeaturesRouter = router({
   smartRetailPOS: smartRetailPOSRouter,
   internationalRemittance: internationalRemittanceRouter,
   subscriptionBillingV2: subscriptionBillingV2Router,
+  portalBilling: portalBillingRouter,
 });

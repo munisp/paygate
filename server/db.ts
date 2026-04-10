@@ -1949,3 +1949,399 @@ export async function getReconciliationStats(merchantId: string | null): Promise
   }
   return stats;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave 77 — DB Helpers for New Feature Tables
+// ─────────────────────────────────────────────────────────────────────────────
+import {
+  digitalGoldHoldings, digitalGoldTransactions, goldSipPlans,
+  mutualFundHoldings, mutualFundTransactions,
+  consumerInsurancePolicies, consumerInsuranceClaims,
+  pensionAccounts, pensionContributions,
+  cashbackBalances, cashbackTransactions,
+  soundboxDevices,
+  wealthRiskProfiles, wealthGoals,
+  emiContracts, emiInstallments,
+  bulkCollections, bulkCollectionItems,
+  salaryAccounts, salaryTransactions,
+  privacySettings, privacyAliases,
+  reportJobs, scheduledReports,
+  nodalAccounts, nodalTransactions,
+  retailPosConfigs, retailSales,
+  intlRemittanceTransfers,
+  subscriptionPlansV2, subscriptionSubscribers,
+  portalSubscriptions,
+  type DigitalGoldHolding, type DigitalGoldTransaction, type GoldSipPlan,
+  type MutualFundHolding, type MutualFundTransaction,
+  type ConsumerInsurancePolicy, type ConsumerInsuranceClaim,
+  type PensionAccount, type PensionContribution,
+  type CashbackBalance, type CashbackTransaction,
+  type SoundboxDevice,
+  type WealthRiskProfile, type WealthGoal,
+  type EmiContract, type EmiInstallment,
+  type BulkCollection, type BulkCollectionItem,
+  type SalaryAccount, type SalaryTransaction,
+  type PrivacySettings, type PrivacyAlias,
+  type ReportJob, type ScheduledReport,
+  type NodalAccount, type NodalTransaction,
+  type RetailPosConfig, type RetailSale,
+  type IntlRemittanceTransfer,
+  type SubscriptionPlanV2, type SubscriptionSubscriber,
+  type PortalSubscription,
+} from "../drizzle/schema";
+
+// ─── Digital Gold Helpers ─────────────────────────────────────────────────────
+export async function getOrCreateGoldHolding(merchantId: string): Promise<DigitalGoldHolding> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(digitalGoldHoldings).where(eq(digitalGoldHoldings.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(digitalGoldHoldings).values({ merchantId }).returning();
+  return created;
+}
+export async function listGoldTransactions(merchantId: string, limit = 20): Promise<DigitalGoldTransaction[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(digitalGoldTransactions).where(eq(digitalGoldTransactions.merchantId, merchantId)).orderBy(desc(digitalGoldTransactions.createdAt)).limit(limit);
+}
+export async function createGoldTransaction(data: Omit<DigitalGoldTransaction, "id" | "createdAt">): Promise<DigitalGoldTransaction> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(digitalGoldTransactions).values(data).returning();
+  return r;
+}
+export async function listGoldSipPlans(merchantId: string): Promise<GoldSipPlan[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(goldSipPlans).where(eq(goldSipPlans.merchantId, merchantId)).orderBy(desc(goldSipPlans.createdAt));
+}
+export async function createGoldSipPlan(data: Omit<GoldSipPlan, "id" | "createdAt" | "updatedAt">): Promise<GoldSipPlan> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(goldSipPlans).values(data).returning();
+  return r;
+}
+
+// ─── Mutual Fund Helpers ──────────────────────────────────────────────────────
+export async function listMutualFundHoldings(merchantId: string): Promise<MutualFundHolding[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(mutualFundHoldings).where(eq(mutualFundHoldings.merchantId, merchantId));
+}
+export async function upsertMutualFundHolding(merchantId: string, fundId: string, fundName: string, units: string, nav: string, amountKobo: number): Promise<MutualFundHolding> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(mutualFundHoldings).where(and(eq(mutualFundHoldings.merchantId, merchantId), eq(mutualFundHoldings.fundId, fundId))).limit(1);
+  if (existing) {
+    const newUnits = (parseFloat(existing.units) + parseFloat(units)).toFixed(6);
+    const [r] = await db.update(mutualFundHoldings).set({ units: newUnits, currentNav: nav, lastUpdated: new Date() }).where(eq(mutualFundHoldings.id, existing.id)).returning();
+    return r;
+  }
+  const [r] = await db.insert(mutualFundHoldings).values({ merchantId, fundId, fundName, units, avgNavAtPurchase: nav, currentNav: nav, investedAmountKobo: amountKobo }).returning();
+  return r;
+}
+export async function createMutualFundTransaction(data: Omit<MutualFundTransaction, "id" | "createdAt">): Promise<MutualFundTransaction> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(mutualFundTransactions).values(data).returning();
+  return r;
+}
+
+// ─── Consumer Insurance Helpers ───────────────────────────────────────────────
+export async function listInsurancePoliciesForMerchant(merchantId: string): Promise<ConsumerInsurancePolicy[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(consumerInsurancePolicies).where(eq(consumerInsurancePolicies.merchantId, merchantId)).orderBy(desc(consumerInsurancePolicies.createdAt));
+}
+export async function createInsurancePolicy(data: Omit<ConsumerInsurancePolicy, "id" | "createdAt">): Promise<ConsumerInsurancePolicy> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(consumerInsurancePolicies).values(data).returning();
+  return r;
+}
+export async function listInsuranceClaims(merchantId: string): Promise<ConsumerInsuranceClaim[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(consumerInsuranceClaims).where(eq(consumerInsuranceClaims.merchantId, merchantId)).orderBy(desc(consumerInsuranceClaims.createdAt));
+}
+export async function createInsuranceClaim(data: Omit<ConsumerInsuranceClaim, "id" | "createdAt">): Promise<ConsumerInsuranceClaim> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(consumerInsuranceClaims).values(data).returning();
+  return r;
+}
+
+// ─── Pension Helpers ──────────────────────────────────────────────────────────
+export async function getOrCreatePensionAccount(merchantId: string): Promise<PensionAccount> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(pensionAccounts).where(eq(pensionAccounts.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const rsaPin = `RSA${Date.now().toString().slice(-10)}`;
+  const [created] = await db.insert(pensionAccounts).values({ merchantId, rsaPin }).returning();
+  return created;
+}
+export async function createPensionContribution(data: Omit<PensionContribution, "id" | "createdAt">): Promise<PensionContribution> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(pensionContributions).values(data).returning();
+  return r;
+}
+export async function listPensionContributions(pensionAccountId: string, limit = 12): Promise<PensionContribution[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(pensionContributions).where(eq(pensionContributions.pensionAccountId, pensionAccountId)).orderBy(desc(pensionContributions.createdAt)).limit(limit);
+}
+
+// ─── Cashback Helpers ─────────────────────────────────────────────────────────
+export async function getOrCreateCashbackBalance(merchantId: string): Promise<CashbackBalance> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(cashbackBalances).where(eq(cashbackBalances.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(cashbackBalances).values({ merchantId }).returning();
+  return created;
+}
+export async function listCashbackTransactions(merchantId: string, limit = 20): Promise<CashbackTransaction[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(cashbackTransactions).where(eq(cashbackTransactions.merchantId, merchantId)).orderBy(desc(cashbackTransactions.createdAt)).limit(limit);
+}
+export async function addCashbackTransaction(data: Omit<CashbackTransaction, "id" | "createdAt">): Promise<CashbackTransaction> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(cashbackTransactions).values(data).returning();
+  return r;
+}
+export async function updateCashbackBalance(merchantId: string, delta: number): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.update(cashbackBalances).set({ cashbackBalanceKobo: sql`cashback_balance_kobo + ${delta}`, updatedAt: new Date() }).where(eq(cashbackBalances.merchantId, merchantId));
+}
+
+// ─── Soundbox Helpers ─────────────────────────────────────────────────────────
+export async function listSoundboxDevices(merchantId: string): Promise<SoundboxDevice[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(soundboxDevices).where(eq(soundboxDevices.merchantId, merchantId)).orderBy(desc(soundboxDevices.createdAt));
+}
+export async function createSoundboxDevice(data: Omit<SoundboxDevice, "id" | "createdAt">): Promise<SoundboxDevice> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(soundboxDevices).values(data).returning();
+  return r;
+}
+export async function updateSoundboxDevice(deviceId: string, data: Partial<SoundboxDevice>): Promise<SoundboxDevice | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(soundboxDevices).set(data).where(eq(soundboxDevices.deviceId, deviceId)).returning();
+  return r ?? null;
+}
+
+// ─── Wealth Management Helpers ────────────────────────────────────────────────
+export async function getOrCreateRiskProfile(merchantId: string): Promise<WealthRiskProfile> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(wealthRiskProfiles).where(eq(wealthRiskProfiles.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(wealthRiskProfiles).values({ merchantId }).returning();
+  return created;
+}
+export async function updateRiskProfile(merchantId: string, data: Partial<WealthRiskProfile>): Promise<WealthRiskProfile | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(wealthRiskProfiles).set({ ...data, lastAssessed: new Date() }).where(eq(wealthRiskProfiles.merchantId, merchantId)).returning();
+  return r ?? null;
+}
+export async function listWealthGoals(merchantId: string): Promise<WealthGoal[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(wealthGoals).where(eq(wealthGoals.merchantId, merchantId)).orderBy(desc(wealthGoals.createdAt));
+}
+export async function createWealthGoal(data: Omit<WealthGoal, "id" | "createdAt" | "updatedAt">): Promise<WealthGoal> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(wealthGoals).values(data).returning();
+  return r;
+}
+
+// ─── EMI Helpers ──────────────────────────────────────────────────────────────
+export async function createEmiContract(data: Omit<EmiContract, "id" | "createdAt" | "updatedAt">): Promise<EmiContract> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(emiContracts).values(data).returning();
+  return r;
+}
+export async function getEmiContract(orderId: string): Promise<EmiContract | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.select().from(emiContracts).where(eq(emiContracts.orderId, orderId)).limit(1);
+  return r ?? null;
+}
+export async function createEmiInstallments(contractId: string, installments: Omit<EmiInstallment, "id" | "createdAt">[]): Promise<EmiInstallment[]> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  return db.insert(emiInstallments).values(installments).returning();
+}
+export async function listEmiInstallments(contractId: string): Promise<EmiInstallment[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(emiInstallments).where(eq(emiInstallments.emiContractId, contractId)).orderBy(emiInstallments.installmentNo);
+}
+
+// ─── Bulk Collections Helpers ─────────────────────────────────────────────────
+export async function createBulkCollection(data: Omit<BulkCollection, "id" | "createdAt" | "updatedAt">): Promise<BulkCollection> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(bulkCollections).values(data).returning();
+  return r;
+}
+export async function listBulkCollections(merchantId: string): Promise<BulkCollection[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(bulkCollections).where(eq(bulkCollections.merchantId, merchantId)).orderBy(desc(bulkCollections.createdAt));
+}
+export async function getBulkCollectionDetails(id: string): Promise<{ collection: BulkCollection | null; items: BulkCollectionItem[] }> {
+  const db = await getDb(); if (!db) return { collection: null, items: [] };
+  const [collection] = await db.select().from(bulkCollections).where(eq(bulkCollections.id, id)).limit(1);
+  const items = await db.select().from(bulkCollectionItems).where(eq(bulkCollectionItems.collectionId, id));
+  return { collection: collection ?? null, items };
+}
+
+// ─── Salary Account Helpers ───────────────────────────────────────────────────
+export async function listSalaryAccounts(merchantId: string): Promise<SalaryAccount[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(salaryAccounts).where(eq(salaryAccounts.merchantId, merchantId)).orderBy(salaryAccounts.employeeName);
+}
+export async function createSalaryAccount(data: Omit<SalaryAccount, "id" | "createdAt" | "updatedAt">): Promise<SalaryAccount> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const accountNumber = `SA${Date.now().toString().slice(-10)}`;
+  const maxAdvanceKobo = Math.floor(data.salaryKobo * 0.5);
+  const [r] = await db.insert(salaryAccounts).values({ ...data, accountNumber, maxAdvanceKobo }).returning();
+  return r;
+}
+export async function listSalaryTransactions(salaryAccountId: string, limit = 20): Promise<SalaryTransaction[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(salaryTransactions).where(eq(salaryTransactions.salaryAccountId, salaryAccountId)).orderBy(desc(salaryTransactions.createdAt)).limit(limit);
+}
+
+// ─── Privacy Settings Helpers ─────────────────────────────────────────────────
+export async function getOrCreatePrivacySettings(merchantId: string): Promise<PrivacySettings> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(privacySettings).where(eq(privacySettings.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(privacySettings).values({ merchantId }).returning();
+  return created;
+}
+export async function updatePrivacySettings(merchantId: string, data: Partial<PrivacySettings>): Promise<PrivacySettings | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(privacySettings).set({ ...data, updatedAt: new Date() }).where(eq(privacySettings.merchantId, merchantId)).returning();
+  return r ?? null;
+}
+export async function createPrivacyAlias(merchantId: string, alias: string, expiresAt?: Date): Promise<PrivacyAlias> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(privacyAliases).values({ merchantId, alias, expiresAt }).returning();
+  return r;
+}
+export async function listPrivacyAliasHistory(merchantId: string, limit = 20): Promise<PrivacyAlias[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(privacyAliases).where(eq(privacyAliases.merchantId, merchantId)).orderBy(desc(privacyAliases.createdAt)).limit(limit);
+}
+
+// ─── Report Job Helpers ───────────────────────────────────────────────────────
+export async function createReportJob(data: Omit<ReportJob, "id" | "createdAt" | "completedAt">): Promise<ReportJob> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(reportJobs).values(data).returning();
+  return r;
+}
+export async function listReportJobs(merchantId: string, limit = 20): Promise<ReportJob[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(reportJobs).where(eq(reportJobs.merchantId, merchantId)).orderBy(desc(reportJobs.createdAt)).limit(limit);
+}
+export async function updateReportJob(id: string, data: Partial<ReportJob>): Promise<ReportJob | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(reportJobs).set(data).where(eq(reportJobs.id, id)).returning();
+  return r ?? null;
+}
+export async function createScheduledReport(data: Omit<ScheduledReport, "id" | "createdAt">): Promise<ScheduledReport> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(scheduledReports).values(data).returning();
+  return r;
+}
+export async function listScheduledReports(merchantId: string): Promise<ScheduledReport[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(scheduledReports).where(eq(scheduledReports.merchantId, merchantId)).orderBy(desc(scheduledReports.createdAt));
+}
+
+// ─── Nodal Account Helpers ────────────────────────────────────────────────────
+export async function createNodalAccount(data: Omit<NodalAccount, "id" | "createdAt" | "updatedAt">): Promise<NodalAccount> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const accountNumber = `NOD${Date.now().toString().slice(-10)}`;
+  const [r] = await db.insert(nodalAccounts).values({ ...data, accountNumber }).returning();
+  return r;
+}
+export async function listNodalAccounts(merchantId: string): Promise<NodalAccount[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(nodalAccounts).where(eq(nodalAccounts.merchantId, merchantId)).orderBy(desc(nodalAccounts.createdAt));
+}
+export async function listNodalTransactions(nodalAccountId: string, limit = 20): Promise<NodalTransaction[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(nodalTransactions).where(eq(nodalTransactions.nodalAccountId, nodalAccountId)).orderBy(desc(nodalTransactions.createdAt)).limit(limit);
+}
+export async function createNodalTransaction(data: Omit<NodalTransaction, "id" | "createdAt">): Promise<NodalTransaction> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(nodalTransactions).values(data).returning();
+  return r;
+}
+
+// ─── Retail POS Helpers ───────────────────────────────────────────────────────
+export async function getOrCreateRetailPosConfig(merchantId: string, storeName?: string): Promise<RetailPosConfig> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(retailPosConfigs).where(eq(retailPosConfigs.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(retailPosConfigs).values({ merchantId, storeName: storeName ?? "My Store" }).returning();
+  return created;
+}
+export async function updateRetailPosConfig(merchantId: string, data: Partial<RetailPosConfig>): Promise<RetailPosConfig | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(retailPosConfigs).set({ ...data, updatedAt: new Date() }).where(eq(retailPosConfigs.merchantId, merchantId)).returning();
+  return r ?? null;
+}
+export async function createRetailSale(data: Omit<RetailSale, "id" | "createdAt">): Promise<RetailSale> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const reference = `POS-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const [r] = await db.insert(retailSales).values({ ...data, reference }).returning();
+  return r;
+}
+export async function getRetailDailySummary(merchantId: string): Promise<{ totalSales: number; totalKobo: number; avgKobo: number }> {
+  const db = await getDb(); if (!db) return { totalSales: 0, totalKobo: 0, avgKobo: 0 };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const rows = await db.select({ n: count(), total: sum(retailSales.totalKobo) }).from(retailSales).where(and(eq(retailSales.merchantId, merchantId), gte(retailSales.createdAt, today)));
+  const n = Number(rows[0]?.n ?? 0);
+  const total = Number(rows[0]?.total ?? 0);
+  return { totalSales: n, totalKobo: total, avgKobo: n > 0 ? Math.round(total / n) : 0 };
+}
+
+// ─── International Remittance Helpers ─────────────────────────────────────────
+export async function createRemittanceTransfer(data: Omit<IntlRemittanceTransfer, "id" | "createdAt" | "updatedAt">): Promise<IntlRemittanceTransfer> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const trackingNumber = `TRK${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const [r] = await db.insert(intlRemittanceTransfers).values({ ...data, trackingNumber }).returning();
+  return r;
+}
+export async function getRemittanceByTracking(trackingNumber: string): Promise<IntlRemittanceTransfer | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.select().from(intlRemittanceTransfers).where(eq(intlRemittanceTransfers.trackingNumber, trackingNumber)).limit(1);
+  return r ?? null;
+}
+export async function listRemittanceTransfers(merchantId: string, limit = 20): Promise<IntlRemittanceTransfer[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(intlRemittanceTransfers).where(eq(intlRemittanceTransfers.merchantId, merchantId)).orderBy(desc(intlRemittanceTransfers.createdAt)).limit(limit);
+}
+
+// ─── Subscription V2 Helpers ──────────────────────────────────────────────────
+export async function createSubscriptionPlanV2(data: Omit<SubscriptionPlanV2, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionPlanV2> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(subscriptionPlansV2).values(data).returning();
+  return r;
+}
+export async function listSubscriptionPlansV2(merchantId: string): Promise<SubscriptionPlanV2[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(subscriptionPlansV2).where(eq(subscriptionPlansV2.merchantId, merchantId)).orderBy(desc(subscriptionPlansV2.createdAt));
+}
+export async function listSubscriptionSubscribers(planId: string, limit = 50): Promise<SubscriptionSubscriber[]> {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(subscriptionSubscribers).where(eq(subscriptionSubscribers.planId, planId)).orderBy(desc(subscriptionSubscribers.createdAt)).limit(limit);
+}
+export async function createSubscriptionSubscriber(data: Omit<SubscriptionSubscriber, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionSubscriber> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [r] = await db.insert(subscriptionSubscribers).values(data).returning();
+  return r;
+}
+export async function updateSubscriptionSubscriber(id: string, data: Partial<SubscriptionSubscriber>): Promise<SubscriptionSubscriber | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(subscriptionSubscribers).set({ ...data, updatedAt: new Date() }).where(eq(subscriptionSubscribers.id, id)).returning();
+  return r ?? null;
+}
+
+// ─── Portal Subscription (Stripe) Helpers ────────────────────────────────────
+export async function getOrCreatePortalSubscription(merchantId: string): Promise<PortalSubscription> {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const [existing] = await db.select().from(portalSubscriptions).where(eq(portalSubscriptions.merchantId, merchantId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(portalSubscriptions).values({ merchantId }).returning();
+  return created;
+}
+export async function updatePortalSubscription(merchantId: string, data: Partial<PortalSubscription>): Promise<PortalSubscription | null> {
+  const db = await getDb(); if (!db) return null;
+  const [r] = await db.update(portalSubscriptions).set({ ...data, updatedAt: new Date() }).where(eq(portalSubscriptions.merchantId, merchantId)).returning();
+  return r ?? null;
+}

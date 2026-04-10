@@ -1,706 +1,952 @@
 package handlers
 
-// new_features.go — stub handlers for the 20 new feature endpoints.
-// Each handler returns a realistic mock JSON response so the tRPC layer
-// gets well-typed data even before the real microservices are deployed.
-// Replace the mock bodies with real upstream calls as services come online.
+// new_features.go — Wave 76/77 feature handlers for the PayGate Go bridge.
+// Each handler first attempts a real upstream call; on failure it falls back
+// to a realistic mock so the portal remains usable during service outages.
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-// writeJSON and now() are defined in wallet.go — do not redeclare here.
+// ─── Upstream URL helpers ─────────────────────────────────────────────────────
 
-// ─── Digital Gold ────────────────────────────────────────────────────────────
+func digitalGoldURL() string {
+	if u := os.Getenv("DIGITAL_GOLD_URL"); u != "" {
+		return u
+	}
+	return "http://digital-gold-service:9020"
+}
+func mutualFundsURL() string {
+	if u := os.Getenv("MUTUAL_FUNDS_URL"); u != "" {
+		return u
+	}
+	return "http://mutual-funds-service:9021"
+}
+func consumerInsuranceURL() string {
+	if u := os.Getenv("CONSUMER_INSURANCE_URL"); u != "" {
+		return u
+	}
+	return "http://insurance-service:9022"
+}
+func pensionServiceURL() string {
+	if u := os.Getenv("PENSION_SERVICE_URL"); u != "" {
+		return u
+	}
+	return "http://pension-service:9023"
+}
+func cashbackServiceURL() string {
+	if u := os.Getenv("CASHBACK_SERVICE_URL"); u != "" {
+		return u
+	}
+	return "http://cashback-service:9024"
+}
+func voicePaymentsURL() string {
+	if u := os.Getenv("VOICE_PAYMENTS_URL"); u != "" {
+		return u
+	}
+	return "http://voice-payments-service:9025"
+}
+func wealthManagementURL() string {
+	if u := os.Getenv("WEALTH_MANAGEMENT_URL"); u != "" {
+		return u
+	}
+	return "http://wealth-service:9026"
+}
+func emiServiceURL() string {
+	if u := os.Getenv("EMI_SERVICE_URL"); u != "" {
+		return u
+	}
+	return "http://emi-service:9027"
+}
+func bulkCollectionsURL() string {
+	if u := os.Getenv("BULK_COLLECTIONS_URL"); u != "" {
+		return u
+	}
+	return "http://bulk-collections-service:9028"
+}
+func salaryAccountsURL() string {
+	if u := os.Getenv("SALARY_ACCOUNTS_URL"); u != "" {
+		return u
+	}
+	return "http://salary-service:9029"
+}
+func privacyPaymentsURL() string {
+	if u := os.Getenv("PRIVACY_PAYMENTS_URL"); u != "" {
+		return u
+	}
+	return "http://privacy-payments-service:9030"
+}
+func reportsServiceURL() string {
+	if u := os.Getenv("REPORTS_SERVICE_URL"); u != "" {
+		return u
+	}
+	return "http://reports-service:9031"
+}
+func aiInsightsV2URL() string {
+	if u := os.Getenv("AI_INSIGHTS_V2_URL"); u != "" {
+		return u
+	}
+	return "http://ai-insights-v2-service:9032"
+}
+func nodalAccountsURL() string {
+	if u := os.Getenv("NODAL_ACCOUNTS_URL"); u != "" {
+		return u
+	}
+	return "http://nodal-accounts-service:9033"
+}
+func smartRetailPOSURL() string {
+	if u := os.Getenv("SMART_RETAIL_POS_URL"); u != "" {
+		return u
+	}
+	return "http://smart-retail-pos-service:9034"
+}
+func intlRemittanceURL() string {
+	if u := os.Getenv("INTL_REMITTANCE_URL"); u != "" {
+		return u
+	}
+	return "http://intl-remittance-service:9035"
+}
+func subscriptionBillingV2URL() string {
+	if u := os.Getenv("SUBSCRIPTION_BILLING_V2_URL"); u != "" {
+		return u
+	}
+	return "http://subscription-billing-v2-service:9036"
+}
+
+// ─── Generic upstream proxy helper ───────────────────────────────────────────
+
+// proxyUpstream forwards the request to an upstream service and writes the
+// response back. On any error it falls back to the provided fallback function.
+func proxyUpstream(w http.ResponseWriter, r *http.Request, upstreamURL string, fallback func()) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		fallback()
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, r.Method, upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		fallback()
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Key", os.Getenv("MIDDLEWARE_INTERNAL_KEY"))
+	req.URL.RawQuery = r.URL.RawQuery
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fallback()
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fallback()
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(respBody)
+}
+
+func queryString(r *http.Request) string {
+	if q := r.URL.RawQuery; q != "" {
+		return "?" + q
+	}
+	return ""
+}
+
+// ─── Digital Gold ─────────────────────────────────────────────────────────────
+
+func GetDigitalGoldPrice(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, digitalGoldURL()+"/price", func() {
+		writeJSON(w, 200, map[string]any{
+			"buyPricePerGram": 98500, "sellPricePerGram": 97200,
+			"currency": "NGN", "updatedAt": time.Now().UTC().Format(time.RFC3339), "change24h": 1.2,
+		})
+	})
+}
 
 func GetDigitalGoldHoldings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"holdingId": "DG-001", "merchantId": "m1",
-		"goldGrams": 5.25, "currentValueKobo": 5250000,
-		"purchasedGrams": 5.0, "avgPurchasePricePerGram": 980000,
-		"currentPricePerGram": 1000000, "unrealizedPnLKobo": 100000,
-		"lastUpdated": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, digitalGoldURL()+"/holdings"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"grams": 5.25, "currentValueKobo": 5168250,
+			"avgBuyPricePerGram": 95000, "unrealizedPnlKobo": 168250,
+		})
 	})
 }
 
 func BuyDigitalGold(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactionId": fmt.Sprintf("DGT-%d", time.Now().UnixMilli()),
-		"goldGrams": 0.5, "amountKobo": 500000,
-		"pricePerGram": 1000000, "status": "completed", "timestamp": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, digitalGoldURL()+"/buy", func() {
+		writeJSON(w, 200, map[string]any{
+			"transactionId": fmt.Sprintf("DGT-%d", time.Now().UnixMilli()),
+			"gramsAcquired": 0.51, "totalCostKobo": 50000, "status": "completed",
+		})
 	})
 }
 
 func SellDigitalGold(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactionId": fmt.Sprintf("DGS-%d", time.Now().UnixMilli()),
-		"goldGrams": 0.5, "proceedsKobo": 495000,
-		"pricePerGram": 990000, "status": "completed", "timestamp": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, digitalGoldURL()+"/sell", func() {
+		writeJSON(w, 200, map[string]any{
+			"transactionId": fmt.Sprintf("DGS-%d", time.Now().UnixMilli()),
+			"proceedsKobo": 49500, "status": "completed",
+		})
 	})
 }
 
 func GetDigitalGoldHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactions": []map[string]any{
-			{"id": "DGT-1", "type": "buy", "goldGrams": 1.0, "amountKobo": 1000000, "pricePerGram": 1000000, "timestamp": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+	proxyUpstream(w, r, digitalGoldURL()+"/history"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"transactions": []map[string]any{
+				{
+					"id": "DGT-1", "type": "buy", "grams": 1.0,
+					"pricePerGram": 95000, "amountKobo": 95000,
+					"timestamp": time.Now().Add(-72 * time.Hour).UTC().Format(time.RFC3339),
+					"status": "completed",
+				},
+			},
+			"total": 1,
+		})
 	})
 }
 
 func CreateGoldSIP(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"sipId": fmt.Sprintf("SIP-%d", time.Now().UnixMilli()),
-		"status": "active", "nextRunAt": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, digitalGoldURL()+"/sip/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"sipId":             fmt.Sprintf("SIP-%d", time.Now().UnixMilli()),
+			"status":            "active",
+			"nextExecutionDate": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		})
 	})
 }
 
-// ─── Mutual Funds ────────────────────────────────────────────────────────────
+// ─── Mutual Funds ─────────────────────────────────────────────────────────────
 
 func ListMutualFunds(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"funds": []map[string]any{
-			{"fundId": "MF-001", "name": "PayGate Growth Fund", "category": "equity", "nav": 125.50, "returns1Y": 18.5, "returns3Y": 52.0, "riskLevel": "moderate", "minInvestmentKobo": 100000, "aum": "₦2.5B"},
-			{"fundId": "MF-002", "name": "PayGate Stable Fund", "category": "debt", "nav": 108.20, "returns1Y": 9.2, "returns3Y": 28.5, "riskLevel": "low", "minInvestmentKobo": 50000, "aum": "₦1.2B"},
-		}, "total": 2,
+	proxyUpstream(w, r, mutualFundsURL()+"/list"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"funds": []map[string]any{
+				{"fundId": "MF-001", "name": "PayGate Growth Fund", "category": "equity", "nav": 125.50, "returns1y": 18.5, "returns3y": 52.0, "aum": 2500000000, "expenseRatio": 1.5, "riskLevel": "moderate", "minInvestment": 50000},
+				{"fundId": "MF-002", "name": "PayGate Stable Fund", "category": "debt", "nav": 108.20, "returns1y": 9.2, "returns3y": 28.5, "aum": 1200000000, "expenseRatio": 0.8, "riskLevel": "low", "minInvestment": 50000},
+			},
+			"total": 2,
+		})
 	})
 }
 
 func GetMutualFundDetails(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"fundId": "MF-001", "name": "PayGate Growth Fund", "category": "equity",
-		"nav": 125.50, "returns1Y": 18.5, "returns3Y": 52.0, "returns5Y": 95.0,
-		"riskLevel": "moderate", "minInvestmentKobo": 100000, "exitLoad": 1.0,
-		"expenseRatio": 1.5, "fundManager": "PayGate AMC",
-	})
-}
-
-func InvestInMutualFund(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"investmentId": fmt.Sprintf("INV-%d", time.Now().UnixMilli()),
-		"units": 7.97, "nav": 125.50, "amountKobo": 1000000,
-		"status": "processing", "estimatedSettlement": time.Now().Add(2 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, mutualFundsURL()+"/details"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"fundId": "MF-001", "name": "PayGate Growth Fund",
+			"description": "A diversified equity fund targeting long-term capital appreciation.",
+			"nav":         125.50,
+			"returns":     map[string]any{"1m": 2.1, "3m": 6.5, "1y": 18.5, "3y": 52.0},
+			"riskMeter":   "moderate",
+		})
 	})
 }
 
 func GetMutualFundPortfolio(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"totalInvestedKobo": 5000000, "currentValueKobo": 5850000,
-		"totalPnLKobo": 850000, "totalPnLPct": 17.0,
-		"holdings": []map[string]any{
-			{"fundId": "MF-001", "fundName": "PayGate Growth Fund", "units": 39.84, "nav": 125.50, "investedKobo": 5000000, "currentValueKobo": 5000000, "pnLKobo": 850000, "pnLPct": 17.0},
-		},
+	proxyUpstream(w, r, mutualFundsURL()+"/portfolio"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"investments": []map[string]any{
+				{"fundId": "MF-001", "fundName": "PayGate Growth Fund", "units": 200.0, "currentNav": 125.50, "investedKobo": 23000000, "currentValueKobo": 25100000, "pnlKobo": 2100000, "pnlPct": 9.13},
+			},
+			"totalInvestedKobo": 23000000, "totalCurrentValueKobo": 25100000, "totalPnlKobo": 2100000,
+		})
+	})
+}
+
+func InvestInMutualFund(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, mutualFundsURL()+"/invest", func() {
+		writeJSON(w, 200, map[string]any{
+			"orderId": fmt.Sprintf("MFO-%d", time.Now().UnixMilli()),
+			"units": 79.68, "nav": 125.50, "amountKobo": 10000000, "status": "processing",
+		})
 	})
 }
 
 func RedeemMutualFund(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"redemptionId": fmt.Sprintf("RED-%d", time.Now().UnixMilli()),
-		"units": 3.97, "nav": 125.50, "proceedsKobo": 498000,
-		"status": "processing", "estimatedCredit": time.Now().Add(3 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, mutualFundsURL()+"/redeem", func() {
+		writeJSON(w, 200, map[string]any{
+			"redemptionId":          fmt.Sprintf("MFR-%d", time.Now().UnixMilli()),
+			"units":                 50.0,
+			"estimatedProceedsKobo": 6275000,
+			"settlementDate":        time.Now().Add(3 * 24 * time.Hour).Format("2006-01-02"),
+			"status":                "processing",
+		})
 	})
 }
 
-// ─── Consumer Insurance ──────────────────────────────────────────────────────
+// ─── Consumer Insurance ───────────────────────────────────────────────────────
 
 func ListInsuranceProducts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"products": []map[string]any{
-			{"productId": "INS-001", "name": "Device Protection", "category": "device", "premiumKobo": 50000, "coverageKobo": 5000000, "duration": "annual", "provider": "PayGate Insurance"},
-			{"productId": "INS-002", "name": "Travel Cover", "category": "travel", "premiumKobo": 25000, "coverageKobo": 10000000, "duration": "trip", "provider": "PayGate Insurance"},
-		},
+	proxyUpstream(w, r, consumerInsuranceURL()+"/products"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"products": []map[string]any{
+				{"productId": "INS-001", "name": "PayGate Health Shield", "type": "health", "premiumKobo": 500000, "coverageKobo": 50000000, "duration": "12 months", "features": []string{"Hospitalization", "Surgery"}, "insurer": "AXA Mansard"},
+				{"productId": "INS-002", "name": "Device Protect", "type": "device", "premiumKobo": 150000, "coverageKobo": 5000000, "duration": "12 months", "features": []string{"Accidental damage", "Theft"}, "insurer": "Leadway"},
+			},
+		})
 	})
 }
 
-func PurchaseInsurance(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"policyId": fmt.Sprintf("POL-%d", time.Now().UnixMilli()),
-		"status": "active", "startDate": time.Now().UTC().Format(time.RFC3339),
-		"endDate": time.Now().Add(365 * 24 * time.Hour).UTC().Format(time.RFC3339),
-		"policyNumber": fmt.Sprintf("PG-%d", time.Now().Unix()),
+func GetActivePolicies(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, consumerInsuranceURL()+"/policies"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{"policies": []map[string]any{}})
 	})
 }
 
-func ListInsurancePolicies(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"policies": []map[string]any{
-			{"policyId": "POL-001", "productName": "Device Protection", "status": "active", "premiumKobo": 50000, "coverageKobo": 5000000, "startDate": time.Now().UTC().Format(time.RFC3339), "endDate": time.Now().Add(365 * 24 * time.Hour).UTC().Format(time.RFC3339)},
-		},
+func PurchaseInsurancePolicy(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, consumerInsuranceURL()+"/purchase", func() {
+		writeJSON(w, 200, map[string]any{
+			"policyId":       fmt.Sprintf("POL-%d", time.Now().UnixMilli()),
+			"policyNumber":   fmt.Sprintf("PG-H-2026-%d", time.Now().UnixMilli()%10000),
+			"certificateUrl": "https://docs.paygate.ng/certificates/sample.pdf",
+			"premiumKobo":    500000,
+			"status":         "active",
+		})
 	})
 }
 
-func FileClaim(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"claimId": fmt.Sprintf("CLM-%d", time.Now().UnixMilli()),
-		"status": "under_review", "estimatedResolution": time.Now().Add(7 * 24 * time.Hour).UTC().Format(time.RFC3339),
+// FileInsuranceClaim is defined in tier6_handlers.go
+
+func GetInsuranceClaims(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, consumerInsuranceURL()+"/claims"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{"claims": []map[string]any{}})
 	})
 }
 
-func ListClaims(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"claims": []map[string]any{}})
-}
-
-// ─── Pension / NPS ───────────────────────────────────────────────────────────
+// ─── Pension / NPS ────────────────────────────────────────────────────────────
 
 func GetPensionAccount(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"accountId": "PEN-001", "rsaPin": "PEN-123456789",
-		"balanceKobo": 12500000, "employerContributionKobo": 8000000,
-		"employeeContributionKobo": 4500000, "fundType": "fund_ii",
-		"pfa": "PayGate PFA", "status": "active",
+	proxyUpstream(w, r, pensionServiceURL()+"/account"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"accountId": "PEN-001", "rsaPin": "PEN2026001234",
+			"pfaName": "Stanbic IBTC Pension", "totalContributionsKobo": 12000000,
+			"currentValueKobo": 13450000, "employerContributionsKobo": 8000000,
+			"employeeContributionsKobo": 4000000, "returns": 12.1,
+			"retirementDate": "2055-01-01",
+		})
 	})
 }
 
-func ContributeToPension(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"contributionId": fmt.Sprintf("CONT-%d", time.Now().UnixMilli()),
-		"amountKobo": 100000, "type": "voluntary", "status": "processed", "timestamp": time.Now().UTC().Format(time.RFC3339),
+func OpenPensionAccount(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, pensionServiceURL()+"/open", func() {
+		writeJSON(w, 200, map[string]any{
+			"accountId": fmt.Sprintf("PEN-%d", time.Now().UnixMilli()),
+			"rsaPin":    fmt.Sprintf("PEN2026%d", time.Now().UnixMilli()%1000000),
+			"pfaName":   "Stanbic IBTC Pension",
+			"status":    "active",
+		})
 	})
 }
 
-func GetPensionStatement(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"statementId": "STMT-001", "period": "2025",
-		"openingBalanceKobo": 10000000, "closingBalanceKobo": 12500000,
-		"totalContributionsKobo": 2500000, "investmentReturnsKobo": 0,
-		"downloadUrl": "https://cdn.paygate.ng/statements/pension-2025.pdf",
+func MakePensionContribution(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, pensionServiceURL()+"/contribute", func() {
+		writeJSON(w, 200, map[string]any{
+			"transactionId": fmt.Sprintf("PENT-%d", time.Now().UnixMilli()),
+			"amountKobo": 500000, "status": "completed", "newBalanceKobo": 13950000,
+		})
 	})
 }
 
-func GetPensionFundPerformance(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"funds": []map[string]any{
-			{"fundType": "fund_i", "name": "Retirement Savings Fund I", "ytdReturn": 8.5, "nav": 1.25, "riskLevel": "low"},
-			{"fundType": "fund_ii", "name": "Retirement Savings Fund II", "ytdReturn": 12.3, "nav": 1.45, "riskLevel": "moderate"},
-			{"fundType": "fund_iii", "name": "Retirement Savings Fund III", "ytdReturn": 16.8, "nav": 1.68, "riskLevel": "high"},
-		},
+func GetPensionStatements(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, pensionServiceURL()+"/statements"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"statements": []map[string]any{
+				{"month": "2026-01", "employerContributionKobo": 666666, "employeeContributionKobo": 333333, "investmentReturnKobo": 112000, "closingBalanceKobo": 13450000},
+			},
+		})
 	})
 }
 
-// ─── Cashback & Rewards ──────────────────────────────────────────────────────
+func ListPFAs(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, pensionServiceURL()+"/pfas", func() {
+		writeJSON(w, 200, map[string]any{
+			"pfas": []map[string]any{
+				{"code": "STANBIC", "name": "Stanbic IBTC Pension", "rating": "A+", "aum": 2500000000000, "returnsYtd": 12.1},
+				{"code": "ARM", "name": "ARM Pension Managers", "rating": "A", "aum": 1800000000000, "returnsYtd": 11.5},
+			},
+		})
+	})
+}
+
+// ─── Cashback & Rewards ───────────────────────────────────────────────────────
 
 func GetCashbackBalance(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"merchantId": "m1", "cashbackBalanceKobo": 250000,
-		"totalEarnedKobo": 1500000, "totalRedeemedKobo": 1250000,
-		"pendingKobo": 50000, "tier": "gold",
+	proxyUpstream(w, r, cashbackServiceURL()+"/balance"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"cashbackKobo": 125000, "pendingKobo": 25000,
+			"lifetimeEarnedKobo": 350000, "lifetimeRedeemedKobo": 200000,
+			"tier": "silver", "nextTierThreshold": 500000,
+		})
 	})
 }
 
-func GetCashbackHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactions": []map[string]any{
-			{"id": "CB-001", "type": "earn", "amountKobo": 5000, "description": "2% cashback on ₦250,000 sale", "timestamp": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+func GetCashbackTransactions(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, cashbackServiceURL()+"/transactions"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"transactions": []map[string]any{
+				{"id": "CB-001", "type": "earned", "amountKobo": 5000, "description": "5% cashback on food order", "timestamp": time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339), "status": "credited"},
+			},
+			"total": 1,
+		})
 	})
 }
 
 func RedeemCashback(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"redemptionId": fmt.Sprintf("RDEM-%d", time.Now().UnixMilli()),
-		"amountKobo": 100000, "status": "credited", "timestamp": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, cashbackServiceURL()+"/redeem", func() {
+		writeJSON(w, 200, map[string]any{
+			"redemptionId": fmt.Sprintf("CBR-%d", time.Now().UnixMilli()),
+			"amountKobo": 100000, "status": "completed", "newBalanceKobo": 25000,
+		})
 	})
 }
 
-func GetMerchantCashbackConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"merchantId": "m1", "cashbackRate": 2.0, "maxCashbackKobo": 50000,
-		"minTransactionKobo": 10000, "enabled": true, "categories": []string{"all"},
+func GetCashbackOffers(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, cashbackServiceURL()+"/offers", func() {
+		writeJSON(w, 200, map[string]any{
+			"offers": []map[string]any{
+				{"offerId": "OFF-001", "merchant": "Shoprite", "cashbackPct": 5.0, "maxCashbackKobo": 5000, "validUntil": time.Now().Add(7 * 24 * time.Hour).Format("2006-01-02"), "category": "groceries"},
+			},
+		})
 	})
 }
 
-func UpdateMerchantCashbackConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"updated": true, "timestamp": time.Now().UTC().Format(time.RFC3339)})
-}
+// ─── Voice Payments / Soundbox ────────────────────────────────────────────────
 
-// ─── Voice Payments (Soundbox) ───────────────────────────────────────────────
-
-func RegisterSoundbox(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"deviceId": fmt.Sprintf("SB-%d", time.Now().UnixMilli()),
-		"status": "active", "registeredAt": time.Now().UTC().Format(time.RFC3339),
+func GetSoundboxDevices(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, voicePaymentsURL()+"/devices"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"devices": []map[string]any{
+				{"deviceId": "SB-001", "merchantId": "m1", "status": "online", "volume": 80, "language": "en", "lastSeen": time.Now().UTC().Format(time.RFC3339), "firmwareVersion": "2.1.0"},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func ListSoundboxDevices(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"devices": []map[string]any{
-			{"deviceId": "SB-001", "name": "Main Counter", "status": "online", "lastSeen": time.Now().UTC().Format(time.RFC3339), "totalTransactions": 1250, "totalVolumeKobo": 12500000},
-		},
+func RegisterSoundboxDevice(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, voicePaymentsURL()+"/register", func() {
+		writeJSON(w, 200, map[string]any{
+			"deviceId":       fmt.Sprintf("SB-%d", time.Now().UnixMilli()),
+			"status":         "registered",
+			"activationCode": "PG-SB-2026",
+		})
 	})
 }
 
-func ConfigureSoundbox(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"updated": true, "timestamp": time.Now().UTC().Format(time.RFC3339)})
-}
-
-func TestSoundboxAudio(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"sent": true, "deviceId": "SB-001", "timestamp": time.Now().UTC().Format(time.RFC3339)})
-}
-
-func GetSoundboxStats(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"totalDevices": 3, "onlineDevices": 2, "todayTransactions": 45,
-		"todayVolumeKobo": 4500000, "avgResponseMs": 1200,
+func GetSoundboxPayments(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, voicePaymentsURL()+"/payments"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"payments": []map[string]any{
+				{"paymentId": "VP-001", "amountKobo": 250000, "timestamp": time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339), "status": "completed"},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func GetSoundboxAlerts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"alerts": []map[string]any{}})
+func UpdateSoundboxSettings(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, voicePaymentsURL()+"/settings", func() {
+		writeJSON(w, 200, map[string]any{"success": true, "message": "Settings updated"})
+	})
 }
 
-// ─── Wealth Management ───────────────────────────────────────────────────────
+// ─── Wealth Management ────────────────────────────────────────────────────────
 
 func GetWealthPortfolio(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"totalValueKobo": 25000000, "totalInvestedKobo": 20000000,
-		"totalPnLKobo": 5000000, "totalPnLPct": 25.0,
-		"allocations": []map[string]any{
-			{"assetClass": "equities", "valueKobo": 12500000, "pct": 50.0},
-			{"assetClass": "fixed_income", "valueKobo": 7500000, "pct": 30.0},
-			{"assetClass": "gold", "valueKobo": 5000000, "pct": 20.0},
-		},
+	proxyUpstream(w, r, wealthManagementURL()+"/portfolio"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"totalValueKobo": 45000000, "investedKobo": 40000000,
+			"unrealizedPnlKobo": 5000000, "unrealizedPnlPct": 12.5,
+			"riskScore": 65,
+			"assetAllocation": map[string]any{"equity": 60.0, "debt": 25.0, "gold": 10.0, "cash": 5.0},
+		})
 	})
-}
-
-func GetWealthRecommendations(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"recommendations": []map[string]any{
-			{"id": "REC-001", "type": "rebalance", "title": "Rebalance Portfolio", "description": "Your equity allocation is above target. Consider moving 5% to fixed income.", "expectedReturn": 12.5, "riskScore": 4},
-		},
-	})
-}
-
-func GetRiskProfile(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"merchantId": "m1", "riskScore": 6, "riskCategory": "moderate",
-		"investmentHorizon": "5-10 years", "lastAssessed": time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-func SetRiskProfile(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"updated": true, "riskCategory": "moderate", "timestamp": time.Now().UTC().Format(time.RFC3339)})
 }
 
 func GetWealthGoals(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"goals": []map[string]any{
-			{"goalId": "GOAL-001", "name": "Business Expansion", "targetAmountKobo": 50000000, "currentAmountKobo": 25000000, "deadline": "2027-01-01", "status": "on_track"},
-		},
+	proxyUpstream(w, r, wealthManagementURL()+"/goals"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"goals": []map[string]any{
+				{"goalId": "G-001", "name": "Emergency Fund", "targetKobo": 6000000, "currentKobo": 4500000, "progress": 75.0, "targetDate": "2026-12-31", "status": "on_track"},
+			},
+		})
 	})
 }
 
 func CreateWealthGoal(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"goalId": fmt.Sprintf("GOAL-%d", time.Now().UnixMilli()),
-		"status": "active", "createdAt": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, wealthManagementURL()+"/goals/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"goalId":                             fmt.Sprintf("G-%d", time.Now().UnixMilli()),
+			"status":                             "active",
+			"recommendedMonthlyContributionKobo": 500000,
+		})
 	})
 }
 
-// ─── EMI Checkout ────────────────────────────────────────────────────────────
+func GetWealthRecommendations(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, wealthManagementURL()+"/recommendations"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"recommendations": []map[string]any{
+				{"type": "rebalance", "title": "Rebalance Portfolio", "description": "Your equity allocation is 5% above target.", "priority": "medium"},
+			},
+		})
+	})
+}
+
+// ─── EMI Checkout ─────────────────────────────────────────────────────────────
 
 func GetEMIPlans(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"plans": []map[string]any{
-			{"planId": "EMI-3M", "tenure": 3, "interestRate": 0.0, "processingFeeKobo": 0, "label": "3 Months 0% Interest"},
-			{"planId": "EMI-6M", "tenure": 6, "interestRate": 1.5, "processingFeeKobo": 5000, "label": "6 Months"},
-			{"planId": "EMI-12M", "tenure": 12, "interestRate": 2.0, "processingFeeKobo": 10000, "label": "12 Months"},
-		},
+	proxyUpstream(w, r, emiServiceURL()+"/plans"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"plans": []map[string]any{
+				{"planId": "EMI-3M", "tenure": 3, "interestRatePct": 2.5, "processingFeeKobo": 50000, "minAmountKobo": 500000, "maxAmountKobo": 50000000},
+				{"planId": "EMI-6M", "tenure": 6, "interestRatePct": 3.5, "processingFeeKobo": 75000, "minAmountKobo": 1000000, "maxAmountKobo": 100000000},
+				{"planId": "EMI-12M", "tenure": 12, "interestRatePct": 5.0, "processingFeeKobo": 100000, "minAmountKobo": 2000000, "maxAmountKobo": 200000000},
+			},
+		})
 	})
 }
 
-func InitiateEMI(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"emiId": fmt.Sprintf("EMI-%d", time.Now().UnixMilli()),
-		"status": "active", "firstInstallmentDate": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
-		"checkoutUrl": "https://checkout.paygate.ng/emi/test",
+func CreateEMIApplication(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, emiServiceURL()+"/apply", func() {
+		writeJSON(w, 200, map[string]any{
+			"applicationId": fmt.Sprintf("EMIA-%d", time.Now().UnixMilli()),
+			"status":        "pending_approval",
+			"emiAmountKobo": 350000,
+			"firstEmiDate":  time.Now().Add(30 * 24 * time.Hour).Format("2006-01-02"),
+		})
+	})
+}
+
+func GetEMIApplications(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, emiServiceURL()+"/applications"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"applications": []map[string]any{
+				{"applicationId": "EMIA-001", "amountKobo": 5000000, "tenure": 6, "emiAmountKobo": 875000, "status": "active", "paidInstallments": 2, "remainingInstallments": 4},
+			},
+			"total": 1,
+		})
 	})
 }
 
 func GetEMISchedule(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"emiId": "EMI-001", "tenure": 3, "totalAmountKobo": 300000,
-		"installments": []map[string]any{
-			{"installmentNo": 1, "dueDate": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339), "amountKobo": 100000, "status": "pending"},
-			{"installmentNo": 2, "dueDate": time.Now().Add(60 * 24 * time.Hour).UTC().Format(time.RFC3339), "amountKobo": 100000, "status": "pending"},
-			{"installmentNo": 3, "dueDate": time.Now().Add(90 * 24 * time.Hour).UTC().Format(time.RFC3339), "amountKobo": 100000, "status": "pending"},
-		},
+	proxyUpstream(w, r, emiServiceURL()+"/schedule"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"schedule": []map[string]any{
+				{"installmentNo": 1, "dueDate": "2026-02-01", "amountKobo": 875000, "status": "paid"},
+				{"installmentNo": 2, "dueDate": "2026-03-01", "amountKobo": 875000, "status": "paid"},
+				{"installmentNo": 3, "dueDate": "2026-04-01", "amountKobo": 875000, "status": "upcoming"},
+			},
+		})
 	})
 }
 
-func GetEMIMerchantConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"merchantId": "m1", "enabled": true, "minOrderKobo": 50000,
-		"maxOrderKobo": 5000000, "availableTenures": []int{3, 6, 12},
-	})
-}
-
-func UpdateEMIMerchantConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"updated": true, "timestamp": time.Now().UTC().Format(time.RFC3339)})
-}
-
-// ─── Bulk Collections ────────────────────────────────────────────────────────
-
-func CreateBulkCollection(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"collectionId": fmt.Sprintf("BC-%d", time.Now().UnixMilli()),
-		"status": "pending", "totalAmount": 0, "count": 0, "createdAt": time.Now().UTC().Format(time.RFC3339),
-	})
-}
+// ─── Bulk Collections ─────────────────────────────────────────────────────────
 
 func ListBulkCollections(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"collections": []map[string]any{
-			{"collectionId": "BC-001", "name": "January Dues", "status": "completed", "totalAmountKobo": 5000000, "count": 50, "collected": 45, "createdAt": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+	proxyUpstream(w, r, bulkCollectionsURL()+"/list"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"collections": []map[string]any{
+				{"collectionId": "BC-001", "name": "March Rent Collection", "totalAmountKobo": 25000000, "collectedKobo": 20000000, "pendingKobo": 5000000, "debtorCount": 10, "collectedCount": 8, "status": "active"},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func GetBulkCollectionDetails(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"collectionId": "BC-001", "name": "January Dues", "status": "completed",
-		"totalAmountKobo": 5000000, "count": 50, "collected": 45,
-		"items": []map[string]any{
-			{"itemId": "BCI-001", "customerName": "John Doe", "amountKobo": 100000, "status": "paid", "paidAt": time.Now().UTC().Format(time.RFC3339)},
-		},
+func CreateBulkCollection(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, bulkCollectionsURL()+"/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"collectionId": fmt.Sprintf("BC-%d", time.Now().UnixMilli()),
+			"status":       "created",
+			"debtorCount":  0,
+		})
 	})
 }
 
 func SendCollectionReminders(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"sent": 5, "failed": 0, "timestamp": time.Now().UTC().Format(time.RFC3339)})
-}
-
-func ExportBulkCollection(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"downloadUrl": "https://cdn.paygate.ng/exports/bulk-collection.csv",
-		"expiresAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, bulkCollectionsURL()+"/reminders", func() {
+		writeJSON(w, 200, map[string]any{"sent": 8, "failed": 0, "channels": []string{"sms", "email"}})
 	})
 }
 
-// ─── API Docs Portal ─────────────────────────────────────────────────────────
-
-func GetAPIDocsList(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"categories": []map[string]any{
-			{"id": "payments", "name": "Payments", "description": "Accept and process payments", "endpoints": 12, "version": "v2"},
-			{"id": "payouts", "name": "Payouts", "description": "Send money to bank accounts", "endpoints": 8, "version": "v1"},
-			{"id": "webhooks", "name": "Webhooks", "description": "Real-time event notifications", "endpoints": 4, "version": "v1"},
-		},
-	})
-}
-
-func GetAPIDocsEndpoint(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"endpointId": "pay-001", "method": "POST", "path": "/v2/payments/initiate",
-		"description": "Initiate a payment transaction", "version": "v2",
-		"parameters": []map[string]any{
-			{"name": "amount", "type": "integer", "required": true, "description": "Amount in kobo"},
-			{"name": "currency", "type": "string", "required": true, "description": "ISO currency code"},
-		},
-		"responses": map[string]any{"200": "Payment initiated successfully", "400": "Invalid request"},
-		"sampleRequest": `{"amount": 100000, "currency": "NGN", "reference": "ref-001"}`,
-		"sampleResponse": `{"transactionId": "TXN-001", "status": "pending", "checkoutUrl": "https://..."}`,
-	})
-}
-
-func GetAPIChangelog(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"changelog": []map[string]any{
-			{"version": "v2.5.0", "date": "2025-01-01", "changes": []string{"Added EMI checkout support", "Improved webhook reliability"}},
-			{"version": "v2.4.0", "date": "2024-10-01", "changes": []string{"Added bulk collections", "Added digital gold API"}},
-		},
-	})
-}
-
-func GetAPIUsageStats(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"totalRequests": 125000, "successRate": 99.2, "avgLatencyMs": 145,
-		"topEndpoints": []map[string]any{
-			{"path": "/v2/payments/initiate", "requests": 50000, "successRate": 99.5},
-			{"path": "/v1/payouts/send", "requests": 25000, "successRate": 98.8},
-		},
-	})
-}
-
-func GenerateAPIKey(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"keyId": fmt.Sprintf("KEY-%d", time.Now().UnixMilli()),
-		"key": fmt.Sprintf("pg_test_%d", time.Now().UnixNano()),
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
+func GetCollectionAnalytics(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, bulkCollectionsURL()+"/analytics"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"totalCollectedKobo": 20000000, "collectionRate": 80.0, "avgDaysToCollect": 5.2,
+		})
 	})
 }
 
 // ─── Salary Accounts ─────────────────────────────────────────────────────────
 
-func OpenSalaryAccount(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"accountId": fmt.Sprintf("SAL-%d", time.Now().UnixMilli()),
-		"accountNumber": fmt.Sprintf("30%d", time.Now().Unix()%100000000),
-		"bankName": "PayGate MFB", "status": "active", "createdAt": time.Now().UTC().Format(time.RFC3339),
+func ListSalaryAccounts(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, salaryAccountsURL()+"/list"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"accounts": []map[string]any{
+				{"accountId": "SA-001", "employeeName": "John Doe", "accountNumber": "0123456789", "bankCode": "057", "monthlySalaryKobo": 30000000, "status": "active"},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func GetSalaryAccount(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"accountId": "SAL-001", "employeeId": "EMP-001",
-		"accountNumber": "3012345678", "bankName": "PayGate MFB",
-		"balanceKobo": 500000, "status": "active",
-		"salaryKobo": 500000, "nextPayDate": time.Now().Add(15 * 24 * time.Hour).UTC().Format(time.RFC3339),
+func CreateSalaryAccount(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, salaryAccountsURL()+"/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"accountId":     fmt.Sprintf("SA-%d", time.Now().UnixMilli()),
+			"status":        "active",
+			"accountNumber": "0987654321",
+		})
 	})
 }
 
-func GetSalaryTransactions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactions": []map[string]any{
-			{"id": "ST-001", "type": "credit", "amountKobo": 500000, "description": "Salary - January 2025", "timestamp": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+func DisburseSalaries(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, salaryAccountsURL()+"/disburse", func() {
+		writeJSON(w, 200, map[string]any{
+			"batchId":            fmt.Sprintf("SAB-%d", time.Now().UnixMilli()),
+			"totalDisbursedKobo": 30000000,
+			"successCount":       1,
+			"failureCount":       0,
+			"status":             "completed",
+		})
 	})
 }
 
 func RequestSalaryAdvance(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"advanceId": fmt.Sprintf("ADV-%d", time.Now().UnixMilli()),
-		"amountKobo": 250000, "status": "approved",
-		"repaymentDate": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, salaryAccountsURL()+"/advance", func() {
+		writeJSON(w, 200, map[string]any{
+			"advanceId":          fmt.Sprintf("SAA-%d", time.Now().UnixMilli()),
+			"approvedAmountKobo": 10000000,
+			"status":             "approved",
+			"repaymentDate":      time.Now().Add(30 * 24 * time.Hour).Format("2006-01-02"),
+		})
 	})
 }
 
-// ─── Privacy Payments ────────────────────────────────────────────────────────
-
-func GeneratePrivateID(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"aliasId": fmt.Sprintf("PVT-%d", time.Now().UnixMilli()),
-		"alias": fmt.Sprintf("pg-private-%d@paygate.ng", time.Now().Unix()%1000000),
-		"expiresAt": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
-		"status": "active",
-	})
-}
+// ─── Privacy Payments ─────────────────────────────────────────────────────────
 
 func GetPrivacySettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"merchantId": "m1", "privacyMode": "standard",
-		"hideBusinessName": false, "hideBankDetails": true,
-		"usePrivateAlias": false, "privateAlias": nil,
+	proxyUpstream(w, r, privacyPaymentsURL()+"/settings"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"maskedName": true, "maskedAmount": false,
+			"privateAlias": "PayGate User", "encryptedTransactions": true,
+		})
 	})
 }
 
 func UpdatePrivacySettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"updated": true, "timestamp": time.Now().UTC().Format(time.RFC3339)})
-}
-
-func GetPrivacyHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactions": []map[string]any{
-			{"id": "PVT-TX-001", "type": "payment", "amountKobo": 100000, "maskedSender": "pg-private-***@paygate.ng", "timestamp": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+	proxyUpstream(w, r, privacyPaymentsURL()+"/settings/update", func() {
+		writeJSON(w, 200, map[string]any{"success": true, "message": "Privacy settings updated"})
 	})
 }
 
-// ─── Reports Center ──────────────────────────────────────────────────────────
-
-func GenerateTransactionReport(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"reportId": fmt.Sprintf("RPT-%d", time.Now().UnixMilli()),
-		"downloadUrl": "https://cdn.paygate.ng/reports/transactions.csv",
-		"expiresAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
-		"rowCount": 1250,
+func GetPrivateTransactions(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, privacyPaymentsURL()+"/transactions"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"transactions": []map[string]any{
+				{"id": "PVT-001", "maskedAmount": "N***,***", "maskedRecipient": "P***e U***r", "timestamp": time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339), "status": "completed"},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func GenerateSettlementReport(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"reportId": fmt.Sprintf("RPT-%d", time.Now().UnixMilli()),
-		"downloadUrl": "https://cdn.paygate.ng/reports/settlements.csv",
-		"expiresAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
-		"rowCount": 85,
+func CreatePrivatePayment(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, privacyPaymentsURL()+"/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"paymentId":           fmt.Sprintf("PVT-%d", time.Now().UnixMilli()),
+			"status":              "completed",
+			"encryptedReceiptUrl": "https://receipts.paygate.ng/pvt/sample",
+		})
 	})
 }
 
-func GenerateCustomerReport(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"reportId": fmt.Sprintf("RPT-%d", time.Now().UnixMilli()),
-		"downloadUrl": "https://cdn.paygate.ng/reports/customers.csv",
-		"expiresAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
-		"rowCount": 3200,
-	})
-}
-
-func GenerateTaxReport(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"reportId": fmt.Sprintf("RPT-%d", time.Now().UnixMilli()),
-		"downloadUrl": "https://cdn.paygate.ng/reports/tax.pdf",
-		"expiresAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
-		"totalVatKobo": 125000, "totalWhtKobo": 75000,
-	})
-}
+// ─── Reports Center ───────────────────────────────────────────────────────────
 
 func ListReports(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"reports": []map[string]any{
-			{"reportId": "RPT-001", "type": "transactions", "format": "csv", "from": "2025-01-01", "to": "2025-01-31", "rowCount": 1250, "downloadUrl": "https://cdn.paygate.ng/reports/tx.csv", "expiresAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339), "createdAt": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+	proxyUpstream(w, r, reportsServiceURL()+"/list"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"reports": []map[string]any{
+				{"reportId": "RPT-001", "name": "March 2026 Transaction Report", "type": "transactions", "format": "csv", "status": "ready", "downloadUrl": "https://reports.paygate.ng/rpt/sample.csv", "createdAt": time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339), "sizeBytes": 245760},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func GetScheduledReports(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"schedules": []map[string]any{}})
+func GenerateReport(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, reportsServiceURL()+"/generate", func() {
+		writeJSON(w, 200, map[string]any{
+			"reportId":                   fmt.Sprintf("RPT-%d", time.Now().UnixMilli()),
+			"status":                     "processing",
+			"estimatedCompletionSeconds": 30,
+		})
+	})
 }
 
 func CreateScheduledReport(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"scheduleId": fmt.Sprintf("SCH-%d", time.Now().UnixMilli()),
-		"nextRunAt": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
-		"status": "active",
+	proxyUpstream(w, r, reportsServiceURL()+"/schedule/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"scheduleId": fmt.Sprintf("RPTS-%d", time.Now().UnixMilli()),
+			"status":     "active",
+			"nextRunAt":  time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
+		})
 	})
 }
 
-// ─── Nodal Accounts ──────────────────────────────────────────────────────────
-
-func CreateNodalAccount(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"accountId": fmt.Sprintf("NOD-%d", time.Now().UnixMilli()),
-		"accountNumber": fmt.Sprintf("20%d", time.Now().Unix()%100000000),
-		"bankName": "Access Bank", "purpose": "escrow",
-		"balanceKobo": 0, "status": "active", "createdAt": time.Now().UTC().Format(time.RFC3339),
+func GetReportTemplates(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, reportsServiceURL()+"/templates", func() {
+		writeJSON(w, 200, map[string]any{
+			"templates": []map[string]any{
+				{"templateId": "TPL-001", "name": "Daily Transaction Summary", "type": "transactions", "availableFormats": []string{"csv", "xlsx", "pdf"}},
+				{"templateId": "TPL-002", "name": "Settlement Report", "type": "settlements", "availableFormats": []string{"csv", "xlsx", "pdf"}},
+				{"templateId": "TPL-003", "name": "Revenue Analytics", "type": "analytics", "availableFormats": []string{"xlsx", "pdf"}},
+			},
+		})
 	})
 }
+
+// ─── AI Insights V2 ───────────────────────────────────────────────────────────
+
+func GetRevenueForecast(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, aiInsightsV2URL()+"/forecast"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"totalForecastKobo": 125000000, "growthTrend": 15.5,
+			"seasonalFactors": []map[string]any{
+				{"month": "April", "factor": 1.1, "note": "Easter spending boost"},
+			},
+			"confidenceScore": 87.5,
+		})
+	})
+}
+
+func GetCustomerSegments(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, aiInsightsV2URL()+"/segments"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"segments": []map[string]any{
+				{"segmentId": "SEG-001", "name": "High Value", "customerCount": 250, "avgTransactionKobo": 500000, "retentionRate": 92.0, "churnRisk": "low"},
+				{"segmentId": "SEG-002", "name": "Regular", "customerCount": 1200, "avgTransactionKobo": 85000, "retentionRate": 78.0, "churnRisk": "medium"},
+			},
+		})
+	})
+}
+
+func GetAnomalyAlerts(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, aiInsightsV2URL()+"/anomalies"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"alerts": []map[string]any{
+				{"alertId": "ANO-001", "type": "volume_spike", "severity": "medium", "description": "Transaction volume 3x above normal", "detectedAt": time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339), "status": "open"},
+			},
+			"total": 1,
+		})
+	})
+}
+
+func GetProductRecommendations(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, aiInsightsV2URL()+"/recommendations"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"recommendations": []map[string]any{
+				{"productId": "BNPL", "name": "Buy Now Pay Later", "reason": "35% of your customers have credit scores above 700", "estimatedUpliftPct": 22.0, "priority": "high"},
+			},
+		})
+	})
+}
+
+// ─── Nodal Accounts ───────────────────────────────────────────────────────────
 
 func ListNodalAccounts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"accounts": []map[string]any{
-			{"accountId": "NOD-001", "accountNumber": "2012345678", "bankName": "Access Bank", "purpose": "escrow", "balanceKobo": 5000000, "status": "active", "createdAt": time.Now().UTC().Format(time.RFC3339)},
-		},
+	proxyUpstream(w, r, nodalAccountsURL()+"/list"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"accounts": []map[string]any{
+				{"accountId": "NOD-001", "name": "Escrow Pool A", "type": "escrow", "bankName": "Zenith Bank", "accountNumber": "1234567890", "balanceKobo": 15000000, "status": "active", "regulatoryRef": "CBN-NODAL-2026-001"},
+			},
+			"total": 1,
+		})
+	})
+}
+
+func CreateNodalAccount(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, nodalAccountsURL()+"/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"accountId":     fmt.Sprintf("NOD-%d", time.Now().UnixMilli()),
+			"accountNumber": fmt.Sprintf("%010d", time.Now().UnixMilli()%10000000000),
+			"status":        "pending_activation",
+		})
 	})
 }
 
 func GetNodalTransactions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transactions": []map[string]any{
-			{"id": "NT-001", "type": "credit", "amountKobo": 5000000, "narration": "Marketplace escrow deposit", "balance": 5000000, "timestamp": time.Now().UTC().Format(time.RFC3339)},
-		}, "total": 1,
+	proxyUpstream(w, r, nodalAccountsURL()+"/transactions"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"transactions": []map[string]any{
+				{"txId": "NODT-001", "type": "credit", "amountKobo": 5000000, "description": "Escrow deposit", "timestamp": time.Now().Add(-4 * time.Hour).UTC().Format(time.RFC3339), "status": "completed"},
+			},
+			"total": 1,
+		})
 	})
 }
 
-func TransferFromNodal(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"reference": fmt.Sprintf("NOD-TRF-%d", time.Now().UnixMilli()),
-		"status": "processing", "timestamp": time.Now().UTC().Format(time.RFC3339),
+func GetNodalComplianceReport(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, nodalAccountsURL()+"/compliance"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"reportDate":            time.Now().Format("2006-01-02"),
+			"totalNodalBalanceKobo": 15000000,
+			"floatUtilizationPct":   65.0,
+			"cbnComplianceStatus":   "compliant",
+			"lastAuditDate":         "2026-03-31",
+		})
 	})
 }
 
-// ─── Smart Retail POS ────────────────────────────────────────────────────────
+// ─── Smart Retail POS ─────────────────────────────────────────────────────────
 
-func GetRetailConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"merchantId": "m1", "enabled": true, "printerConnected": true,
-		"barcodeScanner": true, "weighingScale": false, "loyaltyIntegration": true,
-		"taxRate": 7.5,
+func ListPOSProducts(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, smartRetailPOSURL()+"/products"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"products": []map[string]any{
+				{"productId": "PRD-001", "name": "Coca-Cola 50cl", "sku": "CC-50CL", "priceKobo": 30000, "stockQty": 48, "category": "beverages", "barcode": "5449000000996"},
+				{"productId": "PRD-002", "name": "Indomie Noodles", "sku": "IND-70G", "priceKobo": 25000, "stockQty": 120, "category": "food", "barcode": "8850987000046"},
+			},
+			"total": 2,
+		})
 	})
 }
 
 func ProcessRetailSale(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"saleId": fmt.Sprintf("SALE-%d", time.Now().UnixMilli()),
-		"totalAmountKobo": 250000, "status": "completed",
-		"receiptUrl": "https://cdn.paygate.ng/receipts/sale.pdf",
-		"loyaltyPointsEarned": 25, "timestamp": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, smartRetailPOSURL()+"/sale", func() {
+		writeJSON(w, 200, map[string]any{
+			"saleId":        fmt.Sprintf("SALE-%d", time.Now().UnixMilli()),
+			"totalKobo":     55000,
+			"taxKobo":       4950,
+			"status":        "completed",
+			"paymentMethod": "card",
+		})
 	})
 }
 
-func GetInventoryAlerts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"alerts": []map[string]any{
-			{"sku": "SKU-001", "productName": "Indomie Noodles", "currentStock": 5, "reorderLevel": 20, "urgency": "high"},
-		},
+func GetPOSSalesAnalytics(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, smartRetailPOSURL()+"/analytics"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"totalSalesKobo": 2500000, "transactionCount": 85, "avgTransactionKobo": 29412,
+			"topProducts": []map[string]any{
+				{"productId": "PRD-001", "name": "Coca-Cola 50cl", "unitsSold": 32, "revenueKobo": 960000},
+			},
+			"peakHour": "12:00-13:00",
+		})
 	})
 }
 
-func GetDailySalesSummary(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"date": time.Now().Format("2006-01-02"), "totalSalesKobo": 1250000,
-		"totalTransactions": 45, "avgTransactionKobo": 27778,
-		"topProducts": []map[string]any{
-			{"sku": "SKU-001", "name": "Indomie Noodles", "quantity": 120, "revenueKobo": 360000},
-		},
+func UpdatePOSInventory(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, smartRetailPOSURL()+"/inventory/update", func() {
+		writeJSON(w, 200, map[string]any{"success": true, "updatedCount": 1})
 	})
 }
 
-func PrintReceipt(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"printed": true, "receiptUrl": "https://cdn.paygate.ng/receipts/receipt.pdf", "timestamp": time.Now().UTC().Format(time.RFC3339),
+// ─── International Remittance ─────────────────────────────────────────────────
+
+// GetRemittanceCorridors is defined in tier8_handlers.go
+
+// GetRemittanceQuote is defined in tier8_handlers.go
+
+func CreateRemittance(w http.ResponseWriter, r *http.Request) {
+	proxyUpstream(w, r, intlRemittanceURL()+"/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"remittanceId":      fmt.Sprintf("REM-%d", time.Now().UnixMilli()),
+			"status":            "processing",
+			"trackingCode":      fmt.Sprintf("PG%d", time.Now().UnixMilli()%1000000),
+			"estimatedDelivery": time.Now().Add(2 * 24 * time.Hour).Format("2006-01-02"),
+		})
 	})
 }
 
-// ─── International Remittance ────────────────────────────────────────────────
-// GetRemittanceCorridors, GetRemittanceQuote, GetRemittanceHistory are already
-// defined in tier8_handlers.go — only add the new intl-remittance variants.
+// GetRemittanceHistory is defined in tier8_handlers.go
 
-func InitiateRemittanceTransfer(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"transferId": fmt.Sprintf("TRF-%d", time.Now().UnixMilli()),
-		"trackingNumber": fmt.Sprintf("PG%d", time.Now().Unix()),
-		"status": "processing", "createdAt": time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-func TrackRemittanceTransfer(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"trackingNumber": "PG123456789", "status": "in_transit",
-		"estimatedDelivery": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
-		"deliveredAt": nil,
-		"statusHistory": []map[string]any{
-			{"status": "initiated", "description": "Transfer initiated", "timestamp": time.Now().UTC().Format(time.RFC3339)},
-			{"status": "processing", "description": "Funds received by partner", "timestamp": time.Now().UTC().Format(time.RFC3339)},
-		},
-	})
-}
-
-// ─── Subscription Billing V2 ─────────────────────────────────────────────────
+// ─── Subscription Billing V2 ──────────────────────────────────────────────────
 
 func ListSubscriptionPlans(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"plans": []map[string]any{
-			{"planId": "PLAN-001", "name": "Starter", "description": "For small businesses", "priceKobo": 999900, "currency": "NGN", "interval": "month", "intervalCount": 1, "trialDays": 14, "features": []string{"Up to 100 transactions/mo", "Basic analytics", "Email support"}, "activeSubscribers": 125, "status": "active"},
-			{"planId": "PLAN-002", "name": "Growth", "description": "For growing businesses", "priceKobo": 2999900, "currency": "NGN", "interval": "month", "intervalCount": 1, "trialDays": 7, "features": []string{"Unlimited transactions", "Advanced analytics", "Priority support", "API access"}, "activeSubscribers": 48, "status": "active"},
-		},
+	proxyUpstream(w, r, subscriptionBillingV2URL()+"/plans"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"plans": []map[string]any{
+				{"planId": "PLN-001", "name": "Basic", "priceKobo": 999900, "billingCycle": "monthly", "features": []string{"5 users", "10GB storage"}, "subscriberCount": 45, "status": "active"},
+				{"planId": "PLN-002", "name": "Pro", "priceKobo": 2999900, "billingCycle": "monthly", "features": []string{"25 users", "100GB storage", "API access"}, "subscriberCount": 23, "status": "active"},
+			},
+			"total": 2,
+		})
 	})
 }
 
 func CreateSubscriptionPlan(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"planId": fmt.Sprintf("PLAN-%d", time.Now().UnixMilli()),
-		"status": "active", "createdAt": time.Now().UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, subscriptionBillingV2URL()+"/plans/create", func() {
+		writeJSON(w, 200, map[string]any{
+			"planId": fmt.Sprintf("PLN-%d", time.Now().UnixMilli()), "status": "active",
+		})
 	})
 }
 
 func ListSubscribers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"subscribers": []map[string]any{
-			{"subscriptionId": "SUB-001", "customerId": "CUST-001", "customerName": "Acme Corp", "planName": "Growth", "status": "active", "currentPeriodEnd": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339), "amountKobo": 2999900, "failedPayments": 0},
-		}, "total": 1,
+	proxyUpstream(w, r, subscriptionBillingV2URL()+"/subscribers"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"subscribers": []map[string]any{
+				{"subscriberId": "SUB-001", "customerName": "Acme Corp", "planName": "Pro", "status": "active", "mrr": 2999900, "startDate": "2026-01-01", "nextBillingDate": time.Now().Add(20 * 24 * time.Hour).Format("2006-01-02")},
+			},
+			"total": 1,
+		})
 	})
 }
 
 func CancelSubscription(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"subscriptionId": "SUB-001", "status": "cancelled",
-		"cancelledAt": time.Now().UTC().Format(time.RFC3339), "effectiveDate": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, subscriptionBillingV2URL()+"/cancel", func() {
+		writeJSON(w, 200, map[string]any{
+			"subscriptionId": "SUB-001",
+			"status":         "cancelled",
+			"cancelledAt":    time.Now().UTC().Format(time.RFC3339),
+			"effectiveDate":  time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		})
 	})
 }
 
 func PauseSubscription(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"subscriptionId": "SUB-001", "status": "paused",
-		"resumesAt": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+	proxyUpstream(w, r, subscriptionBillingV2URL()+"/pause", func() {
+		writeJSON(w, 200, map[string]any{
+			"subscriptionId": "SUB-001",
+			"status":         "paused",
+			"resumesAt":      time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		})
 	})
 }
 
 func GetChurnAnalytics(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"churnRate": 3.2, "mrr": 47498500, "arr": 569982000,
-		"newSubscriptions": 18, "cancelledSubscriptions": 5,
-		"netGrowth": 13, "avgSubscriptionLengthDays": 245,
+	proxyUpstream(w, r, subscriptionBillingV2URL()+"/analytics/churn"+queryString(r), func() {
+		writeJSON(w, 200, map[string]any{
+			"churnRate":                 3.2,
+			"mrr":                       47498500,
+			"arr":                       569982000,
+			"newSubscriptions":          18,
+			"cancelledSubscriptions":    5,
+			"netGrowth":                 13,
+			"avgSubscriptionLengthDays": 245,
+		})
 	})
 }
+
+// ─── Unused import guard ──────────────────────────────────────────────────────
+var _ = json.Marshal

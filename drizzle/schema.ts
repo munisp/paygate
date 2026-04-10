@@ -2309,3 +2309,514 @@ export const bulkPaymentSchedules = pgTable("bulk_payment_schedules", {
   index("bps_scheduled_idx").on(t.scheduledAt),
 ]);
 export type BulkPaymentSchedule = typeof bulkPaymentSchedules.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave 77 — New Feature Tables
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Digital Gold ─────────────────────────────────────────────────────────────
+export const digitalGoldHoldings = pgTable("digital_gold_holdings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  goldGrams: text("gold_grams").notNull().default("0"),
+  purchasedGrams: text("purchased_grams").notNull().default("0"),
+  avgPurchasePricePerGram: bigint("avg_purchase_price_per_gram", { mode: "number" }).default(0),
+  currentPricePerGram: bigint("current_price_per_gram", { mode: "number" }).default(0),
+  currentValueKobo: bigint("current_value_kobo", { mode: "number" }).default(0),
+  unrealizedPnLKobo: bigint("unrealized_pnl_kobo", { mode: "number" }).default(0),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("dgh_merchant_idx").on(t.merchantId)]);
+export type DigitalGoldHolding = typeof digitalGoldHoldings.$inferSelect;
+
+export const digitalGoldTransactions = pgTable("digital_gold_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull(),
+  goldGrams: text("gold_grams").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  pricePerGram: bigint("price_per_gram", { mode: "number" }).notNull(),
+  status: text("status").default("completed"),
+  reference: text("reference").unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("dgt_merchant_idx").on(t.merchantId)]);
+export type DigitalGoldTransaction = typeof digitalGoldTransactions.$inferSelect;
+
+export const goldSipPlans = pgTable("gold_sip_plans", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  frequency: text("frequency").notNull(),
+  status: text("status").default("active"),
+  nextRunAt: timestamp("next_run_at"),
+  totalInvestedKobo: bigint("total_invested_kobo", { mode: "number" }).default(0),
+  totalGoldGrams: text("total_gold_grams").default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("gsp_merchant_idx").on(t.merchantId)]);
+export type GoldSipPlan = typeof goldSipPlans.$inferSelect;
+
+// ─── Mutual Funds ─────────────────────────────────────────────────────────────
+export const mutualFundHoldings = pgTable("mutual_fund_holdings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  fundId: text("fund_id").notNull(),
+  fundName: text("fund_name").notNull(),
+  units: text("units").notNull().default("0"),
+  avgNavAtPurchase: text("avg_nav_at_purchase").notNull().default("0"),
+  currentNav: text("current_nav").default("0"),
+  investedAmountKobo: bigint("invested_amount_kobo", { mode: "number" }).default(0),
+  currentValueKobo: bigint("current_value_kobo", { mode: "number" }).default(0),
+  unrealizedPnLKobo: bigint("unrealized_pnl_kobo", { mode: "number" }).default(0),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("mfh_merchant_idx").on(t.merchantId), index("mfh_fund_idx").on(t.fundId)]);
+export type MutualFundHolding = typeof mutualFundHoldings.$inferSelect;
+
+export const mutualFundTransactions = pgTable("mutual_fund_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  fundId: text("fund_id").notNull(),
+  type: text("type").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  units: text("units").notNull(),
+  navAtTransaction: text("nav_at_transaction").notNull(),
+  status: text("status").default("completed"),
+  reference: text("reference").unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("mft_merchant_idx").on(t.merchantId)]);
+export type MutualFundTransaction = typeof mutualFundTransactions.$inferSelect;
+
+// ─── Consumer Insurance ───────────────────────────────────────────────────────
+export const consumerInsurancePolicies = pgTable("consumer_insurance_policies", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id"),
+  productId: text("product_id").notNull(),
+  productName: text("product_name").notNull(),
+  provider: text("provider").notNull(),
+  premiumKobo: bigint("premium_kobo", { mode: "number" }).notNull(),
+  coverageKobo: bigint("coverage_kobo", { mode: "number" }).notNull(),
+  status: text("status").default("active"),
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  endDate: timestamp("end_date"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("cip_merchant_idx").on(t.merchantId), index("cip_customer_idx").on(t.customerId)]);
+export type ConsumerInsurancePolicy = typeof consumerInsurancePolicies.$inferSelect;
+
+export const consumerInsuranceClaims = pgTable("consumer_insurance_claims", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  policyId: text("policy_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  description: text("description").notNull(),
+  claimAmountKobo: bigint("claim_amount_kobo", { mode: "number" }).notNull(),
+  approvedAmountKobo: bigint("approved_amount_kobo", { mode: "number" }).default(0),
+  status: text("status").default("submitted"),
+  evidenceUrls: jsonb("evidence_urls"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("cic_policy_idx").on(t.policyId), index("cic_merchant_idx").on(t.merchantId)]);
+export type ConsumerInsuranceClaim = typeof consumerInsuranceClaims.$inferSelect;
+
+// ─── Pension / NPS ────────────────────────────────────────────────────────────
+export const pensionAccounts = pgTable("pension_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  rsaPin: text("rsa_pin").unique(),
+  pfa: text("pfa").notNull().default("PayGate PFA"),
+  fundType: text("fund_type").default("fund_ii"),
+  balanceKobo: bigint("balance_kobo", { mode: "number" }).default(0),
+  employerContributionKobo: bigint("employer_contribution_kobo", { mode: "number" }).default(0),
+  employeeContributionKobo: bigint("employee_contribution_kobo", { mode: "number" }).default(0),
+  status: text("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("pa_merchant_idx").on(t.merchantId)]);
+export type PensionAccount = typeof pensionAccounts.$inferSelect;
+
+export const pensionContributions = pgTable("pension_contributions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  pensionAccountId: text("pension_account_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  type: text("type").notNull(),
+  status: text("status").default("processed"),
+  reference: text("reference").unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("pc_account_idx").on(t.pensionAccountId)]);
+export type PensionContribution = typeof pensionContributions.$inferSelect;
+
+// ─── Cashback & Rewards ───────────────────────────────────────────────────────
+export const cashbackBalances = pgTable("cashback_balances", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  cashbackBalanceKobo: bigint("cashback_balance_kobo", { mode: "number" }).default(0),
+  totalEarnedKobo: bigint("total_earned_kobo", { mode: "number" }).default(0),
+  totalRedeemedKobo: bigint("total_redeemed_kobo", { mode: "number" }).default(0),
+  pendingKobo: bigint("pending_kobo", { mode: "number" }).default(0),
+  tier: text("tier").default("bronze"),
+  cashbackRate: text("cashback_rate").default("0.02"),
+  maxCashbackKobo: bigint("max_cashback_kobo", { mode: "number" }).default(50000),
+  minTransactionKobo: bigint("min_transaction_kobo", { mode: "number" }).default(10000),
+  enabled: integer("enabled").default(1),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("cb_merchant_idx").on(t.merchantId)]);
+export type CashbackBalance = typeof cashbackBalances.$inferSelect;
+
+export const cashbackTransactions = pgTable("cashback_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  description: text("description"),
+  relatedTransactionId: text("related_transaction_id"),
+  status: text("status").default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("cbt_merchant_idx").on(t.merchantId)]);
+export type CashbackTransaction = typeof cashbackTransactions.$inferSelect;
+
+// ─── Soundbox (Voice Payments) ────────────────────────────────────────────────
+export const soundboxDevices = pgTable("soundbox_devices", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  deviceId: text("device_id").notNull().unique(),
+  name: text("name").notNull(),
+  status: text("status").default("online"),
+  volume: integer("volume").default(80),
+  language: text("language").default("en"),
+  customMessage: text("custom_message"),
+  lastSeen: timestamp("last_seen").defaultNow(),
+  totalTransactions: integer("total_transactions").default(0),
+  totalVolumeKobo: bigint("total_volume_kobo", { mode: "number" }).default(0),
+  registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("sd_merchant_idx").on(t.merchantId)]);
+export type SoundboxDevice = typeof soundboxDevices.$inferSelect;
+
+// ─── Wealth Management ────────────────────────────────────────────────────────
+export const wealthRiskProfiles = pgTable("wealth_risk_profiles", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  riskScore: integer("risk_score").default(5),
+  riskCategory: text("risk_category").default("moderate"),
+  investmentHorizon: text("investment_horizon").default("5-10 years"),
+  lastAssessed: timestamp("last_assessed").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("wrp_merchant_idx").on(t.merchantId)]);
+export type WealthRiskProfile = typeof wealthRiskProfiles.$inferSelect;
+
+export const wealthGoals = pgTable("wealth_goals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  category: text("category").default("general"),
+  targetAmountKobo: bigint("target_amount_kobo", { mode: "number" }).notNull(),
+  currentAmountKobo: bigint("current_amount_kobo", { mode: "number" }).default(0),
+  deadline: timestamp("deadline"),
+  status: text("status").default("active"),
+  progressPct: text("progress_pct").default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("wg_merchant_idx").on(t.merchantId)]);
+export type WealthGoal = typeof wealthGoals.$inferSelect;
+
+// ─── EMI Checkout ─────────────────────────────────────────────────────────────
+export const emiContracts = pgTable("emi_contracts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id"),
+  orderId: text("order_id").notNull(),
+  planId: text("plan_id").notNull(),
+  tenure: integer("tenure").notNull(),
+  principalKobo: bigint("principal_kobo", { mode: "number" }).notNull(),
+  interestRate: text("interest_rate").default("0"),
+  processingFeeKobo: bigint("processing_fee_kobo", { mode: "number" }).default(0),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull(),
+  monthlyInstallmentKobo: bigint("monthly_installment_kobo", { mode: "number" }).notNull(),
+  paidInstallments: integer("paid_installments").default(0),
+  status: text("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("ec_merchant_idx").on(t.merchantId), index("ec_order_idx").on(t.orderId)]);
+export type EmiContract = typeof emiContracts.$inferSelect;
+
+export const emiInstallments = pgTable("emi_installments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  emiContractId: text("emi_contract_id").notNull(),
+  installmentNo: integer("installment_no").notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  paidAmountKobo: bigint("paid_amount_kobo", { mode: "number" }).default(0),
+  status: text("status").default("pending"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ei_contract_idx").on(t.emiContractId)]);
+export type EmiInstallment = typeof emiInstallments.$inferSelect;
+
+// ─── Bulk Collections ─────────────────────────────────────────────────────────
+export const bulkCollections = pgTable("bulk_collections", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date"),
+  status: text("status").default("pending"),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).default(0),
+  count: integer("count").default(0),
+  collected: integer("collected").default(0),
+  collectedAmountKobo: bigint("collected_amount_kobo", { mode: "number" }).default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("bc_merchant_idx").on(t.merchantId)]);
+export type BulkCollection = typeof bulkCollections.$inferSelect;
+
+export const bulkCollectionItems = pgTable("bulk_collection_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  collectionId: text("collection_id").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  status: text("status").default("pending"),
+  paymentLinkUrl: text("payment_link_url"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("bci_collection_idx").on(t.collectionId)]);
+export type BulkCollectionItem = typeof bulkCollectionItems.$inferSelect;
+
+// ─── Salary Accounts ─────────────────────────────────────────────────────────
+export const salaryAccounts = pgTable("salary_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  employeeName: text("employee_name").notNull(),
+  employeeEmail: text("employee_email").notNull(),
+  accountNumber: text("account_number").unique(),
+  bankCode: text("bank_code").default("044"),
+  bankName: text("bank_name").default("Access Bank"),
+  salaryKobo: bigint("salary_kobo", { mode: "number" }).notNull(),
+  balanceKobo: bigint("balance_kobo", { mode: "number" }).default(0),
+  advanceUsedKobo: bigint("advance_used_kobo", { mode: "number" }).default(0),
+  maxAdvanceKobo: bigint("max_advance_kobo", { mode: "number" }).default(0),
+  status: text("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("sa_merchant_idx").on(t.merchantId), index("sa_employee_idx").on(t.employeeId)]);
+export type SalaryAccount = typeof salaryAccounts.$inferSelect;
+
+export const salaryTransactions = pgTable("salary_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  salaryAccountId: text("salary_account_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  description: text("description"),
+  reference: text("reference").unique(),
+  status: text("status").default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("st_account_idx").on(t.salaryAccountId)]);
+export type SalaryTransaction = typeof salaryTransactions.$inferSelect;
+
+// ─── Privacy Payments ─────────────────────────────────────────────────────────
+export const privacySettings = pgTable("privacy_settings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  privacyMode: text("privacy_mode").default("standard"),
+  hideBusinessName: integer("hide_business_name").default(0),
+  hideBankDetails: integer("hide_bank_details").default(0),
+  usePrivateAlias: integer("use_private_alias").default(0),
+  privateAlias: text("private_alias"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("ps_merchant_idx").on(t.merchantId)]);
+export type PrivacySettings = typeof privacySettings.$inferSelect;
+
+export const privacyAliases = pgTable("privacy_aliases", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  alias: text("alias").notNull().unique(),
+  expiresAt: timestamp("expires_at"),
+  status: text("status").default("active"),
+  usageCount: integer("usage_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("pal_merchant_idx").on(t.merchantId)]);
+export type PrivacyAlias = typeof privacyAliases.$inferSelect;
+
+// ─── Reports Center ───────────────────────────────────────────────────────────
+export const reportJobs = pgTable("report_jobs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull(),
+  format: text("format").notNull(),
+  fromDate: text("from_date").notNull(),
+  toDate: text("to_date").notNull(),
+  filters: jsonb("filters"),
+  status: text("status").default("pending"),
+  rowCount: integer("row_count").default(0),
+  downloadUrl: text("download_url"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [index("rj_merchant_idx").on(t.merchantId), index("rj_status_idx").on(t.status)]);
+export type ReportJob = typeof reportJobs.$inferSelect;
+
+export const scheduledReports = pgTable("scheduled_reports", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull(),
+  frequency: text("frequency").notNull(),
+  format: text("format").notNull(),
+  email: text("email").notNull(),
+  status: text("status").default("active"),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("sr_merchant_idx").on(t.merchantId)]);
+export type ScheduledReport = typeof scheduledReports.$inferSelect;
+
+// ─── Nodal Accounts ───────────────────────────────────────────────────────────
+export const nodalAccounts = pgTable("nodal_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  accountNumber: text("account_number").unique(),
+  bankName: text("bank_name").notNull(),
+  bankCode: text("bank_code").notNull(),
+  purpose: text("purpose").notNull(),
+  description: text("description"),
+  balanceKobo: bigint("balance_kobo", { mode: "number" }).default(0),
+  status: text("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("na_merchant_idx").on(t.merchantId)]);
+export type NodalAccount = typeof nodalAccounts.$inferSelect;
+
+export const nodalTransactions = pgTable("nodal_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  nodalAccountId: text("nodal_account_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  type: text("type").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  narration: text("narration"),
+  counterpartyName: text("counterparty_name"),
+  counterpartyAccount: text("counterparty_account"),
+  counterpartyBank: text("counterparty_bank"),
+  reference: text("reference").unique(),
+  status: text("status").default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("nt_account_idx").on(t.nodalAccountId)]);
+export type NodalTransaction = typeof nodalTransactions.$inferSelect;
+
+// ─── Smart Retail POS ─────────────────────────────────────────────────────────
+export const retailPosConfigs = pgTable("retail_pos_configs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  storeName: text("store_name").notNull(),
+  storeAddress: text("store_address"),
+  currency: text("currency").default("NGN"),
+  taxRate: text("tax_rate").default("0.075"),
+  receiptFooter: text("receipt_footer"),
+  enableInventoryAlerts: integer("enable_inventory_alerts").default(1),
+  lowStockThreshold: integer("low_stock_threshold").default(10),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("rpc_merchant_idx").on(t.merchantId)]);
+export type RetailPosConfig = typeof retailPosConfigs.$inferSelect;
+
+export const retailSales = pgTable("retail_sales", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id"),
+  items: jsonb("items").notNull(),
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  receiptUrl: text("receipt_url"),
+  reference: text("reference").unique(),
+  status: text("status").default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("rs_merchant_idx").on(t.merchantId), index("rs_created_idx").on(t.createdAt)]);
+export type RetailSale = typeof retailSales.$inferSelect;
+
+// ─── International Remittance ─────────────────────────────────────────────────
+export const intlRemittanceTransfers = pgTable("intl_remittance_transfers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  corridorId: text("corridor_id").notNull(),
+  sendAmountUSD: text("send_amount_usd").notNull(),
+  receiveAmount: text("receive_amount").notNull(),
+  receiveCurrency: text("receive_currency").notNull(),
+  exchangeRate: text("exchange_rate").notNull(),
+  feeUSD: text("fee_usd").notNull(),
+  recipientName: text("recipient_name").notNull(),
+  recipientAccountNumber: text("recipient_account_number").notNull(),
+  recipientBankCode: text("recipient_bank_code").notNull(),
+  recipientCountry: text("recipient_country").notNull(),
+  purpose: text("purpose"),
+  trackingNumber: text("tracking_number").unique(),
+  status: text("status").default("processing"),
+  provider: text("provider"),
+  estimatedDelivery: timestamp("estimated_delivery"),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("irt_merchant_idx").on(t.merchantId), index("irt_tracking_idx").on(t.trackingNumber)]);
+export type IntlRemittanceTransfer = typeof intlRemittanceTransfers.$inferSelect;
+
+// ─── Subscription Billing V2 ──────────────────────────────────────────────────
+export const subscriptionPlansV2 = pgTable("subscription_plans_v2", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN"),
+  interval: text("interval").notNull(),
+  intervalCount: integer("interval_count").default(1),
+  trialDays: integer("trial_days").default(0),
+  features: jsonb("features"),
+  activeSubscribers: integer("active_subscribers").default(0),
+  status: text("status").default("active"),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("spv2_merchant_idx").on(t.merchantId)]);
+export type SubscriptionPlanV2 = typeof subscriptionPlansV2.$inferSelect;
+
+export const subscriptionSubscribers = pgTable("subscription_subscribers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  planId: text("plan_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id"),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  status: text("status").default("active"),
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  nextBillingDate: timestamp("next_billing_date"),
+  cancelledAt: timestamp("cancelled_at"),
+  pausedAt: timestamp("paused_at"),
+  totalPaidKobo: bigint("total_paid_kobo", { mode: "number" }).default(0),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("ss_plan_idx").on(t.planId), index("ss_merchant_idx").on(t.merchantId)]);
+export type SubscriptionSubscriber = typeof subscriptionSubscribers.$inferSelect;
+
+// ─── Portal Subscriptions (Stripe-gated premium plans) ───────────────────────
+export const portalSubscriptions = pgTable("portal_subscriptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  plan: text("plan").default("free"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  status: text("status").default("active"),
+  currentPeriodStart: timestamp("current_period_start"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  cancelAtPeriodEnd: integer("cancel_at_period_end").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("psub_merchant_idx").on(t.merchantId)]);
+export type PortalSubscription = typeof portalSubscriptions.$inferSelect;

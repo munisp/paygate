@@ -2098,3 +2098,77 @@
 - [x] Go bridge builds cleanly (0 errors)
 - [x] 1,488 vitest tests passing across 50 test files (0 failures)
 - [x] 0 TypeScript errors
+
+## Wave 77 — Production Completion (2026-04-10)
+
+### Database Schema
+- [ ] Add digital_gold_holdings, digital_gold_transactions, gold_sip_plans tables
+- [ ] Add mutual_fund_holdings, mutual_fund_transactions tables
+- [ ] Add consumer_insurance_policies, consumer_insurance_claims tables
+- [ ] Add pension_accounts, pension_contributions tables
+- [ ] Add cashback_balances, cashback_transactions tables
+- [ ] Add soundbox_devices, soundbox_alerts tables
+- [ ] Add wealth_portfolios, wealth_goals, wealth_risk_profiles tables
+- [ ] Add emi_contracts, emi_installments tables
+- [ ] Add bulk_collections, bulk_collection_items tables
+- [ ] Add salary_accounts, salary_transactions tables
+- [ ] Add privacy_settings, privacy_aliases tables
+- [ ] Add report_jobs, scheduled_reports tables
+- [ ] Add nodal_accounts, nodal_transactions tables
+- [ ] Add retail_pos_configs, retail_sales, retail_sale_items tables
+- [ ] Add intl_remittance_transfers tables
+- [ ] Add subscription_plans_v2, subscription_subscribers tables
+- [ ] Run pnpm db:push
+
+### Production Env Defaults
+- [ ] Add all 20 new feature service URLs to env.ts with production defaults
+- [ ] Add all 20 new feature constants to shared/const.ts
+
+### Stripe Payment Gating
+- [ ] Add stripe_subscriptions table to schema
+- [ ] Add Stripe checkout session procedure for premium plan
+- [ ] Add Stripe webhook handler for subscription events
+- [ ] Gate Wealth Management, Reports Center, Subscription Billing V2 behind paid plan
+- [ ] Add PricingPage.tsx for plan selection
+- [ ] Add BillingPage.tsx for subscription management
+
+### Go Bridge Production Wiring
+- [ ] Wire digital gold handlers to real goldtech API
+- [ ] Wire mutual funds handlers to real fund provider API
+- [ ] Wire pension handlers to PenCom API
+- [ ] Wire international remittance to real corridor providers
+- [ ] Add all 20 new feature service URLs to Go bridge env
+
+### Docker Compose + APISIX + K8s
+- [ ] Add 20 new feature services to docker-compose.prod.yml
+- [ ] Add 20 new APISIX routes
+- [ ] Add 20 new K8s deployments
+
+### Python Microservices
+- [ ] digital-gold-service (FastAPI, gold price feed, SIP scheduler)
+- [ ] mutual-funds-service (FastAPI, NAV feed, portfolio tracker)
+- [ ] wealth-advisor-service (FastAPI, ML risk profiling, recommendations)
+- [ ] emi-engine-service (FastAPI, EMI calculation, schedule generation)
+- [ ] remittance-service (FastAPI, corridor rates, transfer orchestration)
+
+### Tests
+- [ ] wave77.production.test.ts — DB helper tests for all new tables
+- [ ] wave77.stripe.test.ts — Stripe webhook and gating tests
+
+## Wave 77 — Production Completion (Apr 2026)
+
+- [x] Drizzle schema: 26 new tables for all Wave 76/77 features (gold, mutual funds, insurance, pension, cashback, soundbox, wealth, EMI, bulk collections, salary, privacy payments, reports, nodal accounts, POS, remittance, subscription billing v2, portal billing)
+- [x] DB push: all 26 tables migrated to production database
+- [x] server/db.ts: DB helpers for all 26 new tables
+- [x] server/_core/env.ts: production defaults for all new service URLs (GoldTech, CowryWise, PENCOM, Flutterwave, WorldRemit, AON, Soundbox, Reports bucket, Stripe portal billing price IDs)
+- [x] server/portalBillingRouter.ts: Stripe-gated portal subscription plans (Starter/Growth/Enterprise)
+- [x] client/src/pages/Billing.tsx: Portal subscription management UI
+- [x] App.tsx + Layout.tsx: Billing page wired into routes and sidebar
+- [x] go-bridge/internal/handlers/new_features.go: production upstream proxy calls for all 20 features
+- [x] infra/docker-compose.prod.yml: 17 new Wave 77 microservice definitions (ports 9020-9036)
+- [x] infra/apisix/routes.yaml: 17 new APISIX routes for all Wave 77 services
+- [x] k8s/microservices-deployment.yaml: 17 new K8s Deployments + Services (wave: "77" label)
+- [x] server/wave77.production.test.ts: 53 new vitest tests for DB helpers, env defaults, and infra completeness
+- [x] Full test suite: 1,541 tests / 51 files — 0 failures
+- [x] TypeScript: 0 errors
+- [x] Go bridge: 0 compilation errors

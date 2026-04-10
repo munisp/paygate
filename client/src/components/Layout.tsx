@@ -140,6 +140,7 @@ const navItems = [
   { icon: ShoppingBag, label: "Smart Retail POS", path: "/smart-pos", badge: "New" },
   { icon: Send, label: "Intl Remittance", path: "/intl-remittance", badge: "New" },
   { icon: Repeat, label: "Subscription Billing v2", path: "/subscription-billing-v2", badge: "New" },
+  { icon: CreditCard, label: "Portal Billing", path: "/billing", badge: "New" },
 ];
 
 const devItems = [

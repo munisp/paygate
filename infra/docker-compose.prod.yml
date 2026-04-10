@@ -1112,3 +1112,311 @@ networks:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # ─── Wave 76/77 New Feature Microservices ─────────────────────────────────────
+  digital-gold-service:
+    image: paygate/digital-gold-service:${DIGITAL_GOLD_VERSION:-latest}
+    container_name: paygate-digital-gold-service
+    restart: unless-stopped
+    ports: ["9020:9020"]
+    environment:
+      PORT: "9020"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      GOLDTECH_BASE_URL: ${GOLDTECH_BASE_URL:-https://api.goldtech.ng/v1}
+      GOLDTECH_API_KEY: ${GOLDTECH_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mutual-funds-service:
+    image: paygate/mutual-funds-service:${MUTUAL_FUNDS_VERSION:-latest}
+    container_name: paygate-mutual-funds-service
+    restart: unless-stopped
+    ports: ["9021:9021"]
+    environment:
+      PORT: "9021"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      COWRYWISE_BASE_URL: ${COWRYWISE_BASE_URL:-https://api.cowrywise.com/v1}
+      COWRYWISE_API_KEY: ${COWRYWISE_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9021/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  insurance-service:
+    image: paygate/insurance-service:${INSURANCE_VERSION:-latest}
+    container_name: paygate-insurance-service
+    restart: unless-stopped
+    ports: ["9022:9022"]
+    environment:
+      PORT: "9022"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      AON_INSURANCE_URL: ${AON_INSURANCE_URL:-https://api.aon.ng/v1}
+      AON_INSURANCE_API_KEY: ${AON_INSURANCE_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9022/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  pension-service:
+    image: paygate/pension-service:${PENSION_VERSION:-latest}
+    container_name: paygate-pension-service
+    restart: unless-stopped
+    ports: ["9023:9023"]
+    environment:
+      PORT: "9023"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      PENCOM_API_URL: ${PENCOM_API_URL:-https://api.pencom.gov.ng/v1}
+      PENCOM_API_KEY: ${PENCOM_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9023/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  cashback-service:
+    image: paygate/cashback-service:${CASHBACK_VERSION:-latest}
+    container_name: paygate-cashback-service
+    restart: unless-stopped
+    ports: ["9024:9024"]
+    environment:
+      PORT: "9024"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9024/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  voice-payments-service:
+    image: paygate/voice-payments-service:${VOICE_PAYMENTS_VERSION:-latest}
+    container_name: paygate-voice-payments-service
+    restart: unless-stopped
+    ports: ["9025:9025"]
+    environment:
+      PORT: "9025"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      SOUNDBOX_MQTT_BROKER: ${SOUNDBOX_MQTT_BROKER:-mqtt://mqtt-broker:1883}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9025/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  wealth-service:
+    image: paygate/wealth-service:${WEALTH_VERSION:-latest}
+    container_name: paygate-wealth-service
+    restart: unless-stopped
+    ports: ["9026:9026"]
+    environment:
+      PORT: "9026"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9026/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  emi-service:
+    image: paygate/emi-service:${EMI_VERSION:-latest}
+    container_name: paygate-emi-service
+    restart: unless-stopped
+    ports: ["9027:9027"]
+    environment:
+      PORT: "9027"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9027/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  bulk-collections-service:
+    image: paygate/bulk-collections-service:${BULK_COLLECTIONS_VERSION:-latest}
+    container_name: paygate-bulk-collections-service
+    restart: unless-stopped
+    ports: ["9028:9028"]
+    environment:
+      PORT: "9028"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9028/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  salary-service:
+    image: paygate/salary-service:${SALARY_VERSION:-latest}
+    container_name: paygate-salary-service
+    restart: unless-stopped
+    ports: ["9029:9029"]
+    environment:
+      PORT: "9029"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9029/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  privacy-payments-service:
+    image: paygate/privacy-payments-service:${PRIVACY_PAYMENTS_VERSION:-latest}
+    container_name: paygate-privacy-payments-service
+    restart: unless-stopped
+    ports: ["9030:9030"]
+    environment:
+      PORT: "9030"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9030/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  reports-service:
+    image: paygate/reports-service:${REPORTS_VERSION:-latest}
+    container_name: paygate-reports-service
+    restart: unless-stopped
+    ports: ["9031:9031"]
+    environment:
+      PORT: "9031"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      REPORTS_BUCKET_NAME: ${REPORTS_BUCKET_NAME:-paygate-reports}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9031/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ai-insights-v2-service:
+    image: paygate/ai-insights-v2-service:${AI_INSIGHTS_V2_VERSION:-latest}
+    container_name: paygate-ai-insights-v2-service
+    restart: unless-stopped
+    ports: ["9032:9032"]
+    environment:
+      PORT: "9032"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9032/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nodal-accounts-service:
+    image: paygate/nodal-accounts-service:${NODAL_ACCOUNTS_VERSION:-latest}
+    container_name: paygate-nodal-accounts-service
+    restart: unless-stopped
+    ports: ["9033:9033"]
+    environment:
+      PORT: "9033"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9033/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smart-retail-pos-service:
+    image: paygate/smart-retail-pos-service:${SMART_RETAIL_POS_VERSION:-latest}
+    container_name: paygate-smart-retail-pos-service
+    restart: unless-stopped
+    ports: ["9034:9034"]
+    environment:
+      PORT: "9034"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9034/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  intl-remittance-service:
+    image: paygate/intl-remittance-service:${INTL_REMITTANCE_VERSION:-latest}
+    container_name: paygate-intl-remittance-service
+    restart: unless-stopped
+    ports: ["9035:9035"]
+    environment:
+      PORT: "9035"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      FLUTTERWAVE_BASE_URL: ${FLUTTERWAVE_BASE_URL:-https://api.flutterwave.com/v3}
+      FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
+      WORLDREMIT_BASE_URL: ${WORLDREMIT_BASE_URL:-https://api.worldremit.com/v1}
+      WORLDREMIT_API_KEY: ${WORLDREMIT_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9035/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  subscription-billing-v2-service:
+    image: paygate/subscription-billing-v2-service:${SUB_BILLING_V2_VERSION:-latest}
+    container_name: paygate-subscription-billing-v2-service
+    restart: unless-stopped
+    ports: ["9036:9036"]
+    environment:
+      PORT: "9036"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9036/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

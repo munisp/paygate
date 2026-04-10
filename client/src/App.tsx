@@ -148,6 +148,7 @@ import NodalAccounts from "./pages/NodalAccounts";
 import SmartRetailPOS from "./pages/SmartRetailPOS";
 import InternationalRemittance from "./pages/InternationalRemittance";
 import SubscriptionBillingV2 from "./pages/SubscriptionBillingV2";
+import Billing from "./pages/Billing";
 
 function Router() {
   const [location] = useLocation();
@@ -328,6 +329,7 @@ function Router() {
         <Route path="/smart-pos" component={SmartRetailPOS} />
         <Route path="/intl-remittance" component={InternationalRemittance} />
         <Route path="/subscription-billing-v2" component={SubscriptionBillingV2} />
+        <Route path="/billing" component={Billing} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>
