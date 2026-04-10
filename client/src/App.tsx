@@ -129,6 +129,25 @@ import DisputeAutomation from "./pages/tier1to5/DisputeAutomation";
 import OpenBankingPortal from "./pages/tier1to5/OpenBankingPortal";
 import MerchantLendingV2 from "./pages/tier1to5/MerchantLending";
 import MobilePOS from "./pages/MobilePOS";
+// New Feature Pages (20)
+import DigitalGold from "./pages/DigitalGold";
+import MutualFunds from "./pages/MutualFunds";
+import ConsumerInsurance from "./pages/ConsumerInsurance";
+import PensionNPS from "./pages/PensionNPS";
+import CashbackRewards from "./pages/CashbackRewards";
+import VoicePayments from "./pages/VoicePayments";
+import WealthManagement from "./pages/WealthManagement";
+import EMICheckout from "./pages/EMICheckout";
+import BulkCollections from "./pages/BulkCollections";
+import APIDocsPortal from "./pages/APIDocsPortal";
+import SalaryAccounts from "./pages/SalaryAccounts";
+import PrivacyPayments from "./pages/PrivacyPayments";
+import ReportsCenter from "./pages/ReportsCenter";
+import AIInsightsV2 from "./pages/AIInsightsV2";
+import NodalAccounts from "./pages/NodalAccounts";
+import SmartRetailPOS from "./pages/SmartRetailPOS";
+import InternationalRemittance from "./pages/InternationalRemittance";
+import SubscriptionBillingV2 from "./pages/SubscriptionBillingV2";
 
 function Router() {
   const [location] = useLocation();
@@ -290,6 +309,25 @@ function Router() {
         <Route path="/open-banking-portal" component={OpenBankingPortal} />
         <Route path="/merchant-lending-v2" component={MerchantLendingV2} />
         <Route path="/mobile-pos" component={MobilePOS} />
+        {/* New Feature Routes */}
+        <Route path="/digital-gold" component={DigitalGold} />
+        <Route path="/mutual-funds" component={MutualFunds} />
+        <Route path="/consumer-insurance" component={ConsumerInsurance} />
+        <Route path="/pension-nps" component={PensionNPS} />
+        <Route path="/cashback-rewards" component={CashbackRewards} />
+        <Route path="/voice-payments" component={VoicePayments} />
+        <Route path="/wealth-management" component={WealthManagement} />
+        <Route path="/emi-checkout" component={EMICheckout} />
+        <Route path="/bulk-collections" component={BulkCollections} />
+        <Route path="/api-docs" component={APIDocsPortal} />
+        <Route path="/salary-accounts" component={SalaryAccounts} />
+        <Route path="/privacy-payments" component={PrivacyPayments} />
+        <Route path="/reports-center" component={ReportsCenter} />
+        <Route path="/ai-insights-v2" component={AIInsightsV2} />
+        <Route path="/nodal-accounts" component={NodalAccounts} />
+        <Route path="/smart-pos" component={SmartRetailPOS} />
+        <Route path="/intl-remittance" component={InternationalRemittance} />
+        <Route path="/subscription-billing-v2" component={SubscriptionBillingV2} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

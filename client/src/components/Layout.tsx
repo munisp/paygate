@@ -13,7 +13,9 @@ import {
   ShieldCheck, Fingerprint, BookOpen, Gift, Cpu, LineChart, Flame,
   Umbrella, Leaf, Gem, Bitcoin, Lock, CalendarClock, Receipt, FlaskConical,
   Landmark, Radio, MessageSquareCode, Network, Layers3, Tablet, Satellite,
-  Database} from "lucide-react";
+  Database, ShieldPlus, Briefcase, PercentSquare, Volume2, PiggyBank,
+  SplitSquareHorizontal, ListChecks, BookMarked, UserCheck, EyeOff,
+  BarChart2, Building, ShoppingBag, Send} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLocation as useWouterLocation } from "wouter";
@@ -119,6 +121,25 @@ const navItems = [
   { icon: BookOpen, label: "Open Banking Portal", path: "/open-banking-portal", badge: "New" },
   { icon: Landmark, label: "Merchant Lending v2", path: "/merchant-lending", badge: "New" },
   { icon: Tablet, label: "Mobile POS", path: "/mobile-pos", badge: "New" },
+  // ─── New Feature Pages ────────────────────────────────────────────────
+  { icon: Gem, label: "Digital Gold", path: "/digital-gold", badge: "New" },
+  { icon: TrendingUp, label: "Mutual Funds", path: "/mutual-funds", badge: "New" },
+  { icon: ShieldPlus, label: "Consumer Insurance", path: "/consumer-insurance", badge: "New" },
+  { icon: PiggyBank, label: "Pension & NPS", path: "/pension-nps", badge: "New" },
+  { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards", badge: "New" },
+  { icon: Volume2, label: "Voice Payments", path: "/voice-payments", badge: "New" },
+  { icon: Briefcase, label: "Wealth Management", path: "/wealth-management", badge: "New" },
+  { icon: SplitSquareHorizontal, label: "EMI Checkout", path: "/emi-checkout", badge: "New" },
+  { icon: ListChecks, label: "Bulk Collections", path: "/bulk-collections", badge: "New" },
+  { icon: BookMarked, label: "API Docs Portal", path: "/api-docs", badge: "New" },
+  { icon: UserCheck, label: "Salary Accounts", path: "/salary-accounts", badge: "New" },
+  { icon: EyeOff, label: "Privacy Payments", path: "/privacy-payments", badge: "New" },
+  { icon: BarChart2, label: "Reports Center", path: "/reports-center", badge: "New" },
+  { icon: Brain, label: "AI Insights v2", path: "/ai-insights-v2", badge: "AI" },
+  { icon: Building, label: "Nodal Accounts", path: "/nodal-accounts", badge: "New" },
+  { icon: ShoppingBag, label: "Smart Retail POS", path: "/smart-pos", badge: "New" },
+  { icon: Send, label: "Intl Remittance", path: "/intl-remittance", badge: "New" },
+  { icon: Repeat, label: "Subscription Billing v2", path: "/subscription-billing-v2", badge: "New" },
 ];
 
 const devItems = [

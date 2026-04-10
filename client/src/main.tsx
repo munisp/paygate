@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { trpc2 } from "@/lib/trpc2";
 import { trpc3 } from "@/lib/trpc3";
+import { trpc4 } from "@/lib/trpc4";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
@@ -114,13 +115,30 @@ const trpc3Client = trpc3.createClient({
   ],
 });
 
+const trpc4Client = trpc4.createClient({
+  links: [
+    httpBatchLink({
+      url: "/api/trpc4",
+      transformer: superjson,
+      fetch(input, init) {
+        return globalThis.fetch(input, {
+          ...(init ?? {}),
+          credentials: "include",
+        });
+      },
+    }),
+  ],
+});
+
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <trpc2.Provider client={trpc2Client} queryClient={queryClient}>
       <trpc3.Provider client={trpc3Client} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>
-          <App />
-        </QueryClientProvider>
+        <trpc4.Provider client={trpc4Client} queryClient={queryClient}>
+          <QueryClientProvider client={queryClient}>
+            <App />
+          </QueryClientProvider>
+        </trpc4.Provider>
       </trpc3.Provider>
     </trpc2.Provider>
   </trpc.Provider>

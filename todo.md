@@ -2071,3 +2071,30 @@
 - [x] Go bridge builds cleanly (0 errors)
 - [x] 1,385 vitest tests passing across 48 test files (0 failures)
 - [x] Final archive: paygate_COMPLETE_v74.tar.gz (72MB, 1,565 files)
+
+## Wave 76 — 20 New Features End-to-End (2026-04-09)
+- [x] Digital Gold — tRPC router (getHoldings, buyGold, sellGold, getHistory, createSIP), React page, Go bridge handlers
+- [x] Mutual Funds — tRPC router (listFunds, getFundDetails, invest, getPortfolio, redeem), React page, Go bridge handlers
+- [x] Consumer Insurance — tRPC router (listProducts, purchaseInsurance, listPolicies, fileClaim, listClaims), React page, Go bridge handlers
+- [x] Pension / NPS — tRPC router (getAccount, contribute, getStatement, getFundPerformance), React page, Go bridge handlers
+- [x] Cashback & Rewards — tRPC router (getBalance, getHistory, redeem, getMerchantConfig, updateConfig), React page, Go bridge handlers
+- [x] Voice Payments (Soundbox) — tRPC router (register, listDevices, configure, testAudio, getStats, getAlerts), React page, Go bridge handlers
+- [x] Wealth Management — tRPC router (getPortfolio, getRecommendations, getRiskProfile, setRiskProfile, getGoals, createGoal), React page, Go bridge handlers
+- [x] EMI Checkout — tRPC router (getPlans, initiateEMI, getSchedule, getMerchantConfig, updateConfig), React page, Go bridge handlers
+- [x] Bulk Collections — tRPC router (createCollection, listCollections, getDetails, sendReminders, exportCollection), React page, Go bridge handlers
+- [x] API Docs Portal — tRPC router (getCategories, getEndpoint, getChangelog, getUsageStats, generateKey), React page, Go bridge handlers
+- [x] Salary Accounts — tRPC router (openAccount, getAccount, getTransactions, requestAdvance), React page, Go bridge handlers
+- [x] Privacy Payments — tRPC router (generatePrivateId, getSettings, updateSettings, getHistory), React page, Go bridge handlers
+- [x] Reports Center — tRPC router (generateTxReport, generateSettlementReport, generateCustomerReport, generateTaxReport, listReports, getScheduledReports, createScheduledReport), React page, Go bridge handlers
+- [x] AI Insights V2 — tRPC router (getRevenueForecasts, getCustomerSegments, getProductRecommendations, getChurnPredictions), React page
+- [x] Nodal Accounts — tRPC router (createAccount, listAccounts, getTransactions, transferFromNodal), React page, Go bridge handlers
+- [x] Smart Retail POS — tRPC router (getConfig, processRetailSale, getInventoryAlerts, getDailySummary, printReceipt), React page, Go bridge handlers
+- [x] International Remittance — tRPC router (getCorridors, getQuote, initiateTransfer, trackTransfer, getHistory), React page, Go bridge handlers (new: InitiateRemittanceTransfer, TrackRemittanceTransfer)
+- [x] Subscription Billing V2 — tRPC router (listPlans, createPlan, listSubscribers, cancelSubscription, pauseSubscription, getChurnAnalytics), React page, Go bridge handlers
+- [x] trpc4 client and provider wired in main.tsx for newFeaturesRouter
+- [x] All 20 new pages added to App.tsx routes
+- [x] All 20 new nav items added to Layout.tsx sidebar (with new icons)
+- [x] wave76.new-features.test.ts — 60 vitest tests covering all 20 new feature schemas
+- [x] Go bridge builds cleanly (0 errors)
+- [x] 1,488 vitest tests passing across 50 test files (0 failures)
+- [x] 0 TypeScript errors

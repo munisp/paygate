@@ -9,6 +9,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerKeycloakRoutes } from "./keycloakRoutes";
 import { appRouter, tier1to5Router, tier6to8Router } from "../routers";
+import { newFeaturesRouter } from "../newFeaturesRouter";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
@@ -1130,6 +1131,21 @@ async function startServer() {
     })
   );
 
+  // ─── Wave 76 New Features tRPC API ─────────────────────────────────────────
+  app.use(
+    "/api/trpc4",
+    createExpressMiddleware({
+      router: newFeaturesRouter,
+      createContext,
+      onError: ({ error, path, type }) => {
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          logger.error("trpc4_internal_error", { path, type, message: error.message, stack: error.stack });
+        } else if (error.code !== "UNAUTHORIZED" && error.code !== "NOT_FOUND") {
+          logger.warn("trpc4_error", { path, type, code: error.code, message: error.message });
+        }
+      },
+    })
+  );
   // ─── Sub-Portal Static Files ────────────────────────────────────────────────
   const publicDir = path.resolve(process.cwd(), "client/public");
 
