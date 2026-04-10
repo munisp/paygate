@@ -208,6 +208,14 @@ export async function updatePayout(id: string, data: Partial<InsertPayout>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
   await db.update(payouts).set({ ...data, updatedAt: new Date() }).where(eq(payouts.id, id));
 }
+export async function listPayoutsByIds(merchantId: string, ids: string[]) {
+  if (!ids.length) return [];
+  const db = await getDb(); if (!db) return [];
+  const { inArray } = await import('drizzle-orm');
+  return db.select().from(payouts)
+    .where(and(eq(payouts.merchantId, merchantId), inArray(payouts.id, ids)))
+    .orderBy(desc(payouts.createdAt));
+}
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────
 

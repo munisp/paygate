@@ -3203,3 +3203,29 @@ export const realtimeNotificationHistory = pgTable("realtime_notification_histor
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [index("rtn_hist_merchant_idx").on(t.merchantId)]);
 export type RealtimeNotificationHistoryRecord = typeof realtimeNotificationHistory.$inferSelect;
+
+// ─── USSD Sessions ────────────────────────────────────────────────────────────
+export const ussdStatusEnum = pgEnum("ussd_status", ["active", "completed", "failed", "timeout"]);
+
+export const ussdSessions = pgTable("ussd_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  tenantId: text("tenant_id").notNull().default("ten_default"),
+  sessionId: text("session_id").notNull(),
+  msisdn: text("msisdn").notNull(),
+  serviceCode: text("service_code").notNull().default("*737*1#"),
+  status: ussdStatusEnum("status").notNull().default("active"),
+  steps: integer("steps").notNull().default(0),
+  lastInput: text("last_input"),
+  amountKobo: integer("amount_kobo"),
+  currency: text("currency").notNull().default("NGN"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("ussd_merchant_idx").on(t.merchantId),
+  index("ussd_session_id_idx").on(t.sessionId),
+  index("ussd_msisdn_idx").on(t.msisdn),
+]);
+export type UssdSession = typeof ussdSessions.$inferSelect;
+export type InsertUssdSession = typeof ussdSessions.$inferInsert;

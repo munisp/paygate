@@ -972,6 +972,108 @@ const payoutsRouter = router({
       const merchant = await requireMerchant(user.id);
       return updateMerchant(merchant.id, input);
     }),
+
+  batchStatus: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.string()).min(1).max(500),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { listPayoutsByIds } = await import('./db');
+      const payouts = await listPayoutsByIds(merchant.id, input.ids);
+      const summary = {
+        total: input.ids.length,
+        pending: payouts.filter(p => p.status === 'pending').length,
+        processing: payouts.filter(p => p.status === 'processing').length,
+        completed: payouts.filter(p => p.status === 'completed').length,
+        failed: payouts.filter(p => p.status === 'failed').length,
+        pending_approval: payouts.filter(p => p.status === 'pending_approval').length,
+      };
+      return { payouts, summary };
+    }),
+});
+
+// ─── USSD Sessions Router ─────────────────────────────────────────────────────
+const ussdRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      status: z.enum(['active', 'completed', 'failed', 'timeout']).optional(),
+      msisdn: z.string().optional(),
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const db = await getDb();
+      const { ussdSessions } = await import('../drizzle/schema');
+      const { eq, and, ilike, desc: descOrd } = await import('drizzle-orm');
+      const conditions: ReturnType<typeof eq>[] = [eq(ussdSessions.merchantId, merchant.id)];
+      if (input.status) conditions.push(eq(ussdSessions.status, input.status));
+      if (input.msisdn) conditions.push(ilike(ussdSessions.msisdn, `%${input.msisdn}%`));
+      return db.select().from(ussdSessions)
+        .where(and(...conditions))
+        .orderBy(descOrd(ussdSessions.startedAt))
+        .limit(input.limit)
+        .offset(input.offset);
+    }),
+
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const db = await getDb();
+      const { ussdSessions } = await import('../drizzle/schema');
+      const { eq, count } = await import('drizzle-orm');
+      const rows = await db.select({
+        status: ussdSessions.status,
+        cnt: count(),
+      }).from(ussdSessions)
+        .where(eq(ussdSessions.merchantId, merchant.id))
+        .groupBy(ussdSessions.status);
+      const byStatus = Object.fromEntries(rows.map((r: { status: string; cnt: unknown }) => [r.status, Number(r.cnt)]));
+      const total = rows.reduce((s: number, r: { cnt: unknown }) => s + Number(r.cnt), 0);
+      return { total, active: byStatus.active ?? 0, completed: byStatus.completed ?? 0, failed: byStatus.failed ?? 0, timeout: byStatus.timeout ?? 0 };
+    }),
+
+  ingest: protectedProcedure
+    .input(z.object({
+      sessionId: z.string(),
+      msisdn: z.string(),
+      serviceCode: z.string().default('*737*1#'),
+      status: z.enum(['active', 'completed', 'failed', 'timeout']).default('active'),
+      steps: z.number().default(0),
+      lastInput: z.string().optional(),
+      amountKobo: z.number().optional(),
+      currency: z.string().length(3).default('NGN'),
+      endedAt: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const db = await getDb();
+      const { ussdSessions } = await import('../drizzle/schema');
+      const id = nanoid('ussd_');
+      await db.insert(ussdSessions).values({
+        id,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? 'ten_default',
+        sessionId: input.sessionId,
+        msisdn: input.msisdn,
+        serviceCode: input.serviceCode,
+        status: input.status,
+        steps: input.steps,
+        lastInput: input.lastInput,
+        amountKobo: input.amountKobo,
+        currency: input.currency,
+        endedAt: input.endedAt ? new Date(input.endedAt) : null,
+      });
+      return { id, success: true };
+    }),
 });
 
 // ─── API Keys Router ──────────────────────────────────────────────────────────
@@ -2351,7 +2453,8 @@ const mobileMoneyReconRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      const { db } = await import('./_core/context');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       // Mark each record as reconciled
       let reconciled = 0;
       for (const id of input.ids) {
@@ -6375,6 +6478,7 @@ export const appRouter = router({
   complianceKyc: complianceKycRouter,
   bnpl: bnplRouter,
   mobileMoneyRecon: mobileMoneyReconRouter,
+  ussd: ussdRouter,
   wallet: walletRouter,
   crossBorder: crossBorderRouter,
   nip: nipRouter,
