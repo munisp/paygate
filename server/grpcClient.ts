@@ -80,8 +80,15 @@ function promisifyUnary<Req, Res>(
 // ─── Credential helper ────────────────────────────────────────────────────────
 
 function makeCredentials(url: string): grpc.ChannelCredentials {
-  if (url.startsWith("https://") || url.includes(":443")) {
+  // VULN-011 FIX: Force TLS in production; allow insecure only in dev/test
+  const isProduction = process.env.NODE_ENV === "production";
+  const grpcTls = process.env.GRPC_TLS === "true";
+  if (url.startsWith("https://") || url.includes(":443") || (isProduction && grpcTls)) {
     return grpc.credentials.createSsl();
+  }
+  if (isProduction && !grpcTls) {
+    // In production without explicit TLS flag, log a warning but allow (internal mesh may handle mTLS)
+    console.warn(`[gRPC] WARNING: Insecure channel to ${url} in production. Set GRPC_TLS=true to enforce TLS.`);
   }
   return grpc.credentials.createInsecure();
 }

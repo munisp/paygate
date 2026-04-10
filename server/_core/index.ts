@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import net from "net";
+import { timingSafeEqual } from "crypto";
 import path from "path";
 import { logger, logRequest } from "../logger";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -126,6 +127,16 @@ const crossBorderLimiter = rateLimit({
   skip: () => process.env.NODE_ENV === "development",
 });
 
+// VULN-009 FIX: Financial operations rate limiter for wave80/tier routers
+const financialLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,                   // 10 financial ops per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many financial operation requests. Please wait before retrying." },
+  skip: () => process.env.NODE_ENV === "development",
+});
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -167,8 +178,29 @@ async function startServer() {
   });
 
   // ─── Security Headers ──────────────────────────────────────────────────────
+  // VULN-007 FIX: Enable CSP with environment-aware policy
+  const isDev = process.env.NODE_ENV !== "production";
   app.use(helmet({
-    contentSecurityPolicy: false, // Disabled to allow Vite HMR in dev; enable in prod via CDN
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        // In dev, allow Vite HMR inline scripts; in prod, disallow unsafe-inline
+        scriptSrc: isDev
+          ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://cdn.jsdelivr.net"]
+          : ["'self'", "https://js.stripe.com", "https://cdn.jsdelivr.net"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "https:", "blob:"],
+        connectSrc: isDev
+          ? ["'self'", "ws:", "wss:", "https://api.stripe.com", "https://*.manus.space", "wss://*.manus.space", "https://*.manus.computer", "wss://*.manus.computer"]
+          : ["'self'", "https://api.stripe.com", "https://*.manus.space", "wss://*.manus.space"],
+        frameSrc: ["https://js.stripe.com", "https://hooks.stripe.com"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: isDev ? null : [],
+      },
+    },
     crossOriginEmbedderPolicy: false,
   }));
 
@@ -364,9 +396,15 @@ async function startServer() {
       if (!db) return res.status(503).json({ error: "Database unavailable" });
       const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
       if (!user) return res.status(401).json({ error: "Invalid email or password" });
+      // VULN-001 FIX: bcrypt-aware password verification with legacy migration
+      const { verifyPassword, hashPassword } = await import("../securityUtils.js");
       const jwtSecret = process.env.JWT_SECRET ?? "";
-      const expectedHash = crypto.default.createHash("sha256").update(password + jwtSecret).digest("hex");
-      if (user.passwordHash !== expectedHash) return res.status(401).json({ error: "Invalid email or password" });
+      const { valid, needsMigration } = await verifyPassword(password, user.passwordHash ?? "", jwtSecret);
+      if (!valid) return res.status(401).json({ error: "Invalid email or password" });
+      if (needsMigration) {
+        const newHash = await hashPassword(password);
+        await db.update(schema.users).set({ passwordHash: newHash }).where(eq(schema.users.email, email));
+      }
       const { sdk } = await import("./sdk");
       const { ONE_YEAR_MS } = await import("../../shared/const");
       const token = await sdk.signSession({
@@ -801,7 +839,15 @@ async function startServer() {
 
   const verifyInternalKey = (req: any, res: any, next: any) => {
     const key = req.headers["x-internal-key"];
-    if (!key || key !== process.env.MIDDLEWARE_INTERNAL_KEY) {
+    const expected = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+    // VULN-002 FIX: Use timing-safe comparison to prevent timing attacks
+    let valid = false;
+    try {
+      const a = Buffer.from(String(key ?? ""), "utf8");
+      const b = Buffer.from(expected, "utf8");
+      valid = a.length === b.length && timingSafeEqual(a, b);
+    } catch { valid = false; }
+    if (!key || !valid) {
       return res.status(401).json({ error: "Invalid internal key" });
     }
     next();
@@ -1084,6 +1130,18 @@ async function startServer() {
   app.use("/api/trpc/consumer.sendMoney", payoutLimiter);
   app.use("/api/trpc/consumer.topUp", payoutLimiter);
   app.use("/api/trpc/p2p.send", payoutLimiter);
+  // VULN-009 FIX: Rate limit sensitive financial operations on wave80/tier routers
+  app.use("/api/trpc5", financialLimiter);  // All wave80 financial ops
+  app.use("/api/trpc2/lending.apply", financialLimiter);
+  app.use("/api/trpc2/lending.disburse", financialLimiter);
+  app.use("/api/trpc2/splitPayments.create", financialLimiter);
+  app.use("/api/trpc2/recurringBilling.create", financialLimiter);
+  app.use("/api/trpc3/escrow.create", financialLimiter);
+  app.use("/api/trpc3/escrow.release", financialLimiter);
+  app.use("/api/trpc3/cryptoRamp.initiate", financialLimiter);
+  app.use("/api/trpc3/bnplV2.apply", financialLimiter);
+  app.use("/api/trpc4/invoiceFinancing.apply", financialLimiter);
+  app.use("/api/trpc4/payroll.runPayroll", financialLimiter);
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(

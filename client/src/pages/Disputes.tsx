@@ -107,7 +107,7 @@ function RespondModal({ dispute, onClose, onSuccess }: RespondModalProps) {
         const result = await uploadMutation.mutateAsync({
           disputeId: dispute.id,
           fileName: file.name,
-          mimeType: file.type,
+          mimeType: file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
           base64Data,
         });
         setFiles((prev) =>

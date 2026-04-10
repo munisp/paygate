@@ -339,10 +339,34 @@ export default function TerminalMap() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// VULN-006 FIX: Use DOMParser to parse SVG safely, then strip script/event-handler attributes
+function sanitizeSvg(svgString: string): SVGElement | null {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgString.trim(), "image/svg+xml");
+  const parseError = doc.querySelector("parsererror");
+  if (parseError) return null;
+  const svg = doc.documentElement;
+  // Remove all <script> elements
+  svg.querySelectorAll("script").forEach((el) => el.remove());
+  // Remove all event-handler attributes (on*)
+  const allElements = svg.querySelectorAll("*");
+  allElements.forEach((el) => {
+    Array.from(el.attributes).forEach((attr) => {
+      if (attr.name.toLowerCase().startsWith("on") || attr.name.toLowerCase() === "href" && attr.value.startsWith("javascript:")) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return svg as unknown as SVGElement;
+}
+
 function createPinElement(svgString: string): HTMLElement {
   const div = document.createElement("div");
-  div.innerHTML = svgString.trim();
-  return div.firstElementChild as HTMLElement;
+  const safeSvg = sanitizeSvg(svgString);
+  if (safeSvg) {
+    div.appendChild(document.importNode(safeSvg, true));
+  }
+  return div;
 }
 
 function buildInfoWindowContent(terminal: Terminal, health: string, color: string): string {

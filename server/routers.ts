@@ -164,10 +164,17 @@ const authRouter = router({
       const [user] = await db.select().from(schema.users)
         .where(eq(schema.users.email, input.email)).limit(1);
       if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+      // VULN-001 FIX: Use bcrypt-aware verifyPassword (supports legacy SHA-256 migration)
+      const { verifyPassword, hashPassword } = await import('./securityUtils.js');
       const jwtSecret = process.env.JWT_SECRET ?? "";
-      const expectedHash = crypto.createHash("sha256").update(input.password + jwtSecret).digest("hex");
-      if (user.passwordHash !== expectedHash) {
+      const { valid, needsMigration } = await verifyPassword(input.password, user.passwordHash ?? "", jwtSecret);
+      if (!valid) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+      }
+      // Migrate legacy SHA-256 hash to bcrypt on successful login
+      if (needsMigration) {
+        const newHash = await hashPassword(input.password);
+        await db.update(schema.users).set({ passwordHash: newHash }).where(eq(schema.users.email, input.email));
       }
       const { sdk } = await import("./_core/sdk");
       const { COOKIE_NAME, ONE_YEAR_MS } = await import("../shared/const");
@@ -602,8 +609,9 @@ const customersRouter = router({
   create: protectedProcedure
     .input(z.object({
       email: z.string().email(),
-      name: z.string().min(1),
-      phone: z.string().optional(),
+      name: z.string().min(1).max(200),
+      phone: z.string().max(30).optional(),
+      type: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -799,7 +807,9 @@ const payoutsRouter = router({
           });
           results.push({ index: i, success: true, id: payout?.id });
         } catch (e: any) {
-          results.push({ index: i, success: false, error: e.message ?? "Unknown error" });
+          // VULN-008 FIX: Don't expose raw error internals
+          const safeErr = (e instanceof TRPCError) ? e.message : "Payout processing failed";
+          results.push({ index: i, success: false, error: safeErr });
         }
       }
       const succeeded = results.filter(r => r.success).length;
@@ -995,12 +1005,15 @@ const webhooksRouter = router({
 
   create: protectedProcedure
     .input(z.object({
-      url: z.string().url(),
-      events: z.array(z.string()).min(1),
+      url: z.string().url().max(2048),
+      events: z.array(z.string()).min(1).max(50),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      // VULN-004 FIX: Block SSRF — reject private/loopback/metadata IPs
+      const { blockPrivateWebhookUrl } = await import('./securityUtils.js');
+      await blockPrivateWebhookUrl(input.url);
       const secret = "whsec_" + crypto.randomBytes(24).toString("hex");
       const webhook = await createWebhook({
         id: nanoid("wh_"),
@@ -1211,19 +1224,22 @@ const disputesRouter = router({
   uploadEvidence: protectedProcedure
     .input(z.object({
       disputeId: z.string(),
-      fileName: z.string(),
-      mimeType: z.string(),
-      base64Data: z.string(),
+      fileName: z.string().max(255),
+      mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']),
+      base64Data: z.string().max(14_000_000), // ~10 MB binary after base64 decode
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const dispute = await getDisputeById(input.disputeId);
       if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      // VULN-005 FIX: Validate file upload (MIME allowlist, size, extension, path traversal)
+      const { validateEvidenceUpload } = await import('./securityUtils.js');
+      validateEvidenceUpload({ fileName: input.fileName, mimeType: input.mimeType, base64Data: input.base64Data });
       const { storagePut } = await import('./storage.js');
       const buffer = Buffer.from(input.base64Data, 'base64');
-      const ext = input.fileName.split('.').pop() ?? 'bin';
-      const key = `dispute-evidence/${merchant.id}/${input.disputeId}-${Date.now()}.${ext}`;
+      const safeExt = input.fileName.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') ?? 'bin';
+      const key = `dispute-evidence/${merchant.id}/${input.disputeId}-${Date.now()}.${safeExt}`;
       const { url } = await storagePut(key, buffer, input.mimeType);
       return { success: true, url };
     }),
@@ -1342,8 +1358,8 @@ const paymentLinksRouter = router({
       description: z.string().optional(),
       amount: z.number().optional(),
       currency: z.string().length(3).default("NGN"),
-      usageLimit: z.number().optional(),
       redirectUrl: z.string().url().optional(),
+      usageLimit: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -3262,7 +3278,8 @@ const stripeRouter = router({
         return { valid: true, mode: skMode, accountId: account.id as string, displayName: account.display_name as string | undefined };
       } catch (e: any) {
         if (e instanceof TRPCError) throw e;
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Could not reach Stripe: ${e.message}` });
+        // VULN-008 FIX: Don't leak internal error details to client
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Could not reach Stripe. Please try again later.' });
       }
     }),
 
@@ -3290,7 +3307,8 @@ const stripeRouter = router({
       return { ok: true, intentId: data.id as string, status: data.status as string, amountKobo: data.amount as number };
     } catch (e: any) {
       if (e instanceof TRPCError) throw e;
-      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: e.message });
+      // VULN-008 FIX: Don't leak internal error details to client
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Stripe operation failed. Please try again later.' });
     }
   }),
 
@@ -4450,8 +4468,8 @@ const payrollRouter = router({
   }),
   upsertStaff: protectedProcedure.input(z.object({
     id: z.string().optional(),
-    name: z.string().min(1),
-    role: z.string().default("server"),
+   name: z.string().min(1).max(200),
+      role:z.string().default("server"),
     hourlyRateKobo: z.number().min(0),
     bankCode: z.string().nullable().optional(),
     accountNumber: z.string().nullable().optional(),
@@ -4522,8 +4540,8 @@ const auditLogRouter = router({
     .input(z.object({
       limit: z.number().int().min(1).max(200).default(50),
       offset: z.number().int().min(0).default(0),
-      action: z.string().optional(),
-      resource: z.string().optional(),
+      action: z.string().max(100).optional(),
+      resource: z.string().max(100).optional(),
       actorId: z.string().optional(),
       from: z.number().optional(),
       to: z.number().optional(),
@@ -4691,7 +4709,7 @@ const vendorRouter = router({
   create: protectedProcedure
     .input(z.object({
       name: z.string().min(1).max(200),
-      contactName: z.string().optional(),
+      contactName: z.string().max(200).optional(),
       email: z.string().email().optional().or(z.literal('')),
       phone: z.string().optional(),
       address: z.string().optional(),
@@ -4728,8 +4746,8 @@ const vendorRouter = router({
     .input(z.object({
       id: z.string(),
       name: z.string().min(1).max(200).optional(),
-      contactName: z.string().optional(),
-      email: z.string().email().optional().or(z.literal('')),
+      contactName: z.string().max(200).optional(),
+      email:z.string().email().optional().or(z.literal('')),
       phone: z.string().optional(),
       address: z.string().optional(),
       paymentTerms: z.enum(['immediate', 'net7', 'net14', 'net30', 'net60', 'net90']).optional(),
@@ -5252,9 +5270,9 @@ const p2pRouter = router({
   send: protectedProcedure
     .input(z.object({
       accountNumber: z.string().length(10),
-      bankCode: z.string().min(3).max(6),
-      recipientName: z.string().min(1),
-      bankName: z.string().optional(),
+      bankCode: z.string().min(3).max(10),
+      bankName: z.string().max(100).optional(),
+      recipientName: z.string().min(1).max(200),
       amountKobo: z.number().int().positive().max(5_000_000_00),
       narration: z.string().max(100).optional(),
       currency: z.string().length(3).default('NGN'),

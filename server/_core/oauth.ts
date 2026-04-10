@@ -124,7 +124,22 @@ export function registerOAuthRoutes(app: Express) {
 
     // Initiate Keycloak login — frontend redirects to this endpoint
     app.get("/api/auth/keycloak/login", (req: Request, res: Response) => {
-      const origin = getQueryParam(req, "origin") ?? `${req.protocol}://${req.get("host")}`;
+      const rawOrigin = getQueryParam(req, "origin") ?? `${req.protocol}://${req.get("host")}`;
+      // VULN-003 FIX: Validate origin against allowlist to prevent open redirect
+      const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+        .split(",").map((o) => o.trim()).filter(Boolean);
+      const SAFE_ORIGIN_PATTERNS = [
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https:\/\/[a-zA-Z0-9-]+\.manus\.space$/,
+        /^https:\/\/[a-zA-Z0-9-]+\.manus\.computer$/,
+      ];
+      const serverOrigin = `${req.protocol}://${req.get("host")}`;
+      const isAllowed =
+        allowedOrigins.includes(rawOrigin) ||
+        SAFE_ORIGIN_PATTERNS.some((p) => p.test(rawOrigin)) ||
+        rawOrigin === serverOrigin;
+      const origin = isAllowed ? rawOrigin : serverOrigin;
       const redirectUri = `${origin}/api/oauth/callback`;
       const state = Buffer.from(redirectUri).toString("base64");
       res.redirect(302, buildAuthorizationUrl(redirectUri, state));
