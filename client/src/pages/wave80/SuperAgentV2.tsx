@@ -1,36 +1,60 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Network, Users, DollarSign, TrendingUp } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Network, Users, Wallet, Plus } from "lucide-react";
+import { trpc5 } from "@/lib/trpc5";
+import { toast } from "sonner";
+
 export default function SuperAgentV2() {
-  const subAgents = [
-    { id: "sa1", name: "Emeka Nwosu", commissionRate: 2.5, status: "active", volume: 1250000, commissions: 31250 },
-    { id: "sa2", name: "Aisha Bello", commissionRate: 2.0, status: "active", volume: 890000, commissions: 17800 },
-  ];
+  const [createOpen, setCreateOpen] = useState(false);
+  const [networkName, setNetworkName] = useState("");
+
+  const { data, isLoading, refetch } = trpc5.superAgentV2.listNetworks.useQuery();
+  const { data: stats } = trpc5.superAgentV2.getNetworkStats.useQuery();
+
+  const createNetwork = trpc5.superAgentV2.createNetwork.useMutation({
+    onSuccess: () => { toast.success("Network created"); setCreateOpen(false); setNetworkName(""); refetch(); },
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
+
+  const networks = data?.networks ?? [];
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Super-Agent V2</h1><p className="text-muted-foreground">Manage your sub-agent network</p></div>
-        <Button><Users className="w-4 h-4 mr-2" />Add Sub-Agent</Button>
+        <div><h1 className="text-2xl font-bold">Super Agent V2</h1><p className="text-muted-foreground">Manage super agent networks and sub-agent hierarchies</p></div>
+        <Button onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4 mr-2" />Create Network</Button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Network className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">2</p><p className="text-sm text-muted-foreground">Sub-Agents</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Users className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">2</p><p className="text-sm text-muted-foreground">Active</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><DollarSign className="w-8 h-8 text-purple-500" /><div><p className="text-2xl font-bold">2.14M</p><p className="text-sm text-muted-foreground">Network Volume</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><TrendingUp className="w-8 h-8 text-yellow-500" /><div><p className="text-2xl font-bold">49,050</p><p className="text-sm text-muted-foreground">Commissions</p></div></div></CardContent></Card>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Network className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">{stats?.networks ?? 0}</p><p className="text-sm text-muted-foreground">Networks</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Users className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">{stats?.totalAgents ?? 0}</p><p className="text-sm text-muted-foreground">Total Agents</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Wallet className="w-8 h-8 text-purple-500" /><div><p className="text-2xl font-bold">&#8358;{((stats?.totalFloat ?? 0) / 100).toLocaleString()}</p><p className="text-sm text-muted-foreground">Total Float</p></div></div></CardContent></Card>
       </div>
-      <Card><CardHeader><CardTitle>Sub-Agent Network</CardTitle></CardHeader><CardContent>
-        <div className="space-y-3">{subAgents.map(sa => (
-          <div key={sa.id} className="flex items-center justify-between p-4 border rounded-lg">
-            <div><p className="font-medium">{sa.name}</p><p className="text-sm text-muted-foreground">Rate: {sa.commissionRate}%</p></div>
-            <div className="flex items-center gap-4">
-              <p className="font-medium">{(sa.volume/100).toLocaleString()} vol</p>
-              <p className="text-green-600 font-medium">{(sa.commissions/100).toLocaleString()} comm</p>
-              <Badge>{sa.status}</Badge>
+      <Card><CardHeader><CardTitle>Networks</CardTitle></CardHeader><CardContent>
+        {isLoading ? <p className="text-sm text-muted-foreground py-4">Loading...</p> :
+        networks.length === 0 ? <div className="text-center py-8"><p className="text-muted-foreground">No networks yet. Create your first super agent network.</p></div> : (
+          <div className="space-y-3">{networks.map(n => (
+            <div key={n.id} className="flex items-center justify-between p-4 border rounded-lg">
+              <div><p className="font-medium">{n.networkName}</p><p className="text-sm text-muted-foreground">{n.totalAgents} agents</p></div>
+              <Badge variant={n.status === "active" ? "default" : "secondary"}>{n.status}</Badge>
             </div>
-          </div>
-        ))}</div>
+          ))}</div>
+        )}
       </CardContent></Card>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Create Network</DialogTitle></DialogHeader>
+          <div className="space-y-2"><Label>Network Name</Label><Input value={networkName} onChange={e => setNetworkName(e.target.value)} placeholder="e.g. Lagos South Network" /></div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={() => createNetwork.mutate({ networkName })} disabled={!networkName || createNetwork.isPending}>{createNetwork.isPending ? "Creating..." : "Create"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

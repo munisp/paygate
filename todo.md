@@ -2274,3 +2274,28 @@
 - [x] Push notifications — usePushNotifications hook wired to trpc.pushTokens.subscribeWebPush, VAPID key fetched, bell icon in sidebar
 - [x] Dark mode toggle — sidebar footer Sun/Moon toggle, ThemeProvider set to switchable, preference persisted via ThemeContext
 - [x] Drag-and-drop dashboard grid — react-grid-layout ResponsiveGridLayout, 11 widget keys, Customize/Done/Reset buttons, layout saved to localStorage
+
+## Wave 80 Frontend Wiring — All 20 Pages (Apr 10 2026)
+- [x] All 20 wave80 pages replaced mock/hardcoded data with real trpc5 API calls
+- [x] AgentBankingV4.tsx — wired to trpc5.agentBankingV4.{listAgents, createAgent, topUpFloat, getStats}
+- [x] SuperAgentV2.tsx — wired to trpc5.superAgentV2.{listNetworks, createNetwork, getStats}
+- [x] EscrowV2.tsx — wired to trpc5.escrowV2.{listContracts, createContract, releaseContract, disputeContract, getStats}
+- [x] MarketplacePay.tsx — wired to trpc5.marketplacePay.{listOrders, createOrder, getStats}
+- [x] LoyaltyV3.tsx — wired to trpc5.loyaltyV3.{getProgram, createProgram, listMembers, awardPoints, redeemPoints}
+- [x] CryptoOfframpV2.tsx — wired to trpc5.cryptoOfframpV2.{listTransactions, initiateOfframp, getStats}
+- [x] NfcPay.tsx — wired to trpc5.nfcPay.{listDevices, registerDevice, deactivateDevice, getStats}
+- [x] QrMerchantAnalytics.tsx — wired to trpc5.qrMerchantAnalytics.{getAnalytics, listScans}
+- [x] InvoiceFinancingV2.tsx — wired to trpc5.invoiceFinancingV2.{listInvoices, submitInvoice, getStats}
+- [x] PayrollV3.tsx — wired to trpc5.payrollV3.{listPayrolls, createPayroll, processPayroll, getStats}
+- [x] TaxFiling.tsx — wired to trpc5.taxFiling.{listFilings, createFiling, submitFiling, getStats, getUpcomingDeadlines}
+- [x] RegulatoryReporting.tsx — wired to trpc5.regulatoryReporting.{listReports, createReport, submitReport, getStats, getRequirements}
+- [x] UsdcV2.tsx — wired to trpc5.usdcV2.{getWallet, listTransactions, initiateTransfer, convertToNgn, getStats}
+- [x] MultiCurrencyLedger.tsx — wired to trpc5.multiCurrencyLedger.{listAccounts, createAccount, transfer, getStats}
+- [x] GrpcHealthCheck.tsx — wired to trpc5.grpcHealthCheck.{checkAll, checkService}
+- [x] RealtimeNotifications.tsx — wired to trpc5.realtimeNotifications.{getPreferences, updatePreferences, getChannels}
+- [x] TemporalWorkflowMgmt.tsx — wired to trpc5.temporalWorkflowMgmt.{listWorkflows, triggerWorkflow, getStats}
+- [x] UssdSessionV2.tsx — wired to trpc5.ussdSessionV2.{getSessionAnalytics, getMenuFlow, getDropOffAnalysis}
+- [x] OpenBankingV2.tsx — wired to trpc5.openBankingV2.{listConsents, createConsent, revokeConsent, listAccounts, syncAccounts}
+- [x] CarbonCreditsV2.tsx — wired to trpc5.carbonCreditsV2.{listCredits, purchaseCredits, retireCredits, getStats, listTransactions}
+- [x] TypeScript: 0 errors (verified)
+- [x] Full test suite: 1,908 tests / 55 files — all passing

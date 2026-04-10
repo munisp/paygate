@@ -1,33 +1,61 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { QrCode, TrendingUp, Smartphone, Target, Download } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { QrCode, Users, TrendingUp, BarChart3, Download } from "lucide-react";
+import { trpc5 } from "@/lib/trpc5";
+import { toast } from "sonner";
+
 export default function QrMerchantAnalytics() {
-  const topQrCodes = [
-    { name: "Main Store QR", scans: 1250, completed: 890, conversion: 71.2 },
-    { name: "Product Catalog QR", scans: 680, completed: 420, conversion: 61.8 },
-    { name: "Promo Campaign QR", scans: 2100, completed: 1450, conversion: 69.0 },
-  ];
+  const { data: overview } = trpc5.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" });
+  const { data: topCodes } = trpc5.qrMerchantAnalytics.getTopQrCodes.useQuery();
+  const { data: insights } = trpc5.qrMerchantAnalytics.getCustomerInsights.useQuery();
+
+  const exportReport = trpc5.qrMerchantAnalytics.exportReport.useMutation({
+    onSuccess: () => toast.success("Report export started"),
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">QR Merchant Analytics</h1><p className="text-muted-foreground">Scan heatmaps, conversion funnels, and device breakdown</p></div>
-        <Button variant="outline"><Download className="w-4 h-4 mr-2" />Export Report</Button>
+        <div><h1 className="text-2xl font-bold">QR Merchant Analytics</h1><p className="text-muted-foreground">Scan performance, conversion rates, and customer insights</p></div>
+        <Button variant="outline" onClick={() => exportReport.mutate({ period: "7d" })}><Download className="w-4 h-4 mr-2" />Export Report</Button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><QrCode className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">4,030</p><p className="text-sm text-muted-foreground">Total Scans (30d)</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Target className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">2,760</p><p className="text-sm text-muted-foreground">Completed</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><TrendingUp className="w-8 h-8 text-purple-500" /><div><p className="text-2xl font-bold">68.5%</p><p className="text-sm text-muted-foreground">Conversion Rate</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Smartphone className="w-8 h-8 text-yellow-500" /><div><p className="text-2xl font-bold">72%</p><p className="text-sm text-muted-foreground">Android Share</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><QrCode className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">{(overview?.totalScans ?? 0).toLocaleString()}</p><p className="text-sm text-muted-foreground">Total Scans</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Users className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">{(overview?.uniqueCustomers ?? 0).toLocaleString()}</p><p className="text-sm text-muted-foreground">Unique Customers</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><TrendingUp className="w-8 h-8 text-purple-500" /><div><p className="text-2xl font-bold">&#8358;{((overview?.totalRevenue ?? 0) / 100).toLocaleString()}</p><p className="text-sm text-muted-foreground">Revenue</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><BarChart3 className="w-8 h-8 text-orange-500" /><div><p className="text-2xl font-bold">{overview?.conversionRate ?? 0}%</p><p className="text-sm text-muted-foreground">Conversion Rate</p></div></div></CardContent></Card>
       </div>
-      <Card><CardHeader><CardTitle>Top QR Codes by Performance</CardTitle></CardHeader><CardContent>
-        <div className="space-y-4">{topQrCodes.map((q,i) => (
-          <div key={i} className="space-y-2">
-            <div className="flex items-center justify-between"><p className="font-medium">{q.name}</p><p className="text-sm font-bold">{q.conversion}% conversion</p></div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground"><span>{q.scans.toLocaleString()} scans</span><span>to</span><span>{q.completed.toLocaleString()} completed</span></div>
-            <div className="w-full bg-muted rounded-full h-2"><div className="bg-primary h-2 rounded-full" style={{width:q.conversion+"%"}} /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card><CardHeader><CardTitle>Top QR Codes</CardTitle></CardHeader><CardContent>
+          <div className="space-y-3">{(topCodes?.codes ?? []).map(c => (
+            <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div><p className="font-medium">{c.label}</p><p className="text-sm text-muted-foreground">{c.scans} scans</p></div>
+              <p className="font-bold">&#8358;{(c.revenue / 100).toLocaleString()}</p>
+            </div>
+          ))}</div>
+        </CardContent></Card>
+        <Card><CardHeader><CardTitle>Customer Insights</CardTitle></CardHeader><CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <p className="font-medium">New vs Returning</p>
+              <div className="flex gap-2">
+                <Badge variant="outline">New: {insights?.newVsReturning?.new ?? 0}%</Badge>
+                <Badge>Returning: {insights?.newVsReturning?.returning ?? 0}%</Badge>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <p className="font-medium">Avg Session Duration</p>
+              <p className="font-bold">{insights?.avgSessionDuration ?? 0}s</p>
+            </div>
+            <div className="p-3 border rounded-lg">
+              <p className="font-medium mb-2">Top Locations</p>
+              <div className="flex flex-wrap gap-2">{(insights?.topLocations ?? []).map(l => <Badge key={l} variant="secondary">{l}</Badge>)}</div>
+            </div>
           </div>
-        ))}</div>
-      </CardContent></Card>
+        </CardContent></Card>
+      </div>
     </div>
   );
 }
