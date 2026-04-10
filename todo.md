@@ -2268,3 +2268,9 @@
 - [x] PWA admin dashboard rebuilt with install banner, security score widget, quick actions bar
 - [x] Platform health pulse, gradient wallet card, offline connection status banner
 - [x] TypeScript: 0 errors
+
+## Login Fix + Next Steps (Apr 10 2026)
+- [x] Fix admin login — seeded admin/merchant/demo users with bcrypt passwords in PostgreSQL, merchant records created
+- [x] Push notifications — usePushNotifications hook wired to trpc.pushTokens.subscribeWebPush, VAPID key fetched, bell icon in sidebar
+- [x] Dark mode toggle — sidebar footer Sun/Moon toggle, ThemeProvider set to switchable, preference persisted via ThemeContext
+- [x] Drag-and-drop dashboard grid — react-grid-layout ResponsiveGridLayout, 11 widget keys, Customize/Done/Reset buttons, layout saved to localStorage

@@ -27,7 +27,9 @@ import NotificationPanel, { useNotificationCount } from "./NotificationPanel";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePWA } from "@/hooks/usePWA";
-import { Download, WifiOff } from "lucide-react";
+import { Download, WifiOff, Moon, Sun, BellRing, BellOff } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 // ─── Grouped Navigation ──────────────────────────────────────────────────────
 type NavItem = { icon: React.ElementType; label: string; path: string; badge?: string };
@@ -322,6 +324,8 @@ export default function Layout({ children }: LayoutProps) {
   }, [location]);
 
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const { isSubscribed, isLoading: pushLoading, subscribe: subscribePush, unsubscribe: unsubscribePush } = usePushNotifications();
 
   // ─── Fraud Alert Banner ──────────────────────────────────────────────────
   const { data: fraudData, refetch: refetchAlerts } = trpc.fraudRisk.getAlerts.useQuery(
@@ -604,9 +608,33 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           )}
           {!collapsed && (
-            <button onClick={handleLogout} className="text-sidebar-foreground/40 hover:text-red-400 transition-colors">
-              <LogOut className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {/* Dark mode toggle */}
+              <button
+                onClick={toggleTheme}
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                className="text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors p-1 rounded"
+              >
+                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+              {/* Push notifications toggle */}
+              <button
+                onClick={isSubscribed ? unsubscribePush : subscribePush}
+                disabled={pushLoading}
+                title={isSubscribed ? 'Disable push notifications' : 'Enable push notifications'}
+                className={`transition-colors p-1 rounded ${
+                  isSubscribed
+                    ? 'text-emerald-400 hover:text-emerald-300'
+                    : 'text-sidebar-foreground/40 hover:text-sidebar-foreground'
+                }`}
+              >
+                {isSubscribed ? <BellRing className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+              </button>
+              {/* Logout */}
+              <button onClick={handleLogout} className="text-sidebar-foreground/40 hover:text-red-400 transition-colors p-1 rounded">
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           )}
         </div>
       </div>

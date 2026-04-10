@@ -1,4 +1,7 @@
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
+import ReactGridLayout from "react-grid-layout";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
@@ -10,6 +13,7 @@ import {
   Smartphone, Wifi, WifiOff, Bell, Activity, Lock, ShieldCheck,
   BarChart3, Layers, Send, Plus, Eye, ChevronRight, Sparkles,
   Package, Settings, TrendingDown, Banknote, Target, Cpu,
+  GripVertical, LayoutGrid,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +25,61 @@ import RevenueForecast from "@/components/RevenueForecast";
 import { useTransactionStream, type StreamTransaction } from "@/hooks/useTransactionStream";
 import { usePWA } from "@/hooks/usePWA";
 import OfflineIndicator from "@/components/OfflineIndicator";
+const { Responsive, WidthProvider } = ReactGridLayout as any;
+const ResponsiveGridLayout = WidthProvider(Responsive);
 
+// ─── Default widget layout ────────────────────────────────────────────────────
+const DEFAULT_LAYOUTS = {
+  lg: [
+    { i: "kpi",         x: 0, y: 0,  w: 12, h: 4,  minW: 6, minH: 3 },
+    { i: "wallet",      x: 0, y: 4,  w: 4,  h: 6,  minW: 3, minH: 5 },
+    { i: "settlement",  x: 4, y: 4,  w: 8,  h: 6,  minW: 4, minH: 5 },
+    { i: "revenue",     x: 0, y: 10, w: 8,  h: 8,  minW: 4, minH: 6 },
+    { i: "channels",    x: 8, y: 10, w: 4,  h: 8,  minW: 3, minH: 6 },
+    { i: "daily",       x: 0, y: 18, w: 4,  h: 8,  minW: 3, minH: 6 },
+    { i: "transactions",x: 4, y: 18, w: 8,  h: 8,  minW: 4, minH: 6 },
+    { i: "disputes",    x: 0, y: 26, w: 12, h: 6,  minW: 6, minH: 5 },
+    { i: "forecast",    x: 0, y: 32, w: 4,  h: 9,  minW: 3, minH: 7 },
+    { i: "health",      x: 4, y: 32, w: 4,  h: 9,  minW: 3, minH: 7 },
+    { i: "security",    x: 8, y: 32, w: 4,  h: 9,  minW: 3, minH: 7 },
+  ],
+  md: [
+    { i: "kpi",         x: 0, y: 0,  w: 10, h: 5  },
+    { i: "wallet",      x: 0, y: 5,  w: 4,  h: 6  },
+    { i: "settlement",  x: 4, y: 5,  w: 6,  h: 6  },
+    { i: "revenue",     x: 0, y: 11, w: 7,  h: 8  },
+    { i: "channels",    x: 7, y: 11, w: 3,  h: 8  },
+    { i: "daily",       x: 0, y: 19, w: 4,  h: 8  },
+    { i: "transactions",x: 4, y: 19, w: 6,  h: 8  },
+    { i: "disputes",    x: 0, y: 27, w: 10, h: 6  },
+    { i: "forecast",    x: 0, y: 33, w: 4,  h: 9  },
+    { i: "health",      x: 4, y: 33, w: 3,  h: 9  },
+    { i: "security",    x: 7, y: 33, w: 3,  h: 9  },
+  ],
+  sm: [
+    { i: "kpi",         x: 0, y: 0,  w: 6, h: 6  },
+    { i: "wallet",      x: 0, y: 6,  w: 6, h: 6  },
+    { i: "settlement",  x: 0, y: 12, w: 6, h: 6  },
+    { i: "revenue",     x: 0, y: 18, w: 6, h: 8  },
+    { i: "channels",    x: 0, y: 26, w: 6, h: 8  },
+    { i: "daily",       x: 0, y: 34, w: 6, h: 8  },
+    { i: "transactions",x: 0, y: 42, w: 6, h: 8  },
+    { i: "disputes",    x: 0, y: 50, w: 6, h: 6  },
+    { i: "forecast",    x: 0, y: 56, w: 6, h: 9  },
+    { i: "health",      x: 0, y: 65, w: 6, h: 9  },
+    { i: "security",    x: 0, y: 74, w: 6, h: 9  },
+  ],
+};
+const LAYOUT_STORAGE_KEY = "paygate_dashboard_layout";
+function loadLayouts() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : DEFAULT_LAYOUTS;
+  } catch { return DEFAULT_LAYOUTS; }
+}
+function saveLayouts(layouts: any) {
+  try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts)); } catch { /* ignore */ }
+}
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined) {
@@ -619,6 +677,12 @@ export default function Dashboard() {
   );
 
   // NIP banks sync
+  const { data: fraudAlertsData } = trpc.fraudRisk.list.useQuery(
+    { limit: 10, status: 'open' },
+    { staleTime: 60_000, retry: false }
+  );
+  const fraudAlerts = fraudAlertsData ?? [];
+
   const syncBanks = trpc.nip.syncBanks.useMutation({
     onSuccess: (d) => toast.success(`Synced ${d.synced} NIP banks`),
     onError: () => toast.error("NIP bank sync failed"),
@@ -629,19 +693,29 @@ export default function Dashboard() {
   const failedCount   = Number(overview?.transactions?.failedCount ?? 0);
   const successRate   = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   const totalVolume   = Number(overview?.transactions?.totalVolume ?? 0);
-  const totalPayouts  = Number(overview?.payouts?.totalPayouts ?? 0);
+   const totalPayouts  = Number(overview?.payouts?.totalPayouts ?? 0);
   const customerCount = Number(overview?.customers?.customerCount ?? 0);
   const disputeCount  = Number(overview?.disputes?.disputeCount ?? 0);
 
+  // ─── Drag-and-drop grid state ───────────────────────────────────────────────
+  const [isCustomizing, setIsCustomizing] = useState(false);
+  const [layouts, setLayouts] = useState<any>(() => loadLayouts());
+  const handleLayoutChange = useCallback((_: any, allLayouts: any) => {
+    setLayouts(allLayouts);
+    saveLayouts(allLayouts);
+  }, []);
+  const resetLayout = useCallback(() => {
+    setLayouts(DEFAULT_LAYOUTS);
+    saveLayouts(DEFAULT_LAYOUTS);
+    toast.success("Dashboard layout reset to default");
+  }, []);
+
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1440px] mx-auto">
-
       {/* ── Offline Banner ──────────────────────────────────────────────── */}
       <ConnectionStatusBar />
-
       {/* ── PWA Install Banner ──────────────────────────────────────────── */}
       <PWAInstallBanner />
-
       {/* ── Stripe Sandbox Claim Banner ─────────────────────────────────── */}
       {!stripeBannerDismissed && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-violet-50 border border-violet-200 text-violet-900">
@@ -669,7 +743,22 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
+      {/* ── Fraud Alerts ────────────────────────────────────────────────── */}
+      {fraudAlerts && (fraudAlerts as any[]).length > 0 && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-900">
+          <AlertTriangle className="w-5 h-5 shrink-0 text-red-500 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">{(fraudAlerts as any[]).length} Fraud Alert{(fraudAlerts as any[]).length > 1 ? 's' : ''} Detected</p>
+            <p className="text-xs text-red-700 mt-0.5">{(fraudAlerts as any[]).filter((a: any) => a.severity === 'high').length} high-severity alerts require immediate attention</p>
+          </div>
+          <button
+            onClick={() => window.location.href = '/fraud-risk'}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors shrink-0"
+          >
+            Acknowledge
+          </button>
+        </div>
+      )}
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -710,194 +799,263 @@ export default function Dashboard() {
             <Download className="w-4 h-4 mr-1.5" />
             {exporting ? "Exporting..." : "Export"}
           </Button>
+          <Button
+            variant={isCustomizing ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setIsCustomizing(c => !c);
+              if (isCustomizing) toast.success("Layout saved!");
+              else toast.info("Drag widgets to rearrange. Resize from corners.");
+            }}
+            className={isCustomizing ? "bg-indigo-600 hover:bg-indigo-700 text-white" : ""}
+          >
+            <LayoutGrid className="w-4 h-4 mr-1.5" />
+            {isCustomizing ? "Done" : "Customize"}
+          </Button>
+          {isCustomizing && (
+            <Button variant="outline" size="sm" onClick={resetLayout}>
+              Reset Layout
+            </Button>
+          )}
         </div>
       </div>
 
       {/* ── Quick Actions ────────────────────────────────────────────────── */}
       <QuickActionsBar />
 
-      {/* ── KPI Cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KPICard title="Total Revenue"  value={fmt(totalVolume)}          sub={`${totalCount.toLocaleString()} txns`}      icon={DollarSign}    trend="+12.5%" up={true}              loading={isLoading} accentColor="indigo" />
-        <KPICard title="Net Payouts"    value={fmt(totalPayouts)}          sub={`${overview?.payouts?.payoutCount ?? 0} payouts`} icon={ArrowLeftRight} trend="+8.3%"  up={true}          loading={isLoading} accentColor="emerald" />
-        <KPICard title="Success Rate"   value={`${successRate}%`}          sub={`${failedCount} failed`}                    icon={TrendingUp}    trend={successRate >= 90 ? "+0.4%" : "-1.2%"} up={successRate >= 90} loading={isLoading} accentColor="amber" />
-        <KPICard title="Customers"      value={customerCount.toLocaleString()} sub={`${disputeCount} open disputes`}        icon={Users}         trend="+9.2%"  up={true}              loading={isLoading} accentColor="blue" />
-      </div>
+      {/* ── Customize Mode Banner ────────────────────────────────────────── */}
+      {isCustomizing && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-800">
+          <GripVertical className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-medium">Customize mode — drag widgets to reorder, resize from corners. Click <strong>Done</strong> to save.</span>
+        </div>
+      )}
 
-      {/* ── Wallet + Settlement ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <WalletBalanceCard />
-        <div className="md:col-span-2">
+      {/* ── Drag-and-Drop Widget Grid ────────────────────────────────────── */}
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={layouts}
+        onLayoutChange={handleLayoutChange}
+        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+        cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+        rowHeight={60}
+        isDraggable={isCustomizing}
+        isResizable={isCustomizing}
+        margin={[16, 16]}
+        containerPadding={[0, 0]}
+        draggableHandle=".widget-drag-handle"
+      >
+        {/* KPI Cards */}
+        <div key="kpi" className="relative">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 h-full">
+            <KPICard title="Total Revenue"  value={fmt(totalVolume)}          sub={`${totalCount.toLocaleString()} txns`}      icon={DollarSign}    trend="+12.5%" up={true}              loading={isLoading} accentColor="indigo" />
+            <KPICard title="Net Payouts"    value={fmt(totalPayouts)}          sub={`${overview?.payouts?.payoutCount ?? 0} payouts`} icon={ArrowLeftRight} trend="+8.3%"  up={true}          loading={isLoading} accentColor="emerald" />
+            <KPICard title="Success Rate"   value={`${successRate}%`}          sub={`${failedCount} failed`}                    icon={TrendingUp}    trend={successRate >= 90 ? "+0.4%" : "-1.2%"} up={successRate >= 90} loading={isLoading} accentColor="amber" />
+            <KPICard title="Customers"      value={customerCount.toLocaleString()} sub={`${disputeCount} open disputes`}        icon={Users}         trend="+9.2%"  up={true}              loading={isLoading} accentColor="blue" />
+          </div>
+        </div>
+
+        {/* Wallet Balance */}
+        <div key="wallet" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <WalletBalanceCard />
+        </div>
+
+        {/* Settlement Health */}
+        <div key="settlement" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
           <SettlementHealthWidget />
         </div>
-      </div>
 
-      {/* ── Revenue Chart + Channel Breakdown ───────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="xl:col-span-2 bg-card rounded-2xl border border-border p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-                Revenue Over Time
-              </h3>
-              <p className="text-sm text-muted-foreground">Daily completed transaction volume</p>
+        {/* Revenue Chart */}
+        <div key="revenue" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <div className="bg-card rounded-2xl border border-border p-6 h-full">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
+                  Revenue Over Time
+                </h3>
+                <p className="text-sm text-muted-foreground">Daily completed transaction volume</p>
+              </div>
+              {!isLoading && (
+                <Badge variant="secondary" className="gap-1">
+                  <TrendingUp className="w-3 h-3 text-emerald-500" /> Live data
+                </Badge>
+              )}
             </div>
-            {!isLoading && (
-              <Badge variant="secondary" className="gap-1">
-                <TrendingUp className="w-3 h-3 text-emerald-500" /> Live data
-              </Badge>
+            {isLoading ? <Skeleton className="h-52 w-full rounded-xl" /> : timeSeries.length === 0 ? (
+              <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">
+                No transaction data in this period
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={timeSeries}>
+                  <defs>
+                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#4F46E5" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#4F46E5" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={fmt} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }}
+                    formatter={(v: number) => [fmt(v), "Volume"]}
+                  />
+                  <Area type="monotone" dataKey="volume" stroke="#4F46E5" strokeWidth={2.5} fill="url(#revGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
             )}
           </div>
-          {isLoading ? <Skeleton className="h-52 w-full rounded-xl" /> : timeSeries.length === 0 ? (
-            <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">
-              No transaction data in this period
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={timeSeries}>
-                <defs>
-                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#4F46E5" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#4F46E5" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={fmt} />
-                <Tooltip
-                  contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }}
-                  formatter={(v: number) => [fmt(v), "Volume"]}
-                />
-                <Area type="monotone" dataKey="volume" stroke="#4F46E5" strokeWidth={2.5} fill="url(#revGrad)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
         </div>
 
-        <div className="bg-card rounded-2xl border border-border p-6">
-          <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-            Payment Channels
-          </h3>
-          <p className="text-sm text-muted-foreground mb-4">Distribution by method</p>
-          {channelBreakdown.length > 0 ? (
-            <>
-              <ResponsiveContainer width="100%" height={140}>
-                <PieChart>
-                  <Pie data={channelBreakdown} cx="50%" cy="50%" innerRadius={42} outerRadius={65} paddingAngle={3} dataKey="value">
-                    {channelBreakdown.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip
-                    formatter={(v: number) => [`${v}%`, "Share"]}
-                    contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-2 mt-2">
-                {channelBreakdown.map((c) => (
-                  <div key={c.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
-                      <span className="text-sm text-muted-foreground">{c.name}</span>
+        {/* Payment Channels */}
+        <div key="channels" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <div className="bg-card rounded-2xl border border-border p-6 h-full">
+            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
+              Payment Channels
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">Distribution by method</p>
+            {channelBreakdown.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={140}>
+                  <PieChart>
+                    <Pie data={channelBreakdown} cx="50%" cy="50%" innerRadius={42} outerRadius={65} paddingAngle={3} dataKey="value">
+                      {channelBreakdown.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v: number) => [`${v}%`, "Share"]}
+                      contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-2 mt-2">
+                  {channelBreakdown.map((c) => (
+                    <div key={c.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
+                        <span className="text-sm text-muted-foreground">{c.name}</span>
+                      </div>
+                      <span className="text-sm font-semibold">{c.value}%</span>
                     </div>
-                    <span className="text-sm font-semibold">{c.value}%</span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No channel data yet</p>
+            )}
+          </div>
+        </div>
+
+        {/* Daily Count */}
+        <div key="daily" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <div className="bg-card rounded-2xl border border-border p-6 h-full">
+            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
+              Daily Count
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">Transactions per day</p>
+            {isLoading ? <Skeleton className="h-44 w-full rounded-xl" /> : timeSeries.length === 0 ? (
+              <div className="h-44 flex items-center justify-center text-muted-foreground text-sm">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={timeSeries}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }} />
+                  <Bar dataKey="count" fill="#4F46E5" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Recent Transactions */}
+        <div key="transactions" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <div className="bg-card rounded-2xl border border-border p-6 h-full">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
+                  Recent Transactions
+                </h3>
+                <p className="text-sm text-muted-foreground">Latest activity from your account</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+                <span className={`text-xs font-medium flex items-center gap-1 ${isLive ? "text-emerald-600" : "text-muted-foreground"}`}>
+                  <Radio className="w-3 h-3" />
+                  {isLive ? "Live stream" : "Connecting…"}
+                </span>
+              </div>
+            </div>
+            {isLoading ? (
+              <div className="space-y-3">
+                {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+              </div>
+            ) : recentTxns.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">No transactions yet</div>
+            ) : (
+              <div className="space-y-1">
+                {recentTxns.map((txn: any) => (
+                  <div key={txn.id} className="flex items-center gap-4 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {txn.customerName ?? txn.customerEmail ?? "Anonymous"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{txn.reference} · {txn.channel}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-semibold font-mono text-foreground">
+                        {txn.currency} {Number(txn.amount).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(txn.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <StatusBadge status={txn.status} />
                   </div>
                 ))}
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">No channel data yet</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Daily Count + Recent Transactions ───────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="bg-card rounded-2xl border border-border p-6">
-          <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-            Daily Count
-          </h3>
-          <p className="text-sm text-muted-foreground mb-4">Transactions per day</p>
-          {isLoading ? <Skeleton className="h-44 w-full rounded-xl" /> : timeSeries.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-muted-foreground text-sm">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={timeSeries}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "12px" }} />
-                <Bar dataKey="count" fill="#4F46E5" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        <div className="xl:col-span-2 bg-card rounded-2xl border border-border p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="font-semibold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-                Recent Transactions
-              </h3>
-              <p className="text-sm text-muted-foreground">Latest activity from your account</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isLive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
-              <span className={`text-xs font-medium flex items-center gap-1 ${isLive ? "text-emerald-600" : "text-muted-foreground"}`}>
-                <Radio className="w-3 h-3" />
-                {isLive ? "Live stream" : "Connecting…"}
-              </span>
-            </div>
+            )}
+            <button
+              className="w-full mt-4 py-2.5 text-sm text-primary font-medium hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1"
+              onClick={() => window.location.href = "/transactions"}
+            >
+              View all transactions <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
-          {isLoading ? (
-            <div className="space-y-3">
-              {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
-            </div>
-          ) : recentTxns.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">No transactions yet</div>
-          ) : (
-            <div className="space-y-1">
-              {recentTxns.map((txn: any) => (
-                <div key={txn.id} className="flex items-center gap-4 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {txn.customerName ?? txn.customerEmail ?? "Anonymous"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{txn.reference} · {txn.channel}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold font-mono text-foreground">
-                      {txn.currency} {Number(txn.amount).toLocaleString()}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(txn.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <StatusBadge status={txn.status} />
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            className="w-full mt-4 py-2.5 text-sm text-primary font-medium hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1"
-            onClick={() => window.location.href = "/transactions"}
-          >
-            View all transactions <ChevronRight className="w-4 h-4" />
-          </button>
         </div>
-      </div>
 
-      {/* ── Dispute Analytics ────────────────────────────────────────────── */}
-      <DisputeAnalyticsWidget />
+        {/* Dispute Analytics */}
+        <div key="disputes" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <DisputeAnalyticsWidget />
+        </div>
 
-      {/* ── Revenue Forecast + Platform Health + Security Score ─────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="xl:col-span-1">
+        {/* Revenue Forecast */}
+        <div key="forecast" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
           <RevenueForecast />
         </div>
-        <PlatformHealthPulse />
-        <SecurityScoreWidget />
-      </div>
 
+        {/* Platform Health */}
+        <div key="health" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <PlatformHealthPulse />
+        </div>
+
+        {/* Security Score */}
+        <div key="security" className="relative overflow-auto">
+          {isCustomizing && <div className="widget-drag-handle absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing p-1 rounded bg-indigo-100 hover:bg-indigo-200"><GripVertical className="w-4 h-4 text-indigo-500" /></div>}
+          <SecurityScoreWidget />
+        </div>
+      </ResponsiveGridLayout>
     </div>
   );
 }
