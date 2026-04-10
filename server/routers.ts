@@ -1008,6 +1008,7 @@ const ussdRouter = router({
       const merchant = await requireMerchant(user.id);
       const { getDb } = await import('./db');
       const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { ussdSessions } = await import('../drizzle/schema');
       const { eq, and, ilike, desc: descOrd } = await import('drizzle-orm');
       const conditions: ReturnType<typeof eq>[] = [eq(ussdSessions.merchantId, merchant.id)];
@@ -1026,6 +1027,7 @@ const ussdRouter = router({
       const merchant = await requireMerchant(user.id);
       const { getDb } = await import('./db');
       const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { ussdSessions } = await import('../drizzle/schema');
       const { eq, count } = await import('drizzle-orm');
       const rows = await db.select({
@@ -1056,6 +1058,7 @@ const ussdRouter = router({
       const merchant = await requireMerchant(user.id);
       const { getDb } = await import('./db');
       const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { ussdSessions } = await import('../drizzle/schema');
       const id = nanoid('ussd_');
       await db.insert(ussdSessions).values({
