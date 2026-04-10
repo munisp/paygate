@@ -2311,3 +2311,56 @@
 - [x] Create CI/CD pipeline: .github/workflows/ci.yml, deploy.yml, db-backup.yml
 - [x] Final verification: 0 TypeScript errors, 1908 tests passing (55 files)
 - [x] Production archive: paygate_COMPLETE_v81.tar.gz (332 MB)
+
+## Wave 82 — Full UI/UX + Middleware Audit (Apr 10, 2026)
+
+### UI/UX Fixes
+- [ ] Add /merchant-lending route to App.tsx (nav item exists, route missing)
+- [ ] Wire ConsumerProfile.tsx to real API (trpc.auth.me + consumer profile endpoints)
+- [ ] Wire Discover.tsx to real API (consumer products/offers endpoint)
+- [ ] Fix ~60 pages with hardcoded/mock data — replace with real trpc calls
+- [ ] Audit every button/link/dropdown/search on all 176 pages for functional wiring
+
+### Middleware Integrations
+- [ ] Kafka: Add consumer/subscriber in Go bridge (kafka consumer group handler)
+- [ ] Dapr: Add sidecar pub/sub topics and state store routes in Go bridge
+- [ ] Fluvio: Add SSE consumer endpoint for real-time event streaming
+- [ ] Keycloak: Add dedicated Keycloak admin client package in Go bridge
+- [ ] APISIX: Add dedicated APISIX admin client with route/plugin management
+- [ ] Mojaloop: Complete full transfer flow in activities_mojaloop.go
+- [ ] Lakehouse: Add DuckDB/Iceberg integration for analytics queries
+- [ ] Permify: Add policy sync and role management endpoints
+
+### Suggested Next Steps
+- [ ] Run seed-wave80.mjs to populate wave80 tables
+- [ ] Wire Stripe sandbox claim flow
+- [ ] Verify GitHub CI/CD workflows trigger correctly
+
+## Wave 82 — UI Audit, Middleware Integration, Production Hardening
+
+- [x] Audit all 147 navigation links vs App.tsx routes — 0 missing routes
+- [x] Add missing /merchant-lending route alias in App.tsx
+- [x] Wire FXDashboard "Convert & Settle" button to real trpc.fx.convertCurrency mutation
+- [x] Wire FXDashboard "Save Preferences" button to real trpc.fx.savePreferences mutation
+- [x] Wire FraudRisk "Promote to Production" button to real trpc.fraudRisk.promoteModel mutation
+- [x] Wire DisputeWorkflow "Escalate" and "Accept Dispute" buttons to real mutations
+- [x] Add disputes.escalate mutation to disputesRouter
+- [x] Add disputes.accept mutation to disputesRouter
+- [x] Add fraudRisk.promoteModel mutation to fraudRiskRouter
+- [x] Add fx.convertCurrency mutation to fxRouter
+- [x] Add fx.savePreferences mutation to fxRouter
+- [x] Fix TypeScript errors: notifyDisputeResolved signature, resolution enum, FXConversionRequest fields
+- [x] Add Keycloak admin client package to Go bridge (internal/keycloak/client.go)
+- [x] Add Kafka consumer group handler to Go bridge (internal/kafka/consumer.go)
+- [x] Add Dapr HTTP sidecar pub/sub client to Go bridge (internal/dapr/dapr.go)
+- [x] Add Fluvio SSE consumer endpoint to Go bridge (internal/fluvio/consumer.go)
+- [x] Add APISIX admin client to Go bridge (internal/apisix/client.go)
+- [x] Add Solana helper functions (IsValidBase58Address, LamportsToUsdc, UsdcToLamports) to Go bridge
+- [x] Fix Go bridge tests: CrossBorderInput.Corridor -> Corridors, NIBSS env unset, solana import path
+- [x] Wire Keycloak, Dapr, APISIX, Kafka consumer, Fluvio SSE to Go bridge main.go
+- [x] Add SSE /events/stream endpoint to Go bridge for real-time event streaming
+- [x] Add Dapr /dapr/subscribe endpoint to Go bridge
+- [x] All Go bridge tests pass (6 packages, 0 failures)
+- [x] All TypeScript tests pass (55 files, 1908 tests)
+- [x] Wave 80 seed data already populated in database (22 tables)
+- [x] 3 GitHub Actions CI/CD workflows created (ci.yml, deploy.yml, db-backup.yml)

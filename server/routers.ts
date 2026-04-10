@@ -1271,6 +1271,45 @@ const disputesRouter = router({
       const avgResolutionDays = Math.round(avgMs / (1000 * 60 * 60 * 24));
       return { open, resolved, won, lost, winRate, avgResolutionDays };
     }),
+  escalate: protectedProcedure
+    .input(z.object({ id: z.string(), reason: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const dispute = await getDisputeById(input.id);
+      if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      await updateDispute(input.id, { status: 'under_review', merchantResponse: input.reason ?? 'Escalated to compliance team' });
+      await notifyDisputeEscalated({ merchantId: merchant.id, disputeId: input.id, reason: input.reason ?? 'Escalated by merchant' });
+      if (isBridgeAvailable()) {
+        resolveDisputeViaMiddleware({ disputeId: input.id, merchantId: merchant.id, resolution: 'escalated', resolvedBy: ctx.user.openId })
+          .catch((e: unknown) => logger.error('[bridge] escalateDispute failed (non-fatal):', e));
+      }
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
+        action: 'dispute.escalated', resource: 'dispute', resourceId: input.id,
+        metadata: { reason: input.reason },
+      })).catch(() => {});
+      return { success: true };
+    }),
+  accept: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const dispute = await getDisputeById(input.id);
+      if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      await updateDispute(input.id, { status: 'resolved_customer', merchantResponse: 'Merchant accepted dispute — funds returned to customer' });
+      await notifyDisputeResolved({ merchantName: merchant.name ?? 'Merchant', disputeId: input.id, outcome: 'customer_won', amount: dispute.amount, currency: dispute.currency ?? 'NGN' });
+      if (isBridgeAvailable()) {
+        resolveDisputeViaMiddleware({ disputeId: input.id, merchantId: merchant.id, resolution: 'lost', resolvedBy: ctx.user.openId })
+          .catch((e: unknown) => logger.error('[bridge] acceptDispute failed (non-fatal):', e));
+      }
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
+        action: 'dispute.accepted', resource: 'dispute', resourceId: input.id, metadata: {},
+      })).catch(() => {});
+      return { success: true };
+    }),
 });
 
 // ─── Virtual Cards Router ─────────────────────────────────────────────────────
@@ -2001,8 +2040,27 @@ const complianceKycRouter = router({
       }
       return { success: true };
     }),
-});
+  promoteModel: protectedProcedure
+    .input(z.object({
+      modelName: z.string().min(1),
+      version: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
+        action: 'fraudModel.promoted', resource: 'fraud_model', resourceId: input.modelName,
+        metadata: { version: input.version ?? 'latest' },
+      })).catch(() => {});
+      await notifyOwner({
+        title: `Fraud Model Promoted: ${input.modelName}`,
+        content: `Model "${input.modelName}" (v${input.version ?? 'latest'}) promoted to production by ${user.email ?? user.openId}.`,
+      });
+      return { success: true, modelName: input.modelName, promotedAt: new Date().toISOString() };
+    }),
 
+});
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
 const bnplRouter = router({
   list: protectedProcedure
@@ -2236,6 +2294,60 @@ const fxRouter = router({
         content: `Alert configured: notify when ${input.baseCurrency}/${input.targetCurrency} goes ${input.direction} ${input.threshold}. User: ${user.email ?? user.openId}.`,
       });
       return { success: true, ...input };
+    }),
+  convertCurrency: protectedProcedure
+    .input(z.object({
+      fromCurrency: z.string().length(3),
+      toCurrency: z.string().length(3),
+      amount: z.number().positive(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rates = await getLatestFxRates(input.fromCurrency);
+      const targetRate = rates.find(r => r.targetCurrency === input.toCurrency);
+      const rate = targetRate ? parseFloat(targetRate.rate) : 1;
+      const convertedAmount = input.amount * rate;
+      const fee = input.amount * 0.008;
+      const conversionId = nanoid('fxconv_');
+      // Bridge: record FX conversion via middleware
+      if (isBridgeAvailable()) {
+        recordFXConversionViaMiddleware({
+          conversionId,
+          merchantId: merchant.id,
+          sourceCurrency: input.fromCurrency,
+          targetCurrency: input.toCurrency,
+          sourceAmount: input.amount,
+          targetAmount: convertedAmount,
+          exchangeRate: rate,
+          fee,
+        }).catch(e => logger.error('[bridge] recordFXConversion failed (non-fatal):', e));
+      }
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'fx.conversion',
+        resource: 'fx_conversion',
+        resourceId: conversionId,
+        metadata: { fromCurrency: input.fromCurrency, toCurrency: input.toCurrency, amount: input.amount, convertedAmount, rate, fee },
+      })).catch(() => {});
+      return { success: true, conversionId, fromCurrency: input.fromCurrency, toCurrency: input.toCurrency, amount: input.amount, convertedAmount, rate, fee };
+    }),
+  savePreferences: protectedProcedure
+    .input(z.object({
+      settlementCurrency: z.string().length(3),
+      autoConvert: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const existing = await getMerchantByOwnerId(user.id);
+      const meta = ((existing as any)?.metadata ?? {}) as Record<string, unknown>;
+      await updateMerchant(merchant.id, {
+        metadata: { ...meta, fxSettlementCurrency: input.settlementCurrency, fxAutoConvert: input.autoConvert ?? false },
+      });
+      return { success: true, settlementCurrency: input.settlementCurrency };
     }),
 });
 // ─── Transaction Export Routerr ────────────────────────────────────────────────

@@ -313,6 +313,7 @@ function Router() {
         <Route path="/settlements" component={Settlements} />
         {/* Tier 1-5 New Features */}
         <Route path="/lending" component={MerchantLending} />
+        <Route path="/merchant-lending" component={MerchantLending} />
         <Route path="/split-payments" component={SplitPayments} />
         <Route path="/recurring-billing" component={RecurringBilling} />
         <Route path="/dcc" component={DCCDashboard} />

@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,7 +24,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/paygate/go-bridge/internal/apisix"
+	"github.com/paygate/go-bridge/internal/dapr"
 	"github.com/paygate/go-bridge/internal/fluvio"
+	"github.com/paygate/go-bridge/internal/keycloak"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
 	"github.com/paygate/go-bridge/internal/kafka"
@@ -111,6 +115,40 @@ slog.Info("env var validation complete")
 	permify.Init()
 	slog.Info("Permify client initialised")
 
+	// Keycloak init
+	keycloak.Init()
+	slog.Info("Keycloak client initialised")
+
+	// Dapr init
+	dapr.Init()
+	slog.Info("Dapr client initialised")
+
+	// APISIX init
+	apisix.Init()
+	slog.Info("APISIX client initialised")
+
+	// Kafka consumer init — start consuming inbound events
+	kafkaConsumer := kafka.NewDefaultConsumer()
+
+	// Fluvio SSE consumer init
+	sseConsumer := fluvio.GetSSEConsumer()
+
+	// Start background workers
+	ctxWorkers, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
+	go kafkaConsumer.Start(ctxWorkers)
+	go sseConsumer.Start(ctxWorkers)
+
+	// Register APISIX routes (non-blocking, best-effort)
+	go func() {
+		if err := apisix.RegisterPayGateRoutes(context.Background()); err != nil {
+			slog.Warn("APISIX route registration failed", "err", err)
+		}
+	}()
+
+	// Ensure pgdb is used (suppress unused import)
+	_ = pgdb.Get
+
 	// ── HTTP router ──────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
@@ -172,6 +210,18 @@ slog.Info("env var validation complete")
 
 	// Auth / role sync
 	mux.HandleFunc("POST /v1/auth/sync-roles", authMiddleware(handlers.SyncRolesToPermify))
+
+	// ── Fluvio SSE stream endpoint ──────────────────────────────────────────────
+	// Clients subscribe to GET /v1/stream/events for real-time SSE updates
+	mux.HandleFunc("GET /v1/stream/events", authMiddleware(sseConsumer.ServeSSE))
+
+	// ── Dapr subscription config endpoint ────────────────────────────────────────
+	// Required by Dapr sidecar to discover which topics this app subscribes to
+	mux.HandleFunc("GET /dapr/subscribe", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		jsonBytes, _ := json.Marshal(dapr.DefaultSubscriptions())
+		w.Write(jsonBytes)
+	})
 
 	// Temporal workflow observability
 	mux.HandleFunc("GET /v1/workflows/active", authMiddleware(handlers.ListActiveWorkflows))

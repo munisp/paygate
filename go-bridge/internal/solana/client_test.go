@@ -3,7 +3,7 @@ package solana_test
 import (
 	"testing"
 
-	"github.com/paygate/bridge/internal/solana"
+	"github.com/paygate/go-bridge/internal/solana"
 )
 
 // TestValidateWalletAddress tests the Ed25519 + token account pre-check logic.

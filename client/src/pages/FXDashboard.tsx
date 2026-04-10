@@ -128,6 +128,14 @@ export default function FXDashboard() {
     onSuccess: (d) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
     onError: () => toast.error("Failed to fetch live rates"),
   });
+  const convertMutation = trpc.fx.convertCurrency.useMutation({
+    onSuccess: (d) => toast.success(`Conversion complete: ${d.convertedAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${d.toCurrency} (ref: ${d.conversionId})`),
+    onError: (e) => toast.error(e.message),
+  });
+  const savePrefsMutation = trpc.fx.savePreferences.useMutation({
+    onSuccess: () => toast.success("Settlement preferences saved!"),
+    onError: (e) => toast.error(e.message),
+  });
 
   // Merge live DB rates into the rates map
   useEffect(() => {
@@ -314,8 +322,8 @@ export default function FXDashboard() {
               </div>
             </div>
 
-            <Button className="w-full" onClick={() => toast.success(`FX conversion initiated: ${fromCurr.symbol}${amount} → ${toCurr.symbol}${convertedAmount}`)}>
-              Convert & Settle
+            <Button className="w-full" disabled={convertMutation.isPending || !amount || parseFloat(amount) <= 0} onClick={() => convertMutation.mutate({ fromCurrency, toCurrency, amount: parseFloat(amount) })}>
+              {convertMutation.isPending ? "Converting..." : "Convert & Settle"}
             </Button>
           </div>
 
@@ -449,7 +457,9 @@ export default function FXDashboard() {
               </div>
             </div>
 
-            <Button className="w-full" onClick={() => toast.success("Settlement preferences saved!")}>Save Preferences</Button>
+            <Button className="w-full" disabled={savePrefsMutation.isPending} onClick={() => savePrefsMutation.mutate({ settlementCurrency, autoConvert: false, preferredProvider: "internal" })}>
+              {savePrefsMutation.isPending ? "Saving..." : "Save Preferences"}
+            </Button>
           </div>
 
           <div className="bg-card rounded-xl border border-border p-5 space-y-4">

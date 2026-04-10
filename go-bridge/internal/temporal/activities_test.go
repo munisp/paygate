@@ -2,6 +2,7 @@ package temporal_test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/paygate/go-bridge/internal/pgdb"
@@ -13,6 +14,14 @@ func init() {
 	// Use TigerBeetle mock client and noop pgdb for all activity tests.
 	tb.InitMock()
 	pgdb.InitNoop()
+	// Unset external service env vars so activities use noop/sandbox paths.
+	// These are injected in the Manus sandbox but must not be used in unit tests.
+	os.Unsetenv("NIBSS_GATEWAY_URL")
+	os.Unsetenv("NIBSS_SECRET_KEY")
+	os.Unsetenv("NIBSS_INSTITUTION_CODE")
+	os.Unsetenv("TEMPORAL_HOST_PORT")
+	os.Unsetenv("SMTP_HOST")
+	os.Unsetenv("STRIPE_SECRET_KEY")
 }
 
 // ─── ActivitySet instantiation ────────────────────────────────────────────────
@@ -282,7 +291,7 @@ func TestGetCrossBorderQuote_NoMojaloop_ReturnsMockQuote(t *testing.T) {
 	acts := temporal.NewActivitySet()
 	quoteID, err := acts.GetCrossBorderQuote(context.Background(), temporal.CrossBorderInput{
 		TransferID: "transfer-001",
-		Corridor:   "NGN-KES",
+		Corridors:  "NGN-KES",
 	})
 	if err != nil {
 		t.Fatalf("GetCrossBorderQuote failed: %v", err)
@@ -299,7 +308,7 @@ func TestExecuteMojalloopTransfer_NoMojaloop_Noop(t *testing.T) {
 	err := acts.ExecuteMojalloopTransfer(context.Background(), temporal.CrossBorderInput{
 		TransferID: "transfer-001",
 		QuoteID:    "quote-001",
-		Corridor:   "NGN-KES",
+		Corridors:  "NGN-KES",
 	})
 	if err != nil {
 		t.Fatalf("expected nil when Mojaloop not configured, got: %v", err)

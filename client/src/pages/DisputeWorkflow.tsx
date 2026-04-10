@@ -33,6 +33,14 @@ export default function DisputeWorkflow() {
     { enabled: !!params.id, staleTime: 30_000 }
   );
 
+  const escalateMutation = trpc.disputes.escalate.useMutation({
+    onSuccess: () => { utils.disputes.list.invalidate(); utils.disputes.get.invalidate({ id: params.id! }); toast.success("Dispute escalated to compliance team."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const acceptMutation = trpc.disputes.accept.useMutation({
+    onSuccess: () => { utils.disputes.list.invalidate(); utils.disputes.get.invalidate({ id: params.id! }); toast.success("Dispute accepted — funds will be returned to customer."); navigate("/disputes"); },
+    onError: (e) => toast.error(e.message),
+  });
   const respondMutation = trpc.disputes.respond.useMutation({
     onSuccess: () => {
       utils.disputes.list.invalidate();
@@ -286,13 +294,15 @@ export default function DisputeWorkflow() {
               <CardTitle className="text-sm">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button variant="outline" className="w-full justify-start text-sm" onClick={() => toast.info("Refund initiated — processing via payout flow")}>
+              <Button variant="outline" className="w-full justify-start text-sm" onClick={() => navigate("/payouts")}>
                 💸 Issue Refund
               </Button>
-              <Button variant="outline" className="w-full justify-start text-sm" onClick={() => toast.info("Escalated to compliance team")}>
+              <Button variant="outline" className="w-full justify-start text-sm" onClick={() => escalateMutation.mutate({ id: params.id!, reason: 'Escalated to compliance team by merchant' })} disabled={escalateMutation.isPending}>
+                {escalateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                 🚨 Escalate to Compliance
               </Button>
-              <Button variant="outline" className="w-full justify-start text-sm text-destructive hover:text-destructive" onClick={() => toast.info("Dispute accepted — funds will be returned to customer")}>
+              <Button variant="outline" className="w-full justify-start text-sm text-destructive hover:text-destructive" onClick={() => acceptMutation.mutate({ id: params.id! })} disabled={acceptMutation.isPending}>
+                {acceptMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                 ✓ Accept Dispute
               </Button>
             </CardContent>

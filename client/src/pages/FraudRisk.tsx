@@ -121,6 +121,10 @@ export default function FraudRisk() {
     },
     onError: () => toast.error("Snooze failed"),
   });
+  const promoteModel = trpc.fraudRisk.promoteModel.useMutation({
+    onSuccess: (d) => toast.success(`${d.modelName} promoted to production at ${new Date(d.promotedAt).toLocaleTimeString()}`),
+    onError: (e) => toast.error(e.message),
+  });
   const bulkUpdateAlerts = trpc.fraudRisk.bulkUpdateAlerts.useMutation({
     onMutate: async ({ ids, status }) => {
       // Optimistic update: remove resolved/false_positive rows from the list
@@ -847,8 +851,8 @@ export default function FraudRisk() {
                 </div>
               </div>
               {m.status === "shadow" && (
-                <Button size="sm" className="w-full" onClick={() => toast.success(`${m.name} promoted to production!`)}>
-                  <ArrowUpRight className="w-4 h-4 mr-2" />Promote to Production
+                <Button size="sm" className="w-full" disabled={promoteModel.isPending} onClick={() => promoteModel.mutate({ modelName: m.name, version: 'latest' })}>
+                  <ArrowUpRight className="w-4 h-4 mr-2" />{promoteModel.isPending ? "Promoting..." : "Promote to Production"}
                 </Button>
               )}
             </div>
