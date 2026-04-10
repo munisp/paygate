@@ -131,4 +131,14 @@ export const ENV = {
   pensionApiKey: process.env.PENSION_API_KEY ?? "",
   nhfUrl: process.env.NHF_URL ?? "https://api.fmbn.gov.ng/v1",
   nhfApiKey: process.env.NHF_API_KEY ?? "",
+  // Settlement Forecast
+  settlementForecastUrl: process.env.SETTLEMENT_FORECAST_URL ?? "http://settlement-forecast:9010",
+  // Carbon Oracle
+  carbonOracleUrl: process.env.CARBON_ORACLE_URL ?? "http://carbon-oracle:9011",
+  // Insurance Pricing
+  insurancePricingUrl: process.env.INSURANCE_PRICING_URL ?? "http://insurance-pricing:9012",
+  // Tax Engine
+  taxEngineUrl: process.env.TAX_ENGINE_URL ?? "http://tax-engine:9013",
+  // ISO 20022 Parser
+  iso20022ParserUrl: process.env.ISO20022_PARSER_URL ?? "http://iso20022-parser:9014",
 };

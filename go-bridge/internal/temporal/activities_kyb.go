@@ -254,7 +254,7 @@ func NotifyKYBCompletionActivity(ctx context.Context, merchantID, status, riskLe
 
 // AggregateCBNReportDataActivity aggregates transaction data for CBN reporting.
 func AggregateCBNReportDataActivity(ctx context.Context, input CBNReportWorkflowInput) (map[string]interface{}, error) {
-	data, err := pgdb.AggregateCBNReportData(ctx, input.MerchantID, input.PeriodStart, input.PeriodEnd, input.ReportType)
+	data, err := pgdb.AggregateCBNReportData(ctx, input.MerchantID, input.PeriodStart.Format(time.RFC3339), input.PeriodEnd.Format(time.RFC3339), input.ReportType)
 	if err != nil {
 		return nil, fmt.Errorf("aggregation failed: %w", err)
 	}
@@ -268,8 +268,8 @@ func GenerateCBNReportDocumentActivity(ctx context.Context, input CBNReportWorkf
 		ReportID:    reportID,
 		MerchantID:  input.MerchantID,
 		ReportType:  input.ReportType,
-		PeriodStart: input.PeriodStart,
-		PeriodEnd:   input.PeriodEnd,
+		PeriodStart: input.PeriodStart.Format(time.RFC3339),
+		PeriodEnd:   input.PeriodEnd.Format(time.RFC3339),
 		Status:      "generated",
 		GeneratedAt: time.Now().UTC(),
 		GeneratedBy: input.GeneratedBy,

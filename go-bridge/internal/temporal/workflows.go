@@ -90,6 +90,50 @@ func RegisterWorker(c client.Client) worker.Worker {
 	// Register USDC deposit monitor workflow
 	w.RegisterWorkflow(USDCDepositMonitorWorkflow)
 
+	// ── KYB Workflows ──────────────────────────────────────────────────────────
+	w.RegisterWorkflow(KYBWorkflow)
+	w.RegisterWorkflow(CBNRegulatoryReportWorkflow)
+	w.RegisterActivity(InitKYBRecordActivity)
+	w.RegisterActivity(VerifyCACRegistrationActivity)
+	w.RegisterActivity(VerifyTINActivity)
+	w.RegisterActivity(YouverifyBusinessVerificationActivity)
+	w.RegisterActivity(VerifyDirectorKYCActivity)
+	w.RegisterActivity(KYBRiskAssessmentActivity)
+	w.RegisterActivity(SanctionsScreeningActivity)
+	w.RegisterActivity(FinalizeKYBActivity)
+	w.RegisterActivity(NotifyKYBCompletionActivity)
+	w.RegisterActivity(GenerateCBNKYBReportActivity)
+	w.RegisterActivity(AggregateCBNReportDataActivity)
+	w.RegisterActivity(GenerateCBNReportDocumentActivity)
+	w.RegisterActivity(SubmitCBNReportActivity)
+	w.RegisterActivity(NotifyComplianceTeamActivity)
+	w.RegisterActivity(UpdateKYBStepActivity)
+
+	// ── Lending Workflows ─────────────────────────────────────────────────────
+	w.RegisterWorkflow(LoanDisbursementWorkflow)
+	w.RegisterWorkflow(RepaymentScheduleWorkflow)
+	w.RegisterWorkflow(LoanDunningWorkflow)
+	w.RegisterActivity(ValidateLoanEligibilityActivity)
+	w.RegisterActivity(ReserveCreditFundsActivity)
+	w.RegisterActivity(PersistRepaymentScheduleActivity)
+	w.RegisterActivity(UpdateLoanToDisbursedActivity)
+	w.RegisterActivity(SendLoanDisbursementNotificationActivity)
+	w.RegisterActivity(ReleaseReservationActivity)
+	w.RegisterActivity(CheckInstalmentPaidActivity)
+	w.RegisterActivity(RepaymentDeductActivity)
+	w.RegisterActivity(FlagLoanDefaultRiskActivity)
+	w.RegisterActivity(MarkLoanCompletedActivity)
+	w.RegisterActivity(SendDunningNotificationActivity)
+
+	// ── Billing Workflows ─────────────────────────────────────────────────────
+	w.RegisterWorkflow(RecurringBillingWorkflow)
+	w.RegisterWorkflow(BillingDunningWorkflow)
+	w.RegisterActivity(CheckSubscriptionActiveActivity)
+	w.RegisterActivity(RecordSubscriptionChargeActivity)
+	w.RegisterActivity(FinalizeSubscriptionActivity)
+	w.RegisterActivity(SendBillingDunningEmailActivity)
+	w.RegisterActivity(SendBillingDunningFinalNoticeActivity)
+
 	return w
 }
 

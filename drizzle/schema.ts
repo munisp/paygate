@@ -1892,3 +1892,420 @@ export const consumerOutbox = pgTable("consumer_outbox", {
   index("co_created_idx").on(t.createdAt),
 ]);
 export type ConsumerOutboxEvent = typeof consumerOutbox.$inferSelect;
+
+// ─── Merchant Profiles (KYB) ──────────────────────────────────────────────────
+export const merchantProfiles = pgTable("merchant_profiles", {
+  merchantId: text("merchant_id").primaryKey(),
+  businessName: text("business_name").notNull(),
+  rcNumber: text("rc_number"),
+  taxId: text("tax_id"),
+  address: text("address"),
+  state: text("state"),
+  country: text("country").default("NG"),
+  kycStatus: text("kyc_status").default("pending"),
+  kybStatus: text("kyb_status").default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("mp_merchant_idx").on(t.merchantId)]);
+export type MerchantProfile = typeof merchantProfiles.$inferSelect;
+
+// ─── Merchant Directors ───────────────────────────────────────────────────────
+export const merchantDirectors = pgTable("merchant_directors", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  fullName: text("full_name").notNull(),
+  bvn: text("bvn"),
+  nin: text("nin"),
+  dateOfBirth: text("date_of_birth"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("md_merchant_idx").on(t.merchantId)]);
+export type MerchantDirector = typeof merchantDirectors.$inferSelect;
+
+// ─── KYB Verifications ────────────────────────────────────────────────────────
+export const kybVerifications = pgTable("kyb_verifications", {
+  verificationId: text("verification_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  businessName: text("business_name").notNull(),
+  rcNumber: text("rc_number"),
+  taxId: text("tax_id"),
+  businessType: text("business_type"),
+  industryCode: text("industry_code"),
+  status: text("status").default("pending"),
+  riskLevel: text("risk_level"),
+  initiatedBy: text("initiated_by"),
+  startedAt: timestamp("started_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("kyb_merchant_idx").on(t.merchantId),
+  index("kyb_status_idx").on(t.status),
+]);
+export type KYBVerification = typeof kybVerifications.$inferSelect;
+
+// ─── KYB Steps ────────────────────────────────────────────────────────────────
+export const kybSteps = pgTable("kyb_steps", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  verificationId: text("verification_id").notNull(),
+  stepName: text("step_name").notNull(),
+  status: text("status").default("pending"),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("kybs_verification_idx").on(t.verificationId)]);
+export type KYBStep = typeof kybSteps.$inferSelect;
+
+// ─── Compliance Reports ───────────────────────────────────────────────────────
+export const complianceReports = pgTable("compliance_reports", {
+  reportId: text("report_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  verificationId: text("verification_id"),
+  reportType: text("report_type").notNull(),
+  status: text("status").default("pending"),
+  riskLevel: text("risk_level"),
+  findings: text("findings"),
+  generatedAt: timestamp("generated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cr_merchant_idx").on(t.merchantId),
+  index("cr_status_idx").on(t.status),
+]);
+export type ComplianceReport = typeof complianceReports.$inferSelect;
+
+// ─── Merchant Loans ───────────────────────────────────────────────────────────
+export const merchantLoans = pgTable("merchant_loans", {
+  loanId: text("loan_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  status: text("status").default("pending_review"),
+  requestedKobo: bigint("requested_kobo", { mode: "number" }).notNull(),
+  approvedKobo: bigint("approved_kobo", { mode: "number" }).default(0),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).default(0),
+  outstandingKobo: bigint("outstanding_kobo", { mode: "number" }).default(0),
+  creditScore: integer("credit_score").default(0),
+  riskBand: text("risk_band"),
+  rateAnnualPct: text("rate_annual_pct").default("0"),
+  termDays: integer("term_days").default(90),
+  purposeCode: text("purpose_code"),
+  notes: text("notes"),
+  dueDate: text("due_date"),
+  disbursedAt: timestamp("disbursed_at"),
+  transferId: text("transfer_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("ml_merchant_idx").on(t.merchantId),
+  index("ml_status_idx").on(t.status),
+]);
+export type MerchantLoan = typeof merchantLoans.$inferSelect;
+
+// ─── Loan Instalments ─────────────────────────────────────────────────────────
+export const loanInstalments = pgTable("loan_instalments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  loanId: text("loan_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  dueDate: text("due_date").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  paidKobo: bigint("paid_kobo", { mode: "number" }).default(0),
+  status: text("status").default("pending"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("li_loan_idx").on(t.loanId),
+  index("li_merchant_idx").on(t.merchantId),
+]);
+export type LoanInstalment = typeof loanInstalments.$inferSelect;
+
+// ─── Loan Repayments ──────────────────────────────────────────────────────────
+export const loanRepayments = pgTable("loan_repayments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  loanId: text("loan_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  transferId: text("transfer_id"),
+  method: text("method"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("lr_loan_idx").on(t.loanId)]);
+export type LoanRepayment = typeof loanRepayments.$inferSelect;
+
+// ─── Split Rules ──────────────────────────────────────────────────────────────
+export const splitRules = pgTable("split_rules", {
+  ruleId: text("rule_id").primaryKey(),
+  ruleName: text("rule_name").notNull(),
+  description: text("description"),
+  recipients: jsonb("recipients").notNull(),
+  createdBy: text("created_by"),
+  isActive: integer("is_active").default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("sr_active_idx").on(t.isActive)]);
+export type SplitRule = typeof splitRules.$inferSelect;
+
+// ─── Split Payments ───────────────────────────────────────────────────────────
+export const splitPayments = pgTable("split_payments", {
+  splitPaymentId: text("split_payment_id").primaryKey(),
+  splitRuleId: text("split_rule_id").notNull(),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull(),
+  reference: text("reference"),
+  legs: jsonb("legs").notNull(),
+  status: text("status").default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("sp_rule_idx").on(t.splitRuleId),
+  index("sp_status_idx").on(t.status),
+]);
+export type SplitPayment = typeof splitPayments.$inferSelect;
+
+// ─── DCC Transactions ─────────────────────────────────────────────────────────
+export const dccTransactions = pgTable("dcc_transactions", {
+  conversionId: text("conversion_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  fromCurrency: text("from_currency").notNull(),
+  toCurrency: text("to_currency").notNull(),
+  originalAmountKobo: bigint("original_amount_kobo", { mode: "number" }).notNull(),
+  convertedAmountKobo: bigint("converted_amount_kobo", { mode: "number" }).notNull(),
+  midRate: text("mid_rate").notNull(),
+  customerRate: text("customer_rate").notNull(),
+  marginPct: text("margin_pct").notNull(),
+  transferId: text("transfer_id"),
+  status: text("status").default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("dcc_merchant_idx").on(t.merchantId),
+  index("dcc_status_idx").on(t.status),
+]);
+export type DCCTransaction = typeof dccTransactions.$inferSelect;
+
+// ─── SDK Tokens (Embedded Finance) ───────────────────────────────────────────
+export const sdkTokens = pgTable("sdk_tokens", {
+  tokenId: text("token_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  scopes: jsonb("scopes"),
+  isRevoked: integer("is_revoked").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("st_merchant_idx").on(t.merchantId),
+  index("st_hash_idx").on(t.tokenHash),
+]);
+export type SDKToken = typeof sdkTokens.$inferSelect;
+
+// ─── Webhook Endpoints (Embedded Finance) ────────────────────────────────────
+export const webhookEndpoints = pgTable("webhook_endpoints", {
+  endpointId: text("endpoint_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  url: text("url").notNull(),
+  secret: text("secret").notNull(),
+  events: jsonb("events"),
+  isActive: integer("is_active").default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("we_merchant_idx").on(t.merchantId),
+  index("we_active_idx").on(t.isActive),
+]);
+export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect;
+
+// ─── Webhook Delivery Log ─────────────────────────────────────────────────────
+export const webhookDeliveryLog = pgTable("webhook_delivery_log", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  endpointId: text("endpoint_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload"),
+  statusCode: integer("status_code"),
+  success: integer("success").default(0),
+  attempt: integer("attempt").default(1),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("wdl_endpoint_idx").on(t.endpointId),
+  index("wdl_merchant_idx").on(t.merchantId),
+]);
+export type WebhookDeliveryLog = typeof webhookDeliveryLog.$inferSelect;
+
+// ─── Consumer Finance Loans (BNPL v2) ────────────────────────────────────────
+export const consumerFinanceLoans = pgTable("consumer_finance_loans", {
+  loanId: text("loan_id").primaryKey(),
+  customerId: text("customer_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  outstandingKobo: bigint("outstanding_kobo", { mode: "number" }).notNull(),
+  status: text("status").default("pending"),
+  termDays: integer("term_days").default(30),
+  rateAnnualPct: text("rate_annual_pct").default("0"),
+  dueDate: text("due_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cfl_customer_idx").on(t.customerId),
+  index("cfl_merchant_idx").on(t.merchantId),
+  index("cfl_status_idx").on(t.status),
+]);
+export type ConsumerFinanceLoan = typeof consumerFinanceLoans.$inferSelect;
+
+// ─── Invoices ─────────────────────────────────────────────────────────────────
+export const invoices = pgTable("invoices", {
+  invoiceId: text("invoice_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id"),
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  lineItems: jsonb("line_items").notNull(),
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN"),
+  status: text("status").default("draft"),
+  dueDate: text("due_date"),
+  paidAt: timestamp("paid_at"),
+  paymentLinkUrl: text("payment_link_url"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("inv_merchant_idx").on(t.merchantId),
+  index("inv_status_idx").on(t.status),
+]);
+export type Invoice = typeof invoices.$inferSelect;
+
+// ─── Invoice Payments ─────────────────────────────────────────────────────────
+export const invoicePayments = pgTable("invoice_payments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  invoiceId: text("invoice_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  method: text("method"),
+  reference: text("reference"),
+  paidAt: timestamp("paid_at").defaultNow().notNull(),
+}, (t) => [index("ip_invoice_idx").on(t.invoiceId)]);
+export type InvoicePayment = typeof invoicePayments.$inferSelect;
+
+// ─── Insurance Policies ───────────────────────────────────────────────────────
+export const insurancePolicies = pgTable("insurance_policies", {
+  policyId: text("policy_id").primaryKey(),
+  customerId: text("customer_id").notNull(),
+  merchantId: text("merchant_id"),
+  productId: text("product_id").notNull(),
+  productName: text("product_name").notNull(),
+  provider: text("provider").notNull(),
+  premiumKobo: bigint("premium_kobo", { mode: "number" }).notNull(),
+  coverageType: text("coverage_type").notNull(),
+  status: text("status").default("active"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("ins_customer_idx").on(t.customerId),
+  index("ins_status_idx").on(t.status),
+]);
+export type InsurancePolicy = typeof insurancePolicies.$inferSelect;
+
+// ─── Carbon Credits ───────────────────────────────────────────────────────────
+export const carbonCredits = pgTable("carbon_credits", {
+  creditId: text("credit_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  projectId: text("project_id").notNull(),
+  projectName: text("project_name").notNull(),
+  tonnes: text("tonnes").notNull(),
+  pricePerTonneKobo: bigint("price_per_tonne_kobo", { mode: "number" }).notNull(),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  vintage: text("vintage"),
+  standard: text("standard"),
+  status: text("status").default("pending"),
+  retiredAt: timestamp("retired_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("cc_merchant_idx").on(t.merchantId),
+  index("cc_status_idx").on(t.status),
+]);
+export type CarbonCredit = typeof carbonCredits.$inferSelect;
+
+// ─── NFT Badges ───────────────────────────────────────────────────────────────
+export const nftBadges = pgTable("nft_badges", {
+  badgeId: text("badge_id").primaryKey(),
+  recipientId: text("recipient_id").notNull(),
+  recipientType: text("recipient_type").default("merchant"),
+  badgeType: text("badge_type").notNull(),
+  badgeName: text("badge_name").notNull(),
+  metadata: jsonb("metadata"),
+  mintTxHash: text("mint_tx_hash"),
+  network: text("network").default("solana"),
+  status: text("status").default("minting"),
+  mintedAt: timestamp("minted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("nb_recipient_idx").on(t.recipientId),
+  index("nb_status_idx").on(t.status),
+]);
+export type NFTBadge = typeof nftBadges.$inferSelect;
+
+// ─── Escrow Contracts ─────────────────────────────────────────────────────────
+export const escrowContracts = pgTable("escrow_contracts", {
+  escrowId: text("escrow_id").primaryKey(),
+  buyerMerchantId: text("buyer_merchant_id").notNull(),
+  sellerMerchantId: text("seller_merchant_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN"),
+  conditions: jsonb("conditions"),
+  status: text("status").default("funded"),
+  releasedAt: timestamp("released_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("ec_buyer_idx").on(t.buyerMerchantId),
+  index("ec_seller_idx").on(t.sellerMerchantId),
+  index("ec_status_idx").on(t.status),
+]);
+export type EscrowContract = typeof escrowContracts.$inferSelect;
+
+// ─── Tax Withholding Records ──────────────────────────────────────────────────
+export const taxWithholdingRecords = pgTable("tax_withholding_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id"),
+  grossAmountKobo: bigint("gross_amount_kobo", { mode: "number" }).notNull(),
+  taxAmountKobo: bigint("tax_amount_kobo", { mode: "number" }).default(0),
+  netAmountKobo: bigint("net_amount_kobo", { mode: "number" }).notNull(),
+  taxType: text("tax_type").default("WHT"),
+  taxRatePct: text("tax_rate_pct").notNull(),
+  period: text("period").notNull(),
+  status: text("status").default("pending"),
+  remittedAt: timestamp("remitted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("twr_merchant_idx").on(t.merchantId),
+  index("twr_period_idx").on(t.period),
+]);
+export type TaxWithholdingRecord = typeof taxWithholdingRecords.$inferSelect;
+
+// ─── Regulatory Sandbox Configs ───────────────────────────────────────────────
+export const regulatorySandboxConfigs = pgTable("regulatory_sandbox_configs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  sandboxType: text("sandbox_type").notNull(),
+  config: jsonb("config"),
+  isActive: integer("is_active").default(1),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("rsc_merchant_idx").on(t.merchantId)]);
+export type RegulatorySandboxConfig = typeof regulatorySandboxConfigs.$inferSelect;
+
+// ─── Bulk Payment Schedules ───────────────────────────────────────────────────
+export const bulkPaymentSchedules = pgTable("bulk_payment_schedules", {
+  scheduleId: text("schedule_id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  scheduleName: text("schedule_name").notNull(),
+  recipients: jsonb("recipients").notNull(),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull(),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  status: text("status").default("pending"),
+  processedCount: integer("processed_count").default(0),
+  failedCount: integer("failed_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bps_merchant_idx").on(t.merchantId),
+  index("bps_status_idx").on(t.status),
+  index("bps_scheduled_idx").on(t.scheduledAt),
+]);
+export type BulkPaymentSchedule = typeof bulkPaymentSchedules.$inferSelect;

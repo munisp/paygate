@@ -118,6 +118,8 @@ import WhiteLabelSDK from "./pages/tier6to8/WhiteLabelSDK";
 import SuperApp from "./pages/tier6to8/SuperApp";
 import LakehouseV2 from "./pages/tier6to8/LakehouseV2";
 import PayrollV2 from "./pages/tier6to8/PayrollV2";
+import SettlementForecast from "./pages/SettlementForecast";
+import TaxEngine from "./pages/TaxEngine";
 
 function Router() {
   const [location] = useLocation();
@@ -267,6 +269,8 @@ function Router() {
         <Route path="/super-app" component={SuperApp} />
         <Route path="/lakehouse-v2" component={LakehouseV2} />
         <Route path="/payroll-v2" component={PayrollV2} />
+        <Route path="/settlement-forecast" component={SettlementForecast} />
+        <Route path="/tax-engine" component={TaxEngine} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

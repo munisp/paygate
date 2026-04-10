@@ -12,11 +12,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,7 +60,7 @@ func IssueSDKToken(w http.ResponseWriter, r *http.Request) {
 
 	// Verify merchant is active and KYB-approved
 	merchant, err := pgdb.GetMerchantProfile(ctx, req.MerchantID)
-	if err != nil || merchant.KYBStatus != "approved" {
+	if err != nil || merchant.KYCStatus != "approved" {
 		http.Error(w, `{"error":"merchant not eligible for SDK access"}`, http.StatusForbidden)
 		return
 	}
@@ -377,7 +375,7 @@ func validateConsentToken(ctx context.Context, token, customerID, dataType strin
 	// In production: validate JWT consent token with Keycloak
 	// For now: check Redis for active consent
 	key := fmt.Sprintf("consent:%s:%s:%s", customerID, dataType, token[:min(16, len(token))])
-	val, _ := redis.Get(ctx, key)
+	val, _ := redis.GetStr(ctx, key)
 	return val != ""
 }
 
@@ -427,15 +425,15 @@ func checkPermifyPolicy(ctx context.Context, merchantID, resource, action string
 }
 
 func fetchAccountBalance(ctx context.Context, customerID string) (map[string]interface{}, error) {
-	balance, err := pgdb.GetConsumerBalance(ctx, customerID)
+	balanceKobo, err := pgdb.GetConsumerBalance(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]interface{}{
-		"available_kobo": balance.AvailableKobo,
-		"ledger_kobo":    balance.LedgerKobo,
+		"available_kobo": balanceKobo,
+		"ledger_kobo":    balanceKobo,
 		"currency":       "NGN",
-		"account_id":     balance.AccountID,
+		"account_id":     customerID,
 		"fetched_at":     time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }

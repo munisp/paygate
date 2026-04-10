@@ -1024,3 +1024,91 @@ networks:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+
+  # ── New Python Microservices ──────────────────────────────────────────────────
+  settlement-forecast:
+    image: paygate/settlement-forecast:${SETTLEMENT_FORECAST_VERSION:-latest}
+    build:
+      context: ../python-services/settlement-forecast
+      dockerfile: Dockerfile
+    container_name: paygate-settlement-forecast
+    restart: unless-stopped
+    ports: ["9010:9010"]
+    environment:
+      PORT: "9010"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  carbon-oracle:
+    image: paygate/carbon-oracle:${CARBON_ORACLE_VERSION:-latest}
+    build:
+      context: ../python-services/carbon-oracle
+      dockerfile: Dockerfile
+    container_name: paygate-carbon-oracle
+    restart: unless-stopped
+    ports: ["9011:9011"]
+    environment:
+      PORT: "9011"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  insurance-pricing:
+    image: paygate/insurance-pricing:${INSURANCE_PRICING_VERSION:-latest}
+    build:
+      context: ../python-services/insurance-pricing
+      dockerfile: Dockerfile
+    container_name: paygate-insurance-pricing
+    restart: unless-stopped
+    ports: ["9012:9012"]
+    environment:
+      PORT: "9012"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tax-engine:
+    image: paygate/tax-engine:${TAX_ENGINE_VERSION:-latest}
+    build:
+      context: ../python-services/tax-engine
+      dockerfile: Dockerfile
+    container_name: paygate-tax-engine
+    restart: unless-stopped
+    ports: ["9013:9013"]
+    environment:
+      PORT: "9013"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9013/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  iso20022-parser:
+    image: paygate/iso20022-parser:${ISO20022_PARSER_VERSION:-latest}
+    build:
+      context: ../python-services/iso20022-parser
+      dockerfile: Dockerfile
+    container_name: paygate-iso20022-parser
+    restart: unless-stopped
+    ports: ["9014:9014"]
+    environment:
+      PORT: "9014"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9014/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

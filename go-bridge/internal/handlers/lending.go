@@ -287,7 +287,7 @@ func DisburseLoan(w http.ResponseWriter, r *http.Request) {
 	creditReserveID := uint128FromUint64(9000000000000001)
 
 	transferID := uuid.New()
-	tbTransferID, err := tb.UUIDToUint128(transferID)
+	tbTransferID, err := tb.UUIDToUint128(transferID.String())
 	if err != nil {
 		slog.Error("failed to create TigerBeetle transfer ID", "err", err)
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
@@ -370,7 +370,7 @@ func RecordLoanRepayment(w http.ResponseWriter, r *http.Request) {
 	creditReserveID := uint128FromUint64(9000000000000001)
 
 	repaymentID := uuid.New()
-	tbRepaymentID, _ := tb.UUIDToUint128(repaymentID)
+	tbRepaymentID, _ := tb.UUIDToUint128(repaymentID.String())
 
 	if err := tb.ExecuteTransfer(ctx, tb.TransferRequest{
 		ID:              tbRepaymentID,
@@ -434,7 +434,7 @@ func GetLoanStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Try Redis cache first
 	var cached map[string]interface{}
-	if err := redis.GetJSON(ctx, fmt.Sprintf("loan:status:%s", loanID), &cached); err == nil {
+	if _, err := redis.GetJSON(ctx, fmt.Sprintf("loan:status:%s", loanID), &cached); err == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
 		json.NewEncoder(w).Encode(cached)

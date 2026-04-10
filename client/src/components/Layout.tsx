@@ -107,6 +107,8 @@ const navItems = [
   { icon: Tablet, label: "Super App", path: "/super-app", badge: "New" },
   { icon: Database, label: "Lakehouse v2", path: "/lakehouse-v2", badge: "New" },
   { icon: DollarSign, label: "Payroll v2", path: "/payroll-v2", badge: "New" },
+  { icon: TrendingUp, label: "Settlement Forecast", path: "/settlement-forecast", badge: "New" },
+  { icon: Receipt, label: "Tax Engine", path: "/tax-engine", badge: "New" },
 ];
 
 const devItems = [

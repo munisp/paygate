@@ -72,14 +72,14 @@ func GetDCCRate(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt string  `json:"updated_at"`
 	}
 	rateKey := fmt.Sprintf("dcc:rate:%s", pair)
-	if err := redis.GetJSON(ctx, rateKey, &cachedRate); err != nil {
+	if _, err := redis.GetJSON(ctx, rateKey, &cachedRate); err != nil {
 		// Fall back to DB rates table
 		dbRate, err := pgdb.GetLatestFXRate(ctx, req.FromCurrency, req.ToCurrency)
 		if err != nil {
 			http.Error(w, `{"error":"rate not available for this currency pair"}`, http.StatusNotFound)
 			return
 		}
-		cachedRate.MidRate = dbRate.Rate
+		cachedRate.MidRate = dbRate.MidRate
 	}
 
 	// Get merchant DCC margin config
@@ -133,7 +133,7 @@ func ExecuteDCCConversion(w http.ResponseWriter, r *http.Request) {
 
 	// Validate quote
 	var quote map[string]interface{}
-	if err := redis.GetJSON(ctx, fmt.Sprintf("dcc:quote:%s", req.QuoteID), &quote); err != nil {
+	if _, err := redis.GetJSON(ctx, fmt.Sprintf("dcc:quote:%s", req.QuoteID), &quote); err != nil {
 		http.Error(w, `{"error":"quote expired or not found"}`, http.StatusGone)
 		return
 	}
@@ -146,7 +146,7 @@ func ExecuteDCCConversion(w http.ResponseWriter, r *http.Request) {
 	// TigerBeetle: FX conversion transfer
 	// Debit customer in source currency, credit merchant in target currency
 	conversionID := uuid.New()
-	tbConversionID, _ := tb.UUIDToUint128(conversionID)
+	tbConversionID, _ := tb.UUIDToUint128(conversionID.String())
 	customerAccountID := tb.CustomerAccountID(req.CustomerID)
 	merchantAccountID := tb.MerchantAccountID(req.MerchantID)
 

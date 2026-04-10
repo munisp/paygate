@@ -71,9 +71,9 @@ func DisburseFundsActivity(ctx context.Context, loanID, merchantID string, amoun
 		"loan_id", loanID,
 		"merchant_id", merchantID,
 		"amount_kobo", amountKobo,
-		"transfer_id", transferID.String(),
+		"transfer_id", transferID,
 	)
-	return transferID.String(), nil
+	return transferID, nil
 }
 
 // ReleaseReservationActivity releases a credit reservation on workflow failure.
@@ -158,12 +158,12 @@ func RepaymentDeductActivity(ctx context.Context, loanID, merchantID string, amo
 
 	// Record repayment
 	pgdb.RecordLoanRepayment(ctx, pgdb.LoanRepaymentRecord{
-		RepaymentID:      repaymentID.String(),
+		RepaymentID:      repaymentID,
 		LoanID:           loanID,
 		MerchantID:       merchantID,
 		AmountKobo:       amountKobo,
 		Reference:        fmt.Sprintf("AUTO-DEDUCT-%s-%d", loanID, instalmentNumber),
-		TransferID:       repaymentID.String(),
+		TransferID:       repaymentID,
 		InstalmentNumber: instalmentNumber,
 	})
 

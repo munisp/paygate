@@ -887,6 +887,65 @@ const posTerminalV2Router = router({
     }),
 });
 
+// ─── Settlement Forecast ────────────────────────────────────────────────────
+const settlementForecastRouter = router({
+  getForecast: protectedProcedure
+    .input(z.object({ days: z.number().int().min(1).max(90).default(30) }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/settlement-forecast?merchantId=${ctx.user.id}&days=${input.days}`);
+      return res as {
+        forecast: { date: string; expectedAmountKobo: number; confidenceScore: number }[];
+        totalExpectedKobo: number;
+        averageDailyKobo: number;
+        trend: "up" | "down" | "stable";
+      };
+    }),
+  getHistory: protectedProcedure
+    .input(z.object({ from: z.string(), to: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/settlement-forecast/history?merchantId=${ctx.user.id}&from=${input.from}&to=${input.to}`);
+      return res as { settlements: { date: string; amountKobo: number; status: string; bankRef: string }[] };
+    }),
+});
+
+// ─── Tax Engine ───────────────────────────────────────────────────────────────
+const taxEngineRouter = router({
+  calculateTax: protectedProcedure
+    .input(z.object({
+      amountKobo: z.number().positive(),
+      transactionType: z.enum(["payment", "bank_transfer", "service_fee", "subscription", "payout", "invoice"]).default("payment"),
+      includeWht: z.boolean().default(false),
+    }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/tax-engine/calculate?amount=${input.amountKobo}&type=${input.transactionType}&wht=${input.includeWht}&merchantId=${ctx.user.id}`);
+      return res as {
+        grossAmountKobo: number;
+        totalTaxKobo: number;
+        netAmountKobo: number;
+        effectiveTaxRatePct: number;
+        taxBreakdown: { taxType: string; description: string; rate: number; amountKobo: number }[];
+      };
+    }),
+  getMonthlyRemittance: protectedProcedure
+    .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgeGet(`/tax-engine/remittance?merchantId=${ctx.user.id}&month=${input.month}`);
+      return res as {
+        period: string;
+        vatKobo: number;
+        whtKobo: number;
+        stampDutyKobo: number;
+        totalRemittanceKobo: number;
+        dueDate: string;
+        paymentReference: string;
+      };
+    }),
+  getTaxRates: publicProcedure.query(async () => {
+    const res = await bridgeGet("/tax-engine/rates");
+    return res as { rates: Record<string, { rate: number; description: string; remitTo: string }> };
+  }),
+});
+
 // ─── Tier 6-8 Combined Router ─────────────────────────────────────────────────
 export const tier6to8Router = router({
   insurance: insuranceRouter,
@@ -909,4 +968,6 @@ export const tier6to8Router = router({
   agentBankingV2: agentBankingV2Router,
   remittanceV2: remittanceV2Router,
   posTerminalV2: posTerminalV2Router,
+  settlementForecast: settlementForecastRouter,
+  taxEngine: taxEngineRouter,
 });

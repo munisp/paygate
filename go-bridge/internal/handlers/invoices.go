@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,7 +119,19 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		CustomerID:     req.CustomerID,
 		CustomerEmail:  req.CustomerEmail,
 		CustomerName:   req.CustomerName,
-		LineItems:      req.LineItems,
+		LineItems:      func() []pgdb.InvoiceLineItem {
+			items := make([]pgdb.InvoiceLineItem, len(req.LineItems))
+			for i, li := range req.LineItems {
+				items[i] = pgdb.InvoiceLineItem{
+					Description:   li.Description,
+					Quantity:      li.Quantity,
+					UnitPriceKobo: li.UnitPriceKobo,
+					TaxPct:        li.TaxPct,
+					DiscountPct:   li.DiscountPct,
+				}
+			}
+			return items
+		}(),
 		SubtotalKobo:   subtotal,
 		TaxKobo:        taxTotal,
 		DiscountKobo:   discountTotal,
@@ -254,7 +267,7 @@ func RecordInvoicePayment(w http.ResponseWriter, r *http.Request) {
 	payerAccountID := tb.CustomerAccountID(req.PayerID)
 	merchantAccountID := tb.MerchantAccountID(invoice.MerchantID)
 	paymentID := uuid.New()
-	tbPaymentID, _ := tb.UUIDToUint128(paymentID)
+	tbPaymentID, _ := tb.UUIDToUint128(paymentID.String())
 
 	if err := tb.ExecuteTransfer(ctx, tb.TransferRequest{
 		ID:              tbPaymentID,

@@ -651,3 +651,78 @@ global_rules:
     opentelemetry:
       sampler:
         name: always_on
+- id: settlement-forecast
+  uri: /api/v1/settlement-forecast/*
+  name: settlement-forecast
+  upstream:
+    type: roundrobin
+    nodes:
+      settlement-forecast:9010: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 50
+      burst: 20
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+- id: carbon-oracle
+  uri: /api/v1/carbon/*
+  name: carbon-oracle
+  upstream:
+    type: roundrobin
+    nodes:
+      carbon-oracle:9011: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 50
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+- id: insurance-pricing
+  uri: /api/v1/insurance/*
+  name: insurance-pricing
+  upstream:
+    type: roundrobin
+    nodes:
+      insurance-pricing:9012: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 50
+      burst: 20
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+- id: tax-engine
+  uri: /api/v1/tax/*
+  name: tax-engine
+  upstream:
+    type: roundrobin
+    nodes:
+      tax-engine:9013: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 200
+      burst: 100
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+- id: iso20022-parser
+  uri: /api/v1/iso20022/*
+  name: iso20022-parser
+  upstream:
+    type: roundrobin
+    nodes:
+      iso20022-parser:9014: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 50
+      burst: 20
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}

@@ -221,12 +221,124 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("GET /v1/invoices/{id}", authMiddleware(handlers.GetInvoice))
 	mux.HandleFunc("GET /v1/invoices", authMiddleware(handlers.ListMerchantInvoices))
 
-	// ── Embedded Finance / Open Banking ──────────────────────────────────────
+	// ── Embedded Finance / Open Banking ──────────────────────────────────────────────
 	mux.HandleFunc("POST /v1/embedded/sdk-token", authMiddleware(handlers.IssueSDKToken))
 	mux.HandleFunc("POST /v1/embedded/open-banking/data", authMiddleware(handlers.GetOpenBankingData))
 	mux.HandleFunc("POST /v1/embedded/webhooks/register", authMiddleware(handlers.RegisterWebhookEndpoint))
 
-	// ── Server ───────────────────────────────────────────────────────────────
+	// ── Tier 6: Insurance Premium Collection ────────────────────────────────
+	mux.HandleFunc("GET /insurance/products", authMiddleware(handlers.GetInsuranceProducts))
+	mux.HandleFunc("POST /insurance/enroll", authMiddleware(handlers.EnrollInsuranceCustomer))
+	mux.HandleFunc("POST /insurance/collect-premium", authMiddleware(handlers.CollectInsurancePremium))
+	mux.HandleFunc("GET /insurance/policies", authMiddleware(handlers.GetInsurancePolicies))
+	mux.HandleFunc("POST /insurance/claim", authMiddleware(handlers.FileInsuranceClaim))
+	// ── Tier 6: Carbon Credit Marketplace ────────────────────────────────────
+	mux.HandleFunc("GET /carbon/listings", authMiddleware(handlers.GetCarbonListings))
+	mux.HandleFunc("POST /carbon/purchase", authMiddleware(handlers.PurchaseCarbonCredits))
+	mux.HandleFunc("GET /carbon/certificates", authMiddleware(handlers.GetCarbonCertificates))
+	mux.HandleFunc("GET /carbon/emissions-report", authMiddleware(handlers.GetCarbonEmissionsReport))
+	// ── Tier 6: NFT Loyalty Badges ────────────────────────────────────────────
+	mux.HandleFunc("POST /nft/create-collection", authMiddleware(handlers.CreateNFTCollection))
+	mux.HandleFunc("POST /nft/mint", authMiddleware(handlers.MintNFTBadge))
+	mux.HandleFunc("GET /nft/collections", authMiddleware(handlers.GetNFTCollections))
+	mux.HandleFunc("GET /nft/customer-badges", authMiddleware(handlers.GetCustomerNFTBadges))
+	// ── Tier 6: BNPL v2 ───────────────────────────────────────────────────────
+	mux.HandleFunc("GET /bnpl-v2/eligibility", authMiddleware(handlers.CheckBNPLv2Eligibility))
+	mux.HandleFunc("POST /bnpl-v2/create-loan", authMiddleware(handlers.CreateBNPLv2Loan))
+	mux.HandleFunc("GET /bnpl-v2/loans", authMiddleware(handlers.GetBNPLv2Loans))
+	mux.HandleFunc("POST /bnpl-v2/repayment", authMiddleware(handlers.RecordBNPLv2Repayment))
+	// ── Tier 6: Crypto On/Off Ramp ────────────────────────────────────────────
+	mux.HandleFunc("GET /crypto-ramp/quote", authMiddleware(handlers.GetCryptoRampQuote))
+	mux.HandleFunc("POST /crypto-ramp/execute", authMiddleware(handlers.ExecuteCryptoRamp))
+	mux.HandleFunc("GET /crypto-ramp/wallets", authMiddleware(handlers.GetCryptoWallets))
+	mux.HandleFunc("GET /crypto-ramp/transactions", authMiddleware(handlers.GetCryptoTransactions))
+	// ── Tier 7: Escrow Service ────────────────────────────────────────────────
+	mux.HandleFunc("POST /escrow/create", authMiddleware(handlers.CreateEscrow))
+	mux.HandleFunc("POST /escrow/fund", authMiddleware(handlers.FundEscrow))
+	mux.HandleFunc("POST /escrow/release", authMiddleware(handlers.ReleaseEscrow))
+	mux.HandleFunc("POST /escrow/dispute", authMiddleware(handlers.DisputeEscrow))
+	mux.HandleFunc("GET /escrow/list", authMiddleware(handlers.ListEscrows))
+	// ── Tier 7: Bulk Payment Scheduler ───────────────────────────────────────
+	mux.HandleFunc("POST /bulk-scheduler/create", authMiddleware(handlers.CreateBulkSchedule))
+	mux.HandleFunc("GET /bulk-scheduler/list", authMiddleware(handlers.ListBulkSchedules))
+	mux.HandleFunc("GET /bulk-scheduler/results", authMiddleware(handlers.GetBulkScheduleResults))
+	mux.HandleFunc("POST /bulk-scheduler/cancel", authMiddleware(handlers.CancelBulkSchedule))
+	// ── Tier 7: Tax Withholding Engine ───────────────────────────────────────
+	mux.HandleFunc("GET /tax/calculate", authMiddleware(handlers.CalculateTax))
+	mux.HandleFunc("GET /tax/summary", authMiddleware(handlers.GetTaxSummary))
+	mux.HandleFunc("POST /tax/remit", authMiddleware(handlers.RemitTax))
+	mux.HandleFunc("POST /tax/certificate", authMiddleware(handlers.GetTaxCertificate))
+	// ── Tier 7: Regulatory Sandbox ────────────────────────────────────────────
+	mux.HandleFunc("GET /regulatory-sandbox/scenarios", authMiddleware(handlers.GetRegulatoryScenarios))
+	mux.HandleFunc("POST /regulatory-sandbox/enable", authMiddleware(handlers.EnableRegulatorySandbox))
+	mux.HandleFunc("GET /regulatory-sandbox/status", authMiddleware(handlers.GetRegulatorySandboxStatus))
+	mux.HandleFunc("POST /regulatory-sandbox/run-scenario", authMiddleware(handlers.RunRegulatoryScenario))
+	mux.HandleFunc("POST /regulatory-sandbox/submit", authMiddleware(handlers.SubmitRegulatoryReport))
+	// ── Tier 7: Multi-Currency Wallet v2 ─────────────────────────────────────
+	mux.HandleFunc("GET /multi-wallet/balances", authMiddleware(handlers.GetMultiWalletBalances))
+	mux.HandleFunc("POST /multi-wallet/create", authMiddleware(handlers.CreateMultiWallet))
+	mux.HandleFunc("POST /multi-wallet/convert", authMiddleware(handlers.ConvertMultiWallet))
+	mux.HandleFunc("POST /multi-wallet/sweep", authMiddleware(handlers.SweepMultiWallet))
+	mux.HandleFunc("GET /multi-wallet/history", authMiddleware(handlers.GetMultiWalletHistory))
+	// ── Tier 8: RTGS ─────────────────────────────────────────────────────────
+	mux.HandleFunc("POST /rtgs/initiate", authMiddleware(handlers.InitiateRTGS))
+	mux.HandleFunc("GET /rtgs/status", authMiddleware(handlers.GetRTGSStatus))
+	mux.HandleFunc("GET /rtgs/limits", authMiddleware(handlers.GetRTGSLimits))
+	mux.HandleFunc("GET /rtgs/history", authMiddleware(handlers.GetRTGSHistory))
+	// ── Tier 8: ISO 20022 ─────────────────────────────────────────────────────
+	mux.HandleFunc("POST /iso20022/send", authMiddleware(handlers.SendISO20022Message))
+	mux.HandleFunc("GET /iso20022/messages", authMiddleware(handlers.GetISO20022Messages))
+	mux.HandleFunc("GET /iso20022/schema", authMiddleware(handlers.GetISO20022Schema))
+	mux.HandleFunc("POST /iso20022/acknowledge", authMiddleware(handlers.AcknowledgeISO20022))
+	// ── Tier 8: Open Finance Hub ──────────────────────────────────────────────
+	mux.HandleFunc("GET /open-finance/providers", authMiddleware(handlers.GetOpenFinanceProviders))
+	mux.HandleFunc("POST /open-finance/connect", authMiddleware(handlers.ConnectOpenFinanceProvider))
+	mux.HandleFunc("GET /open-finance/data", authMiddleware(handlers.GetOpenFinanceData))
+	mux.HandleFunc("POST /open-finance/revoke", authMiddleware(handlers.RevokeOpenFinanceConnection))
+	// ── Tier 8: White-Label SDK ───────────────────────────────────────────────
+	mux.HandleFunc("GET /white-label/config", authMiddleware(handlers.GetWhiteLabelConfig))
+	mux.HandleFunc("POST /white-label/update-branding", authMiddleware(handlers.UpdateWhiteLabelBranding))
+	mux.HandleFunc("POST /white-label/rotate-key", authMiddleware(handlers.RotateWhiteLabelKey))
+	mux.HandleFunc("GET /white-label/analytics", authMiddleware(handlers.GetWhiteLabelAnalytics))
+	mux.HandleFunc("GET /white-label/integration-guide", authMiddleware(handlers.GetWhiteLabelIntegrationGuide))
+	// ── Tier 8: Super App Shell ───────────────────────────────────────────────
+	mux.HandleFunc("GET /super-app/config", authMiddleware(handlers.GetSuperAppConfig))
+	mux.HandleFunc("POST /super-app/update-modules", authMiddleware(handlers.UpdateSuperAppModules))
+	mux.HandleFunc("POST /super-app/push-update", authMiddleware(handlers.PushSuperAppUpdate))
+	mux.HandleFunc("GET /super-app/stats", authMiddleware(handlers.GetSuperAppStats))
+	// ── Tier 8: Lakehouse v2 ──────────────────────────────────────────────────
+	mux.HandleFunc("GET /lakehouse-v2/datasets", authMiddleware(handlers.GetLakehouseDatasets))
+	mux.HandleFunc("POST /lakehouse-v2/query", authMiddleware(handlers.QueryLakehouse))
+	mux.HandleFunc("GET /lakehouse-v2/sample", authMiddleware(handlers.SampleLakehouseDataset))
+	mux.HandleFunc("POST /lakehouse-v2/export", authMiddleware(handlers.ExportLakehouseData))
+	mux.HandleFunc("POST /lakehouse-v2/save-query", authMiddleware(handlers.SaveLakehouseQuery))
+	mux.HandleFunc("GET /lakehouse-v2/saved-queries", authMiddleware(handlers.GetSavedLakehouseQueries))
+	// ── Tier 8: Payroll v2 ────────────────────────────────────────────────────
+	mux.HandleFunc("POST /payroll-v2/run", authMiddleware(handlers.RunPayrollV2))
+	mux.HandleFunc("GET /payroll-v2/runs", authMiddleware(handlers.GetPayrollRuns))
+	mux.HandleFunc("POST /payroll-v2/approve", authMiddleware(handlers.ApprovePayrollRun))
+	mux.HandleFunc("GET /payroll-v2/payslip", authMiddleware(handlers.GetPayslipV2))
+	mux.HandleFunc("POST /payroll-v2/pension-remittance", authMiddleware(handlers.RemitPensionV2))
+	// ── Tier 8: Agent Banking v2 ──────────────────────────────────────────────
+	mux.HandleFunc("POST /agent-banking-v2/onboard", authMiddleware(handlers.OnboardAgentV2))
+	mux.HandleFunc("GET /agent-banking-v2/network", authMiddleware(handlers.GetAgentNetworkV2))
+	mux.HandleFunc("POST /agent-banking-v2/fund-float", authMiddleware(handlers.FundAgentFloatV2))
+	mux.HandleFunc("POST /agent-banking-v2/suspend", authMiddleware(handlers.SuspendAgentV2))
+	mux.HandleFunc("GET /agent-banking-v2/performance", authMiddleware(handlers.GetAgentPerformanceV2))
+	// ── Tier 8: Remittance v2 ─────────────────────────────────────────────────
+	mux.HandleFunc("GET /remittance-v2/corridors", authMiddleware(handlers.GetRemittanceCorridors))
+	mux.HandleFunc("GET /remittance-v2/quote", authMiddleware(handlers.GetRemittanceQuote))
+	mux.HandleFunc("POST /remittance-v2/send", authMiddleware(handlers.SendRemittanceV2))
+	mux.HandleFunc("GET /remittance-v2/track", authMiddleware(handlers.TrackRemittanceV2))
+	mux.HandleFunc("GET /remittance-v2/history", authMiddleware(handlers.GetRemittanceHistory))
+	// ── Tier 8: POS Terminal v2 ───────────────────────────────────────────────
+	mux.HandleFunc("POST /pos-v2/provision", authMiddleware(handlers.ProvisionPOSTerminalV2))
+	mux.HandleFunc("GET /pos-v2/terminals", authMiddleware(handlers.GetPOSTerminalsV2))
+	mux.HandleFunc("GET /pos-v2/health", authMiddleware(handlers.GetPOSTerminalHealthV2))
+	mux.HandleFunc("POST /pos-v2/push-config", authMiddleware(handlers.PushPOSConfigV2))
+	mux.HandleFunc("GET /pos-v2/transactions", authMiddleware(handlers.GetPOSTransactionsV2))
+
+	// ── Server───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")
 	if port == "" {
 		port = "8080"

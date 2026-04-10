@@ -84,11 +84,20 @@ func CreateSplitRule(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ruleID := uuid.New().String()
 
+	pgdbRecipients := make([]pgdb.SplitRecipient, len(req.Recipients))
+	for i, r := range req.Recipients {
+		pgdbRecipients[i] = pgdb.SplitRecipient{
+			MerchantID: r.MerchantID,
+			Label:      r.Label,
+			SharePct:   r.SharePct,
+			FixedKobo:  r.FixedKobo,
+		}
+	}
 	if err := pgdb.CreateSplitRule(ctx, pgdb.SplitRuleRecord{
 		RuleID:      ruleID,
 		RuleName:    req.RuleName,
 		Description: req.Description,
-		Recipients:  req.Recipients,
+		Recipients:  pgdbRecipients,
 		CreatedBy:   req.CreatedBy,
 		IsActive:    true,
 	}); err != nil {
@@ -148,12 +157,12 @@ func ExecuteSplitPayment(w http.ResponseWriter, r *http.Request) {
 
 	for i, leg := range legs {
 		transferID := uuid.New()
-		tbTransferID, _ := tb.UUIDToUint128(transferID)
+		tbTransferID, _ := tb.UUIDToUint128(transferID.String())
 		merchantAccountID := tb.MerchantAccountID(leg.MerchantID)
 
 		flags := uint16(0)
 		if i < len(legs)-1 {
-			flags = tb.FlagLinked // link all but the last transfer
+			flags = 1 // link all but the last transfer
 		}
 
 		transfers[i] = tb.TransferRequest{
@@ -185,12 +194,22 @@ func ExecuteSplitPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist split payment record
+	pgdbLegs := make([]pgdb.SplitLeg, len(legs))
+	for i, l := range legs {
+		pgdbLegs[i] = pgdb.SplitLeg{
+			MerchantID: l.MerchantID,
+			Label:      l.Label,
+			AmountKobo: l.AmountKobo,
+			TransferID: l.TransferID,
+			Status:     l.Status,
+		}
+	}
 	if err := pgdb.RecordSplitPayment(ctx, pgdb.SplitPaymentRecord{
 		SplitPaymentID:  splitPaymentID,
 		SplitRuleID:     req.SplitRuleID,
 		TotalAmountKobo: req.TotalAmountKobo,
 		Reference:       req.Reference,
-		Legs:            legs,
+		Legs:            pgdbLegs,
 		Status:          "completed",
 	}); err != nil {
 		slog.Error("failed to persist split payment", "err", err)
