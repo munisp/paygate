@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,8 @@ export default function AIInsights() {
   const [cohortBy, setCohortBy] = useState<"acquisition_channel" | "first_transaction_month" | "spending_tier">("first_transaction_month");
 
   const periodDays = period === 'last_7_days' ? 7 : period === 'last_30_days' ? 30 : period === 'last_90_days' ? 90 : 365;
-  const { data: insights, isLoading, refetch } = trpc2.aiInsights.getInsights.useQuery({ periodDays });
-  const { data: cohort } = trpc2.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 });
+  const { data: insights, isLoading, refetch } = trpc.tier1to5.aiInsights.getInsights.useQuery({ periodDays });
+  const { data: cohort } = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 });
 
   return (
     <DashboardLayout>

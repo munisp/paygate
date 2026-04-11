@@ -6,21 +6,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ShoppingBag, Split, Clock, CheckCircle, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function MarketplacePay() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ buyerEmail: "", itemName: "", itemPrice: "", itemQty: "1" });
 
-  const { data, isLoading, refetch } = trpc5.marketplacePay.listOrders.useQuery({});
-  const { data: stats } = trpc5.marketplacePay.getStats.useQuery();
+  const { data, isLoading, refetch } = trpc.wave80.marketplacePay.listOrders.useQuery({});
+  const { data: stats } = trpc.wave80.marketplacePay.getStats.useQuery();
 
-  const createOrder = trpc5.marketplacePay.createOrder.useMutation({
+  const createOrder = trpc.wave80.marketplacePay.createOrder.useMutation({
     onSuccess: () => { toast.success("Order created"); setCreateOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const updateStatus = trpc5.marketplacePay.updateOrderStatus.useMutation({
+  const updateStatus = trpc.wave80.marketplacePay.updateOrderStatus.useMutation({
     onSuccess: () => { toast.success("Order updated"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

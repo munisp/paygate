@@ -33,12 +33,12 @@ function StripeSection() {
       setValidationResult(res as any);
       toast.success(`Keys valid — ${res.mode} mode (${res.accountId})`);
     },
-    onError: (e) => toast.error(`Validation failed: ${e.message}`),
+    onError: (e: any) => toast.error(`Validation failed: ${e.message}`),
   });
 
   const testChargeMutation = trpc.stripe.testCharge.useMutation({
     onSuccess: (res) => toast.success(`Test charge created: ${res.intentId} (status: ${res.status})`),
-    onError: (e) => toast.error(`Test charge failed: ${e.message}`),
+    onError: (e: any) => toast.error(`Test charge failed: ${e.message}`),
   });
 
   return (
@@ -86,7 +86,7 @@ function StripeSection() {
               variant="outline"
               size="sm"
               className="text-xs h-7 shrink-0"
-              onClick={() => setShowKeyForm((v) => !v)}
+              onClick={() => setShowKeyForm((v: any) => !v)}
             >
               <Key className="w-3 h-3 mr-1" />
               {mode === 'live' ? 'Rotate Keys' : 'Swap to Live Keys'}
@@ -111,12 +111,12 @@ function StripeSection() {
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono pr-9"
                   placeholder="sk_live_…"
                   value={keyForm.secretKey}
-                  onChange={(e) => setKeyForm((f) => ({ ...f, secretKey: e.target.value }))}
+                  onChange={(e: any) => setKeyForm((f: any) => ({ ...f, secretKey: e.target.value }))}
                 />
                 <button
                   type="button"
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowSk((v) => !v)}
+                  onClick={() => setShowSk((v: any) => !v)}
                 >
                   {showSk ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 </button>
@@ -129,7 +129,7 @@ function StripeSection() {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
                 placeholder="pk_live_…"
                 value={keyForm.publishableKey}
-                onChange={(e) => setKeyForm((f) => ({ ...f, publishableKey: e.target.value }))}
+                onChange={(e: any) => setKeyForm((f: any) => ({ ...f, publishableKey: e.target.value }))}
               />
             </div>
           </div>
@@ -249,25 +249,25 @@ export default function Settings() {
         onSuccess: () => toast.success("Dashboard cache refreshed", { duration: 2000 }),
       });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const updateNotifPrefs = trpc.settings.updateNotificationPrefs.useMutation({
     onSuccess: () => { toast.success("Notification preferences saved"); utils.settings.get.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const updateSoundboxLang = trpc.settings.updateSoundboxLanguage.useMutation({
     onSuccess: () => { toast.success("Soundbox language saved"); utils.settings.get.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const updateSettlement = trpc.settings.updateSettlementSchedule.useMutation({
     onSuccess: () => { toast.success("Settlement schedule saved"); utils.settings.getSettlementSchedule.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const { data: reconAlertSettingsData } = trpc.settings.getReconAlertSettings.useQuery(undefined, { staleTime: 60_000 });
   const updateReconAlertSettings = trpc.settings.updateReconAlertSettings.useMutation({
     onSuccess: () => { toast.success("Reconciliation alert settings saved"); utils.settings.getReconAlertSettings.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   useEffect(() => {
@@ -347,17 +347,17 @@ export default function Settings() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Business Name</label>
-                <input value={form.businessName} onChange={(e) => setForm(f => ({ ...f, businessName: e.target.value }))}
+                <input value={form.businessName} onChange={(e: any) => setForm(f => ({ ...f, businessName: e.target.value }))}
                   className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Business Email</label>
-                <input type="email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))}
+                <input type="email" value={form.email} onChange={(e: any) => setForm(f => ({ ...f, email: e.target.value }))}
                   className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone Number</label>
-                <input value={form.phone} onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))}
+                <input value={form.phone} onChange={(e: any) => setForm(f => ({ ...f, phone: e.target.value }))}
                   className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
               </div>
               <div>
@@ -375,7 +375,7 @@ export default function Settings() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Default Webhook URL</label>
-              <input value={form.webhookUrl} onChange={(e) => setForm(f => ({ ...f, webhookUrl: e.target.value }))}
+              <input value={form.webhookUrl} onChange={(e: any) => setForm(f => ({ ...f, webhookUrl: e.target.value }))}
                 placeholder="https://your-server.com/webhooks" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
               <p className="text-xs text-muted-foreground mt-1">Events will be sent to this URL unless overridden per webhook endpoint</p>
             </div>
@@ -457,7 +457,7 @@ export default function Settings() {
                     min={1}
                     max={100}
                     value={reconAlertForm.reconAlertThreshold}
-                    onChange={(e) => setReconAlertForm(f => ({ ...f, reconAlertThreshold: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) }))}
+                    onChange={(e: any) => setReconAlertForm(f => ({ ...f, reconAlertThreshold: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) }))}
                     className="w-20 px-3 py-1.5 text-sm bg-background rounded-lg border border-border focus:ring-2 focus:ring-primary outline-none text-center"
                   />
                   <Button
@@ -538,7 +538,7 @@ export default function Settings() {
                 <input
                   type="number"
                   value={settlementForm.settlementMinAmount}
-                  onChange={(e) => setSettlementForm(f => ({ ...f, settlementMinAmount: parseFloat(e.target.value) || 0 }))}
+                  onChange={(e: any) => setSettlementForm(f => ({ ...f, settlementMinAmount: parseFloat(e.target.value) || 0 }))}
                   min={100}
                   className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
                   placeholder="10000"
@@ -557,7 +557,7 @@ export default function Settings() {
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">Bank Code</label>
                     <input
                       value={settlementForm.settlementBankCode}
-                      onChange={(e) => setSettlementForm(f => ({ ...f, settlementBankCode: e.target.value }))}
+                      onChange={(e: any) => setSettlementForm(f => ({ ...f, settlementBankCode: e.target.value }))}
                       placeholder="e.g. 044 (Access Bank)"
                       className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
                     />
@@ -566,7 +566,7 @@ export default function Settings() {
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Number</label>
                     <input
                       value={settlementForm.settlementAccountNumber}
-                      onChange={(e) => setSettlementForm(f => ({ ...f, settlementAccountNumber: e.target.value }))}
+                      onChange={(e: any) => setSettlementForm(f => ({ ...f, settlementAccountNumber: e.target.value }))}
                       placeholder="10-digit account number"
                       className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
                     />
@@ -575,7 +575,7 @@ export default function Settings() {
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Name</label>
                     <input
                       value={settlementForm.settlementAccountName}
-                      onChange={(e) => setSettlementForm(f => ({ ...f, settlementAccountName: e.target.value }))}
+                      onChange={(e: any) => setSettlementForm(f => ({ ...f, settlementAccountName: e.target.value }))}
                       placeholder="Beneficiary account name"
                       className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
                     />
@@ -608,7 +608,7 @@ export default function Settings() {
           Individual terminals can override this setting.
         </p>
         <div className="flex items-center gap-4">
-          <Select value={soundboxLang} onValueChange={(v) => setSoundboxLang(v as typeof soundboxLang)}>
+          <Select value={soundboxLang} onValueChange={(v: any) => setSoundboxLang(v as typeof soundboxLang)}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Select language" />
             </SelectTrigger>

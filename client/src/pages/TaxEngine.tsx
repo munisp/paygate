@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 as trpc } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -25,13 +25,13 @@ export default function TaxEngine() {
 
   const amountKobo = Math.round(parseFloat(amountNGN || "0") * 100);
 
-  const { data: taxCalc, isLoading: calcLoading } = trpc.taxEngine.calculateTax.useQuery(
+  const { data: taxCalc, isLoading: calcLoading } = trpc.tier6to8.taxEngine.calculateTax.useQuery(
     { amountKobo, transactionType: txType, includeWht },
     { enabled: amountKobo > 0 }
   );
 
-  const { data: remittance, isLoading: remitLoading } = trpc.taxEngine.getMonthlyRemittance.useQuery({ month });
-  const { data: rates } = trpc.taxEngine.getTaxRates.useQuery();
+  const { data: remittance, isLoading: remitLoading } = trpc.tier6to8.taxEngine.getMonthlyRemittance.useQuery({ month });
+  const { data: rates } = trpc.tier6to8.taxEngine.getTaxRates.useQuery();
 
   return (
     <div className="p-6 space-y-6">
@@ -55,14 +55,14 @@ export default function TaxEngine() {
               <Input
                 type="number"
                 value={amountNGN}
-                onChange={(e) => setAmountNGN(e.target.value)}
+                onChange={(e: any) => setAmountNGN(e.target.value)}
                 placeholder="10000"
                 className="mt-1"
               />
             </div>
             <div>
               <Label>Transaction Type</Label>
-              <Select value={txType} onValueChange={(v) => setTxType(v as typeof txType)}>
+              <Select value={txType} onValueChange={(v: any) => setTxType(v as typeof txType)}>
                 <SelectTrigger className="mt-1">
                   <SelectValue />
                 </SelectTrigger>
@@ -122,7 +122,7 @@ export default function TaxEngine() {
               <Input
                 type="month"
                 value={month}
-                onChange={(e) => setMonth(e.target.value)}
+                onChange={(e: any) => setMonth(e.target.value)}
                 className="mt-1"
               />
             </div>

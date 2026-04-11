@@ -19,6 +19,9 @@ import {
 import { withCache, TTL, cache } from "./cache";
 import { usdcRouter } from './usdcRouter';
 import { tier1to5Router, merchantLendingRouter } from "./tier1to5Router";
+import { tier6to8Router } from "./tier6to8Router";
+import { wave80Router } from "./wave80Router";
+import { newFeaturesRouter } from "./newFeaturesRouter";
 import { adminRouter } from './adminRouter';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
@@ -6453,7 +6456,7 @@ const onboardingGateRouter = router({
     }),
 });
 
-export { tier6to8Router } from './tier6to8Router';
+// tier6to8Router now imported at top
 
 export const appRouter = router({
   auth: authRouter,
@@ -6537,9 +6540,26 @@ export const appRouter = router({
   merchantLending: merchantLendingRouter,
   settlementSLA: settlementSLARouter,
   onboardingGate: onboardingGateRouter,
+  // Tier 1-5: AML, KYB, DCC, invoice, chargeback, loyalty, embedded finance, AI insights, fraud heatmap
+  tier1to5: tier1to5Router,
+  // Tier 6-8: insurance, carbon credits, NFT badges, BNPL v2, crypto ramp, escrow, bulk scheduler,
+  //           tax withholding, regulatory sandbox, multi-currency wallet, RTGS, ISO 20022, open finance,
+  //           white-label SDK, super app, lakehouse, payroll v2, agent banking v2/v3, remittance v2,
+  //           POS v2, settlement forecast, tax engine, loyalty merchant, SDK portal, cohort analytics
+  tier6to8: tier6to8Router,
+  // Wave 80: openBankingV2, carbonCreditsV2, agentBankingV4, superAgentV2, escrowV2, marketplacePay,
+  //          loyaltyV3, cryptoOfframpV2, nfcPay, qrMerchantAnalytics, invoiceFinancingV2, payrollV3,
+  //          taxFiling, regulatoryReporting, usdcV2, multiCurrencyLedger, temporalWorkflowMgmt,
+  //          grpcHealthCheck, ussdSessionV2, realtimeNotifications
+  wave80: wave80Router,
+  // New features: digitalGold, mutualFunds, consumerInsurance, pension, cashbackRewards, voicePayments,
+  //               wealthManagement, emiCheckout, bulkCollections, apiDocs, salaryAccounts, privacyPayments,
+  //               reports, aiInsightsV2, nodalAccounts, smartRetailPOS, internationalRemittance, subscriptionBillingV2
+  newFeatures: newFeaturesRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
+export { tier6to8Router };
 
 
 

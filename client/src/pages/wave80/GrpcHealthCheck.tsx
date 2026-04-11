@@ -2,10 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, AlertTriangle, RefreshCw } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 
 export default function GrpcHealthCheck() {
-  const { data, isLoading, refetch, isFetching } = trpc5.grpcHealthCheck.checkAllServices.useQuery(undefined, { refetchInterval: 30_000 });
+  const { data, isLoading, refetch, isFetching } = trpc.wave80.grpcHealthCheck.checkAllServices.useQuery(undefined, { refetchInterval: 30_000 });
 
   const services = data?.services ?? [];
   const healthy = services.filter(s => s.status === "healthy").length;

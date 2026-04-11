@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,27 +14,27 @@ export default function VoicePayments() {
   const [language, setLanguage] = useState<"en" | "yo" | "ig" | "ha" | "pcm">("en");
   const [volume, setVolume] = useState("80");
 
-  const { data: devices, refetch } = trpc4.voicePayments.getSoundboxDevices.useQuery();
-  const { data: alerts } = trpc4.voicePayments.getPaymentAlerts.useQuery(
+  const { data: devices, refetch } = trpc.newFeatures.voicePayments.getSoundboxDevices.useQuery();
+  const { data: alerts } = trpc.newFeatures.voicePayments.getPaymentAlerts.useQuery(
     { deviceId: selectedDevice ?? "" },
     { enabled: !!selectedDevice }
   );
-  const { data: stats } = trpc4.voicePayments.getDeviceStats.useQuery(
+  const { data: stats } = trpc.newFeatures.voicePayments.getDeviceStats.useQuery(
     { deviceId: selectedDevice ?? "" },
     { enabled: !!selectedDevice }
   );
 
-  const registerMutation = trpc4.voicePayments.registerDevice.useMutation({
-    onSuccess: (d) => { toast.success(`Device registered: ${d.activationCode}`); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const registerMutation = trpc.newFeatures.voicePayments.registerDevice.useMutation({
+    onSuccess: (d: any) => { toast.success(`Device registered: ${d.activationCode}`); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const configureMutation = trpc4.voicePayments.configureAudio.useMutation({
+  const configureMutation = trpc.newFeatures.voicePayments.configureAudio.useMutation({
     onSuccess: () => toast.success("Audio configured"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const testMutation = trpc4.voicePayments.testAudio.useMutation({
+  const testMutation = trpc.newFeatures.voicePayments.testAudio.useMutation({
     onSuccess: () => toast.success("Test audio sent to device"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,16 +10,16 @@ import { CreditCard } from "lucide-react";
 export default function BNPLv2() {
   const [customerId, setCustomerId] = useState("");
   const [amount, setAmount] = useState("");
-  const { data: loansData } = trpc3.bnplV2.getLoans.useQuery({ status: "all" });
-  const checkMutation = trpc3.bnplV2.checkEligibility.useMutation({
-    onSuccess: (d) => toast.success(`Score: ${d.creditScore} — Max: ₦${(d.maxAmountKobo / 100).toLocaleString()}`),
+  const { data: loansData } = trpc.tier6to8.bnplV2.getLoans.useQuery({ status: "all" });
+  const checkMutation = trpc.tier6to8.bnplV2.checkEligibility.useMutation({
+    onSuccess: (d: any) => toast.success(`Score: ${d.creditScore} — Max: ₦${(d.maxAmountKobo / 100).toLocaleString()}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const createMutation = trpc3.bnplV2.createLoan.useMutation({
-    onSuccess: (d) => toast.success(`Loan created: ${d.loanId}`),
+  const createMutation = trpc.tier6to8.bnplV2.createLoan.useMutation({
+    onSuccess: (d: any) => toast.success(`Loan created: ${d.loanId}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const repayMutation = trpc3.bnplV2.reportRepayment.useMutation({
+  const repayMutation = trpc.tier6to8.bnplV2.reportRepayment.useMutation({
     onSuccess: () => toast.success("Repayment recorded"),
     onError: (e: any) => toast.error(e.message),
   });

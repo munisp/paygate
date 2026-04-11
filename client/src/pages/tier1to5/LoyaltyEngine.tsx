@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,13 @@ export default function LoyaltyEngine() {
   const [redeemPoints, setRedeemPoints] = useState("");
   const [redeemRewardId, setRedeemRewardId] = useState("");
 
-  const { data: account, isLoading, refetch } = trpc2.loyalty.getLoyaltyAccount.useQuery();
-  const { data: balance } = trpc2.loyalty.getPointsBalance.useQuery();
-  const { data: txHistory } = trpc2.loyalty.getTransactionHistory.useQuery({ limit: 20 });
-  const { data: tiers } = trpc2.loyalty.getTierBenefits.useQuery();
-  const { data: stats } = trpc2.loyalty.getMerchantLoyaltyStats.useQuery();
+  const { data: account, isLoading, refetch } = trpc.tier1to5.loyalty.getLoyaltyAccount.useQuery();
+  const { data: balance } = trpc.tier1to5.loyalty.getPointsBalance.useQuery();
+  const { data: txHistory } = trpc.tier1to5.loyalty.getTransactionHistory.useQuery({ limit: 20 });
+  const { data: tiers } = trpc.tier1to5.loyalty.getTierBenefits.useQuery();
+  const { data: stats } = trpc.tier1to5.loyalty.getMerchantLoyaltyStats.useQuery();
 
-  const redeemMutation = trpc2.loyalty.redeemPoints.useMutation({
+  const redeemMutation = trpc.tier1to5.loyalty.redeemPoints.useMutation({
     onSuccess: (data: any) => { toast.success(`Redeemed ${data.pointsRedeemed} points for ${data.rewardName}`); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

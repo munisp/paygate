@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,16 +18,16 @@ export default function RecurringBilling() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ planName: "", amountKobo: "", intervalType: "monthly" as const, trialDays: "0", description: "" });
 
-  const { data: plans, isLoading, refetch } = trpc2.recurringBilling.getPlans.useQuery();
-  const { data: subs } = trpc2.recurringBilling.getSubscriptions.useQuery({ status: 'active' });
-  const { data: dunning } = trpc2.recurringBilling.getDunningQueue.useQuery();
+  const { data: plans, isLoading, refetch } = trpc.tier1to5.recurringBilling.getPlans.useQuery();
+  const { data: subs } = trpc.tier1to5.recurringBilling.getSubscriptions.useQuery({ status: 'active' });
+  const { data: dunning } = trpc.tier1to5.recurringBilling.getDunningQueue.useQuery();
 
-  const createMutation = trpc2.recurringBilling.createPlan.useMutation({
+  const createMutation = trpc.tier1to5.recurringBilling.createPlan.useMutation({
     onSuccess: () => { toast.success("Billing plan created."); setShowCreate(false); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const cancelMutation = trpc2.recurringBilling.cancelSubscription.useMutation({
+  const cancelMutation = trpc.tier1to5.recurringBilling.cancelSubscription.useMutation({
     onSuccess: () => { toast.success("Subscription cancelled."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

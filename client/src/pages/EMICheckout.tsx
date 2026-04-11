@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,19 +13,19 @@ export default function EMICheckout() {
   const [subsidyPct, setSubsidyPct] = useState("0");
   const [minOrder, setMinOrder] = useState("10000");
 
-  const { data: plans } = trpc4.emiCheckout.getEMIPlans.useQuery(
+  const { data: plans } = trpc.newFeatures.emiCheckout.getEMIPlans.useQuery(
     { amountKobo: Math.round(parseFloat(purchaseAmount) * 100) },
     { enabled: parseFloat(purchaseAmount) > 0 }
   );
-  const { data: merchantConfig } = trpc4.emiCheckout.getMerchantEMIConfig.useQuery();
+  const { data: merchantConfig } = trpc.newFeatures.emiCheckout.getMerchantEMIConfig.useQuery();
 
-  const initiateMutation = trpc4.emiCheckout.initiateEMI.useMutation({
-    onSuccess: (d) => toast.success(`EMI initiated: ${d.emiId}`),
-    onError: (e) => toast.error(e.message),
+  const initiateMutation = trpc.newFeatures.emiCheckout.initiateEMI.useMutation({
+    onSuccess: (d: any) => toast.success(`EMI initiated: ${d.emiId}`),
+    onError: (e: any) => toast.error(e.message),
   });
-  const updateConfigMutation = trpc4.emiCheckout.updateMerchantEMIConfig.useMutation({
+  const updateConfigMutation = trpc.newFeatures.emiCheckout.updateMerchantEMIConfig.useMutation({
     onSuccess: () => toast.success("EMI config updated"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

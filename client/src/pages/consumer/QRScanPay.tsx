@@ -20,7 +20,7 @@ function PinDialog({ open, onClose, onConfirm, isPending, amount, merchantName }
 }) {
   const [pin, setPin] = useState("");
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setPin(""); } }}>
+    <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">
         <DialogHeader><DialogTitle>Confirm Payment</DialogTitle></DialogHeader>
         <div className="py-2 space-y-3">
@@ -69,7 +69,7 @@ export default function QRScanPay() {
       utils.consumerWallet.history.invalidate();
       stopCamera();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const startCamera = async () => {

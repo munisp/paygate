@@ -25,7 +25,7 @@ function EnrollDialog({ open, onClose, onSuccess }: { open: boolean; onClose: ()
   const [form, setForm] = useState({
     agentName: "", agentCode: "", phone: "", locationState: "", locationLga: "", commissionRate: "1.5",
   });
-  const f = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const f = (k: string, v: string) => setForm((p: any) => ({ ...p, [k]: v }));
 
   const createAgent = trpc.agentBanking.addSubAgent.useMutation({
     onSuccess: () => {
@@ -45,30 +45,30 @@ function EnrollDialog({ open, onClose, onSuccess }: { open: boolean; onClose: ()
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Agent Name *</label>
-              <Input placeholder="Full name" value={form.agentName} onChange={(e) => f("agentName", e.target.value)} />
+              <Input placeholder="Full name" value={form.agentName} onChange={(e: any) => f("agentName", e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Agent Code *</label>
-              <Input placeholder="Unique code" value={form.agentCode} onChange={(e) => f("agentCode", e.target.value)} />
+              <Input placeholder="Unique code" value={form.agentCode} onChange={(e: any) => f("agentCode", e.target.value)} />
             </div>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Phone Number</label>
-            <Input placeholder="+234 800 000 0000" value={form.phone} onChange={(e) => f("phone", e.target.value)} />
+            <Input placeholder="+234 800 000 0000" value={form.phone} onChange={(e: any) => f("phone", e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">State</label>
-              <Input placeholder="Lagos" value={form.locationState} onChange={(e) => f("locationState", e.target.value)} />
+              <Input placeholder="Lagos" value={form.locationState} onChange={(e: any) => f("locationState", e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">LGA</label>
-              <Input placeholder="Ikeja" value={form.locationLga} onChange={(e) => f("locationLga", e.target.value)} />
+              <Input placeholder="Ikeja" value={form.locationLga} onChange={(e: any) => f("locationLga", e.target.value)} />
             </div>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Commission Rate (%)</label>
-            <Input type="number" min={0} max={10} step={0.1} value={form.commissionRate} onChange={(e) => f("commissionRate", e.target.value)} />
+            <Input type="number" min={0} max={10} step={0.1} value={form.commissionRate} onChange={(e: any) => f("commissionRate", e.target.value)} />
             <p className="text-xs text-muted-foreground">% of transaction value credited to agent</p>
           </div>
         </div>
@@ -151,7 +151,7 @@ function AgentDetailDialog({ agent, onClose }: { agent: any; onClose: () => void
             <label className="text-sm font-medium">Status</label>
             <Select
               value={agent.status}
-              onValueChange={(v) => updateStatus.mutate({ subAgentMerchantId: agent.subAgentMerchantId, status: v })}
+              onValueChange={(v: any) => updateStatus.mutate({ subAgentMerchantId: agent.subAgentMerchantId, status: v })}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -194,25 +194,25 @@ export default function AgentBanking() {
       toast.success(`Disbursed ₦${((res?.totalDisbursedKobo ?? 0) / 100).toLocaleString("en-NG", { maximumFractionDigits: 0 })} to ${res?.count ?? 0} agents`);
       utils.agentBanking.listSubAgents.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const agents: any[] = agentsData ?? [];
   const health: any = healthData ?? {};
 
   // Computed KPIs
-  const totalTx = agents.reduce((s, a) => s + (a.totalTransactions ?? 0), 0);
-  const totalVolume = agents.reduce((s, a) => s + (a.totalVolumeKobo ?? 0), 0);
-  const totalCommission = agents.reduce((s, a) => s + (a.commissionKobo ?? 0), 0);
-  const activeCount = agents.filter((a) => a.status === "active").length;
+  const totalTx = agents.reduce((s: any, a: any) => s + (a.totalTransactions ?? 0), 0);
+  const totalVolume = agents.reduce((s: any, a: any) => s + (a.totalVolumeKobo ?? 0), 0);
+  const totalCommission = agents.reduce((s: any, a: any) => s + (a.commissionKobo ?? 0), 0);
+  const activeCount = agents.filter((a: any) => a.status === "active").length;
 
   // Filter + sort
   const filtered = useMemo(() => {
     let list = agents;
-    if (statusFilter !== "all") list = list.filter((a) => a.status === statusFilter);
+    if (statusFilter !== "all") list = list.filter((a: any) => a.status === statusFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter((a) =>
+      list = list.filter((a: any) =>
         (a.agentName ?? "").toLowerCase().includes(q) ||
         (a.subAgentMerchantId ?? "").toLowerCase().includes(q) ||
         (a.locationState ?? "").toLowerCase().includes(q) ||
@@ -220,12 +220,12 @@ export default function AgentBanking() {
       );
     }
     const key = sortBy === "volume" ? "totalVolumeKobo" : sortBy === "commission" ? "commissionKobo" : "totalTransactions";
-    list = [...list].sort((a, b) => sortDir === "desc" ? (b[key] ?? 0) - (a[key] ?? 0) : (a[key] ?? 0) - (b[key] ?? 0));
+    list = [...list].sort((a: any, b: any) => sortDir === "desc" ? (b[key] ?? 0) - (a[key] ?? 0) : (a[key] ?? 0) - (b[key] ?? 0));
     return list;
   }, [agents, search, statusFilter, sortBy, sortDir]);
 
   const toggleSort = (col: typeof sortBy) => {
-    if (sortBy === col) setSortDir((d) => d === "desc" ? "asc" : "desc");
+    if (sortBy === col) setSortDir((d: any) => d === "desc" ? "asc" : "desc");
     else { setSortBy(col); setSortDir("desc"); }
   };
 
@@ -328,7 +328,7 @@ export default function AgentBanking() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Search agents…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="pl-9" placeholder="Search agents…" value={search} onChange={(e: any) => setSearch(e.target.value)} />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-36">

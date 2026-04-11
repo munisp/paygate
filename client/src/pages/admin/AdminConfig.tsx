@@ -20,12 +20,12 @@ export default function AdminConfig() {
 
   const updateFlagMutation = trpc.admin.config.updateFeatureFlag.useMutation({
     onSuccess: () => { utils.admin.config.getFeatureFlags.invalidate(); toast.success("Feature flag updated"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const maintenanceMutation = trpc.admin.config.setMaintenanceMode.useMutation({
     onSuccess: (_data, vars) => { setMaintenanceEnabled(vars.enabled); toast.success("Maintenance mode updated"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const flags = ((flagsQuery.data as unknown as any)?.flags ?? (flagsQuery.data as unknown as any[]) ?? []) as any[];

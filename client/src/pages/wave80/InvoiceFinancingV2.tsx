@@ -6,22 +6,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { FileText, DollarSign, Clock, CheckCircle, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function InvoiceFinancingV2() {
   const [applyOpen, setApplyOpen] = useState(false);
   const [form, setForm] = useState({ invoiceAmount: "", requestedAmount: "", tenorDays: "30" });
 
-  const { data, isLoading, refetch } = trpc5.invoiceFinancingV2.listApplications.useQuery({});
-  const { data: stats } = trpc5.invoiceFinancingV2.getStats.useQuery();
-  const { data: eligibility } = trpc5.invoiceFinancingV2.getEligibility.useQuery();
+  const { data, isLoading, refetch } = trpc.wave80.invoiceFinancingV2.listApplications.useQuery({});
+  const { data: stats } = trpc.wave80.invoiceFinancingV2.getStats.useQuery();
+  const { data: eligibility } = trpc.wave80.invoiceFinancingV2.getEligibility.useQuery();
 
-  const apply = trpc5.invoiceFinancingV2.applyForFinancing.useMutation({
+  const apply = trpc.wave80.invoiceFinancingV2.applyForFinancing.useMutation({
     onSuccess: () => { toast.success("Application submitted"); setApplyOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const cancel = trpc5.invoiceFinancingV2.cancelApplication.useMutation({
+  const cancel = trpc.wave80.invoiceFinancingV2.cancelApplication.useMutation({
     onSuccess: () => { toast.success("Application cancelled"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

@@ -7,22 +7,22 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { CheckCircle, AlertCircle, Calendar, Upload } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function TaxFiling() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ taxType: "VAT", period: "", taxableAmount: "" });
 
-  const { data, isLoading, refetch } = trpc5.taxFiling.listFilings.useQuery({});
-  const { data: stats } = trpc5.taxFiling.getStats.useQuery();
-  const { data: deadlines } = trpc5.taxFiling.getUpcomingDeadlines.useQuery();
+  const { data, isLoading, refetch } = trpc.wave80.taxFiling.listFilings.useQuery({});
+  const { data: stats } = trpc.wave80.taxFiling.getStats.useQuery();
+  const { data: deadlines } = trpc.wave80.taxFiling.getUpcomingDeadlines.useQuery();
 
-  const createFiling = trpc5.taxFiling.createFiling.useMutation({
+  const createFiling = trpc.wave80.taxFiling.createFiling.useMutation({
     onSuccess: () => { toast.success("Filing created"); setCreateOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const submitFiling = trpc5.taxFiling.submitFiling.useMutation({
+  const submitFiling = trpc.wave80.taxFiling.submitFiling.useMutation({
     onSuccess: (data) => { toast.success("Filed! Receipt: " + data.receiptNumber); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

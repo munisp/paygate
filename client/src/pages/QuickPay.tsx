@@ -149,7 +149,7 @@ function QRPanel({ merchant }: { merchant: any }) {
             placeholder="0.00"
             className="pl-7 text-lg font-semibold h-12"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e: any) => setAmount(e.target.value)}
           />
         </div>
         {/* Preset amounts */}
@@ -175,7 +175,7 @@ function QRPanel({ merchant }: { merchant: any }) {
         <Input
           placeholder="e.g. Table 5 order"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(e: any) => setDescription(e.target.value)}
         />
       </div>
 
@@ -297,7 +297,7 @@ function PaymentLinkPanel() {
     <div className="space-y-4">
       <div className="space-y-2">
         <Label className="text-sm font-medium">Link Title</Label>
-        <Input placeholder="e.g. Invoice #1042" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Input placeholder="e.g. Invoice #1042" value={title} onChange={(e: any) => setTitle(e.target.value)} />
       </div>
       <div className="space-y-2">
         <Label className="text-sm font-medium">Amount (₦)</Label>
@@ -308,7 +308,7 @@ function PaymentLinkPanel() {
             placeholder="0.00"
             className="pl-7"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e: any) => setAmount(e.target.value)}
           />
         </div>
       </div>
@@ -535,12 +535,12 @@ export default function QuickPay() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              {SHORTCUTS.find((s) => s.id === activeShortcut)?.label ?? "Feature"}
+              {SHORTCUTS.find((s: any) => s.id === activeShortcut)?.label ?? "Feature"}
             </DialogTitle>
           </DialogHeader>
           <div className="py-4 text-center space-y-3">
             {(() => {
-              const s = SHORTCUTS.find((s) => s.id === activeShortcut);
+              const s = SHORTCUTS.find((s: any) => s.id === activeShortcut);
               if (!s) return null;
               const Icon = s.icon;
               return (

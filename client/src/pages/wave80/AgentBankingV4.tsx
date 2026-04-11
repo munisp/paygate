@@ -6,19 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Users, Wallet, TrendingUp, Plus, Search } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 export default function AgentBankingV4() {
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ agentName: "", phone: "", lga: "", state: "", initialFloat: "0" });
-  const { data, isLoading, refetch } = trpc5.agentBankingV4.listAgents.useQuery({});
-  const { data: stats } = trpc5.agentBankingV4.getStats.useQuery();
-  const addAgent = trpc5.agentBankingV4.createAgent.useMutation({
+  const { data, isLoading, refetch } = trpc.wave80.agentBankingV4.listAgents.useQuery({});
+  const { data: stats } = trpc.wave80.agentBankingV4.getStats.useQuery();
+  const addAgent = trpc.wave80.agentBankingV4.createAgent.useMutation({
     onSuccess: () => { toast.success("Agent added"); setAddOpen(false); setForm({ agentName: "", phone: "", lga: "", state: "", initialFloat: "0" }); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const fundFloat = trpc5.agentBankingV4.topUpFloat.useMutation({
+  const fundFloat = trpc.wave80.agentBankingV4.topUpFloat.useMutation({
     onSuccess: () => { toast.success("Float funded"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

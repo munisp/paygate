@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { RefreshCw, Fingerprint, Shield, Clock, AlertTriangle } from "lucide-react";
 
 export default function SessionRisk() {
-  const { data: history, isLoading, refetch } = trpc2.sessionRisk.getRiskHistory.useQuery({ limit: 50 });
+  const { data: history, isLoading, refetch } = trpc.tier1to5.sessionRisk.getRiskHistory.useQuery({ limit: 50 });
 
   const riskColor = (score: number) => {
     if (score < 30) return "text-green-600 bg-green-50";

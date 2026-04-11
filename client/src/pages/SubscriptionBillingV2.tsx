@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,21 +18,21 @@ export default function SubscriptionBillingV2() {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
 
-  const { data: plans, refetch: refetchPlans } = trpc4.subscriptionBillingV2.listPlans.useQuery();
-  const { data: subscribers } = trpc4.subscriptionBillingV2.listSubscribers.useQuery({ planId: selectedPlan ?? undefined, page: 1 });
-  const { data: churn } = trpc4.subscriptionBillingV2.getChurnAnalytics.useQuery({ period: "30d" });
+  const { data: plans, refetch: refetchPlans } = trpc.newFeatures.subscriptionBillingV2.listPlans.useQuery();
+  const { data: subscribers } = trpc.newFeatures.subscriptionBillingV2.listSubscribers.useQuery({ planId: selectedPlan ?? undefined, page: 1 });
+  const { data: churn } = trpc.newFeatures.subscriptionBillingV2.getChurnAnalytics.useQuery({ period: "30d" });
 
-  const createPlanMutation = trpc4.subscriptionBillingV2.createPlan.useMutation({
+  const createPlanMutation = trpc.newFeatures.subscriptionBillingV2.createPlan.useMutation({
     onSuccess: () => { toast.success("Plan created"); refetchPlans(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const cancelMutation = trpc4.subscriptionBillingV2.cancelSubscription.useMutation({
-    onSuccess: (d) => toast.success(`Subscription ${d.subscriptionId} cancelled`),
-    onError: (e) => toast.error(e.message),
+  const cancelMutation = trpc.newFeatures.subscriptionBillingV2.cancelSubscription.useMutation({
+    onSuccess: (d: any) => toast.success(`Subscription ${d.subscriptionId} cancelled`),
+    onError: (e: any) => toast.error(e.message),
   });
-  const pauseMutation = trpc4.subscriptionBillingV2.pauseSubscription.useMutation({
+  const pauseMutation = trpc.newFeatures.subscriptionBillingV2.pauseSubscription.useMutation({
     onSuccess: () => toast.success("Subscription paused"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -70,7 +70,7 @@ export default function SubscriptionBillingV2() {
                 {plan.trialDays > 0 && <p className="text-xs text-blue-600">{plan.trialDays}-day free trial</p>}
                 <p className="text-xs text-muted-foreground mt-1">{plan.activeSubscribers} subscribers</p>
                 <ul className="mt-2 space-y-0.5">
-                  {plan.features?.slice(0, 3).map((f, i) => <li key={i} className="text-xs text-muted-foreground">✓ {f}</li>)}
+                  {plan.features?.slice(0, 3).map((f: any, i: any) => <li key={i} className="text-xs text-muted-foreground">✓ {f}</li>)}
                 </ul>
               </div>
             ))}

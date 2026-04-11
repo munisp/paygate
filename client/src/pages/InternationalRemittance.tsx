@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,20 +18,20 @@ export default function InternationalRemittance() {
   const [recipientAccount, setRecipientAccount] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
 
-  const { data: corridors } = trpc4.internationalRemittance.getCorridors.useQuery();
-  const { data: transfers } = trpc4.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 20 });
-  const { data: quoteData } = trpc4.internationalRemittance.getQuote.useQuery(
+  const { data: corridors } = trpc.newFeatures.internationalRemittance.getCorridors.useQuery();
+  const { data: transfers } = trpc.newFeatures.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 20 });
+  const { data: quoteData } = trpc.newFeatures.internationalRemittance.getQuote.useQuery(
     quoteParams ?? { corridorId: "", sendAmountUSD: 0, deliveryMethod: "bank_transfer" },
     { enabled: !!quoteParams }
   );
-  const { data: trackingData } = trpc4.internationalRemittance.trackTransfer.useQuery(
+  const { data: trackingData } = trpc.newFeatures.internationalRemittance.trackTransfer.useQuery(
     { trackingNumber },
     { enabled: trackingNumber.length > 5 }
   );
 
-  const transferMutation = trpc4.internationalRemittance.initiateTransfer.useMutation({
-    onSuccess: (d) => { toast.success(`Transfer initiated: ${d.trackingNumber}`); setQuoteParams(null); },
-    onError: (e) => toast.error(e.message),
+  const transferMutation = trpc.newFeatures.internationalRemittance.initiateTransfer.useMutation({
+    onSuccess: (d: any) => { toast.success(`Transfer initiated: ${d.trackingNumber}`); setQuoteParams(null); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const selectedCorridorData = corridors?.corridors?.find(c => c.id === selectedCorridor);
@@ -57,7 +57,7 @@ export default function InternationalRemittance() {
                 <p className="text-xs mt-1">Rate: <strong>1 {c.fromCurrency} = {c.exchangeRate} {c.toCurrency}</strong></p>
                 <p className="text-xs text-muted-foreground">Fee: ${c.fee} · Min: ${c.minAmountUSD} · Max: ${c.maxAmountUSD}</p>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {c.providers?.map((p, i) => <span key={i} className="text-xs bg-muted px-1 rounded">{p}</span>)}
+                  {c.providers?.map((p: any, i: any) => <span key={i} className="text-xs bg-muted px-1 rounded">{p}</span>)}
                 </div>
               </div>
             ))}
@@ -134,7 +134,7 @@ export default function InternationalRemittance() {
               <p className="text-xs text-muted-foreground">Est. Delivery: {new Date(trackingData.estimatedDelivery).toLocaleString()}</p>
               {trackingData.deliveredAt && <p className="text-xs text-green-600">Delivered: {new Date(trackingData.deliveredAt).toLocaleString()}</p>}
               <div className="space-y-1 mt-2">
-                {trackingData.statusHistory?.map((h, i) => (
+                {trackingData.statusHistory?.map((h: any, i: any) => (
                   <div key={i} className="flex gap-2 text-xs">
                     <span className="text-muted-foreground w-32 shrink-0">{new Date(h.timestamp).toLocaleString()}</span>
                     <span className="font-medium">{h.status}</span>

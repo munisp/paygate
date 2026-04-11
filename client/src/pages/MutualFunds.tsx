@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,12 +12,12 @@ export default function MutualFunds() {
   const [selectedFund, setSelectedFund] = useState<string | null>(null);
   const [investType, setInvestType] = useState<"lumpsum" | "sip">("lumpsum");
 
-  const { data: fundsData, isLoading } = trpc4.mutualFunds.listFunds.useQuery({ category, sortBy: "returns_1y" });
-  const { data: portfolio } = trpc4.mutualFunds.getPortfolio.useQuery();
+  const { data: fundsData, isLoading } = trpc.newFeatures.mutualFunds.listFunds.useQuery({ category, sortBy: "returns_1y" });
+  const { data: portfolio } = trpc.newFeatures.mutualFunds.getPortfolio.useQuery();
 
-  const investMutation = trpc4.mutualFunds.invest.useMutation({
+  const investMutation = trpc.newFeatures.mutualFunds.invest.useMutation({
     onSuccess: (data) => toast.success(`Investment of ₦${(data.amountKobo / 100).toLocaleString()} placed`),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

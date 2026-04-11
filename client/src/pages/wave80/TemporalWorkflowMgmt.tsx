@@ -4,20 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { CheckCircle, Play, Square, Search, RefreshCw } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function TemporalWorkflowMgmt() {
   const [search, setSearch] = useState("");
 
-  const { data, isLoading, refetch } = trpc5.temporalWorkflowMgmt.listWorkflows.useQuery({});
-  const { data: metrics } = trpc5.temporalWorkflowMgmt.getMetrics.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.temporalWorkflowMgmt.listWorkflows.useQuery({});
+  const { data: metrics } = trpc.wave80.temporalWorkflowMgmt.getMetrics.useQuery({});
 
-  const cancel = trpc5.temporalWorkflowMgmt.cancelWorkflow.useMutation({
+  const cancel = trpc.wave80.temporalWorkflowMgmt.cancelWorkflow.useMutation({
     onSuccess: () => { toast.success("Workflow cancelled"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const retry = trpc5.temporalWorkflowMgmt.retryWorkflow.useMutation({
+  const retry = trpc.wave80.temporalWorkflowMgmt.retryWorkflow.useMutation({
     onSuccess: () => { toast.success("Workflow retried"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

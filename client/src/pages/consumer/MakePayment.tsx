@@ -38,7 +38,7 @@ function PinDialog({
     setPin("");
   };
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setPin(""); } }}>
+    <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">
         <DialogHeader><DialogTitle>Enter Transaction PIN</DialogTitle></DialogHeader>
         <div className="py-4">
@@ -93,11 +93,11 @@ export default function MakePayment() {
   const [editNickname, setEditNickname] = useState("");
   const updateBene = trpc.p2p.updateBeneficiary.useMutation({
     onSuccess: () => { utils.p2p.savedBeneficiaries.invalidate(); setEditingBeneId(null); toast.success("Nickname saved"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const deleteBene = trpc.p2p.deleteBeneficiary.useMutation({
     onSuccess: () => { utils.p2p.savedBeneficiaries.invalidate(); toast.success("Beneficiary removed"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const resolve = trpc.nip.resolveAccount.useMutation({
@@ -122,7 +122,7 @@ export default function MakePayment() {
       utils.consumerWallet.history.invalidate();
       utils.p2p.savedBeneficiaries.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const fillFromBeneficiary = (b: { accountNumber: string; bankCode: string; bankName: string; accountName: string }) => {
@@ -183,10 +183,10 @@ export default function MakePayment() {
                       <input
                         autoFocus
                         value={editNickname}
-                        onChange={(e) => setEditNickname(e.target.value)}
+                        onChange={(e: any) => setEditNickname(e.target.value)}
                         placeholder="Nickname"
                         className="text-xs px-2 py-1 rounded border border-border bg-background w-24 outline-none"
-                        onKeyDown={(e) => {
+                        onKeyDown={(e: any) => {
                           if (e.key === 'Enter') updateBene.mutate({ id: b.id, nickname: editNickname });
                           if (e.key === 'Escape') setEditingBeneId(null);
                         }}
@@ -274,7 +274,7 @@ export default function MakePayment() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Checkbox id="save-bene" checked={saveBeneficiary} onCheckedChange={(v) => setSaveBeneficiary(!!v)} />
+            <Checkbox id="save-bene" checked={saveBeneficiary} onCheckedChange={(v: any) => setSaveBeneficiary(!!v)} />
             <label htmlFor="save-bene" className="text-sm cursor-pointer select-none">Save recipient for future transfers</label>
           </div>
 

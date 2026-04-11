@@ -1,17 +1,17 @@
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Smartphone, Users, Zap } from "lucide-react";
 export default function SuperApp() {
-  const { data: config, refetch } = trpc3.superApp.getAppConfig.useQuery();
-  const { data: stats } = trpc3.superApp.getConsumerStats.useQuery({ period: "30d" });
-  const pushMutation = trpc3.superApp.pushAppUpdate.useMutation({
+  const { data: config, refetch } = trpc.tier6to8.superApp.getAppConfig.useQuery();
+  const { data: stats } = trpc.tier6to8.superApp.getConsumerStats.useQuery({ period: "30d" });
+  const pushMutation = trpc.tier6to8.superApp.pushAppUpdate.useMutation({
     onSuccess: (d: any) => { toast.success(`Update pushed to ${d.devicesReached} devices`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const updateMutation = trpc3.superApp.updateModules.useMutation({
+  const updateMutation = trpc.tier6to8.superApp.updateModules.useMutation({
     onSuccess: () => { toast.success("Modules updated"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });

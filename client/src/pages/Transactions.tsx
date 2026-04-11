@@ -49,7 +49,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
   };
 
   return (
-    <Dialog open={!!txId} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!txId} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Transaction Details</DialogTitle>
@@ -182,7 +182,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                   </div>
                   {retryHistory.length > 0 ? (
                     <div className="space-y-1 pl-2 border-l-2 border-amber-200 ml-1.5">
-                      {retryHistory.map((r, i) => (
+                      {retryHistory.map((r: any, i: any) => (
                         <div key={i} className="flex items-center justify-between text-xs text-muted-foreground pl-2">
                           <span className="font-medium">Attempt #{r.attempt}</span>
                           <span className={r.status === 'completed' ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>{r.status}</span>
@@ -247,7 +247,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                   <input
                     type="number"
                     value={refundAmount}
-                    onChange={(e) => setRefundAmount(e.target.value)}
+                    onChange={(e: any) => setRefundAmount(e.target.value)}
                     max={tx.amount}
                     min={1}
                     className="w-full mt-1 px-3 py-1.5 text-sm border border-border rounded-md bg-background"
@@ -258,7 +258,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                   <input
                     type="text"
                     value={refundReason}
-                    onChange={(e) => setRefundReason(e.target.value)}
+                    onChange={(e: any) => setRefundReason(e.target.value)}
                     placeholder="e.g. Customer request"
                     className="w-full mt-1 px-3 py-1.5 text-sm border border-border rounded-md bg-background"
                   />
@@ -374,10 +374,10 @@ export default function Transactions() {
       <div className="flex gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+          <input value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(0); }}
             placeholder="Search by reference, customer..." className="w-full pl-9 pr-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
         </div>
-        <select value={statusFilter ?? ""} onChange={(e) => { setStatusFilter(e.target.value || undefined); setPage(0); }}
+        <select value={statusFilter ?? ""} onChange={(e: any) => { setStatusFilter(e.target.value || undefined); setPage(0); }}
           className="px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
           <option value="">All statuses</option>
           <option value="completed">Completed</option>
@@ -391,7 +391,7 @@ export default function Transactions() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
-              {["Reference", "Customer", "Amount", "Channel", "Status", "Date", ""].map((h) => (
+              {["Reference", "Customer", "Amount", "Channel", "Status", "Date", ""].map((h: any) => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
               ))}
             </tr>

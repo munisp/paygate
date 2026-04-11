@@ -3,14 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Phone, BarChart3, GitBranch, TrendingDown, Settings } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 
 export default function UssdSessionV2() {
   const [tab, setTab] = useState("analytics");
 
-  const { data: analyticsData } = trpc5.ussdSessionV2.getSessionAnalytics.useQuery({ period: "7d" });
-  const { data: menuData } = trpc5.ussdSessionV2.getMenuFlow.useQuery();
-  const { data: dropOffData } = trpc5.ussdSessionV2.getDropOffAnalysis.useQuery({ period: "7d" });
+  const { data: analyticsData } = trpc.wave80.ussdSessionV2.getSessionAnalytics.useQuery({ period: "7d" });
+  const { data: menuData } = trpc.wave80.ussdSessionV2.getMenuFlow.useQuery();
+  const { data: dropOffData } = trpc.wave80.ussdSessionV2.getDropOffAnalysis.useQuery({ period: "7d" });
 
   const analytics = analyticsData ?? { totalSessions: 0, completedSessions: 0, abandonedSessions: 0, avgSessionDuration: 0 };
   const menuFlow = menuData?.menus ?? [];
@@ -32,7 +32,7 @@ export default function UssdSessionV2() {
         <TabsContent value="analytics">
           <Card><CardHeader><CardTitle>Drop-off Points</CardTitle></CardHeader><CardContent>
             {(dropOffData?.dropOffPoints ?? []).length === 0 ? <div className="text-center py-8"><p className="text-muted-foreground">No drop-off data yet.</p></div> : (
-              <div className="space-y-3">{(dropOffData?.dropOffPoints ?? []).map((p, i) => (
+              <div className="space-y-3">{(dropOffData?.dropOffPoints ?? []).map((p: any, i: any) => (
                 <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
                   <div><p className="font-medium">{p.menu}</p><p className="text-sm text-muted-foreground">{p.count} drop-offs</p></div>
                   <p className="font-bold text-red-600">{p.dropOffRate}%</p>
@@ -46,10 +46,10 @@ export default function UssdSessionV2() {
             {menuFlow.length === 0 ? (
               <div className="space-y-4">
                 {[{ title: "Main Menu", options: ["1. Check Balance","2. Transfer Money","3. Buy Airtime","4. Pay Bills","0. Exit"] },
-                  { title: "Transfer Money", options: ["1. Bank Transfer","2. Mobile Money","3. PayGate Wallet","0. Back"] }].map((m, i) => (
+                  { title: "Transfer Money", options: ["1. Bank Transfer","2. Mobile Money","3. PayGate Wallet","0. Back"] }].map((m: any, i: any) => (
                   <div key={i} className="p-4 border rounded-lg">
                     <p className="font-medium mb-2">{m.title}</p>
-                    <div className="space-y-1">{m.options.map((opt, j) => <p key={j} className="text-sm font-mono text-muted-foreground">{opt}</p>)}</div>
+                    <div className="space-y-1">{m.options.map((opt: string, j: number) => <p key={j} className="text-sm font-mono text-muted-foreground">{opt}</p>)}</div>
                   </div>
                 ))}
               </div>

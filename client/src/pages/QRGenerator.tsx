@@ -118,7 +118,7 @@ export default function QRGenerator() {
                       type="number"
                       placeholder="0.00"
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={(e: any) => setAmount(e.target.value)}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -126,7 +126,7 @@ export default function QRGenerator() {
                     <Select value={currency} onValueChange={setCurrency}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["NGN", "USD", "GHS", "KES", "ZAR"].map((c) => (
+                        {["NGN", "USD", "GHS", "KES", "ZAR"].map((c: any) => (
                           <SelectItem key={c} value={c}>{c}</SelectItem>
                         ))}
                       </SelectContent>
@@ -138,7 +138,7 @@ export default function QRGenerator() {
                   <Input
                     placeholder="e.g. Product purchase"
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={(e: any) => setDescription(e.target.value)}
                   />
                 </div>
               </TabsContent>
@@ -149,7 +149,7 @@ export default function QRGenerator() {
                   <Select value={currency} onValueChange={setCurrency}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["NGN", "USD", "GHS", "KES", "ZAR"].map((c) => (
+                      {["NGN", "USD", "GHS", "KES", "ZAR"].map((c: any) => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
                     </SelectContent>
@@ -160,7 +160,7 @@ export default function QRGenerator() {
                   <Input
                     placeholder="Customer enters amount at checkout"
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={(e: any) => setDescription(e.target.value)}
                   />
                 </div>
               </TabsContent>

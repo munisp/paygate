@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Users, DollarSign, CheckCircle, Plus, Play } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function PayrollV3() {
@@ -17,18 +17,18 @@ export default function PayrollV3() {
   const [empForm, setEmpForm] = useState({ fullName: "", email: "", department: "General", bankCode: "", accountNumber: "", grossSalary: "" });
   const [runForm, setRunForm] = useState({ runName: "", period: "" });
 
-  const { data: runsData, isLoading: loadingRuns, refetch: refetchRuns } = trpc5.payrollV3.listRuns.useQuery({});
-  const { data: empData, isLoading: loadingEmps, refetch: refetchEmps } = trpc5.payrollV3.listEmployees.useQuery({});
+  const { data: runsData, isLoading: loadingRuns, refetch: refetchRuns } = trpc.wave80.payrollV3.listRuns.useQuery({});
+  const { data: empData, isLoading: loadingEmps, refetch: refetchEmps } = trpc.wave80.payrollV3.listEmployees.useQuery({});
 
-  const addEmployee = trpc5.payrollV3.addEmployee.useMutation({
+  const addEmployee = trpc.wave80.payrollV3.addEmployee.useMutation({
     onSuccess: () => { toast.success("Employee added"); setAddEmpOpen(false); refetchEmps(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const createRun = trpc5.payrollV3.createRun.useMutation({
+  const createRun = trpc.wave80.payrollV3.createRun.useMutation({
     onSuccess: () => { toast.success("Payroll run created"); setCreateRunOpen(false); refetchRuns(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const processRun = trpc5.payrollV3.processRun.useMutation({
+  const processRun = trpc.wave80.payrollV3.processRun.useMutation({
     onSuccess: () => { toast.success("Payroll processed"); refetchRuns(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
@@ -47,7 +47,7 @@ export default function PayrollV3() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Users className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">{employees.length}</p><p className="text-sm text-muted-foreground">Employees</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><DollarSign className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">&#8358;{(employees.reduce((s, e) => s + e.grossSalary, 0) / 100).toLocaleString()}</p><p className="text-sm text-muted-foreground">Monthly Payroll</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><DollarSign className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">&#8358;{(employees.reduce((s: any, e: any) => s + e.grossSalary, 0) / 100).toLocaleString()}</p><p className="text-sm text-muted-foreground">Monthly Payroll</p></div></div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><CheckCircle className="w-8 h-8 text-purple-500" /><div><p className="text-2xl font-bold">{runs.filter(r => r.status === "processed").length}</p><p className="text-sm text-muted-foreground">Completed Runs</p></div></div></CardContent></Card>
       </div>
       <Tabs value={tab} onValueChange={setTab}>

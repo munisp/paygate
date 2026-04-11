@@ -33,12 +33,12 @@ export default function AdminMerchantManagement() {
 
   const statusMutation = trpc.admin.merchants.updateMerchantStatus.useMutation({
     onSuccess: () => { utils.admin.merchants.listMerchants.invalidate(); toast.success("Merchant status updated"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const feesMutation = trpc.admin.merchants.updateMerchantFees.useMutation({
     onSuccess: () => { utils.admin.merchants.listMerchants.invalidate(); setFeesDialog(null); toast.success("Fee configuration updated"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const merchants = (listQuery.data as any)?.merchants ?? [];
@@ -61,11 +61,11 @@ export default function AdminMerchantManagement() {
               <Input
                 placeholder="Search merchants..."
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                onChange={(e: any) => { setSearch(e.target.value); setPage(1); }}
                 className="pl-9 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
               />
             </div>
-            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as any); setPage(1); }}>
+            <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v as any); setPage(1); }}>
               <SelectTrigger className="w-40 bg-slate-800 border-slate-700 text-white">
                 <SelectValue />
               </SelectTrigger>
@@ -184,15 +184,15 @@ export default function AdminMerchantManagement() {
             <div className="space-y-4 py-2">
               <div>
                 <Label className="text-slate-300">Fee Percent (%)</Label>
-                <Input value={feePercent} onChange={(e) => setFeePercent(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                <Input value={feePercent} onChange={(e: any) => setFeePercent(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" />
               </div>
               <div>
                 <Label className="text-slate-300">Flat Fee (Kobo)</Label>
-                <Input value={flatFeeKobo} onChange={(e) => setFlatFeeKobo(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                <Input value={flatFeeKobo} onChange={(e: any) => setFlatFeeKobo(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" />
               </div>
               <div>
                 <Label className="text-slate-300">Tier</Label>
-                <Select value={feeTier} onValueChange={(v) => setFeeTier(v as any)}>
+                <Select value={feeTier} onValueChange={(v: any) => setFeeTier(v as any)}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700 text-white">
                     <SelectValue />
                   </SelectTrigger>

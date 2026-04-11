@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,14 +11,14 @@ export default function WealthManagement() {
   const [goalTarget, setGoalTarget] = useState("");
   const [goalDate, setGoalDate] = useState("");
 
-  const { data: portfolio } = trpc4.wealthManagement.getPortfolioSummary.useQuery();
-  const { data: riskProfile } = trpc4.wealthManagement.getRiskProfile.useQuery();
-  const { data: recommendations } = trpc4.wealthManagement.getRecommendations.useQuery();
-  const { data: goals } = trpc4.wealthManagement.getGoals.useQuery();
+  const { data: portfolio } = trpc.newFeatures.wealthManagement.getPortfolioSummary.useQuery();
+  const { data: riskProfile } = trpc.newFeatures.wealthManagement.getRiskProfile.useQuery();
+  const { data: recommendations } = trpc.newFeatures.wealthManagement.getRecommendations.useQuery();
+  const { data: goals } = trpc.newFeatures.wealthManagement.getGoals.useQuery();
 
-  const createGoalMutation = trpc4.wealthManagement.createGoal.useMutation({
-    onSuccess: (d) => toast.success(`Goal "${d.name}" created`),
-    onError: (e) => toast.error(e.message),
+  const createGoalMutation = trpc.newFeatures.wealthManagement.createGoal.useMutation({
+    onSuccess: (d: any) => toast.success(`Goal "${d.name}" created`),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -49,7 +49,7 @@ export default function WealthManagement() {
             <CardHeader><CardTitle className="text-base">Asset Allocation</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {portfolio.allocation?.map((a, i) => (
+                {portfolio.allocation?.map((a: any, i: any) => (
                   <div key={a.asset}>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="font-medium">{a.asset}</span>
@@ -81,7 +81,7 @@ export default function WealthManagement() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {riskProfile.recommendations?.map((r, i) => <Badge key={i} variant="secondary">{r}</Badge>)}
+              {riskProfile.recommendations?.map((r: any, i: any) => <Badge key={i} variant="secondary">{r}</Badge>)}
             </div>
           </CardContent>
         </Card>
@@ -92,7 +92,7 @@ export default function WealthManagement() {
         <CardHeader><CardTitle>Investment Recommendations</CardTitle></CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {recommendations?.recommendations?.map((r, i) => (
+            {recommendations?.recommendations?.map((r: any, i: any) => (
               <div key={i} className="p-3 border rounded-lg">
                 <div className="flex justify-between items-start mb-1">
                   <p className="font-semibold text-sm">{r.name}</p>

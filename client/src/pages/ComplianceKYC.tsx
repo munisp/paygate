@@ -30,7 +30,7 @@ export default function ComplianceKYC() {
   const utils = trpc.useUtils();
   const uploadDocMutation = trpc.complianceKyc.uploadDocument.useMutation({
     onSuccess: () => { toast.success("Document uploaded and submitted for review"); utils.complianceKyc.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const refetch = () => {};
   const data: any = null;
@@ -81,7 +81,7 @@ export default function ComplianceKYC() {
         type="file"
         className="hidden"
         accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-        onChange={async (e) => {
+        onChange={async (e: any) => {
           const file = e.target.files?.[0];
           if (!file || activeDocId === null) return;
           e.target.value = "";

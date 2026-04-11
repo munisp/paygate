@@ -100,9 +100,9 @@ export default function RestaurantFloorPlan() {
             <DialogContent>
               <DialogHeader><DialogTitle>Add New Table</DialogTitle></DialogHeader>
               <div className="space-y-3 pt-2">
-                <Input placeholder="Table Number (e.g. T1, A3)" value={form.tableNumber} onChange={(e) => setForm({ ...form, tableNumber: e.target.value })} />
-                <Input type="number" placeholder="Capacity" min={1} max={50} value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
-                <Input placeholder="Section (main, patio, bar…)" value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })} />
+                <Input placeholder="Table Number (e.g. T1, A3)" value={form.tableNumber} onChange={(e: any) => setForm({ ...form, tableNumber: e.target.value })} />
+                <Input type="number" placeholder="Capacity" min={1} max={50} value={form.capacity} onChange={(e: any) => setForm({ ...form, capacity: e.target.value })} />
+                <Input placeholder="Section (main, patio, bar…)" value={form.section} onChange={(e: any) => setForm({ ...form, section: e.target.value })} />
                 <Button className="w-full" disabled={!form.tableNumber} onClick={() => createTable.mutate({ tableNumber: form.tableNumber, capacity: parseInt(form.capacity) || 4, section: form.section })}>
                   Create Table
                 </Button>
@@ -152,7 +152,7 @@ export default function RestaurantFloorPlan() {
                     height: 72,
                     backgroundColor: STATUS_COLORS[table.status] ?? "#6b7280",
                   }}
-                  onMouseDown={(e) => handleMouseDown(e, table.id)}
+                  onMouseDown={(e: any) => handleMouseDown(e, table.id)}
                   onClick={() => {
                     // Cycle status on click
                     const statuses = ["available", "occupied", "reserved", "cleaning"];

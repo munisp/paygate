@@ -22,7 +22,7 @@ import {
 
 function NotificationsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Notifications</DialogTitle></DialogHeader>
         <div className="py-6 text-center text-sm text-muted-foreground">
@@ -36,7 +36,7 @@ function NotificationsDialog({ open, onClose }: { open: boolean; onClose: () => 
 
 function SecurityDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Security &amp; Privacy</DialogTitle></DialogHeader>
         <div className="py-4 space-y-3 text-sm">
@@ -64,7 +64,7 @@ function SecurityDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
 function SupportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Help &amp; Support</DialogTitle></DialogHeader>
         <div className="py-4 space-y-3 text-sm">
@@ -119,7 +119,7 @@ export default function ConsumerProfile() {
       setEditingName(false);
       setEditingEmail(false);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const initials = user?.name
@@ -219,7 +219,7 @@ export default function ConsumerProfile() {
             username={user?.name || "user"}
             mode="register"
             onSuccess={() => toast.success("Biometric registered — you can now use Face ID / Touch ID to sign in")}
-            onError={(e) => toast.error(e)}
+            onError={(e: any) => toast.error(e)}
           />
         </CardContent>
       </Card>

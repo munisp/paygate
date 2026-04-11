@@ -266,7 +266,7 @@ function SecurityScoreWidget() {
 
       {/* Check list */}
       <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-        {checks.map((c) => (
+        {checks.map((c: any) => (
           <div key={c.label} className="flex items-center gap-2.5 py-1">
             <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
               c.done ? "bg-emerald-100" : "bg-red-100"
@@ -315,7 +315,7 @@ function QuickActionsBar() {
         Quick Actions
       </h3>
       <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
-        {actions.map((a) => (
+        {actions.map((a: any) => (
           <button
             key={a.label}
             onClick={() => window.location.href = a.path}
@@ -539,7 +539,7 @@ function DisputeAnalyticsWidget() {
         </button>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {stats.map((s) => (
+        {stats.map((s: any) => (
           <div key={s.label} className="bg-muted/40 rounded-xl p-4 flex items-center gap-3">
             <div className={`p-2.5 rounded-xl ${s.bg} shrink-0`}>
               <s.icon className={`w-4 h-4 ${s.text}`} />
@@ -738,7 +738,7 @@ export default function Dashboard() {
   const fraudAlerts = fraudAlertsData ?? [];
 
   const syncBanks = trpc.nip.syncBanks.useMutation({
-    onSuccess: (d) => toast.success(`Synced ${d.synced} NIP banks`),
+    onSuccess: (d: any) => toast.success(`Synced ${d.synced} NIP banks`),
     onError: () => toast.error("NIP bank sync failed"),
   });
 
@@ -830,7 +830,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-muted rounded-lg p-1 gap-1">
-            {(["7d", "30d", "90d"] as const).map((p) => (
+            {(["7d", "30d", "90d"] as const).map((p: any) => (
               <button
                 key={p} onClick={() => setPeriod(p)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
@@ -964,7 +964,7 @@ export default function Dashboard() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-2 mt-2">
-                  {channelBreakdown.map((c) => (
+                  {channelBreakdown.map((c: any) => (
                     <div key={c.name} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />

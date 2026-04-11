@@ -77,7 +77,7 @@ export default function AdminPlatformOverview() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} tickFormatter={(v) => `₦${(v / 100).toLocaleString()}`} />
+                  <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} tickFormatter={(v: any) => `₦${(v / 100).toLocaleString()}`} />
                   <Tooltip
                     contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
                     labelStyle={{ color: "#94a3b8" }}

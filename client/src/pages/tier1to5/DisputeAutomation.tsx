@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +16,9 @@ export default function DisputeAutomation() {
   const [description, setDescription] = useState("");
   const [evidenceType, setEvidenceType] = useState<"receipt" | "delivery_proof" | "customer_communication" | "refund_proof" | "other">("receipt");
 
-  const chargebacksQuery = trpc2.chargeback.getChargebacks.useQuery({ status: statusFilter }, { enabled: !!user });
+  const chargebacksQuery = trpc.tier1to5.chargeback.getChargebacks.useQuery({ status: statusFilter }, { enabled: !!user });
 
-  const submitMutation = trpc2.chargeback.submitEvidence.useMutation({
+  const submitMutation = trpc.tier1to5.chargeback.submitEvidence.useMutation({
     onSuccess: () => {
       toast("Evidence submitted successfully");
       chargebacksQuery.refetch();
@@ -29,7 +29,7 @@ export default function DisputeAutomation() {
     onError: (e: any) => toast("Failed to submit evidence", { description: e.message }),
   });
 
-  const autoMutation = trpc2.chargeback.autoCollectEvidence.useMutation({
+  const autoMutation = trpc.tier1to5.chargeback.autoCollectEvidence.useMutation({
     onSuccess: () => {
       toast("Auto-collection initiated — evidence will be gathered automatically");
       chargebacksQuery.refetch();
@@ -80,7 +80,7 @@ export default function DisputeAutomation() {
                 <select
                   className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                   value={evidenceType}
-                  onChange={(e) => setEvidenceType(e.target.value as any)}
+                  onChange={(e: any) => setEvidenceType(e.target.value as any)}
                 >
                   <option value="receipt">Receipt</option>
                   <option value="delivery_proof">Delivery Proof</option>
@@ -91,7 +91,7 @@ export default function DisputeAutomation() {
               </div>
               <div>
                 <label className="text-sm font-medium">Evidence URL</label>
-                <Input placeholder="https://..." value={evidenceUrl} onChange={(e) => setEvidenceUrl(e.target.value)} className="mt-1" />
+                <Input placeholder="https://..." value={evidenceUrl} onChange={(e: any) => setEvidenceUrl(e.target.value)} className="mt-1" />
               </div>
             </div>
             <div>
@@ -100,7 +100,7 @@ export default function DisputeAutomation() {
                 className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background min-h-[80px]"
                 placeholder="Describe the evidence..."
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(e: any) => setDescription(e.target.value)}
               />
             </div>
             <div className="flex gap-2">

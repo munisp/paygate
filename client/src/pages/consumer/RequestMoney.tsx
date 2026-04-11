@@ -23,7 +23,7 @@ function PinDialog({ open, onClose, onConfirm, isPending, amount, requesterName 
 }) {
   const [pin, setPin] = useState("");
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setPin(""); } }}>
+    <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">
         <DialogHeader><DialogTitle>Pay Request</DialogTitle></DialogHeader>
         <div className="py-2 space-y-3">
@@ -66,7 +66,7 @@ export default function RequestMoney() {
       setCreatedRequest({ id: data.id, shareUrl: `${window.location.origin}/consumer/pay-request/${data.id}`, amountKobo: data.amountKobo });
       utils.moneyRequest.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const payRequest = trpc.moneyRequest.pay.useMutation({
@@ -77,12 +77,12 @@ export default function RequestMoney() {
       utils.moneyRequest.list.invalidate();
       utils.consumerWallet.getBalance.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const cancelRequest = trpc.moneyRequest.cancel.useMutation({
     onSuccess: () => { toast.success("Request cancelled"); utils.moneyRequest.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleCreate = () => {
@@ -185,7 +185,7 @@ export default function RequestMoney() {
             !(myRequests?.length) ? (
               <div className="text-center py-8 text-muted-foreground text-sm">No requests sent yet</div>
             ) : (
-              (myRequests as any[]).map((r) => (
+              (myRequests as any[]).map((r: any) => (
                 <div key={r.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
                   <div>
                     <p className="text-sm font-medium">&#8358;{(r.amountKobo / 100).toLocaleString()}</p>

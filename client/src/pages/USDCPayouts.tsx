@@ -97,7 +97,7 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
     <div className="bg-card rounded-xl border border-border overflow-hidden">
       <button
         className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpanded((v: any) => !v)}
       >
         <div className="flex items-center gap-2">
           <ArrowUpRight className="w-4 h-4 text-primary" />
@@ -114,7 +114,7 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
               <Input
                 placeholder="e.g. 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
                 value={recipient}
-                onChange={(e) => setRecipient(e.target.value)}
+                onChange={(e: any) => setRecipient(e.target.value)}
                 className="font-mono text-sm"
               />
             </div>
@@ -126,12 +126,12 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
                 min="0.000001"
                 placeholder="0.00"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e: any) => setAmount(e.target.value)}
               />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Network</Label>
-              <Select value={network} onValueChange={(v) => setNetwork(v as "mainnet" | "devnet")}>
+              <Select value={network} onValueChange={(v: any) => setNetwork(v as "mainnet" | "devnet")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -146,7 +146,7 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
               <Input
                 placeholder="e.g. order-12345 or seller-payout-q1"
                 value={reference}
-                onChange={(e) => setReference(e.target.value)}
+                onChange={(e: any) => setReference(e.target.value)}
               />
             </div>
           </div>
@@ -196,7 +196,7 @@ function PayoutRow({ payout }: { payout: any }) {
     <div className="border-b border-border last:border-0">
       <div
         className="flex items-center gap-3 p-3 hover:bg-muted/20 cursor-pointer transition-colors"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setExpanded((v: any) => !v)}
       >
         <StatusIcon status={current.status} />
         <div className="flex-1 min-w-0">

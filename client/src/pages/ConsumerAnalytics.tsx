@@ -142,7 +142,7 @@ export default function ConsumerAnalytics() {
                       innerRadius={45} outerRadius={70}
                       dataKey="value"
                     >
-                      {(categories ?? []).map((c) => (
+                      {(categories ?? []).map((c: any) => (
                         <Cell key={c.category} fill={CATEGORY_COLORS[c.category] ?? "#94a3b8"} />
                       ))}
                     </Pie>

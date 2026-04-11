@@ -38,7 +38,7 @@ export default function PtspBatches() {
       refetch();
       setReconfirmingId(null);
     },
-    onError: (e) => {
+    onError: (e: any) => {
       toast.error(e.message);
       setReconfirmingId(null);
     },

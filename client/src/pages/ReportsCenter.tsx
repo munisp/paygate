@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,24 +19,24 @@ export default function ReportsCenter() {
   const [scheduleFreq, setScheduleFreq] = useState<"daily" | "weekly" | "monthly">("monthly");
   const [scheduleType, setScheduleType] = useState<"transactions" | "settlements" | "customers" | "tax">("transactions");
 
-  const { data: history } = trpc4.reports.listReports.useQuery({ page: 1, limit: 20 });
-  const { data: scheduled } = trpc4.reports.getScheduledReports.useQuery();
+  const { data: history } = trpc.newFeatures.reports.listReports.useQuery({ page: 1, limit: 20 });
+  const { data: scheduled } = trpc.newFeatures.reports.getScheduledReports.useQuery();
 
-  const txReportMutation = trpc4.reports.generateTransactionReport.useMutation({
-    onSuccess: (d) => { toast.success(`Report ready (${d.rowCount} rows)`); window.open(d.downloadUrl, "_blank"); },
-    onError: (e) => toast.error(e.message),
+  const txReportMutation = trpc.newFeatures.reports.generateTransactionReport.useMutation({
+    onSuccess: (d: any) => { toast.success(`Report ready (${d.rowCount} rows)`); window.open(d.downloadUrl, "_blank"); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const settlementReportMutation = trpc4.reports.generateSettlementReport.useMutation({
-    onSuccess: (d) => { toast.success(`Settlement report ready`); window.open(d.downloadUrl, "_blank"); },
-    onError: (e) => toast.error(e.message),
+  const settlementReportMutation = trpc.newFeatures.reports.generateSettlementReport.useMutation({
+    onSuccess: (d: any) => { toast.success(`Settlement report ready`); window.open(d.downloadUrl, "_blank"); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const taxReportMutation = trpc4.reports.generateTaxReport.useMutation({
-    onSuccess: (d) => { toast.success(`Tax report ready — VAT: ₦${(d.totalVatKobo / 100).toLocaleString()}`); window.open(d.downloadUrl, "_blank"); },
-    onError: (e) => toast.error(e.message),
+  const taxReportMutation = trpc.newFeatures.reports.generateTaxReport.useMutation({
+    onSuccess: (d: any) => { toast.success(`Tax report ready — VAT: ₦${(d.totalVatKobo / 100).toLocaleString()}`); window.open(d.downloadUrl, "_blank"); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const scheduleMutation = trpc4.reports.createScheduledReport.useMutation({
+  const scheduleMutation = trpc.newFeatures.reports.createScheduledReport.useMutation({
     onSuccess: (d: { scheduleId: string; nextRunAt: string; status: string }) => toast.success(`Scheduled: next run ${new Date(d.nextRunAt).toLocaleDateString()}`),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatColors: Record<string, string> = { csv: "bg-green-100 text-green-700", pdf: "bg-red-100 text-red-700", xlsx: "bg-blue-100 text-blue-700" };

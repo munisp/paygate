@@ -107,10 +107,10 @@ export default function MobileMoneyRecon() {
     toast.success(`Transaction ${id} manually resolved`);
   };
 
-  const totalMatched = PROVIDERS.reduce((s, p) => s + p.stats.matched, 0);
-  const totalUnmatched = PROVIDERS.reduce((s, p) => s + p.stats.unmatched, 0);
-  const totalPending = PROVIDERS.reduce((s, p) => s + p.stats.pending, 0);
-  const totalTx = PROVIDERS.reduce((s, p) => s + p.stats.total, 0);
+  const totalMatched = PROVIDERS.reduce((s: any, p: any) => s + p.stats.matched, 0);
+  const totalUnmatched = PROVIDERS.reduce((s: any, p: any) => s + p.stats.unmatched, 0);
+  const totalPending = PROVIDERS.reduce((s: any, p: any) => s + p.stats.pending, 0);
+  const totalTx = PROVIDERS.reduce((s: any, p: any) => s + p.stats.total, 0);
   const matchRate = ((totalMatched / totalTx) * 100).toFixed(1);
 
   return (

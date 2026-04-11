@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Wallet, ArrowRight, CheckCircle, Clock } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const CHAINS = ["Polygon", "Ethereum", "Avalanche", "Solana"];
@@ -18,15 +18,15 @@ export default function UsdcV2() {
   const [convertOpen, setConvertOpen] = useState(false);
   const [convertAmount, setConvertAmount] = useState("");
 
-  const { data: walletData } = trpc5.usdcV2.getWallet.useQuery();
-  const { data: txData, isLoading, refetch } = trpc5.usdcV2.listTransactions.useQuery({});
-  const { data: stats } = trpc5.usdcV2.getStats.useQuery();
+  const { data: walletData } = trpc.wave80.usdcV2.getWallet.useQuery();
+  const { data: txData, isLoading, refetch } = trpc.wave80.usdcV2.listTransactions.useQuery({});
+  const { data: stats } = trpc.wave80.usdcV2.getStats.useQuery();
 
-  const transfer = trpc5.usdcV2.initiateTransfer.useMutation({
+  const transfer = trpc.wave80.usdcV2.initiateTransfer.useMutation({
     onSuccess: () => { toast.success("Transfer initiated"); setAmount(""); setToAddress(""); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const convert = trpc5.usdcV2.convertToNgn.useMutation({
+  const convert = trpc.wave80.usdcV2.convertToNgn.useMutation({
     onSuccess: (data) => { toast.success("Converted to NGN"); setConvertOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

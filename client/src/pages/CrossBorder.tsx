@@ -441,7 +441,7 @@ function QuotePreview({
   );
 
   const handleExpired = useCallback(() => {
-    setQuoteKey((k) => k + 1);
+    setQuoteKey((k: any) => k + 1);
     toast.info("Quote expired — fetching a fresh rate…");
   }, []);
 
@@ -528,7 +528,7 @@ function InitiateTransferDialog({ onSuccess }: { onSuccess: () => void }) {
       setOpen(false);
       onSuccess();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -801,7 +801,7 @@ export default function CrossBorder() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50">
-                  {transfers.map((t) => (
+                  {transfers.map((t: any) => (
                     <tr key={t.id} className="hover:bg-slate-700/30 transition-colors">
                       <td className="p-4 font-mono text-xs text-slate-300">{t.transferId.slice(0, 20)}…</td>
                       <td className="p-4">

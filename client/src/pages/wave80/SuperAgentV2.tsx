@@ -6,17 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Network, Users, Wallet, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function SuperAgentV2() {
   const [createOpen, setCreateOpen] = useState(false);
   const [networkName, setNetworkName] = useState("");
 
-  const { data, isLoading, refetch } = trpc5.superAgentV2.listNetworks.useQuery();
-  const { data: stats } = trpc5.superAgentV2.getNetworkStats.useQuery();
+  const { data, isLoading, refetch } = trpc.wave80.superAgentV2.listNetworks.useQuery();
+  const { data: stats } = trpc.wave80.superAgentV2.getNetworkStats.useQuery();
 
-  const createNetwork = trpc5.superAgentV2.createNetwork.useMutation({
+  const createNetwork = trpc.wave80.superAgentV2.createNetwork.useMutation({
     onSuccess: () => { toast.success("Network created"); setCreateOpen(false); setNetworkName(""); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

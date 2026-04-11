@@ -49,9 +49,9 @@ export default function ConsumerNotifications() {
   });
 
   const notifications: any[] = Array.isArray(data) ? data : [];
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = notifications.filter((n: any) => !n.isRead).length;
 
-  const filtered = notifications.filter((n) => {
+  const filtered = notifications.filter((n: any) => {
     if (filter === "unread") return !n.isRead;
     if (filter === "payment") return n.type === "payment";
     if (filter === "alert") return n.type === "fraud" || n.type === "dispute";
@@ -92,7 +92,7 @@ export default function ConsumerNotifications() {
       {/* Filter Tabs */}
       <div className="px-5 mt-4">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {TABS.map((t) => (
+          {TABS.map((t: any) => (
             <button
               key={t.key}
               onClick={() => setFilter(t.key)}

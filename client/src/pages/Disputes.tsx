@@ -86,7 +86,7 @@ function RespondModal({ dispute, onClose, onSuccess }: RespondModalProps) {
       utils.disputes.list.invalidate();
       onSuccess();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -111,7 +111,7 @@ function RespondModal({ dispute, onClose, onSuccess }: RespondModalProps) {
           base64Data,
         });
         setFiles((prev) =>
-          prev.map((f, i) => (i === idx ? { ...f, url: result.url } : f))
+          prev.map((f: any, i: any) => (i === idx ? { ...f, url: result.url } : f))
         );
         toast.success("Evidence uploaded");
       } catch (err: any) {
@@ -131,7 +131,7 @@ function RespondModal({ dispute, onClose, onSuccess }: RespondModalProps) {
 
   function handleSubmit() {
     const evidenceMap: Record<string, string> = {};
-    files.forEach((f, i) => {
+    files.forEach((f: any, i: any) => {
       if (f.url) evidenceMap[`file_${i + 1}`] = f.url;
     });
     respondMutation.mutate({
@@ -189,7 +189,7 @@ function RespondModal({ dispute, onClose, onSuccess }: RespondModalProps) {
             </label>
             <textarea
               value={response}
-              onChange={(e) => setResponse(e.target.value)}
+              onChange={(e: any) => setResponse(e.target.value)}
               rows={4}
               placeholder="Describe your position clearly (minimum 10 characters). Include order details, delivery confirmation, or any relevant context..."
               className="w-full px-3 py-2 text-sm rounded-lg resize-none outline-none focus:ring-2"
@@ -305,7 +305,7 @@ export default function Disputes() {
 
       {/* Status filters */}
       <div className="flex gap-2 flex-wrap">
-        {["", "open", "under_review", "merchant_responded", "resolved_merchant", "resolved_customer", "closed"].map((s) => (
+        {["", "open", "under_review", "merchant_responded", "resolved_merchant", "resolved_customer", "closed"].map((s: any) => (
           <button
             key={s}
             onClick={() => setStatusFilter(s || undefined)}
@@ -325,7 +325,7 @@ export default function Disputes() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
-              {["Reference", "Amount", "Status", "Reason", "Due Date", "Actions"].map((h) => (
+              {["Reference", "Amount", "Status", "Reason", "Due Date", "Actions"].map((h: any) => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">
                   {h}
                 </th>
@@ -350,7 +350,7 @@ export default function Disputes() {
                     </td>
                   </tr>
                 )
-              : rows.map((d) => (
+              : rows.map((d: any) => (
                   <tr key={d.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{d.reference}</td>
                     <td className="px-4 py-3 font-mono font-semibold">

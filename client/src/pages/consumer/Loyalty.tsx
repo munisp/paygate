@@ -29,11 +29,11 @@ export default function Loyalty() {
   const [, navigate] = useLocation();
 
   const utils = trpc.useUtils();
-  const { data: balance, isLoading: balLoading } = trpc.loyalty.getAccount.useQuery(undefined, { staleTime: 30_000 });
-  const { data: historyData, isLoading: histLoading } = trpc.loyalty.history.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: balance, isLoading: balLoading } = trpc.tier1to5.loyalty.getLoyaltyAccount.useQuery(undefined, { staleTime: 30_000 });
+  const { data: historyData, isLoading: histLoading } = trpc.tier1to5.loyalty.getTransactionHistory.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const history = historyData?.rows ?? [];
 
-  const redeem = trpc.loyalty.redeem.useMutation({
+  const redeem = trpc.tier1to5.loyalty.redeemPoints.useMutation({
     onSuccess: (data: any) => {
       toast.success(`Redeemed! ₦${(data.creditedKobo / 100).toLocaleString()} added to your wallet`);
       utils.loyalty.getAccount.invalidate();
@@ -98,7 +98,7 @@ export default function Loyalty() {
                   <p className="text-xs text-muted-foreground">Min 10,000 pts (₦100) · 100 pts = ₦1</p>
                 </div>
               </div>
-              <Button size="sm" onClick={() => redeem.mutate({ points: points })} disabled={redeem.isPending || points < 10000}>
+              <Button size="sm" onClick={() => redeem.mutate({ pointsToRedeem: points, redemptionType: 'cashback' })} disabled={redeem.isPending || points < 10000}>
                 {redeem.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Redeem All"}
               </Button>
             </div>
@@ -119,7 +119,7 @@ export default function Loyalty() {
           </div>
         ) : (
           <div className="space-y-2">
-            {(history as any[]).map((h) => (
+            {(history as any[]).map((h: any) => (
               <div key={h.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
                 <div>
                   <p className="text-sm font-medium">{h.description ?? h.type}</p>

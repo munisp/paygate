@@ -204,7 +204,7 @@ export default function Settlements() {
 
       {/* Filter */}
       <div className="flex items-center gap-3">
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(0); }}>
+        <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v); setPage(0); }}>
           <SelectTrigger className="h-9 w-44 text-sm">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -247,7 +247,7 @@ export default function Settlements() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((s) => (
+                {rows.map((s: any) => (
                   <TableRow
                     key={s.id}
                     className="cursor-pointer hover:bg-muted/40"
@@ -278,7 +278,7 @@ export default function Settlements() {
                     <TableCell className="text-xs text-muted-foreground">
                       {new Date(s.createdAt).toLocaleString()}
                     </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TableCell onClick={(e: any) => e.stopPropagation()}>
                       {(s.status === "failed" || s.status === "sla_breached") && (
                         <Button
                           variant="outline"

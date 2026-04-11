@@ -139,9 +139,9 @@ export default function PTSPSettlement() {
   const batches = data?.batches ?? [];
 
   // Summary stats
-  const totalVolume = batches.reduce((s, b) => s + Number(b.totalNgn), 0);
-  const totalTxns = batches.reduce((s, b) => s + b.transactionCount, 0);
-  const pendingCount = batches.filter((b) => b.status === "pending").length;
+  const totalVolume = batches.reduce((s: any, b: any) => s + Number(b.totalNgn), 0);
+  const totalTxns = batches.reduce((s: any, b: any) => s + b.transactionCount, 0);
+  const pendingCount = batches.filter((b: any) => b.status === "pending").length;
 
   function downloadCsv(date: string, csv: string) {
     const blob = new Blob([csv], { type: "text/csv" });

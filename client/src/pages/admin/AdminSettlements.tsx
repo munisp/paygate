@@ -29,7 +29,7 @@ export default function AdminSettlements() {
 
   const forceMutation = trpc.admin.settlements.forceSettle.useMutation({
     onSuccess: () => { utils.admin.settlements.listAll.invalidate(); utils.admin.settlements.getSettlementStats.invalidate(); setForceDialog(null); toast.success("Settlement forced"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const stats = statsQuery.data as any;
@@ -46,7 +46,7 @@ export default function AdminSettlements() {
         </div>
         {stats && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {["pending", "processing", "completed", "failed"].map((s) => (
+            {["pending", "processing", "completed", "failed"].map((s: any) => (
               <Card key={s} className="bg-slate-900 border-slate-800">
                 <CardContent className="p-4">
                   <p className="text-xs text-slate-400 capitalize">{s}</p>
@@ -58,7 +58,7 @@ export default function AdminSettlements() {
           </div>
         )}
         <div className="flex items-center gap-3">
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as any); setPage(1); }}>
+          <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v as any); setPage(1); }}>
             <SelectTrigger className="w-44 bg-slate-800 border-slate-700 text-white"><SelectValue /></SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
               <SelectItem value="pending">Pending</SelectItem>

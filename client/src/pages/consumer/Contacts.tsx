@@ -38,7 +38,7 @@ export default function Contacts() {
       setAddNickname("");
       utils.contacts.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const removeContact = trpc.contacts.delete.useMutation({
@@ -72,7 +72,7 @@ export default function Contacts() {
         </div>
       ) : (
         <div className="space-y-2">
-          {(contacts as any[]).map((c) => (
+          {(contacts as any[]).map((c: any) => (
             <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">

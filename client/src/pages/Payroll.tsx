@@ -89,7 +89,7 @@ export default function Payroll() {
             <DialogContent>
               <DialogHeader><DialogTitle>Record Staff Shift</DialogTitle></DialogHeader>
               <div className="space-y-3 pt-2">
-                <Select value={shiftForm.staffId} onValueChange={(v) => setShiftForm({ ...shiftForm, staffId: v })}>
+                <Select value={shiftForm.staffId} onValueChange={(v: any) => setShiftForm({ ...shiftForm, staffId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select staff member" /></SelectTrigger>
                   <SelectContent>
                     {staff.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name} ({s.role})</SelectItem>)}
@@ -97,13 +97,13 @@ export default function Payroll() {
                 </Select>
                 <div>
                   <label className="text-xs text-muted-foreground">Clock In</label>
-                  <Input type="datetime-local" value={shiftForm.clockIn} onChange={(e) => setShiftForm({ ...shiftForm, clockIn: e.target.value })} />
+                  <Input type="datetime-local" value={shiftForm.clockIn} onChange={(e: any) => setShiftForm({ ...shiftForm, clockIn: e.target.value })} />
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground">Clock Out</label>
-                  <Input type="datetime-local" value={shiftForm.clockOut} onChange={(e) => setShiftForm({ ...shiftForm, clockOut: e.target.value })} />
+                  <Input type="datetime-local" value={shiftForm.clockOut} onChange={(e: any) => setShiftForm({ ...shiftForm, clockOut: e.target.value })} />
                 </div>
-                <Input type="number" placeholder="Tips (₦, optional)" value={shiftForm.tipsKobo} onChange={(e) => setShiftForm({ ...shiftForm, tipsKobo: e.target.value })} />
+                <Input type="number" placeholder="Tips (₦, optional)" value={shiftForm.tipsKobo} onChange={(e: any) => setShiftForm({ ...shiftForm, tipsKobo: e.target.value })} />
                 <Button className="w-full" disabled={!shiftForm.staffId || !shiftForm.clockIn || !shiftForm.clockOut}
                   onClick={() => recordShift.mutate({
                     staffId: shiftForm.staffId,
@@ -127,11 +127,11 @@ export default function Payroll() {
               <div className="space-y-3 pt-2">
                 <div>
                   <label className="text-xs text-muted-foreground">Period Start</label>
-                  <Input type="date" value={runForm.periodStart} onChange={(e) => setRunForm({ ...runForm, periodStart: e.target.value })} />
+                  <Input type="date" value={runForm.periodStart} onChange={(e: any) => setRunForm({ ...runForm, periodStart: e.target.value })} />
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground">Period End</label>
-                  <Input type="date" value={runForm.periodEnd} onChange={(e) => setRunForm({ ...runForm, periodEnd: e.target.value })} />
+                  <Input type="date" value={runForm.periodEnd} onChange={(e: any) => setRunForm({ ...runForm, periodEnd: e.target.value })} />
                 </div>
                 <Button className="w-full" disabled={!runForm.periodStart || !runForm.periodEnd}
                   onClick={() => runPayroll.mutate({ periodStart: new Date(runForm.periodStart), periodEnd: new Date(runForm.periodEnd) })}>
@@ -149,16 +149,16 @@ export default function Payroll() {
             <DialogContent>
               <DialogHeader><DialogTitle>Add Staff Member</DialogTitle></DialogHeader>
               <div className="space-y-3 pt-2">
-                <Input placeholder="Full name" value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} />
-                <Select value={staffForm.role} onValueChange={(v) => setStaffForm({ ...staffForm, role: v })}>
+                <Input placeholder="Full name" value={staffForm.name} onChange={(e: any) => setStaffForm({ ...staffForm, name: e.target.value })} />
+                <Select value={staffForm.role} onValueChange={(v: any) => setStaffForm({ ...staffForm, role: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["cashier", "waiter", "chef", "manager", "cleaner", "security"].map((r) => (
+                    {["cashier", "waiter", "chef", "manager", "cleaner", "security"].map((r: any) => (
                       <SelectItem key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={staffForm.payType} onValueChange={(v) => setStaffForm({ ...staffForm, payType: v })}>
+                <Select value={staffForm.payType} onValueChange={(v: any) => setStaffForm({ ...staffForm, payType: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="hourly">Hourly</SelectItem>
@@ -166,9 +166,9 @@ export default function Payroll() {
                   </SelectContent>
                 </Select>
                 {staffForm.payType === "hourly" ? (
-                  <Input type="number" placeholder="Hourly rate (₦)" value={staffForm.hourlyRateKobo} onChange={(e) => setStaffForm({ ...staffForm, hourlyRateKobo: e.target.value })} />
+                  <Input type="number" placeholder="Hourly rate (₦)" value={staffForm.hourlyRateKobo} onChange={(e: any) => setStaffForm({ ...staffForm, hourlyRateKobo: e.target.value })} />
                 ) : (
-                  <Input type="number" placeholder="Monthly salary (₦)" value={staffForm.salaryKobo} onChange={(e) => setStaffForm({ ...staffForm, salaryKobo: e.target.value })} />
+                  <Input type="number" placeholder="Monthly salary (₦)" value={staffForm.salaryKobo} onChange={(e: any) => setStaffForm({ ...staffForm, salaryKobo: e.target.value })} />
                 )}
                 <Button className="w-full" disabled={!staffForm.name}
                   onClick={() => upsertStaff.mutate({

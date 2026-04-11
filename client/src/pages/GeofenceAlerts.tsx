@@ -69,17 +69,17 @@ export default function GeofenceAlerts() {
             <DialogContent>
               <DialogHeader><DialogTitle>Add Geofence Rule</DialogTitle></DialogHeader>
               <div className="space-y-3 pt-2">
-                <Input placeholder="Rule name (e.g. Lagos HQ Zone)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                <Input placeholder="Rule name (e.g. Lagos HQ Zone)" value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" placeholder="Center Latitude" value={form.centerLat} onChange={(e) => setForm({ ...form, centerLat: e.target.value })} />
-                  <Input type="number" placeholder="Center Longitude" value={form.centerLng} onChange={(e) => setForm({ ...form, centerLng: e.target.value })} />
+                  <Input type="number" placeholder="Center Latitude" value={form.centerLat} onChange={(e: any) => setForm({ ...form, centerLat: e.target.value })} />
+                  <Input type="number" placeholder="Center Longitude" value={form.centerLng} onChange={(e: any) => setForm({ ...form, centerLng: e.target.value })} />
                 </div>
                 <div>
-                  <Input type="number" placeholder="Radius (metres)" value={form.radiusMeters} onChange={(e) => setForm({ ...form, radiusMeters: e.target.value })} />
+                  <Input type="number" placeholder="Radius (metres)" value={form.radiusMeters} onChange={(e: any) => setForm({ ...form, radiusMeters: e.target.value })} />
                   <p className="text-xs text-muted-foreground mt-1">Min 50m — Max 50,000m</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} />
+                  <Switch checked={form.active} onCheckedChange={(v: any) => setForm({ ...form, active: v })} />
                   <span className="text-sm">Active</span>
                 </div>
                 <Button

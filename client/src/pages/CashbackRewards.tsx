@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,18 +12,18 @@ export default function CashbackRewards() {
   const [merchantCashbackPct, setMerchantCashbackPct] = useState("2");
   const [merchantMaxCashback, setMerchantMaxCashback] = useState("5000");
 
-  const { data: balance } = trpc4.cashbackRewards.getBalance.useQuery();
-  const { data: history } = trpc4.cashbackRewards.getHistory.useQuery({ page: 1, limit: 10, type: "all" });
-  const { data: campaigns } = trpc4.cashbackRewards.getActiveCampaigns.useQuery();
-  const { data: merchantConfig } = trpc4.cashbackRewards.getMerchantCashbackConfig.useQuery();
+  const { data: balance } = trpc.newFeatures.cashbackRewards.getBalance.useQuery();
+  const { data: history } = trpc.newFeatures.cashbackRewards.getHistory.useQuery({ page: 1, limit: 10, type: "all" });
+  const { data: campaigns } = trpc.newFeatures.cashbackRewards.getActiveCampaigns.useQuery();
+  const { data: merchantConfig } = trpc.newFeatures.cashbackRewards.getMerchantCashbackConfig.useQuery();
 
-  const redeemMutation = trpc4.cashbackRewards.redeemCashback.useMutation({
-    onSuccess: (d) => toast.success(`Redeemed ₦${(d.amountKobo / 100).toLocaleString()}`),
-    onError: (e) => toast.error(e.message),
+  const redeemMutation = trpc.newFeatures.cashbackRewards.redeemCashback.useMutation({
+    onSuccess: (d: any) => toast.success(`Redeemed ₦${(d.amountKobo / 100).toLocaleString()}`),
+    onError: (e: any) => toast.error(e.message),
   });
-  const updateConfigMutation = trpc4.cashbackRewards.updateMerchantCashbackConfig.useMutation({
+  const updateConfigMutation = trpc.newFeatures.cashbackRewards.updateMerchantCashbackConfig.useMutation({
     onSuccess: () => toast.success("Cashback config updated"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

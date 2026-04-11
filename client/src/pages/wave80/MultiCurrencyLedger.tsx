@@ -7,18 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { TrendingUp, Shield } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function MultiCurrencyLedger() {
   const [postOpen, setPostOpen] = useState(false);
   const [form, setForm] = useState({ currency: "NGN", type: "credit" as "credit" | "debit", amount: "", description: "" });
 
-  const { data: accountsData, isLoading: loadingAccounts, refetch } = trpc5.multiCurrencyLedger.listAccounts.useQuery();
-  const { data: entriesData, isLoading: loadingEntries, refetch: refetchEntries } = trpc5.multiCurrencyLedger.listEntries.useQuery({});
-  const { data: fxData } = trpc5.multiCurrencyLedger.getFxRates.useQuery();
+  const { data: accountsData, isLoading: loadingAccounts, refetch } = trpc.wave80.multiCurrencyLedger.listAccounts.useQuery();
+  const { data: entriesData, isLoading: loadingEntries, refetch: refetchEntries } = trpc.wave80.multiCurrencyLedger.listEntries.useQuery({});
+  const { data: fxData } = trpc.wave80.multiCurrencyLedger.getFxRates.useQuery();
 
-  const postEntry = trpc5.multiCurrencyLedger.postEntry.useMutation({
+  const postEntry = trpc.wave80.multiCurrencyLedger.postEntry.useMutation({
     onSuccess: () => { toast.success("Entry posted"); setPostOpen(false); refetch(); refetchEntries(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

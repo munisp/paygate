@@ -1,4 +1,4 @@
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,10 @@ function formatNGN(kobo: number) {
 }
 
 export default function AMLMonitor() {
-  const { data: alerts, isLoading, refetch } = trpc2.aml.getAlerts.useQuery({ status: "open", limit: 50 });
-  const { data: riskScore } = trpc2.aml.getMerchantRiskScore.useQuery();
+  const { data: alerts, isLoading, refetch } = trpc.tier1to5.aml.getAlerts.useQuery({ status: "open", limit: 50 });
+  const { data: riskScore } = trpc.tier1to5.aml.getMerchantRiskScore.useQuery();
 
-  const updateMutation = trpc2.aml.updateAlert.useMutation({
+  const updateMutation = trpc.tier1to5.aml.updateAlert.useMutation({
     onSuccess: () => { toast.success("Alert updated."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

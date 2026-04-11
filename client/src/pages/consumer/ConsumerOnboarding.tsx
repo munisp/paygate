@@ -22,7 +22,7 @@ function StepIndicator({ current }: { current: Step }) {
   const stepIndex = current === "otp" ? 0 : current === "pin" ? 1 : current === "kyc" ? 2 : current === "done" ? 3 : 0;
   return (
     <div className="flex items-center gap-2 justify-center mb-8">
-      {STEPS.map((s, i) => {
+      {STEPS.map((s: any, i: any) => {
         const done = i < stepIndex;
         const active = i === stepIndex;
         return (
@@ -197,7 +197,7 @@ export default function ConsumerOnboarding() {
               <input
                 type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e: any) => setPhone(e.target.value)}
                 placeholder="8012345678"
                 className="w-full pl-14 pr-4 py-3 rounded-xl border border-border bg-muted/30 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-lg tracking-wider"
               />
@@ -217,7 +217,7 @@ export default function ConsumerOnboarding() {
               <p className="text-sm text-muted-foreground mt-1">Enter the 6-digit code sent to {phone}</p>
             </div>
             <div className="flex gap-2 justify-center">
-              {otp.map((d, i) => (
+              {otp.map((d: any, i: any) => (
                 <input
                   key={i}
                   ref={(el) => { otpRefs.current[i] = el; }}
@@ -225,8 +225,8 @@ export default function ConsumerOnboarding() {
                   inputMode="numeric"
                   maxLength={1}
                   value={d}
-                  onChange={(e) => handleOtpChange(i, e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Backspace" && !d && i > 0) otpRefs.current[i - 1]?.focus(); }}
+                  onChange={(e: any) => handleOtpChange(i, e.target.value)}
+                  onKeyDown={(e: any) => { if (e.key === "Backspace" && !d && i > 0) otpRefs.current[i - 1]?.focus(); }}
                   className="w-11 h-14 text-center text-xl font-bold rounded-xl border border-border bg-muted/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               ))}
@@ -251,7 +251,7 @@ export default function ConsumerOnboarding() {
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Enter PIN</p>
               <div className="flex gap-2 justify-center">
-                {pin.map((d, i) => (
+                {pin.map((d: any, i: any) => (
                   <input
                     key={i}
                     ref={(el) => { pinRefs.current[i] = el; }}
@@ -259,8 +259,8 @@ export default function ConsumerOnboarding() {
                     inputMode="numeric"
                     maxLength={1}
                     value={d}
-                    onChange={(e) => handlePinChange(i, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Backspace" && !d && i > 0) pinRefs.current[i - 1]?.focus(); }}
+                    onChange={(e: any) => handlePinChange(i, e.target.value)}
+                    onKeyDown={(e: any) => { if (e.key === "Backspace" && !d && i > 0) pinRefs.current[i - 1]?.focus(); }}
                     className="w-11 h-14 text-center text-2xl font-bold rounded-xl border border-border bg-muted/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 ))}
@@ -269,7 +269,7 @@ export default function ConsumerOnboarding() {
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Confirm PIN</p>
               <div className="flex gap-2 justify-center">
-                {confirmPin.map((d, i) => (
+                {confirmPin.map((d: any, i: any) => (
                   <input
                     key={i}
                     ref={(el) => { confirmPinRefs.current[i] = el; }}
@@ -277,8 +277,8 @@ export default function ConsumerOnboarding() {
                     inputMode="numeric"
                     maxLength={1}
                     value={d}
-                    onChange={(e) => handlePinChange(i, e.target.value, true)}
-                    onKeyDown={(e) => { if (e.key === "Backspace" && !d && i > 0) confirmPinRefs.current[i - 1]?.focus(); }}
+                    onChange={(e: any) => handlePinChange(i, e.target.value, true)}
+                    onKeyDown={(e: any) => { if (e.key === "Backspace" && !d && i > 0) confirmPinRefs.current[i - 1]?.focus(); }}
                     className="w-11 h-14 text-center text-2xl font-bold rounded-xl border border-border bg-muted/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 ))}
@@ -366,7 +366,7 @@ export default function ConsumerOnboarding() {
                 { icon: "💸", label: "Send Money" },
                 { icon: "📱", label: "Pay Bills" },
                 { icon: "🔒", label: "Secure PIN" },
-              ].map((f) => (
+              ].map((f: any) => (
                 <div key={f.label} className="bg-muted/30 rounded-xl p-3 text-center">
                   <div className="text-2xl mb-1">{f.icon}</div>
                   <p className="text-xs font-medium text-muted-foreground">{f.label}</p>

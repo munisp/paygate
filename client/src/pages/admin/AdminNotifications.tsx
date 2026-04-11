@@ -30,7 +30,7 @@ export default function AdminNotifications() {
       setForm({ title: "", message: "", targetType: "all_merchants", priority: "normal" });
       toast.success(`Broadcast sent to ${data?.recipientCount ?? 0} recipients`);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const broadcasts = (broadcastsQuery.data as any[]) ?? [];
@@ -48,16 +48,16 @@ export default function AdminNotifications() {
             <CardContent className="space-y-4">
               <div>
                 <Label className="text-slate-300">Title</Label>
-                <Input value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" placeholder="Notification title..." />
+                <Input value={form.title} onChange={(e: any) => setForm(f => ({ ...f, title: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" placeholder="Notification title..." />
               </div>
               <div>
                 <Label className="text-slate-300">Message</Label>
-                <Textarea value={form.message} onChange={(e) => setForm(f => ({ ...f, message: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" rows={4} placeholder="Notification message..." />
+                <Textarea value={form.message} onChange={(e: any) => setForm(f => ({ ...f, message: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" rows={4} placeholder="Notification message..." />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-slate-300">Target</Label>
-                  <Select value={form.targetType} onValueChange={(v) => setForm(f => ({ ...f, targetType: v }))}>
+                  <Select value={form.targetType} onValueChange={(v: any) => setForm(f => ({ ...f, targetType: v }))}>
                     <SelectTrigger className="mt-1 bg-slate-800 border-slate-700 text-white"><SelectValue /></SelectTrigger>
                     <SelectContent className="bg-slate-800 border-slate-700">
                       <SelectItem value="all_merchants">All Merchants</SelectItem>
@@ -68,7 +68,7 @@ export default function AdminNotifications() {
                 </div>
                 <div>
                   <Label className="text-slate-300">Priority</Label>
-                  <Select value={form.priority} onValueChange={(v) => setForm(f => ({ ...f, priority: v }))}>
+                  <Select value={form.priority} onValueChange={(v: any) => setForm(f => ({ ...f, priority: v }))}>
                     <SelectTrigger className="mt-1 bg-slate-800 border-slate-700 text-white"><SelectValue /></SelectTrigger>
                     <SelectContent className="bg-slate-800 border-slate-700">
                       <SelectItem value="low">Low</SelectItem>

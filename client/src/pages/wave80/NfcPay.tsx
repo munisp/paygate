@@ -6,18 +6,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Smartphone, Wifi, CheckCircle, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function NfcPay() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [form, setForm] = useState({ deviceName: "", deviceType: "nfc_reader" });
 
-  const { data, isLoading, refetch } = trpc5.nfcPay.listDevices.useQuery();
-  const { data: stats } = trpc5.nfcPay.getStats.useQuery();
-  const { data: txData } = trpc5.nfcPay.listTransactions.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.nfcPay.listDevices.useQuery();
+  const { data: stats } = trpc.wave80.nfcPay.getStats.useQuery();
+  const { data: txData } = trpc.wave80.nfcPay.listTransactions.useQuery({});
 
-  const register = trpc5.nfcPay.registerDevice.useMutation({
+  const register = trpc.wave80.nfcPay.registerDevice.useMutation({
     onSuccess: () => { toast.success("Device registered"); setRegisterOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

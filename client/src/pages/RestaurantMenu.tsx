@@ -35,7 +35,7 @@ function CategoryDialog({
       toast.success(initial?.id ? "Category updated" : "Category added");
       onClose();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   return (
@@ -50,7 +50,7 @@ function CategoryDialog({
             <Input
               placeholder="e.g. Starters, Mains, Drinks"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e: any) => setName(e.target.value)}
             />
           </div>
           <div className="space-y-1.5">
@@ -59,7 +59,7 @@ function CategoryDialog({
               type="number"
               min={0}
               value={order}
-              onChange={(e) => setOrder(e.target.value)}
+              onChange={(e: any) => setOrder(e.target.value)}
             />
           </div>
         </div>
@@ -107,10 +107,10 @@ function ItemDialog({
       toast.success(initial?.id ? "Item updated" : "Item added");
       onClose();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const f = (k: string, v: any) => setForm((p) => ({ ...p, [k]: v }));
+  const f = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -121,7 +121,7 @@ function ItemDialog({
         <div className="space-y-3 pt-2 max-h-[60vh] overflow-y-auto pr-1">
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Category *</label>
-            <Select value={form.categoryId} onValueChange={(v) => f("categoryId", v)}>
+            <Select value={form.categoryId} onValueChange={(v: any) => f("categoryId", v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
@@ -134,30 +134,30 @@ function ItemDialog({
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Item Name *</label>
-            <Input placeholder="e.g. Jollof Rice" value={form.name} onChange={(e) => f("name", e.target.value)} />
+            <Input placeholder="e.g. Jollof Rice" value={form.name} onChange={(e: any) => f("name", e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Description</label>
-            <Input placeholder="Short description" value={form.description} onChange={(e) => f("description", e.target.value)} />
+            <Input placeholder="Short description" value={form.description} onChange={(e: any) => f("description", e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Price (₦) *</label>
-              <Input type="number" min={0} step={0.01} value={form.priceNgn} onChange={(e) => f("priceNgn", e.target.value)} placeholder="0.00" />
+              <Input type="number" min={0} step={0.01} value={form.priceNgn} onChange={(e: any) => f("priceNgn", e.target.value)} placeholder="0.00" />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Calories</label>
-              <Input type="number" min={0} value={form.calories} onChange={(e) => f("calories", e.target.value)} placeholder="kcal" />
+              <Input type="number" min={0} value={form.calories} onChange={(e: any) => f("calories", e.target.value)} placeholder="kcal" />
             </div>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Kitchen Station</label>
-            <Select value={form.station} onValueChange={(v) => f("station", v)}>
+            <Select value={form.station} onValueChange={(v: any) => f("station", v)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {["kitchen", "bar", "grill", "pastry", "cold"].map((s) => (
+                {["kitchen", "bar", "grill", "pastry", "cold"].map((s: any) => (
                   <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
                 ))}
               </SelectContent>
@@ -165,10 +165,10 @@ function ItemDialog({
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Tags (comma-separated)</label>
-            <Input placeholder="vegan, gluten-free, spicy" value={form.tags} onChange={(e) => f("tags", e.target.value)} />
+            <Input placeholder="vegan, gluten-free, spicy" value={form.tags} onChange={(e: any) => f("tags", e.target.value)} />
           </div>
           <div className="flex items-center gap-3 pt-1">
-            <Switch checked={form.available} onCheckedChange={(v) => f("available", v)} />
+            <Switch checked={form.available} onCheckedChange={(v: any) => f("available", v)} />
             <span className="text-sm font-medium">{form.available ? "Available" : "86'd (unavailable)"}</span>
           </div>
         </div>
@@ -212,7 +212,7 @@ function OnlineOrderingPanel({ merchantSlug }: { merchantSlug: string }) {
           <span className="text-sm font-semibold">Online Ordering Link</span>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowQr((v) => !v)}>
+          <Button variant="outline" size="sm" onClick={() => setShowQr((v: any) => !v)}>
             <QrCode className="w-3.5 h-3.5 mr-1" />
             {showQr ? "Hide QR" : "Show QR"}
           </Button>
@@ -289,7 +289,7 @@ export default function RestaurantMenu() {
   }, [items, search]);
 
   const toggleCollapse = (id: string) =>
-    setCollapsed((s) => {
+    setCollapsed((s: Set<string>) => {
       const n = new Set(s);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -336,7 +336,7 @@ export default function RestaurantMenu() {
           className="pl-9"
           placeholder="Search menu items…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e: any) => setSearch(e.target.value)}
         />
       </div>
 
@@ -357,7 +357,7 @@ export default function RestaurantMenu() {
       ) : (
         <div className="space-y-3">
           {categories
-            .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+            .sort((a: any, b: any) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
             .map((cat: any) => {
               const catItems = filtered.filter((i: any) => i.categoryId === cat.id);
               const isCollapsed = collapsed.has(cat.id);
@@ -379,7 +379,7 @@ export default function RestaurantMenu() {
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2"
-                        onClick={(e) => { e.stopPropagation(); setCatDialog({ open: true, initial: cat }); }}
+                        onClick={(e: any) => { e.stopPropagation(); setCatDialog({ open: true, initial: cat }); }}
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>

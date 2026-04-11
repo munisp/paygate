@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,11 +8,11 @@ export default function AIInsightsV2() {
   const [period, setPeriod] = useState<"today" | "week" | "month" | "quarter">("week");
   const [forecastDays, setForecastDays] = useState(30);
 
-  const { data: summary, isLoading: summaryLoading } = trpc4.aiInsightsV2.getSmartSummary.useQuery({ period });
-  const { data: anomalies } = trpc4.aiInsightsV2.getAnomalyDetection.useQuery();
-  const { data: forecast } = trpc4.aiInsightsV2.getRevenueForecasting.useQuery({ days: forecastDays });
-  const { data: segments } = trpc4.aiInsightsV2.getCustomerSegmentation.useQuery();
-  const { data: recommendations } = trpc4.aiInsightsV2.getProductRecommendations.useQuery();
+  const { data: summary, isLoading: summaryLoading } = trpc.newFeatures.aiInsightsV2.getSmartSummary.useQuery({ period });
+  const { data: anomalies } = trpc.newFeatures.aiInsightsV2.getAnomalyDetection.useQuery();
+  const { data: forecast } = trpc.newFeatures.aiInsightsV2.getRevenueForecasting.useQuery({ days: forecastDays });
+  const { data: segments } = trpc.newFeatures.aiInsightsV2.getCustomerSegmentation.useQuery();
+  const { data: recommendations } = trpc.newFeatures.aiInsightsV2.getProductRecommendations.useQuery();
 
   const sentimentColors = { positive: "text-green-600", negative: "text-red-600", neutral: "text-gray-600" };
   const severityColors: Record<string, string> = { high: "bg-red-100 text-red-700", medium: "bg-yellow-100 text-yellow-700", low: "bg-blue-100 text-blue-700" };
@@ -42,12 +42,12 @@ export default function AIInsightsV2() {
 
           {/* Key Metrics */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {summary.keyMetrics?.map((m, i) => (
+            {summary.keyMetrics?.map((m: any, i: any) => (
               <Card key={i}>
                 <CardContent className="pt-4">
                   <p className="text-xs text-muted-foreground">{m.label}</p>
                   <p className="text-xl font-bold">{m.value}</p>
-                  <p className={`text-xs font-medium ${sentimentColors[m.sentiment]}`}>{m.change}</p>
+                  <p className={`text-xs font-medium ${sentimentColors[m.sentiment as keyof typeof sentimentColors]}`}>{m.change}</p>
                 </CardContent>
               </Card>
             ))}
@@ -77,7 +77,7 @@ export default function AIInsightsV2() {
           <Card>
             <CardHeader><CardTitle>Next Best Actions</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              {summary.nextBestActions?.sort((a, b) => a.priority - b.priority).map((action, i) => (
+              {summary.nextBestActions?.sort((a: any, b: any) => a.priority - b.priority).map((action, i) => (
                 <div key={i} className="flex items-center gap-3 p-3 border rounded-lg">
                   <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shrink-0">{action.priority}</div>
                   <div className="flex-1">
@@ -100,7 +100,7 @@ export default function AIInsightsV2() {
               <p className="text-green-600 text-sm">No anomalies detected. Your transactions look normal.</p>
             ) : (
               <div className="space-y-3">
-                {anomalies.anomalies.map((a, i) => (
+                {anomalies.anomalies.map((a: any, i: any) => (
                   <div key={i} className="p-3 border rounded-lg">
                     <div className="flex items-start justify-between mb-1">
                       <p className="font-medium text-sm">{a.type}</p>

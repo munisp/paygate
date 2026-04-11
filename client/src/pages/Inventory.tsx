@@ -122,16 +122,16 @@ function ItemFormDialog({ open, onClose, initial, onSaved }: ItemFormProps) {
             <Input
               placeholder="e.g. Tomatoes"
               value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              onChange={(e: any) => setForm((f: any) => ({ ...f, name: e.target.value }))}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Unit</Label>
-              <Select value={form.unit} onValueChange={(v) => setForm((f) => ({ ...f, unit: v }))}>
+              <Select value={form.unit} onValueChange={(v: any) => setForm((f: any) => ({ ...f, unit: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                  {UNITS.map((u: any) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -141,7 +141,7 @@ function ItemFormDialog({ open, onClose, initial, onSaved }: ItemFormProps) {
                 type="number"
                 min={0}
                 value={form.currentStock}
-                onChange={(e) => setForm((f) => ({ ...f, currentStock: e.target.value }))}
+                onChange={(e: any) => setForm((f: any) => ({ ...f, currentStock: e.target.value }))}
               />
             </div>
           </div>
@@ -152,7 +152,7 @@ function ItemFormDialog({ open, onClose, initial, onSaved }: ItemFormProps) {
                 type="number"
                 min={0}
                 value={form.reorderLevel}
-                onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))}
+                onChange={(e: any) => setForm((f: any) => ({ ...f, reorderLevel: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
@@ -165,7 +165,7 @@ function ItemFormDialog({ open, onClose, initial, onSaved }: ItemFormProps) {
                   step={0.01}
                   className="pl-6"
                   value={form.costPerUnit}
-                  onChange={(e) => setForm((f) => ({ ...f, costPerUnit: e.target.value }))}
+                  onChange={(e: any) => setForm((f: any) => ({ ...f, costPerUnit: e.target.value }))}
                 />
               </div>
             </div>
@@ -229,10 +229,10 @@ function AdjustStockDialog({ open, onClose, item, onSaved }: AdjustProps) {
           </div>
           <div className="space-y-1.5">
             <Label>Adjustment Type</Label>
-            <Select value={type} onValueChange={(v) => setType(v as any)}>
+            <Select value={type} onValueChange={(v: any) => setType(v as any)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {ADJUST_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                {ADJUST_TYPES.map((t: any) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -248,7 +248,7 @@ function AdjustStockDialog({ open, onClose, item, onSaved }: AdjustProps) {
                 className="pl-7"
                 placeholder="0"
                 value={qty}
-                onChange={(e) => setQty(e.target.value)}
+                onChange={(e: any) => setQty(e.target.value)}
               />
             </div>
           </div>
@@ -257,7 +257,7 @@ function AdjustStockDialog({ open, onClose, item, onSaved }: AdjustProps) {
             <Input
               placeholder="e.g. Weekly restock from supplier"
               value={note}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={(e: any) => setNote(e.target.value)}
             />
           </div>
           {qty && !isNaN(Number(qty)) && (
@@ -306,10 +306,10 @@ export default function Inventory() {
   const stats = useMemo(() => {
     const arr = items as any[];
     const total = arr.length;
-    const low = arr.filter((i) => i.currentStock > 0 && i.currentStock <= i.reorderLevel).length;
-    const out = arr.filter((i) => i.currentStock <= 0).length;
+    const low = arr.filter((i: any) => i.currentStock > 0 && i.currentStock <= i.reorderLevel).length;
+    const out = arr.filter((i: any) => i.currentStock <= 0).length;
     const ok = total - low - out;
-    const totalCostKobo = arr.reduce((s, i) => s + (i.currentStock * (i.costPerUnitKobo ?? 0)), 0);
+    const totalCostKobo = arr.reduce((s: any, i: any) => s + (i.currentStock * (i.costPerUnitKobo ?? 0)), 0);
     return { total, low, out, ok, totalCostKobo };
   }, [items]);
 
@@ -411,7 +411,7 @@ export default function Inventory() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <Tabs value={tabFilter} onValueChange={(v) => setTabFilter(v as TabFilter)}>
+        <Tabs value={tabFilter} onValueChange={(v: any) => setTabFilter(v as TabFilter)}>
           <TabsList className="h-8">
             <TabsTrigger value="all" className="h-7 text-xs px-3">All ({stats.total})</TabsTrigger>
             <TabsTrigger value="ok" className="h-7 text-xs px-3">In Stock ({stats.ok})</TabsTrigger>
@@ -425,7 +425,7 @@ export default function Inventory() {
             placeholder="Search items…"
             className="pl-8 h-8 text-sm"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e: any) => setSearch(e.target.value)}
           />
           {search && (
             <button className="absolute right-2.5 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
@@ -675,7 +675,7 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
             {vendorList.length > 0 ? (
               <Select
                 value={form.vendorName}
-                onValueChange={(v) => setForm((f) => ({ ...f, vendorName: v === '__manual__' ? '' : v }))}
+                onValueChange={(v: any) => setForm((f: any) => ({ ...f, vendorName: v === '__manual__' ? '' : v }))}
               >
                 <SelectTrigger>
                   <Building2 className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
@@ -692,14 +692,14 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
               <Input
                 placeholder="e.g. FreshFarm Supplies"
                 value={form.vendorName}
-                onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
+                onChange={(e: any) => setForm((f: any) => ({ ...f, vendorName: e.target.value }))}
               />
             )}
             {vendorList.length > 0 && (form.vendorName === '' || form.vendorName === '__manual__') && (
               <Input
                 placeholder="Type vendor name manually"
                 value={form.vendorName === '__manual__' ? '' : form.vendorName}
-                onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))}
+                onChange={(e: any) => setForm((f: any) => ({ ...f, vendorName: e.target.value }))}
                 className="mt-1.5"
               />
             )}
@@ -712,7 +712,7 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
                 type="number"
                 min={1}
                 value={form.quantity}
-                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+                onChange={(e: any) => setForm((f: any) => ({ ...f, quantity: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
@@ -725,7 +725,7 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
                   step={0.01}
                   className="pl-7"
                   value={form.unitCost}
-                  onChange={(e) => setForm((f) => ({ ...f, unitCost: e.target.value }))}
+                  onChange={(e: any) => setForm((f: any) => ({ ...f, unitCost: e.target.value }))}
                 />
               </div>
             </div>
@@ -744,7 +744,7 @@ function CreatePODialog({ open, onClose, item, onSaved }: CreatePODialogProps) {
             <Input
               placeholder="Delivery instructions, urgency, etc."
               value={form.notes}
-              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+              onChange={(e: any) => setForm((f: any) => ({ ...f, notes: e.target.value }))}
             />
           </div>
         </div>

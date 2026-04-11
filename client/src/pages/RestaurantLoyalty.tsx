@@ -80,7 +80,7 @@ export default function RestaurantLoyalty() {
                 type="number"
                 className="mt-1"
                 value={programForm.earnRate}
-                onChange={(e) => setProgramForm({ ...programForm, earnRate: e.target.value })}
+                onChange={(e: any) => setProgramForm({ ...programForm, earnRate: e.target.value })}
                 placeholder={prog.earnRate?.toString() ?? "1"}
               />
             </div>
@@ -90,7 +90,7 @@ export default function RestaurantLoyalty() {
                 type="number"
                 className="mt-1"
                 value={programForm.redeemRate}
-                onChange={(e) => setProgramForm({ ...programForm, redeemRate: e.target.value })}
+                onChange={(e: any) => setProgramForm({ ...programForm, redeemRate: e.target.value })}
                 placeholder={prog.koboPerPoint?.toString() ?? "100"}
               />
               <p className="text-xs text-muted-foreground mt-1">100 kobo = ₦1 per point</p>
@@ -98,7 +98,7 @@ export default function RestaurantLoyalty() {
             <div className="flex items-center gap-2">
               <Switch
                 checked={programForm.active}
-                onCheckedChange={(v) => setProgramForm({ ...programForm, active: v })}
+                onCheckedChange={(v: any) => setProgramForm({ ...programForm, active: v })}
               />
               <span className="text-sm">Programme active</span>
             </div>
@@ -132,7 +132,7 @@ export default function RestaurantLoyalty() {
               <Input
                 placeholder="Customer ID"
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
+                onChange={(e: any) => setCustomerId(e.target.value)}
                 type="number"
               />
               <Button variant="outline" onClick={() => setLookupId(parseInt(customerId) || null)}>
@@ -157,7 +157,7 @@ export default function RestaurantLoyalty() {
                     type="number"
                     placeholder="Points to redeem"
                     value={redeemPoints}
-                    onChange={(e) => setRedeemPoints(e.target.value)}
+                    onChange={(e: any) => setRedeemPoints(e.target.value)}
                   />
                   <Button
                     variant="outline"

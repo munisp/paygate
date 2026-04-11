@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,17 +10,17 @@ export default function ConsumerInsurance() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [claimPolicyId, setClaimPolicyId] = useState<string | null>(null);
 
-  const { data: products } = trpc4.consumerInsurance.listProducts.useQuery({ type: typeFilter });
-  const { data: policies } = trpc4.consumerInsurance.getActivePolicies.useQuery();
-  const { data: claims } = trpc4.consumerInsurance.getClaims.useQuery();
+  const { data: products } = trpc.newFeatures.consumerInsurance.listProducts.useQuery({ type: typeFilter });
+  const { data: policies } = trpc.newFeatures.consumerInsurance.getActivePolicies.useQuery();
+  const { data: claims } = trpc.newFeatures.consumerInsurance.getClaims.useQuery();
 
-  const purchaseMutation = trpc4.consumerInsurance.purchasePolicy.useMutation({
-    onSuccess: (d) => toast.success(`Policy ${d.policyNumber} purchased`),
-    onError: (e) => toast.error(e.message),
+  const purchaseMutation = trpc.newFeatures.consumerInsurance.purchasePolicy.useMutation({
+    onSuccess: (d: any) => toast.success(`Policy ${d.policyNumber} purchased`),
+    onError: (e: any) => toast.error(e.message),
   });
-  const claimMutation = trpc4.consumerInsurance.fileClaim.useMutation({
-    onSuccess: (d) => toast.success(`Claim ${d.claimNumber} filed`),
-    onError: (e) => toast.error(e.message),
+  const claimMutation = trpc.newFeatures.consumerInsurance.fileClaim.useMutation({
+    onSuccess: (d: any) => toast.success(`Claim ${d.claimNumber} filed`),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -52,11 +52,11 @@ export default function ConsumerInsurance() {
                 <span>Cover: <strong>{formatKobo(p.coverageKobo)}</strong></span>
               </div>
               <ul className="text-xs text-muted-foreground space-y-0.5">
-                {p.features?.slice(0, 3).map((f, i) => <li key={i}>• {f}</li>)}
+                {p.features?.slice(0, 3).map((f: any, i: any) => <li key={i}>• {f}</li>)}
               </ul>
               {selectedProduct === p.productId && (
                 <Button className="w-full mt-2" size="sm" disabled={purchaseMutation.isPending}
-                  onClick={(e) => { e.stopPropagation(); purchaseMutation.mutate({ productId: p.productId, coverageDetails: {}, paymentSource: "wallet" }); }}>
+                  onClick={(e: any) => { e.stopPropagation(); purchaseMutation.mutate({ productId: p.productId, coverageDetails: {}, paymentSource: "wallet" }); }}>
                   {purchaseMutation.isPending ? "Purchasing..." : "Buy Policy"}
                 </Button>
               )}

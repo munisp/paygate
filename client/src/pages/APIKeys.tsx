@@ -16,11 +16,11 @@ export default function APIKeys() {
   const { data, isLoading } = trpc.apiKeys.list.useQuery(undefined, { staleTime: 60_000 });
   const createKey = trpc.apiKeys.create.useMutation({
     onSuccess: () => { toast.success("API key created"); setShowCreate(false); setNewName(""); utils.apiKeys.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const revokeKey = trpc.apiKeys.revoke.useMutation({
     onSuccess: () => { toast.success("API key revoked"); utils.apiKeys.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const allKeys = data ?? [];
@@ -53,7 +53,7 @@ export default function APIKeys() {
       </div>
 
       <div className="flex bg-muted rounded-lg p-1 w-fit gap-1">
-        {(["live", "test"] as const).map((e) => (
+        {(["live", "test"] as const).map((e: any) => (
           <button key={e} onClick={() => setEnv(e)}
             className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all capitalize ${env === e ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
             {e}
@@ -65,7 +65,7 @@ export default function APIKeys() {
         <div className="bg-card rounded-xl border border-border p-5">
           <h3 className="font-semibold mb-3">Create API Key</h3>
           <div className="flex gap-3">
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Key name (e.g. Production Backend)"
+            <input value={newName} onChange={(e: any) => setNewName(e.target.value)} placeholder="Key name (e.g. Production Backend)"
               className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             <Button onClick={() => createKey.mutate({ name: newName, environment: env })} disabled={!newName || createKey.isPending}>
               {createKey.isPending ? "Creating..." : "Create"}
@@ -82,7 +82,7 @@ export default function APIKeys() {
             <Key className="w-8 h-8 mx-auto mb-3 opacity-40" />
             <p>No {env} API keys yet</p>
           </div>
-        ) : keys.map((k) => (
+        ) : keys.map((k: any) => (
           <div key={k.id} className="bg-card rounded-xl border border-border p-5">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">

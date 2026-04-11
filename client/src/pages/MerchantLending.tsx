@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,10 +16,10 @@ function formatNGN(kobo: number) {
 export default function MerchantLending() {
   const [applying, setApplying] = useState(false);
 
-  const { data: eligibility, isLoading, refetch } = trpc2.lending.getCreditScore.useQuery();
-  const { data: loans, isLoading: loansLoading } = trpc2.lending.getLoanApplications.useQuery();
+  const { data: eligibility, isLoading, refetch } = trpc.merchantLending.getCreditScore.useQuery();
+  const { data: loans, isLoading: loansLoading } = trpc.merchantLending.getLoanApplications.useQuery();
 
-  const applyMutation = trpc2.lending.applyForLoan.useMutation({
+  const applyMutation = trpc.merchantLending.applyForLoan.useMutation({
     onSuccess: () => {
       toast.success("Loan application submitted! You will receive a decision within 24 hours.");
       refetch();
@@ -27,7 +27,7 @@ export default function MerchantLending() {
     onError: (err: any) => toast.error(err.message),
   });
 
-  const acceptMutation = trpc2.lending.acceptLoanOffer.useMutation({
+  const acceptMutation = trpc.merchantLending.acceptLoanOffer.useMutation({
     onSuccess: () => {
       toast.success("Loan offer accepted! Funds will be disbursed within 2 hours.");
       refetch();

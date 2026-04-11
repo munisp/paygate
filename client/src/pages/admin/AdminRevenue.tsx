@@ -23,7 +23,7 @@ export default function AdminRevenue() {
           <h1 className="text-2xl font-bold text-white">Revenue & Fee Management</h1>
           <p className="text-slate-400 text-sm mt-1">Platform revenue analytics and fee configuration</p>
         </div>
-        <Tabs value={period} onValueChange={(v) => setPeriod(v as any)}>
+        <Tabs value={period} onValueChange={(v: any) => setPeriod(v as any)}>
           <TabsList className="bg-slate-800 border-slate-700">
             <TabsTrigger value="day" className="data-[state=active]:bg-red-600 data-[state=active]:text-white text-slate-400">Today</TabsTrigger>
             <TabsTrigger value="week" className="data-[state=active]:bg-red-600 data-[state=active]:text-white text-slate-400">Week</TabsTrigger>

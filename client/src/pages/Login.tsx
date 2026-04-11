@@ -183,7 +183,7 @@ export default function Login() {
                     id="email"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e: any) => setEmail(e.target.value)}
                     placeholder="merchant@acme.ng"
                     required
                     autoComplete="email"
@@ -196,7 +196,7 @@ export default function Login() {
                     id="password"
                     type="password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e: any) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
                     autoComplete="current-password"

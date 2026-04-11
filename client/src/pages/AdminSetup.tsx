@@ -64,7 +64,7 @@ export default function AdminSetup() {
     const q = search.toLowerCase().trim();
     if (!q) return usersData;
     return usersData.filter(
-      (u) =>
+      (u: any) =>
         u.name?.toLowerCase().includes(q) ||
         u.email?.toLowerCase().includes(q) ||
         u.role?.toLowerCase().includes(q)
@@ -81,8 +81,8 @@ export default function AdminSetup() {
   };
 
   const selectAll = () => {
-    const eligible = filteredUsers.filter((u) => String(u.id) !== String(user?.id));
-    setBulkSelected(new Set(eligible.map((u) => String(u.id))));
+    const eligible = filteredUsers.filter((u: any) => String(u.id) !== String(user?.id));
+    setBulkSelected(new Set(eligible.map((u: any) => String(u.id))));
   };
 
   const clearSelection = () => setBulkSelected(new Set());
@@ -231,7 +231,7 @@ export default function AdminSetup() {
                   placeholder="Search by name, email, or role…"
                   className="pl-8 h-8 text-sm"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e: any) => setSearch(e.target.value)}
                 />
                 {search && (
                   <button
@@ -248,7 +248,7 @@ export default function AdminSetup() {
                   <select
                     className="h-8 rounded-md border border-border bg-background px-2 text-xs"
                     value={bulkRole}
-                    onChange={(e) => setBulkRole(e.target.value as "admin" | "user")}
+                    onChange={(e: any) => setBulkRole(e.target.value as "admin" | "user")}
                   >
                     <option value="admin">Make Admin</option>
                     <option value="user">Make User</option>
@@ -284,8 +284,8 @@ export default function AdminSetup() {
                       <input
                         type="checkbox"
                         className="rounded"
-                        checked={bulkSelected.size === filteredUsers.filter((u) => String(u.id) !== String(user?.id)).length && filteredUsers.length > 0}
-                        onChange={(e) => e.target.checked ? selectAll() : clearSelection()}
+                        checked={bulkSelected.size === filteredUsers.filter((u: any) => String(u.id) !== String(user?.id)).length && filteredUsers.length > 0}
+                        onChange={(e: any) => e.target.checked ? selectAll() : clearSelection()}
                       />
                     </TableHead>
                     <TableHead>Name</TableHead>
@@ -296,7 +296,7 @@ export default function AdminSetup() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.map((u) => {
+                  {filteredUsers.map((u: any) => {
                     const isSelf = String(u.id) === String(user?.id);
                     const isSelected = bulkSelected.has(String(u.id));
                     return (

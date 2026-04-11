@@ -30,14 +30,14 @@ export default function OllamaChat() {
 
   const modelsQuery = trpc.ollama.listModels.useQuery(undefined, { retry: false });
   const chatMutation = trpc.ollama.chat.useMutation({
-    onError: (e) => {
+    onError: (e: any) => {
       toast.error(`Ollama error: ${e.message}`);
       setIsStreaming(false);
     },
   });
   const pullMutation = trpc.ollama.pullModel.useMutation({
     onSuccess: (data) => { toast.success(`Pulled ${data.model} successfully`); modelsQuery.refetch(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const models = (modelsQuery.data as any)?.models ?? [];
@@ -236,7 +236,7 @@ export default function OllamaChat() {
             <div className="p-4 border-t border-slate-800 flex gap-3">
               <Input
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e: any) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={`Message ${selectedModel}... (Enter to send)`}
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 flex-1"

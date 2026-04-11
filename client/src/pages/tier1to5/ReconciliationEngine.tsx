@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,15 +17,15 @@ export default function ReconciliationEngine() {
   const [source, setSource] = useState("all");
 
   const [reportId, setReportId] = useState("latest");
-  const { data: report, isLoading, refetch } = trpc2.reconciliation.getReconciliationReport.useQuery({ reportId });
-  const { data: discrepancies } = trpc2.reconciliation.getDiscrepancies.useQuery({ status: "open" });
+  const { data: report, isLoading, refetch } = trpc.tier1to5.reconciliation.getReconciliationReport.useQuery({ reportId });
+  const { data: discrepancies } = trpc.tier1to5.reconciliation.getDiscrepancies.useQuery({ status: "open" });
 
-  const runMutation = trpc2.reconciliation.runReconciliation.useMutation({
+  const runMutation = trpc.tier1to5.reconciliation.runReconciliation.useMutation({
     onSuccess: () => { toast.success("Reconciliation job started. Results will be ready in ~2 minutes."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const resolveMutation = trpc2.reconciliation.resolveDiscrepancy.useMutation({
+  const resolveMutation = trpc.tier1to5.reconciliation.resolveDiscrepancy.useMutation({
     onSuccess: () => { toast.success("Discrepancy resolved."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

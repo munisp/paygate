@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,16 +14,16 @@ export default function MultiCurrencyWallet() {
   const [toCurrency, setToCurrency] = useState("USD");
   const [amount, setAmount] = useState("");
   const [newCurrency, setNewCurrency] = useState("USD");
-  const { data: wallets, refetch } = trpc3.multiCurrencyWallet.getWallets.useQuery();
-  const createMutation = trpc3.multiCurrencyWallet.createWallet.useMutation({
+  const { data: wallets, refetch } = trpc.tier6to8.cryptoRamp.getWallets.useQuery();
+  const createMutation = trpc.tier6to8.multiCurrencyWallet.createWallet.useMutation({
     onSuccess: (d: any) => { toast.success(`${d.currency} wallet created`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const convertMutation = trpc3.multiCurrencyWallet.convertCurrency.useMutation({
+  const convertMutation = trpc.tier6to8.multiCurrencyWallet.convertCurrency.useMutation({
     onSuccess: (d: any) => { toast.success(`Converted at rate ${d.rate} — received ${d.toAmount}`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const sweepMutation = trpc3.multiCurrencyWallet.sweepToNGN.useMutation({
+  const sweepMutation = trpc.tier6to8.multiCurrencyWallet.sweepToNGN.useMutation({
     onSuccess: (d: any) => { toast.success(`Swept ₦${(d.ngnAmountKobo / 100).toLocaleString()} to NGN wallet`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });

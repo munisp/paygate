@@ -1,4 +1,4 @@
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,14 +11,14 @@ function formatNGN(kobo: number) {
 }
 
 export default function ChargebackAutomation() {
-  const { data: chargebacks, isLoading, refetch } = trpc2.chargeback.getChargebacks.useQuery({ status: "open" });
+  const { data: chargebacks, isLoading, refetch } = trpc.tier1to5.chargeback.getChargebacks.useQuery({ status: "open" });
 
-  const autoEvidenceMutation = trpc2.chargeback.autoCollectEvidence.useMutation({
+  const autoEvidenceMutation = trpc.tier1to5.chargeback.autoCollectEvidence.useMutation({
     onSuccess: () => { toast.success("Evidence auto-collected and submitted."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const submitMutation = trpc2.chargeback.submitEvidence.useMutation({
+  const submitMutation = trpc.tier1to5.chargeback.submitEvidence.useMutation({
     onSuccess: () => { toast.success("Evidence submitted to card network."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,13 +12,13 @@ export default function CryptoRamp() {
   const [crypto, setCrypto] = useState<"USDC" | "USDT" | "BTC" | "ETH">("USDC");
   const [fiatAmount, setFiatAmount] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
-  const { data: quote } = trpc3.cryptoRamp.getQuote.useQuery(
+  const { data: quote } = trpc.tier6to8.cryptoRamp.getQuote.useQuery(
     { direction, cryptoCurrency: crypto, fiatAmountKobo: Math.round(parseFloat(fiatAmount || "0") * 100) },
     { enabled: parseFloat(fiatAmount) > 0 }
   );
-  const { data: txns } = trpc3.cryptoRamp.getTransactions.useQuery({ limit: 20 });
-  const executeMutation = trpc3.cryptoRamp.executeRamp.useMutation({
-    onSuccess: (d) => toast.success(`Ramp initiated — Ref: ${d.transactionId}`),
+  const { data: txns } = trpc.tier6to8.cryptoRamp.getTransactions.useQuery({ limit: 20 });
+  const executeMutation = trpc.tier6to8.cryptoRamp.executeRamp.useMutation({
+    onSuccess: (d: any) => toast.success(`Ramp initiated — Ref: ${d.transactionId}`),
     onError: (e: any) => toast.error(e.message),
   });
 

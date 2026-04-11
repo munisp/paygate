@@ -25,11 +25,11 @@ export default function TeamRoles() {
   const { data, isLoading } = trpc.team.list.useQuery(undefined, { staleTime: 60_000 });
   const invite = trpc.team.invite.useMutation({
     onSuccess: () => { toast.success("Invitation sent"); setShowInvite(false); setForm({ email: "", name: "", role: "viewer" }); utils.team.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const remove = trpc.team.remove.useMutation({
     onSuccess: () => { toast.success("Member removed"); utils.team.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const members = data ?? [];
@@ -50,17 +50,17 @@ export default function TeamRoles() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
-              <input type="email" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} placeholder="colleague@company.com"
+              <input type="email" value={form.email} onChange={(e: any) => setForm(f => ({ ...f, email: e.target.value }))} placeholder="colleague@company.com"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
-              <input value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name"
+              <input value={form.name} onChange={(e: any) => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Role</label>
-              <select value={form.role} onChange={(e) => setForm(f => ({ ...f, role: e.target.value as any }))}
+              <select value={form.role} onChange={(e: any) => setForm(f => ({ ...f, role: e.target.value as any }))}
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
                 <option value="viewer">Viewer</option>
                 <option value="developer">Developer</option>
@@ -94,7 +94,7 @@ export default function TeamRoles() {
                 <Users className="w-8 h-8 mx-auto mb-3 opacity-40" />
                 No team members yet
               </td></tr>
-            ) : members.map((m) => (
+            ) : members.map((m: any) => (
               <tr key={m.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">

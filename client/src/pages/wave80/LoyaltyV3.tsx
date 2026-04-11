@@ -6,28 +6,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Trophy, Star, Users, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function LoyaltyV3() {
   const [awardOpen, setAwardOpen] = useState(false);
   const [form, setForm] = useState({ customerId: "", customerEmail: "", points: "100" });
 
-  const { data: programData } = trpc5.loyaltyV3.getProgram.useQuery();
-  const { data: membersData, isLoading: loadingMembers, refetch } = trpc5.loyaltyV3.listMembers.useQuery({});
+  const { data: programData } = trpc.wave80.loyaltyV3.getProgram.useQuery();
+  const { data: membersData, isLoading: loadingMembers, refetch } = trpc.wave80.loyaltyV3.listMembers.useQuery({});
 
-  const awardPoints = trpc5.loyaltyV3.awardPoints.useMutation({
+  const awardPoints = trpc.wave80.loyaltyV3.awardPoints.useMutation({
     onSuccess: () => { toast.success("Points awarded"); setAwardOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const redeemPoints = trpc5.loyaltyV3.redeemPoints.useMutation({
+  const redeemPoints = trpc.wave80.loyaltyV3.redeemPoints.useMutation({
     onSuccess: () => { toast.success("Points redeemed"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const program = programData?.program;
   const members = membersData?.members ?? [];
-  const totalPoints = members.reduce((s, m) => s + m.pointsBalance, 0);
+  const totalPoints = members.reduce((s: any, m: any) => s + m.pointsBalance, 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -43,7 +43,7 @@ export default function LoyaltyV3() {
       <Card><CardHeader><CardTitle>Members</CardTitle></CardHeader><CardContent>
         {loadingMembers ? <p className="text-sm text-muted-foreground py-4">Loading...</p> :
         members.length === 0 ? <div className="text-center py-8"><p className="text-muted-foreground">No members yet. Award points to get started.</p></div> : (
-          <div className="space-y-3">{members.map((m, i) => (
+          <div className="space-y-3">{members.map((m: any, i: any) => (
             <div key={m.id} className="flex items-center justify-between p-4 border rounded-lg">
               <div className="flex items-center gap-3"><span className="text-2xl font-bold text-muted-foreground">#{i+1}</span><div><p className="font-medium">{m.customerEmail}</p><p className="text-sm text-muted-foreground">ID: {m.customerId}</p></div></div>
               <div className="flex items-center gap-3">

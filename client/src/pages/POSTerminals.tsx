@@ -214,7 +214,7 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
         </DialogHeader>
         <form
           className="space-y-4"
-          onSubmit={(e) => {
+          onSubmit={(e: any) => {
             e.preventDefault();
             register.mutate(form);
           }}
@@ -225,12 +225,12 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
               required
               placeholder="TID-001"
               value={form.serialNumber}
-              onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
+              onChange={(e: any) => setForm({ ...form, serialNumber: e.target.value })}
             />
           </div>
           <div className="space-y-1">
             <Label>Model</Label>
-            <Select value={form.model} onValueChange={(v) => setForm({ ...form, model: v as "soundbox_basic" | "pos_lite" | "pos_smart" | "ussd_terminal" })}>
+            <Select value={form.model} onValueChange={(v: any) => setForm({ ...form, model: v as "soundbox_basic" | "pos_lite" | "pos_smart" | "ussd_terminal" })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -252,7 +252,7 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
               <Input
                 placeholder="Counter 1"
                 value={form.label}
-                onChange={(e) => setForm({ ...form, label: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, label: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -260,13 +260,13 @@ function RegisterTerminalDialog({ onRegistered }: { onRegistered: () => void }) 
               <Input
                 placeholder="Ikeja Branch"
                 value={form.location}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, location: e.target.value })}
               />
             </div>
           </div>
           <div className="space-y-1">
             <Label>Audio Language</Label>
-              <Select value={form.audioLanguage} onValueChange={(v) => setForm({ ...form, audioLanguage: v as "en" | "yo" | "ha" | "ig" })}>
+              <Select value={form.audioLanguage} onValueChange={(v: any) => setForm({ ...form, audioLanguage: v as "en" | "yo" | "ha" | "ig" })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -319,7 +319,7 @@ function ProcessPaymentDialog({ terminalId, terminalLabel }: { terminalId: strin
         </DialogHeader>
         <form
           className="space-y-4"
-          onSubmit={(e) => {
+          onSubmit={(e: any) => {
             e.preventDefault();
             const kobo = Math.round(parseFloat(amountNGN) * 100);
             if (isNaN(kobo) || kobo <= 0) {
@@ -338,12 +338,12 @@ function ProcessPaymentDialog({ terminalId, terminalLabel }: { terminalId: strin
               step="0.01"
               placeholder="5000"
               value={amountNGN}
-              onChange={(e) => setAmountNGN(e.target.value)}
+              onChange={(e: any) => setAmountNGN(e.target.value)}
             />
           </div>
           <div className="space-y-1">
             <Label>Channel</Label>
-            <Select value={channel} onValueChange={(v) => setChannel(v as "qr" | "card" | "nip" | "ussd")}>
+            <Select value={channel} onValueChange={(v: any) => setChannel(v as "qr" | "card" | "nip" | "ussd")}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -536,7 +536,7 @@ export default function POSTerminals() {
           { label: "Active", value: stats?.activeTerminals ?? 0, icon: Activity },
           { label: "Total Volume", value: formatNGN(stats?.totalVolumeKobo ?? 0), icon: Banknote },
           { label: "Transactions", value: (stats?.totalTransactions ?? 0).toLocaleString(), icon: CreditCard },
-        ].map((s) => (
+        ].map((s: any) => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-3">
@@ -615,7 +615,7 @@ export default function POSTerminals() {
 
       {/* Filter */}
       <div className="flex items-center gap-3">
-        <Select value={statusFilter || "all"} onValueChange={(v) => { setStatusFilter(v === "all" ? "" : v); setPage(0); }}>
+        <Select value={statusFilter || "all"} onValueChange={(v: any) => { setStatusFilter(v === "all" ? "" : v); setPage(0); }}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>

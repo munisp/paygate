@@ -139,7 +139,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="e.g. Monthly Savings Plan"
                 value={form.planName}
-                onChange={(e) => setForm({ ...form, planName: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, planName: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -150,14 +150,14 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
                 step="0.01"
                 placeholder="5000.00"
                 value={form.amountNGN}
-                onChange={(e) => setForm({ ...form, amountNGN: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, amountNGN: e.target.value })}
               />
             </div>
             <div className="space-y-1">
               <Label>Interval</Label>
               <Select
                 value={form.interval}
-                onValueChange={(v) => setForm({ ...form, interval: v })}
+                onValueChange={(v: any) => setForm({ ...form, interval: v })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -176,7 +176,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
                 min="1"
                 placeholder="12 (leave blank for indefinite)"
                 value={form.totalCycles}
-                onChange={(e) => setForm({ ...form, totalCycles: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, totalCycles: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -185,7 +185,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
                 type="email"
                 placeholder="customer@example.com"
                 value={form.customerEmail}
-                onChange={(e) => setForm({ ...form, customerEmail: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, customerEmail: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -193,7 +193,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="Adaeze Okonkwo"
                 value={form.customerName}
-                onChange={(e) => setForm({ ...form, customerName: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, customerName: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -201,7 +201,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="08012345678"
                 value={form.customerPhone}
-                onChange={(e) => setForm({ ...form, customerPhone: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, customerPhone: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -209,7 +209,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="058 (GTBank)"
                 value={form.bankCode}
-                onChange={(e) => setForm({ ...form, bankCode: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, bankCode: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -217,7 +217,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="0123456789"
                 value={form.accountNumber}
-                onChange={(e) => setForm({ ...form, accountNumber: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, accountNumber: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -225,7 +225,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="ADAEZE OKONKWO"
                 value={form.accountName}
-                onChange={(e) => setForm({ ...form, accountName: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, accountName: e.target.value })}
               />
             </div>
             <div className="col-span-2 space-y-1">
@@ -233,7 +233,7 @@ function CreateSubscriptionDialog({ onCreated }: { onCreated: () => void }) {
               <Input
                 placeholder="Optional description"
                 value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                onChange={(e: any) => setForm({ ...form, description: e.target.value })}
               />
             </div>
           </div>
@@ -306,7 +306,7 @@ export default function Subscriptions() {
           { label: "Paused", value: stats?.paused ?? 0, icon: PauseCircle, color: "text-amber-600" },
           { label: "Total Plans", value: stats?.total ?? 0, icon: Users, color: "text-blue-600" },
           { label: "Total Volume", value: formatNGN(stats?.totalVolumeKobo ?? 0), icon: Banknote, color: "text-purple-600" },
-        ].map((s) => (
+        ].map((s: any) => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-3">
@@ -325,7 +325,7 @@ export default function Subscriptions() {
 
       {/* Filter */}
       <div className="flex items-center gap-3">
-        <Select value={statusFilter || "all"} onValueChange={(v) => { setStatusFilter(v === "all" ? "" : v); setPage(0); }}>
+        <Select value={statusFilter || "all"} onValueChange={(v: any) => { setStatusFilter(v === "all" ? "" : v); setPage(0); }}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>

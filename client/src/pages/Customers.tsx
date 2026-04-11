@@ -39,7 +39,7 @@ export default function Customers() {
       setAddOpen(false);
       toast.success("Customer added successfully");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleExport = async () => {
@@ -87,7 +87,7 @@ export default function Customers() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+          onChange={(e: any) => { setSearch(e.target.value); setPage(0); }}
           placeholder="Search by name or email..."
           className="w-full pl-9 pr-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
         />
@@ -108,7 +108,7 @@ export default function Customers() {
               <tr key={i}><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td></tr>
             )) : rows.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No customers found</td></tr>
-            ) : rows.map((c) => (
+            ) : rows.map((c: any) => (
               <tr
                 key={c.id}
                 className="hover:bg-muted/30 transition-colors cursor-pointer"
@@ -175,7 +175,7 @@ function AddCustomerDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle style={{ fontFamily: "Space Grotesk, sans-serif" }}>Add Customer</DialogTitle>

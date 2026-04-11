@@ -156,7 +156,7 @@ export default function DeveloperSandbox() {
                     <Input
                       placeholder="https://your-server.com/webhook"
                       value={webhookUrl}
-                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      onChange={(e: any) => setWebhookUrl(e.target.value)}
                     />
                     {webhooks && (webhooks as any[]).length > 0 && (
                       <Select onValueChange={setWebhookUrl}>
@@ -180,7 +180,7 @@ export default function DeveloperSandbox() {
                   <Select value={eventType} onValueChange={handleEventTypeChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {Object.keys(SAMPLE_PAYLOADS).map((e) => (
+                      {Object.keys(SAMPLE_PAYLOADS).map((e: any) => (
                         <SelectItem key={e} value={e}>{e}</SelectItem>
                       ))}
                     </SelectContent>
@@ -201,7 +201,7 @@ export default function DeveloperSandbox() {
                   </div>
                   <Textarea
                     value={payload}
-                    onChange={(e) => setPayload(e.target.value)}
+                    onChange={(e: any) => setPayload(e.target.value)}
                     className="font-mono text-xs h-48"
                   />
                 </div>
@@ -226,7 +226,7 @@ export default function DeveloperSandbox() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {results.map((r, i) => (
+                    {results.map((r: any, i: any) => (
                       <div key={i} className={`rounded-lg border p-3 ${r.success ? "border-green-200 bg-green-50 dark:bg-green-950/20" : "border-red-200 bg-red-50 dark:bg-red-950/20"}`}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">

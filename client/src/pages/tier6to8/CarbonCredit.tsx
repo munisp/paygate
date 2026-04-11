@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +10,12 @@ import { Leaf, Award, BarChart3 } from "lucide-react";
 export default function CarbonCredit() {
   const [selectedYear, setSelectedYear] = useState(2026);
   const [purchaseForm, setPurchaseForm] = useState({ listingId: "", tonnes: 1, retirementPurpose: "Scope 1 emissions offset" });
-  const { data: listings } = trpc3.carbonCredit.getListings.useQuery({});
-  const { data: certificates } = trpc3.carbonCredit.getMyCertificates.useQuery();
-  const { data: report } = trpc3.carbonCredit.getEmissionsReport.useQuery({ year: selectedYear });
-  const purchaseMutation = trpc3.carbonCredit.purchaseCredits.useMutation({
-    onSuccess: (d) => { toast.success(`${d.tonnes} tonne(s) retired — Certificate: ${d.certificateId}`); },
-    onError: (e) => toast.error(e.message),
+  const { data: listings } = trpc.tier6to8.carbonCredit.getListings.useQuery({});
+  const { data: certificates } = trpc.tier6to8.carbonCredit.getMyCertificates.useQuery();
+  const { data: report } = trpc.tier6to8.carbonCredit.getEmissionsReport.useQuery({ year: selectedYear });
+  const purchaseMutation = trpc.tier6to8.carbonCredit.purchaseCredits.useMutation({
+    onSuccess: (d: any) => { toast.success(`${d.tonnes} tonne(s) retired — Certificate: ${d.certificateId}`); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const scoreColor = report?.score === "A" ? "text-green-600" : report?.score === "B" ? "text-yellow-600" : "text-red-600";

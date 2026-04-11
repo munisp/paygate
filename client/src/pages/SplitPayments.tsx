@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,9 +22,9 @@ export default function SplitPayments() {
     { recipientId: "", recipientType: "merchant", splitType: "percentage", value: 0, description: "" },
   ]);
 
-  const { data: rules, isLoading, refetch } = trpc2.splitPayments.getSplitRules.useQuery();
+  const { data: rules, isLoading, refetch } = trpc.tier1to5.splitPayments.getSplitRules.useQuery();
 
-  const createMutation = trpc2.splitPayments.createSplitRule.useMutation({
+  const createMutation = trpc.tier1to5.splitPayments.createSplitRule.useMutation({
     onSuccess: () => {
       toast.success("Split rule created successfully.");
       setRuleName("");
@@ -34,7 +34,7 @@ export default function SplitPayments() {
     onError: (err: any) => toast.error(err.message),
   });
 
-  const executeMutation = trpc2.splitPayments.executeSplitPayment.useMutation({
+  const executeMutation = trpc.tier1to5.splitPayments.executeSplitPayment.useMutation({
     onSuccess: () => { toast.success("Split payment executed."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

@@ -35,11 +35,11 @@ export default function Webhooks() {
 
   const createWebhook = trpc.webhooks.create.useMutation({
     onSuccess: () => { toast.success("Webhook endpoint created"); setShowForm(false); setUrl(""); setSelectedEvents([]); utils.webhooks.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const deleteWebhook = trpc.webhooks.delete.useMutation({
     onSuccess: () => { toast.success("Webhook deleted"); utils.webhooks.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
   const [testEventTypes, setTestEventTypes] = useState<Record<string, string>>({});
@@ -54,7 +54,7 @@ export default function Webhooks() {
       }
       utils.webhookDeliveries.list.invalidate();
     },
-    onError: (e) => { setTestingWebhookId(null); toast.error(e.message); },
+    onError: (e: any) => { setTestingWebhookId(null); toast.error(e.message); },
   });
   const retryDelivery = trpc.webhookDeliveries.retry.useMutation({
     onSuccess: (result) => {
@@ -65,7 +65,7 @@ export default function Webhooks() {
       }
       utils.webhookDeliveries.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const updateEventTypes = trpc.webhooks.updateEventTypes.useMutation({
     onSuccess: () => {
@@ -73,7 +73,7 @@ export default function Webhooks() {
       setEditingEventsId(null);
       utils.webhooks.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const webhooks = data ?? [];
@@ -100,7 +100,7 @@ export default function Webhooks() {
           <h3 className="font-semibold">New Webhook Endpoint</h3>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Endpoint URL *</label>
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-server.com/webhooks/paygate"
+            <input value={url} onChange={(e: any) => setUrl(e.target.value)} placeholder="https://your-server.com/webhooks/paygate"
               className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
           </div>
           <div>
@@ -163,7 +163,7 @@ export default function Webhooks() {
                       </button>
                       <button
                         className="px-1.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 transition-colors border-l border-primary/20"
-                        onClick={(e) => { e.stopPropagation(); setShowEventPicker(showEventPicker === wh.id ? null : wh.id); }}
+                        onClick={(e: any) => { e.stopPropagation(); setShowEventPicker(showEventPicker === wh.id ? null : wh.id); }}
                         title="Choose event type"
                       >
                         <ChevronDown className="w-3 h-3" />
@@ -262,7 +262,7 @@ export default function Webhooks() {
                     </div>
                   ) : (
                     <div className="space-y-1.5">
-                      {deliveries.map((d) => (
+                      {deliveries.map((d: any) => (
                         <div key={d.id} className="flex items-center justify-between bg-card rounded-lg px-3 py-2.5 text-xs">
                           <div className="flex items-center gap-3">
                             {statusBadge(d.status)}

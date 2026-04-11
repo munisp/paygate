@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,19 +23,19 @@ export default function InvoiceBuilder() {
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([{ description: "", quantity: 1, unitPriceKobo: 0, taxPct: 7.5 }]);
 
-  const { data: invoices, isLoading, refetch } = trpc2.invoiceBuilder.getInvoices.useQuery({ limit: 50 });
+  const { data: invoices, isLoading, refetch } = trpc.tier1to5.invoiceBuilder.getInvoices.useQuery({ limit: 50 });
 
-  const createMutation = trpc2.invoiceBuilder.createInvoice.useMutation({
+  const createMutation = trpc.tier1to5.invoiceBuilder.createInvoice.useMutation({
     onSuccess: () => { toast.success("Invoice created and sent via Dapr pub/sub."); setShowCreate(false); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const sendMutation = trpc2.invoiceBuilder.sendInvoice.useMutation({
+  const sendMutation = trpc.tier1to5.invoiceBuilder.sendInvoice.useMutation({
     onSuccess: () => { toast.success("Invoice sent to customer."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const cancelMutation = trpc2.invoiceBuilder.cancelInvoice.useMutation({
+  const cancelMutation = trpc.tier1to5.invoiceBuilder.cancelInvoice.useMutation({
     onSuccess: () => { toast.success("Invoice cancelled."); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,16 +8,16 @@ import { Users, CheckCircle } from "lucide-react";
 
 export default function PayrollV2() {
   const [payPeriod, setPayPeriod] = useState(new Date().toISOString().slice(0, 7));
-  const { data: runs, refetch } = trpc3.payrollV2.getPayrollRuns.useQuery({});
-  const createMutation = trpc3.payrollV2.createPayrollRun.useMutation({
+  const { data: runs, refetch } = trpc.tier6to8.payrollV2.getPayrollRuns.useQuery({});
+  const createMutation = trpc.tier6to8.payrollV2.createPayrollRun.useMutation({
     onSuccess: (d: any) => { toast.success(`Payroll run created — ${d.employeeCount} employees, \u20a6${(d.totalGrossKobo / 100).toLocaleString()}`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const approveMutation = trpc3.payrollV2.approvePayrollRun.useMutation({
+  const approveMutation = trpc.tier6to8.payrollV2.approvePayrollRun.useMutation({
     onSuccess: () => { toast.success("Payroll approved and disbursing"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const pensionMutation = trpc3.payrollV2.submitPensionRemittance.useMutation({
+  const pensionMutation = trpc.tier6to8.payrollV2.submitPensionRemittance.useMutation({
     onSuccess: (d: any) => toast.success(`Pension remitted — Ref: ${d.remittanceRef}`),
     onError: (e: any) => toast.error(e.message),
   });

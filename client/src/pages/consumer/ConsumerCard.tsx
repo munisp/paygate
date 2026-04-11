@@ -164,7 +164,7 @@ export default function ConsumerCard() {
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
               <Label>Card Brand</Label>
-              <Select value={brand} onValueChange={(v) => setBrand(v as "visa" | "mastercard")}>
+              <Select value={brand} onValueChange={(v: any) => setBrand(v as "visa" | "mastercard")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="visa">Visa</SelectItem>

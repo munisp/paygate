@@ -54,7 +54,7 @@ export default function ConsumerDisputes() {
       setForm({ subject: "", description: "", category: "other" });
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleRaise = () => {

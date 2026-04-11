@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,16 +8,16 @@ import { toast } from "sonner";
 export default function PrivacyPayments() {
   const [privateId, setPrivateId] = useState<{ privateId: string; qrCode: string; expiresAt: string } | null>(null);
 
-  const { data: settings } = trpc4.privacyPayments.getPrivacySettings.useQuery();
-  const { data: history } = trpc4.privacyPayments.getPrivateTransactionHistory.useQuery({ page: 1, limit: 20 });
+  const { data: settings } = trpc.newFeatures.privacyPayments.getPrivacySettings.useQuery();
+  const { data: history } = trpc.newFeatures.privacyPayments.getPrivateTransactionHistory.useQuery({ page: 1, limit: 20 });
 
-  const updateMutation = trpc4.privacyPayments.updatePrivacySettings.useMutation({
+  const updateMutation = trpc.newFeatures.privacyPayments.updatePrivacySettings.useMutation({
     onSuccess: () => toast.success("Privacy settings updated"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const generateIdMutation = trpc4.privacyPayments.generatePrivatePaymentId.useMutation({
-    onSuccess: (d) => setPrivateId(d),
-    onError: (e) => toast.error(e.message),
+  const generateIdMutation = trpc.newFeatures.privacyPayments.generatePrivatePaymentId.useMutation({
+    onSuccess: (d: any) => setPrivateId(d),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const toggle = (field: string, value: boolean) => {

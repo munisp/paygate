@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,11 +13,11 @@ export default function SDKPortal() {
   const [platform, setPlatform] = useState<"web" | "ios" | "android" | "react_native" | "flutter">("web");
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
 
-  const configQuery = trpc3.whiteLabelSDK.getSDKConfig.useQuery(undefined, { enabled: !!user });
-  const guideQuery = trpc3.whiteLabelSDK.getIntegrationGuide.useQuery({ platform }, { enabled: !!user });
-  const analyticsQuery = trpc3.whiteLabelSDK.getSDKAnalytics.useQuery({ period }, { enabled: !!user });
+  const configQuery = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery(undefined, { enabled: !!user });
+  const guideQuery = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform }, { enabled: !!user });
+  const analyticsQuery = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period }, { enabled: !!user });
 
-  const rotateMutation = trpc3.whiteLabelSDK.rotateSdkKey.useMutation({
+  const rotateMutation = trpc.tier6to8.whiteLabelSDK.rotateSdkKey.useMutation({
     onSuccess: (data) => {
       toast("SDK key rotated", { description: `Old key expires at ${new Date(data.oldKeyExpiresAt).toLocaleString()}` });
       configQuery.refetch();
@@ -88,7 +88,7 @@ export default function SDKPortal() {
             <select
               className="border rounded px-2 py-1 text-sm bg-background"
               value={period}
-              onChange={(e) => setPeriod(e.target.value as any)}
+              onChange={(e: any) => setPeriod(e.target.value as any)}
             >
               <option value="7d">Last 7 days</option>
               <option value="30d">Last 30 days</option>

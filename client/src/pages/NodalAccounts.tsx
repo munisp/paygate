@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,19 +16,19 @@ export default function NodalAccounts() {
   const [destBank, setDestBank] = useState("044");
   const [narration, setNarration] = useState("");
 
-  const { data: accounts, refetch } = trpc4.nodalAccounts.listNodalAccounts.useQuery();
-  const { data: txHistory } = trpc4.nodalAccounts.getNodalTransactions.useQuery(
+  const { data: accounts, refetch } = trpc.newFeatures.nodalAccounts.listNodalAccounts.useQuery();
+  const { data: txHistory } = trpc.newFeatures.nodalAccounts.getNodalTransactions.useQuery(
     { accountId: selectedAccount ?? "" },
     { enabled: !!selectedAccount }
   );
 
-  const createMutation = trpc4.nodalAccounts.createNodalAccount.useMutation({
-    onSuccess: (d) => { toast.success(`Nodal account ${d.accountNumber} created`); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const createMutation = trpc.newFeatures.nodalAccounts.createNodalAccount.useMutation({
+    onSuccess: (d: any) => { toast.success(`Nodal account ${d.accountNumber} created`); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const transferMutation = trpc4.nodalAccounts.transferFromNodal.useMutation({
-    onSuccess: (d) => toast.success(`Transfer ${d.reference} initiated`),
-    onError: (e) => toast.error(e.message),
+  const transferMutation = trpc.newFeatures.nodalAccounts.transferFromNodal.useMutation({
+    onSuccess: (d: any) => toast.success(`Transfer ${d.reference} initiated`),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

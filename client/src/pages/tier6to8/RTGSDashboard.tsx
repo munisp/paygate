@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +9,9 @@ import { Zap, Clock } from "lucide-react";
 
 export default function RTGSDashboard() {
   const [form, setForm] = useState({ beneficiaryBank: "", beneficiaryAccount: "", beneficiaryName: "", amountKobo: "", narration: "" });
-  const { data: history } = trpc3.rtgs.getRTGSHistory.useQuery({ limit: 20 });
-  const { data: limits } = trpc3.rtgs.getRTGSLimits.useQuery();
-  const initiateMutation = trpc3.rtgs.initiateRTGS.useMutation({
+  const { data: history } = trpc.tier6to8.rtgs.getRTGSHistory.useQuery({ limit: 20 });
+  const { data: limits } = trpc.tier6to8.rtgs.getRTGSLimits.useQuery();
+  const initiateMutation = trpc.tier6to8.rtgs.initiateRTGS.useMutation({
     onSuccess: (d: any) => toast.success(`RTGS initiated — Ref: ${d.rtgsRef}`),
     onError: (e: any) => toast.error(e.message),
   });

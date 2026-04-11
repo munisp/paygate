@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,23 +15,23 @@ export default function BulkCollections() {
   const [items, setItems] = useState<CollectionItem[]>([{ customerName: "", customerPhone: "", customerEmail: "", amountKobo: 0, reference: `ref_${Date.now()}` }]);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
-  const { data: collections, refetch } = trpc4.bulkCollections.listCollections.useQuery({ page: 1, status: "all" });
-  const { data: details } = trpc4.bulkCollections.getCollectionDetails.useQuery(
+  const { data: collections, refetch } = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" });
+  const { data: details } = trpc.newFeatures.bulkCollections.getCollectionDetails.useQuery(
     { collectionId: selectedCollection ?? "" },
     { enabled: !!selectedCollection }
   );
 
-  const createMutation = trpc4.bulkCollections.createCollection.useMutation({
-    onSuccess: (d) => { toast.success(`Collection "${d.collectionId}" created`); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const createMutation = trpc.newFeatures.bulkCollections.createCollection.useMutation({
+    onSuccess: (d: any) => { toast.success(`Collection "${d.collectionId}" created`); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const remindersMutation = trpc4.bulkCollections.sendReminders.useMutation({
-    onSuccess: (d) => { toast.success(`${d.sent} reminders sent`); },
-    onError: (e) => toast.error(e.message),
+  const remindersMutation = trpc.newFeatures.bulkCollections.sendReminders.useMutation({
+    onSuccess: (d: any) => { toast.success(`${d.sent} reminders sent`); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const exportMutation = trpc4.bulkCollections.exportReport.useMutation({
-    onSuccess: (d) => { toast.success("Report ready"); window.open(d.downloadUrl, "_blank"); },
-    onError: (e) => toast.error(e.message),
+  const exportMutation = trpc.newFeatures.bulkCollections.exportReport.useMutation({
+    onSuccess: (d: any) => { toast.success("Report ready"); window.open(d.downloadUrl, "_blank"); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

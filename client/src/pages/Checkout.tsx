@@ -34,7 +34,7 @@ const CheckoutPreview = ({ theme }: { theme: { primary: string; bg: string; text
               { label: "🏦 Bank Transfer", sub: "Instant virtual account" },
               { label: "📱 Mobile Money", sub: "M-Pesa, MTN, Airtel" },
               { label: "📞 USSD", sub: "*737# and more" },
-            ].map((m) => (
+            ].map((m: any) => (
               <button
                 key={m.label}
                 onClick={() => setStep("card")}
@@ -60,7 +60,7 @@ const CheckoutPreview = ({ theme }: { theme: { primary: string; bg: string; text
                 <label className="text-xs font-medium text-muted-foreground">Card Number</label>
                 <input
                   value={cardNum}
-                  onChange={(e) => setCardNum(formatCard(e.target.value))}
+                  onChange={(e: any) => setCardNum(formatCard(e.target.value))}
                   placeholder="0000 0000 0000 0000"
                   className="w-full mt-1 px-3 py-2.5 text-sm rounded-lg border border-border bg-muted focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                 />
@@ -243,22 +243,22 @@ export default function Checkout() {
                 <div>
                   <label className="text-sm font-medium text-foreground">Primary Color</label>
                   <div className="flex items-center gap-3 mt-2">
-                    <input type="color" value={theme.primary} onChange={(e) => setTheme((p) => ({ ...p, primary: e.target.value }))} className="w-10 h-10 rounded-lg border border-border cursor-pointer" />
-                    <input value={theme.primary} onChange={(e) => setTheme((p) => ({ ...p, primary: e.target.value }))} className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
+                    <input type="color" value={theme.primary} onChange={(e: any) => setTheme((p: any) => ({ ...p, primary: e.target.value }))} className="w-10 h-10 rounded-lg border border-border cursor-pointer" />
+                    <input value={theme.primary} onChange={(e: any) => setTheme((p: any) => ({ ...p, primary: e.target.value }))} className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
                   </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Background Color</label>
                   <div className="flex items-center gap-3 mt-2">
-                    <input type="color" value={theme.bg} onChange={(e) => setTheme((p) => ({ ...p, bg: e.target.value }))} className="w-10 h-10 rounded-lg border border-border cursor-pointer" />
-                    <input value={theme.bg} onChange={(e) => setTheme((p) => ({ ...p, bg: e.target.value }))} className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
+                    <input type="color" value={theme.bg} onChange={(e: any) => setTheme((p: any) => ({ ...p, bg: e.target.value }))} className="w-10 h-10 rounded-lg border border-border cursor-pointer" />
+                    <input value={theme.bg} onChange={(e: any) => setTheme((p: any) => ({ ...p, bg: e.target.value }))} className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
                   </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-foreground">Text Color</label>
                   <div className="flex items-center gap-3 mt-2">
-                    <input type="color" value={theme.text} onChange={(e) => setTheme((p) => ({ ...p, text: e.target.value }))} className="w-10 h-10 rounded-lg border border-border cursor-pointer" />
-                    <input value={theme.text} onChange={(e) => setTheme((p) => ({ ...p, text: e.target.value }))} className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
+                    <input type="color" value={theme.text} onChange={(e: any) => setTheme((p: any) => ({ ...p, text: e.target.value }))} className="w-10 h-10 rounded-lg border border-border cursor-pointer" />
+                    <input value={theme.text} onChange={(e: any) => setTheme((p: any) => ({ ...p, text: e.target.value }))} className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border border-border font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
                   </div>
                 </div>
               </div>

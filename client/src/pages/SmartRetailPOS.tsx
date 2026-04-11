@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,17 +17,17 @@ export default function SmartRetailPOS() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [lastSale, setLastSale] = useState<{ saleId: string; totalAmountKobo: number; receiptUrl: string; loyaltyPointsEarned: number } | null>(null);
 
-  const { data: config } = trpc4.smartRetailPOS.getRetailConfig.useQuery();
-  const { data: alerts } = trpc4.smartRetailPOS.getInventoryAlerts.useQuery();
-  const { data: dailySummary } = trpc4.smartRetailPOS.getDailySalesSummary.useQuery({ date: selectedDate });
+  const { data: config } = trpc.newFeatures.smartRetailPOS.getRetailConfig.useQuery();
+  const { data: alerts } = trpc.newFeatures.smartRetailPOS.getInventoryAlerts.useQuery();
+  const { data: dailySummary } = trpc.newFeatures.smartRetailPOS.getDailySalesSummary.useQuery({ date: selectedDate });
 
-  const saleMutation = trpc4.smartRetailPOS.processRetailSale.useMutation({
-    onSuccess: (d) => { toast.success(`Sale ${d.saleId} — ${formatKobo(d.totalAmountKobo)}`); setLastSale(d); setCart([]); },
-    onError: (e) => toast.error(e.message),
+  const saleMutation = trpc.newFeatures.smartRetailPOS.processRetailSale.useMutation({
+    onSuccess: (d: any) => { toast.success(`Sale ${d.saleId} — ${formatKobo(d.totalAmountKobo)}`); setLastSale(d); setCart([]); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const printMutation = trpc4.smartRetailPOS.printReceipt.useMutation({
-    onSuccess: (d) => { if (d.receiptUrl) window.open(d.receiptUrl, "_blank"); toast.success("Receipt sent to printer"); },
-    onError: (e) => toast.error(e.message),
+  const printMutation = trpc.newFeatures.smartRetailPOS.printReceipt.useMutation({
+    onSuccess: (d: any) => { if (d.receiptUrl) window.open(d.receiptUrl, "_blank"); toast.success("Receipt sent to printer"); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -147,7 +147,7 @@ export default function SmartRetailPOS() {
                   {dailySummary.topProducts?.length > 0 && (
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Top Products</p>
-                      {dailySummary.topProducts.slice(0, 3).map((p, i) => (
+                      {dailySummary.topProducts.slice(0, 3).map((p: any, i: any) => (
                         <div key={i} className="flex justify-between text-xs py-1 border-b">
                           <span>{p.name}</span>
                           <span>{p.quantity} units · {formatKobo(p.revenueKobo)}</span>
@@ -166,7 +166,7 @@ export default function SmartRetailPOS() {
               <CardHeader className="pb-2"><CardTitle className="text-base text-orange-600">Inventory Alerts ({alerts.alerts.length})</CardTitle></CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {alerts.alerts.slice(0, 5).map((a, i) => (
+                  {alerts.alerts.slice(0, 5).map((a: any, i: any) => (
                     <div key={i} className="flex justify-between items-center text-sm">
                       <div>
                         <p className="font-medium">{a.productName}</p>

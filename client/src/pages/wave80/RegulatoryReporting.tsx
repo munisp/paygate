@@ -7,21 +7,21 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { FileText, CheckCircle, AlertCircle, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function RegulatoryReporting() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ reportType: "CBN_RETURNS", period: "", regulator: "CBN" });
 
-  const { data, isLoading, refetch } = trpc5.regulatoryReporting.listReports.useQuery({});
-  const { data: stats } = trpc5.regulatoryReporting.getStats.useQuery();
+  const { data, isLoading, refetch } = trpc.wave80.regulatoryReporting.listReports.useQuery({});
+  const { data: stats } = trpc.wave80.regulatoryReporting.getStats.useQuery();
 
-  const createReport = trpc5.regulatoryReporting.createReport.useMutation({
+  const createReport = trpc.wave80.regulatoryReporting.createReport.useMutation({
     onSuccess: () => { toast.success("Report created"); setCreateOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const submitReport = trpc5.regulatoryReporting.submitReport.useMutation({
+  const submitReport = trpc.wave80.regulatoryReporting.submitReport.useMutation({
     onSuccess: () => { toast.success("Report submitted"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

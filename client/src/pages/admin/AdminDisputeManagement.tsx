@@ -34,12 +34,12 @@ export default function AdminDisputeManagement() {
 
   const resolveMutation = trpc.admin.disputes.resolveDispute.useMutation({
     onSuccess: () => { utils.admin.disputes.listAll.invalidate(); setResolveDialog(null); toast.success("Dispute resolved"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const escalateMutation = trpc.admin.disputes.escalateDispute.useMutation({
     onSuccess: () => { utils.admin.disputes.listAll.invalidate(); setEscalateDialog(null); toast.success("Dispute escalated"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const disputes = (listQuery.data as any)?.disputes ?? [];
@@ -54,7 +54,7 @@ export default function AdminDisputeManagement() {
           <p className="text-slate-400 text-sm mt-1">Platform-wide dispute resolution</p>
         </div>
         <div className="flex items-center gap-3">
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as any); setPage(1); }}>
+          <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v as any); setPage(1); }}>
             <SelectTrigger className="w-44 bg-slate-800 border-slate-700 text-white"><SelectValue /></SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
               <SelectItem value="open">Open</SelectItem>
@@ -130,7 +130,7 @@ export default function AdminDisputeManagement() {
             <div className="space-y-4 py-2">
               <div>
                 <Label className="text-slate-300">Resolution</Label>
-                <Select value={resolution} onValueChange={(v) => setResolution(v as any)}>
+                <Select value={resolution} onValueChange={(v: any) => setResolution(v as any)}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700 text-white"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
                     <SelectItem value="merchant_wins">Merchant Wins</SelectItem>
@@ -142,7 +142,7 @@ export default function AdminDisputeManagement() {
               {resolution === "partial_refund" && (
                 <div>
                   <Label className="text-slate-300">Refund Amount (Kobo)</Label>
-                  <Input value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" placeholder="e.g. 500000" />
+                  <Input value={refundAmount} onChange={(e: any) => setRefundAmount(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" placeholder="e.g. 500000" />
                 </div>
               )}
             </div>
@@ -162,7 +162,7 @@ export default function AdminDisputeManagement() {
             <DialogHeader><DialogTitle>Escalate Dispute</DialogTitle></DialogHeader>
             <div className="py-2">
               <Label className="text-slate-300">Reason for Escalation</Label>
-              <Input value={escalateReason} onChange={(e) => setEscalateReason(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" placeholder="Reason..." />
+              <Input value={escalateReason} onChange={(e: any) => setEscalateReason(e.target.value)} className="mt-1 bg-slate-800 border-slate-700 text-white" placeholder="Reason..." />
             </div>
             <DialogFooter>
               <Button variant="outline" className="border-slate-700 text-slate-300" onClick={() => setEscalateDialog(null)}>Cancel</Button>

@@ -146,7 +146,7 @@ function VendorFormDialog({ open, onClose, vendor, onSaved }: VendorFormDialogPr
   };
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+    setForm((f: any) => ({ ...f, [key]: e.target.value }));
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -184,7 +184,7 @@ function VendorFormDialog({ open, onClose, vendor, onSaved }: VendorFormDialogPr
             <Label>Payment Terms</Label>
             <Select
               value={form.paymentTerms}
-              onValueChange={(v) => setForm((f) => ({ ...f, paymentTerms: v as any }))}
+              onValueChange={(v: any) => setForm((f: any) => ({ ...f, paymentTerms: v as any }))}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -354,7 +354,7 @@ export default function Vendors() {
   // Build a lookup map: vendorId -> { poCount, totalSpendKobo }
   const statsMap = useMemo(() => {
     const m: Record<string, { poCount: number; totalSpendKobo: number }> = {};
-    (statsData?.stats ?? []).forEach((s) => { m[s.vendorId] = s; });
+    (statsData?.stats ?? []).forEach((s: any) => { m[s.vendorId] = s; });
     return m;
   }, [statsData]);
   // Build a lookup map: vendorId -> monthly spend array for sparkline
@@ -368,7 +368,7 @@ export default function Vendors() {
     if (!search.trim()) return vendors;
     const q = search.toLowerCase();
     return vendors.filter(
-      (v) =>
+      (v: any) =>
         v.name.toLowerCase().includes(q) ||
         v.contactName?.toLowerCase().includes(q) ||
         v.email?.toLowerCase().includes(q) ||
@@ -377,7 +377,7 @@ export default function Vendors() {
     );
   }, [vendors, search]);
 
-  const activeCount = vendors.filter((v) => v.isActive).length;
+  const activeCount = vendors.filter((v: any) => v.isActive).length;
 
   return (
     <div className="space-y-5">
@@ -428,7 +428,7 @@ export default function Vendors() {
           placeholder="Search vendors by name, contact, email, or phone…"
           className="pl-8 h-9 text-sm"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e: any) => setSearch(e.target.value)}
         />
       </div>
 
@@ -556,11 +556,11 @@ export default function Vendors() {
                 {(() => {
                   const months = historyMap[vendor.id];
                   if (!months || months.length < 2) return null;
-                  const chartData = months.map((m) => ({
+                  const chartData = months.map((m: any) => ({
                     month: m.month,
                     spend: Math.round(m.spendKobo / 100),
                   }));
-                  const maxSpend = Math.max(...chartData.map((d) => d.spend));
+                  const maxSpend = Math.max(...chartData.map((d: any) => d.spend));
                   return maxSpend > 0 ? (
                     <div className="pt-1">
                       <p className="text-[10px] text-muted-foreground mb-0.5">6-month spend trend</p>

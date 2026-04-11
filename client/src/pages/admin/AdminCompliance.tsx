@@ -20,7 +20,7 @@ export default function AdminCompliance() {
   const amlQuery = trpc.admin.compliance.getAMLFlags.useQuery({ page: 1, limit: 20, severity: "all" });
   const sarMutation = trpc.admin.compliance.generateSARReport.useMutation({
     onSuccess: (data: any) => toast.success(`SAR Report generated: ${data?.reportId}`),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const regQuery = trpc.admin.compliance.getRegulatoryExport.useQuery(regForm, { enabled: false });
 
@@ -78,20 +78,20 @@ export default function AdminCompliance() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-slate-300">Merchant ID</Label>
-                    <Input value={sarForm.merchantId} onChange={(e) => setSarForm(f => ({ ...f, merchantId: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                    <Input value={sarForm.merchantId} onChange={(e: any) => setSarForm(f => ({ ...f, merchantId: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
                   </div>
                   <div>
                     <Label className="text-slate-300">Start Date</Label>
-                    <Input type="date" value={sarForm.startDate} onChange={(e) => setSarForm(f => ({ ...f, startDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                    <Input type="date" value={sarForm.startDate} onChange={(e: any) => setSarForm(f => ({ ...f, startDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
                   </div>
                   <div>
                     <Label className="text-slate-300">End Date</Label>
-                    <Input type="date" value={sarForm.endDate} onChange={(e) => setSarForm(f => ({ ...f, endDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                    <Input type="date" value={sarForm.endDate} onChange={(e: any) => setSarForm(f => ({ ...f, endDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
                   </div>
                 </div>
                 <div>
                   <Label className="text-slate-300">Reason</Label>
-                  <Textarea value={sarForm.reason} onChange={(e) => setSarForm(f => ({ ...f, reason: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" rows={3} />
+                  <Textarea value={sarForm.reason} onChange={(e: any) => setSarForm(f => ({ ...f, reason: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" rows={3} />
                 </div>
                 <Button className="bg-red-600 hover:bg-red-700 text-white" disabled={sarMutation.isPending || !sarForm.merchantId || !sarForm.startDate || !sarForm.endDate || !sarForm.reason}
                   onClick={() => sarMutation.mutate(sarForm)}>
@@ -107,7 +107,7 @@ export default function AdminCompliance() {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <Label className="text-slate-300">Report Type</Label>
-                    <Select value={regForm.reportType} onValueChange={(v) => setRegForm(f => ({ ...f, reportType: v }))}>
+                    <Select value={regForm.reportType} onValueChange={(v: any) => setRegForm(f => ({ ...f, reportType: v }))}>
                       <SelectTrigger className="mt-1 bg-slate-800 border-slate-700 text-white"><SelectValue /></SelectTrigger>
                       <SelectContent className="bg-slate-800 border-slate-700">
                         <SelectItem value="cbn_monthly">CBN Monthly</SelectItem>
@@ -119,11 +119,11 @@ export default function AdminCompliance() {
                   </div>
                   <div>
                     <Label className="text-slate-300">Start Date</Label>
-                    <Input type="date" value={regForm.startDate} onChange={(e) => setRegForm(f => ({ ...f, startDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                    <Input type="date" value={regForm.startDate} onChange={(e: any) => setRegForm(f => ({ ...f, startDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
                   </div>
                   <div>
                     <Label className="text-slate-300">End Date</Label>
-                    <Input type="date" value={regForm.endDate} onChange={(e) => setRegForm(f => ({ ...f, endDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
+                    <Input type="date" value={regForm.endDate} onChange={(e: any) => setRegForm(f => ({ ...f, endDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white" />
                   </div>
                 </div>
                 <Button className="bg-red-600 hover:bg-red-700 text-white" disabled={regQuery.isFetching || !regForm.startDate || !regForm.endDate}

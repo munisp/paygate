@@ -125,7 +125,7 @@ export default function ConsumerHistory() {
             <Input
               placeholder="Search transactions..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e: any) => setSearch(e.target.value)}
               className="pl-9 bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
             />
           </div>

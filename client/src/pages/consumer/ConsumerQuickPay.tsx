@@ -109,13 +109,13 @@ export default function ConsumerQuickPay() {
                 <input
                   type="number"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e: any) => setAmount(e.target.value)}
                   placeholder="0"
                   className="w-full pl-10 pr-4 py-4 text-3xl font-bold bg-muted rounded-xl border-0 focus:ring-2 focus:ring-primary outline-none"
                 />
               </div>
               <div className="flex gap-2 mt-3">
-                {AMOUNTS.map((a) => (
+                {AMOUNTS.map((a: any) => (
                   <button
                     key={a}
                     onClick={() => setAmount(String(a * 100))}
@@ -131,7 +131,7 @@ export default function ConsumerQuickPay() {
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Quick Actions</p>
               <div className="grid grid-cols-4 gap-3">
-                {SHORTCUTS.map((s) => (
+                {SHORTCUTS.map((s: any) => (
                   <button
                     key={s.label}
                     onClick={() => {
@@ -196,7 +196,7 @@ export default function ConsumerQuickPay() {
                 <input
                   type="number"
                   value={amount}
-                  onChange={(e) => { setAmount(e.target.value); setQrVisible(false); }}
+                  onChange={(e: any) => { setAmount(e.target.value); setQrVisible(false); }}
                   placeholder="0"
                   className="w-full pl-10 pr-4 py-4 text-3xl font-bold bg-muted rounded-xl border-0 focus:ring-2 focus:ring-primary outline-none"
                 />

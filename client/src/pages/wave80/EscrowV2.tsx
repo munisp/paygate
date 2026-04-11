@@ -6,21 +6,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Shield, Clock, CheckCircle, AlertTriangle, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function EscrowV2() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ title: "", buyerId: "", sellerId: "", amount: "", currency: "NGN", description: "", releaseConditions: "" });
 
-  const { data, isLoading, refetch } = trpc5.escrowV2.listContracts.useQuery({});
-  const { data: stats } = trpc5.escrowV2.getStats.useQuery();
+  const { data, isLoading, refetch } = trpc.wave80.escrowV2.listContracts.useQuery({});
+  const { data: stats } = trpc.wave80.escrowV2.getStats.useQuery();
 
-  const createContract = trpc5.escrowV2.createContract.useMutation({
+  const createContract = trpc.wave80.escrowV2.createContract.useMutation({
     onSuccess: () => { toast.success("Escrow contract created"); setCreateOpen(false); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const releaseContract = trpc5.escrowV2.releaseContract.useMutation({
+  const releaseContract = trpc.wave80.escrowV2.releaseContract.useMutation({
     onSuccess: () => { toast.success("Funds released"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

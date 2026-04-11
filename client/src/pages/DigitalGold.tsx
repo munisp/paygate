@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,21 +12,21 @@ export default function DigitalGold() {
   const [sipAmount, setSipAmount] = useState("");
   const [sipFreq, setSipFreq] = useState<"daily" | "weekly" | "monthly">("monthly");
 
-  const { data: price, isLoading: priceLoading } = trpc4.digitalGold.getPrice.useQuery();
-  const { data: holdings } = trpc4.digitalGold.getHoldings.useQuery();
-  const { data: history } = trpc4.digitalGold.getTransactionHistory.useQuery({ page: 1, limit: 10 });
+  const { data: price, isLoading: priceLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery();
+  const { data: holdings } = trpc.newFeatures.digitalGold.getHoldings.useQuery();
+  const { data: history } = trpc.newFeatures.digitalGold.getTransactionHistory.useQuery({ page: 1, limit: 10 });
 
-  const buyMutation = trpc4.digitalGold.buyGold.useMutation({
+  const buyMutation = trpc.newFeatures.digitalGold.buyGold.useMutation({
     onSuccess: (data) => toast.success(`Purchased ${data.gramsAcquired?.toFixed(4)}g of gold`),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const sellMutation = trpc4.digitalGold.sellGold.useMutation({
+  const sellMutation = trpc.newFeatures.digitalGold.sellGold.useMutation({
     onSuccess: () => toast.success("Gold sold successfully"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const sipMutation = trpc4.digitalGold.setupSIP.useMutation({
+  const sipMutation = trpc.newFeatures.digitalGold.setupSIP.useMutation({
     onSuccess: () => toast.success("SIP set up successfully"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

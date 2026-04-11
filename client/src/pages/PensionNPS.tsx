@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,13 +11,13 @@ export default function PensionNPS() {
   const [contribType, setContribType] = useState<"voluntary" | "mandatory">("voluntary");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  const { data: account } = trpc4.pension.getAccount.useQuery();
-  const { data: pfas } = trpc4.pension.listPFAs.useQuery();
-  const { data: statements } = trpc4.pension.getStatements.useQuery({ year: selectedYear });
+  const { data: account } = trpc.newFeatures.pension.getAccount.useQuery();
+  const { data: pfas } = trpc.newFeatures.pension.listPFAs.useQuery();
+  const { data: statements } = trpc.newFeatures.pension.getStatements.useQuery({ year: selectedYear });
 
-  const contributeMutation = trpc4.pension.makeContribution.useMutation({
-    onSuccess: (d) => toast.success(`Contribution of ₦${(d.amountKobo / 100).toLocaleString()} successful`),
-    onError: (e) => toast.error(e.message),
+  const contributeMutation = trpc.newFeatures.pension.makeContribution.useMutation({
+    onSuccess: (d: any) => toast.success(`Contribution of ₦${(d.amountKobo / 100).toLocaleString()} successful`),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
@@ -82,7 +82,7 @@ export default function PensionNPS() {
               <table className="w-full text-sm">
                 <thead><tr className="border-b"><th className="text-left py-2">Month</th><th className="text-right py-2">Employer</th><th className="text-right py-2">Employee</th><th className="text-right py-2">Returns</th><th className="text-right py-2">Balance</th></tr></thead>
                 <tbody>
-                  {statements.statements.map((s, i) => (
+                  {statements.statements.map((s: any, i: any) => (
                     <tr key={i} className="border-b hover:bg-muted/30">
                       <td className="py-2">{s.month}</td>
                       <td className="text-right">{formatKobo(s.employerContributionKobo)}</td>

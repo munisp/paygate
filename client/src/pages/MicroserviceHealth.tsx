@@ -214,10 +214,10 @@ function ServiceCard({ svc, status, isLoading }: { svc: ServiceInfo; status: "ok
         {/* Expandable env var checklist */}
         <button
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground w-full"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setExpanded((v: any) => !v)}
         >
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          Environment variables ({svc.requiredEnvVars.filter((e) => e.required).length} required)
+          Environment variables ({svc.requiredEnvVars.filter((e: any) => e.required).length} required)
         </button>
 
         {expanded && (
@@ -280,7 +280,7 @@ export default function MicroserviceHealth() {
     refetchInterval: 30_000,
   });
 
-  const onlineCount = data ? Object.values(data).filter((v) => v === "ok").length : 0;
+  const onlineCount = data ? Object.values(data).filter((v: any) => v === "ok").length : 0;
   const totalCount = SERVICES.length;
 
   return (
@@ -387,7 +387,7 @@ export default function MicroserviceHealth() {
             </div>
             <div className="flex items-center gap-2">
               <CopyButton text={DOCKER_COMPOSE} label="Copy YAML" />
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowCompose((v) => !v)}>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowCompose((v: any) => !v)}>
                 {showCompose ? "Hide" : "Show"}
                 {showCompose ? <ChevronDown className="h-3 w-3 ml-1" /> : <ChevronRight className="h-3 w-3 ml-1" />}
               </Button>

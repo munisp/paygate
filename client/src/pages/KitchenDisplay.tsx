@@ -19,7 +19,7 @@ function elapsed(createdAt: Date | string): { label: string; urgent: boolean } {
 function ElapsedBadge({ createdAt }: { createdAt: Date | string }) {
   const [, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    const id = setInterval(() => setTick((t: any) => t + 1), 30_000);
     return () => clearInterval(id);
   }, []);
   const { label, urgent } = elapsed(createdAt);
@@ -57,7 +57,7 @@ function StationBar({
       >
         All Stations
       </button>
-      {stations.map((s) => (
+      {stations.map((s: any) => (
         <button
           key={s.id}
           onClick={() => onChange(s.id)}
@@ -201,14 +201,14 @@ export default function KitchenDisplay() {
   const markItemReady = trpc.kds.markItemReady.useMutation({
     onMutate: ({ itemId }) => setMarkingItem(itemId),
     onSuccess: () => { utils.kds.listOrders.invalidate(); toast.success("Item marked ready"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
     onSettled: () => setMarkingItem(null),
   });
 
   const markOrderComplete = trpc.kds.markOrderComplete.useMutation({
     onMutate: ({ orderId }) => setMarkingOrder(orderId),
     onSuccess: () => { utils.kds.listOrders.invalidate(); toast.success("Order complete — soundbox notified"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
     onSettled: () => setMarkingOrder(null),
   });
 
@@ -250,7 +250,7 @@ export default function KitchenDisplay() {
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setFullscreen((f) => !f)}>
+          <Button variant="outline" size="sm" onClick={() => setFullscreen((f: any) => !f)}>
             <Monitor className="w-3.5 h-3.5 mr-1" />
             {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
           </Button>

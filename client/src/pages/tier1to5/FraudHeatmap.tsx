@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,10 +17,10 @@ export default function FraudHeatmap() {
   const [fraudType, setFraudType] = useState("all");
 
   const hours = period === 'last_24h' ? 24 : period === 'last_7_days' ? 168 : 168;
-  const { data: heatmapData, isLoading, refetch } = trpc2.fraudHeatmap.getHeatmapData.useQuery({ hours });
-  const { data: clusters } = trpc2.fraudHeatmap.getClusters.useQuery({ hours, radiusKm: 5 });
-  const { data: velocity } = trpc2.fraudHeatmap.getVelocityByRegion.useQuery({ hours });
-  const { data: forecast } = trpc2.aiInsights.getSettlementForecast.useQuery({ forecastDays: 7 });
+  const { data: heatmapData, isLoading, refetch } = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours });
+  const { data: clusters } = trpc.tier1to5.fraudHeatmap.getClusters.useQuery({ hours, radiusKm: 5 });
+  const { data: velocity } = trpc.tier1to5.fraudHeatmap.getVelocityByRegion.useQuery({ hours });
+  const { data: forecast } = trpc.tier1to5.aiInsights.getSettlementForecast.useQuery({ forecastDays: 7 });
 
   const riskColor = (score: number) => {
     if (score < 30) return "bg-green-100 text-green-800";

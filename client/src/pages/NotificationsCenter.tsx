@@ -247,7 +247,7 @@ export default function NotificationsCenter() {
 
       {/* Filter tabs + search */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <Tabs value={filter} onValueChange={(v) => setFilter(v as FilterTab)} className="flex-1">
+        <Tabs value={filter} onValueChange={(v: any) => setFilter(v as FilterTab)} className="flex-1">
           <TabsList className="h-8 gap-0.5 flex-wrap">
             {(Object.keys(FILTER_LABELS) as FilterTab[]).map((tab) => (
               <TabsTrigger key={tab} value={tab} className="h-7 text-xs px-2.5">
@@ -265,7 +265,7 @@ export default function NotificationsCenter() {
             placeholder="Search notifications…"
             className="pl-8 h-8 text-sm"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e: any) => setSearch(e.target.value)}
           />
           {search && (
             <button className="absolute right-2.5 top-1/2 -translate-y-1/2" onClick={() => setSearch("")}>
@@ -381,7 +381,7 @@ export default function NotificationsCenter() {
                 {isUnread && (
                   <button
                     className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-white/60"
-                    onClick={(e) => {
+                    onClick={(e: any) => {
                       e.stopPropagation();
                       markReadMutation.mutate({ id: notif.id });
                     }}

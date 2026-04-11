@@ -35,11 +35,11 @@ export default function DisputeWorkflow() {
 
   const escalateMutation = trpc.disputes.escalate.useMutation({
     onSuccess: () => { utils.disputes.list.invalidate(); utils.disputes.get.invalidate({ id: params.id! }); toast.success("Dispute escalated to compliance team."); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const acceptMutation = trpc.disputes.accept.useMutation({
     onSuccess: () => { utils.disputes.list.invalidate(); utils.disputes.get.invalidate({ id: params.id! }); toast.success("Dispute accepted — funds will be returned to customer."); navigate("/disputes"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const respondMutation = trpc.disputes.respond.useMutation({
     onSuccess: () => {
@@ -47,7 +47,7 @@ export default function DisputeWorkflow() {
       utils.disputes.get.invalidate({ id: params.id! });
       toast.success("Evidence submitted. Your case is now under review.");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleFileClick = (idx: number) => {
@@ -66,7 +66,7 @@ export default function DisputeWorkflow() {
       const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include" });
       if (!res.ok) throw new Error("Upload failed");
       const { url } = await res.json();
-      setEvidenceFiles(prev => prev.map((f, i) => i === activeUploadIdx ? { ...f, url, name: file.name } : f));
+      setEvidenceFiles(prev => prev.map((f: any, i: any) => i === activeUploadIdx ? { ...f, url, name: file.name } : f));
       toast.success(`${file.name} uploaded`);
     } catch {
       toast.error("Upload failed");

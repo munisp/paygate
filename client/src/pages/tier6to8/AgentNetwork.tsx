@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +13,15 @@ export default function AgentNetwork() {
   const [showOnboard, setShowOnboard] = useState(false);
   const [form, setForm] = useState({ agentName: "", phoneNumber: "", bvn: "", nin: "", address: "", lga: "", state: "", terminalType: "POS" as "POS" | "mobile" | "kiosk", cashFloatLimitKobo: 500000 });
 
-  const networkQuery = trpc3.agentBankingV2.getAgentNetwork.useQuery(undefined, { enabled: !!user });
+  const networkQuery = trpc.tier6to8.agentBankingV2.getAgentNetwork.useQuery(undefined, { enabled: !!user });
 
-  const onboardMutation = trpc3.agentBankingV2.onboardAgent.useMutation({
+  const onboardMutation = trpc.tier6to8.agentBankingV2.onboardAgent.useMutation({
     onSuccess: (data) => {
       toast("Agent onboarded", { description: `Agent code: ${data.agentCode}` });
       networkQuery.refetch();
       setShowOnboard(false);
     },
-    onError: (e) => toast("Onboarding failed", { description: e.message }),
+    onError: (e: any) => toast("Onboarding failed", { description: e.message }),
   });
 
   const data = networkQuery.data;
@@ -113,7 +113,7 @@ export default function AgentNetwork() {
                   <Input
                     placeholder={placeholder}
                     value={(form as any)[key]}
-                    onChange={(e) => setForm(f => ({ ...f, [key]: e.target.value }))}
+                    onChange={(e: any) => setForm(f => ({ ...f, [key]: e.target.value }))}
                     className="mt-1"
                   />
                 </div>
@@ -123,7 +123,7 @@ export default function AgentNetwork() {
                 <select
                   className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                   value={form.terminalType}
-                  onChange={(e) => setForm(f => ({ ...f, terminalType: e.target.value as "POS" | "mobile" | "kiosk" }))}
+                  onChange={(e: any) => setForm(f => ({ ...f, terminalType: e.target.value as "POS" | "mobile" | "kiosk" }))}
                 >
                   <option value="POS">POS</option>
                   <option value="mobile">Mobile</option>
@@ -136,7 +136,7 @@ export default function AgentNetwork() {
                   type="number"
                   placeholder="500000"
                   value={form.cashFloatLimitKobo}
-                  onChange={(e) => setForm(f => ({ ...f, cashFloatLimitKobo: parseInt(e.target.value) || 500000 }))}
+                  onChange={(e: any) => setForm(f => ({ ...f, cashFloatLimitKobo: parseInt(e.target.value) || 500000 }))}
                   className="mt-1"
                 />
               </div>

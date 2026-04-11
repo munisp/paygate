@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,10 +8,10 @@ import { Gem, Zap } from "lucide-react";
 
 export default function NFTBadges() {
   const [mintForm, setMintForm] = useState({ collectionId: "", customerId: "", tier: "bronze" });
-  const { data: collections } = trpc3.nftBadges.getCollections.useQuery();
-  const mintMutation = trpc3.nftBadges.mintBadge.useMutation({
-    onSuccess: (d) => toast.success(`Badge minted — Token #${d.tokenId}`),
-    onError: (e) => toast.error(e.message),
+  const { data: collections } = trpc.tier6to8.nftBadges.getCollections.useQuery();
+  const mintMutation = trpc.tier6to8.nftBadges.mintBadge.useMutation({
+    onSuccess: (d: any) => toast.success(`Badge minted — Token #${d.tokenId}`),
+    onError: (e: any) => toast.error(e.message),
   });
   return (
     <div className="p-6 space-y-6">

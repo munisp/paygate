@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ export default function OpenBanking() {
   const [sdkScopes, setSdkScopes] = useState(["payments", "data"]);
   const [sdkEnv, setSdkEnv] = useState<"sandbox" | "production">("sandbox");
 
-  const consentMutation = trpc2.openBanking.issueConsentToken.useMutation({
+  const consentMutation = trpc.tier1to5.openBanking.issueConsentToken.useMutation({
     onSuccess: (data: any) => {
       toast.success("Consent token issued.");
       setConsentToken(data.consentToken ?? "");
@@ -28,12 +28,12 @@ export default function OpenBanking() {
     onError: (err: any) => toast.error(err.message),
   });
 
-  const { data: customerData, isLoading: dataLoading } = trpc2.openBanking.getCustomerData.useQuery(
+  const { data: customerData, isLoading: dataLoading } = trpc.tier1to5.openBanking.getCustomerData.useQuery(
     { customerId, dataType: viewDataType, consentToken },
     { enabled: !!customerId && !!consentToken }
   );
 
-  const sdkTokenMutation = trpc2.openBanking.issueSDKToken.useMutation({
+  const sdkTokenMutation = trpc.tier1to5.openBanking.issueSDKToken.useMutation({
     onSuccess: (data: any) => {
       toast.success("SDK token issued.");
       navigator.clipboard.writeText(data.token ?? "");

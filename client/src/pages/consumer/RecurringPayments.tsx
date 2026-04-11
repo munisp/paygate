@@ -157,7 +157,7 @@ export default function RecurringPayments() {
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
               <Label>Payment Type</Label>
-              <Select value={type} onValueChange={(v) => setType(v as "bill" | "p2p")}>
+              <Select value={type} onValueChange={(v: any) => setType(v as "bill" | "p2p")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="bill">Bill Payment</SelectItem>
@@ -175,7 +175,7 @@ export default function RecurringPayments() {
             </div>
             <div className="space-y-1.5">
               <Label>Frequency</Label>
-              <Select value={frequency} onValueChange={(v) => setFrequency(v as "daily" | "weekly" | "monthly")}>
+              <Select value={frequency} onValueChange={(v: any) => setFrequency(v as "daily" | "weekly" | "monthly")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="daily">Daily</SelectItem>

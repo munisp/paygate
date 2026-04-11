@@ -62,7 +62,7 @@ export default function WorkflowObservability() {
       toast.success("Payout force-rejected and workflow terminated.");
       refetchPayouts();
     },
-    onError: (e) => toast.error(`Force-reject failed: ${e.message}`),
+    onError: (e: any) => toast.error(`Force-reject failed: ${e.message}`),
   });
 
   const pendingPayouts = (payoutsData?.rows ?? []) as Array<{

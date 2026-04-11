@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +10,8 @@ export default function CohortAnalytics() {
   const { user } = useAuth();
   const [period, setPeriod] = useState<"7d" | "30d" | "90d" | "180d">("30d");
 
-  const cohortsQuery = trpc2.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 }, { enabled: !!user });
-  const fraudQuery = trpc2.fraudHeatmap.getHeatmapData.useQuery({ hours: 168 }, { enabled: !!user });
+  const cohortsQuery = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 }, { enabled: !!user });
+  const fraudQuery = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours: 168 }, { enabled: !!user });
 
   return (
     <div className="p-6 space-y-6">

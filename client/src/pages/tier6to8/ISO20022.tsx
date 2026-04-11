@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,12 +12,12 @@ export default function ISO20022() {
   const [msgType, setMsgType] = useState("pacs.008");
   const [targetBIC, setTargetBIC] = useState("GTBINGLA");
   const [payload, setPayload] = useState("");
-  const { data: messages, refetch } = trpc3.iso20022.getMessages.useQuery({ direction: "all", limit: 20 });
-  const sendMutation = trpc3.iso20022.sendMessage.useMutation({
+  const { data: messages, refetch } = trpc.tier6to8.iso20022.getMessages.useQuery({ direction: "all", limit: 20 });
+  const sendMutation = trpc.tier6to8.iso20022.sendMessage.useMutation({
     onSuccess: (d: any) => { toast.success(`Message sent — MsgId: ${d.messageId}`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const ackMutation = trpc3.iso20022.acknowledgeMessage.useMutation({
+  const ackMutation = trpc.tier6to8.iso20022.acknowledgeMessage.useMutation({
     onSuccess: () => { toast.success("Message acknowledged"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });

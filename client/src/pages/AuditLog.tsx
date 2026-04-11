@@ -60,8 +60,8 @@ function getActionColor(action: string) {
 function formatAction(action: string) {
   return action
     .split(".")
-    .map((s) => s.replace(/_/g, " "))
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .map((s: any) => s.replace(/_/g, " "))
+    .map((s: any) => s.charAt(0).toUpperCase() + s.slice(1))
     .join(" → ");
 }
 
@@ -214,10 +214,10 @@ export default function AuditLog() {
             placeholder="Search by actor, action, resource…"
             className="pl-8 h-9 text-sm"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e: any) => setSearch(e.target.value)}
           />
         </div>
-        <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(0); }}>
+        <Select value={actionFilter} onValueChange={(v: any) => { setActionFilter(v); setPage(0); }}>
           <SelectTrigger className="h-9 w-full sm:w-48 text-sm">
             <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
             <SelectValue placeholder="All actions" />
@@ -229,7 +229,7 @@ export default function AuditLog() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={resourceFilter} onValueChange={(v) => { setResourceFilter(v); setPage(0); }}>
+        <Select value={resourceFilter} onValueChange={(v: any) => { setResourceFilter(v); setPage(0); }}>
           <SelectTrigger className="h-9 w-full sm:w-44 text-sm">
             <SelectValue placeholder="All resources" />
           </SelectTrigger>
@@ -245,7 +245,7 @@ export default function AuditLog() {
           <Input
             type="date"
             value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            onChange={(e: any) => { setDateFrom(e.target.value); setPage(0); }}
             className="h-9 w-36 text-sm"
             title="From date"
           />
@@ -253,7 +253,7 @@ export default function AuditLog() {
           <Input
             type="date"
             value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            onChange={(e: any) => { setDateTo(e.target.value); setPage(0); }}
             className="h-9 w-36 text-sm"
             title="To date"
           />
@@ -412,7 +412,7 @@ export default function AuditLog() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              onClick={() => setPage((p: any) => Math.max(0, p - 1))}
               disabled={page === 0}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -421,7 +421,7 @@ export default function AuditLog() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              onClick={() => setPage((p: any) => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
             >
               Next

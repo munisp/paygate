@@ -56,15 +56,15 @@ export default function BNPL() {
 
   const createPlanMutation = trpc.bnpl.createPlan.useMutation({
     onSuccess: () => { toast.success("Plan created!"); setShowNewPlan(false); refetchPlans(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const togglePlanMutation = trpc.bnpl.togglePlan.useMutation({
     onSuccess: (_, vars) => { toast.success(vars.active ? "Plan activated" : "Plan deactivated"); refetchPlans(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const sendReminderMutation = trpc.bnpl.sendReminder.useMutation({
     onSuccess: () => toast.success("Payment reminder sent!"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const loans = loansData?.rows ?? [];

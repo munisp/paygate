@@ -24,12 +24,12 @@ export default function PaymentLinks() {
       setForm({ title: "", description: "", amount: "", currency: "NGN", usageLimit: "", redirectUrl: "" });
       utils.paymentLinks.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const toggleLink = trpc.paymentLinks.toggle.useMutation({
     onSuccess: () => { toast.success("Link updated"); utils.paymentLinks.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const links = (data ?? []).filter((l: any) =>
@@ -79,34 +79,34 @@ export default function PaymentLinks() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Title *</label>
-              <input value={form.title} onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Product Purchase"
+              <input value={form.title} onChange={(e: any) => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Product Purchase"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Description (optional)</label>
-              <input value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} placeholder="What is this payment for?"
+              <input value={form.description} onChange={(e: any) => setForm(f => ({ ...f, description: e.target.value }))} placeholder="What is this payment for?"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Amount (leave blank for flexible)</label>
-              <input type="number" value={form.amount} onChange={(e) => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="Any amount"
+              <input type="number" value={form.amount} onChange={(e: any) => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="Any amount"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Currency</label>
-              <select value={form.currency} onChange={(e) => setForm(f => ({ ...f, currency: e.target.value }))}
+              <select value={form.currency} onChange={(e: any) => setForm(f => ({ ...f, currency: e.target.value }))}
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
                 {["NGN","GHS","KES","ZAR","USD","GBP","EUR"].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Usage Limit (optional)</label>
-              <input type="number" value={form.usageLimit} onChange={(e) => setForm(f => ({ ...f, usageLimit: e.target.value }))} placeholder="Unlimited"
+              <input type="number" value={form.usageLimit} onChange={(e: any) => setForm(f => ({ ...f, usageLimit: e.target.value }))} placeholder="Unlimited"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Redirect URL (optional)</label>
-              <input value={form.redirectUrl} onChange={(e) => setForm(f => ({ ...f, redirectUrl: e.target.value }))} placeholder="https://..."
+              <input value={form.redirectUrl} onChange={(e: any) => setForm(f => ({ ...f, redirectUrl: e.target.value }))} placeholder="https://..."
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,16 +12,16 @@ export default function TaxWithholding() {
   const [txType, setTxType] = useState<"goods" | "services" | "rent" | "dividend" | "interest">("services");
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const year = parseInt(period.slice(0, 4));
-  const { data: summary } = trpc3.taxWithholding.getTaxSummary.useQuery({ year });
-  const calcQuery = trpc3.taxWithholding.calculateWithholding.useQuery(
+  const { data: summary } = trpc.tier6to8.taxWithholding.getTaxSummary.useQuery({ year });
+  const calcQuery = trpc.tier6to8.taxWithholding.calculateWithholding.useQuery(
     { transactionAmountKobo: Math.round(parseFloat(txAmount || "0") * 100), transactionType: txType, vendorType: "company" },
     { enabled: parseFloat(txAmount) > 0 }
   );
-  const remitMutation = trpc3.taxWithholding.remitTax.useMutation({
+  const remitMutation = trpc.tier6to8.taxWithholding.remitTax.useMutation({
     onSuccess: (d: any) => toast.success(`Tax remitted — Ref: ${d.remittanceId}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const certMutation = trpc3.taxWithholding.generateTaxCertificate.useMutation({
+  const certMutation = trpc.tier6to8.taxWithholding.generateTaxCertificate.useMutation({
     onSuccess: (d: any) => { window.open(d.certificateUrl, "_blank"); toast.success("Tax certificate generated"); },
     onError: (e: any) => toast.error(e.message),
   });

@@ -127,7 +127,7 @@ export default function Coupons() {
             </div>
           ) : (
             <div className="space-y-2">
-              {(redemptions as any[]).map((r) => (
+              {(redemptions as any[]).map((r: any) => (
                 <div key={r.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">

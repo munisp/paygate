@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Building2, Link, RefreshCw, Unlink, Plus } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function OpenBankingV2() {
@@ -16,18 +16,18 @@ export default function OpenBankingV2() {
   const [bankCode, setBankCode] = useState("");
   const [bankName, setBankName] = useState("");
 
-  const { data: consentsData, isLoading: loadingConsents, refetch: refetchConsents } = trpc5.openBankingV2.listConsents.useQuery();
-  const { data: accountsData, isLoading: loadingAccounts } = trpc5.openBankingV2.listAccounts.useQuery();
+  const { data: consentsData, isLoading: loadingConsents, refetch: refetchConsents } = trpc.wave80.openBankingV2.listConsents.useQuery();
+  const { data: accountsData, isLoading: loadingAccounts } = trpc.wave80.openBankingV2.listAccounts.useQuery();
 
-  const createConsent = trpc5.openBankingV2.createConsent.useMutation({
+  const createConsent = trpc.wave80.openBankingV2.createConsent.useMutation({
     onSuccess: () => { toast.success("Bank consent created"); setConnectOpen(false); setBankCode(""); setBankName(""); refetchConsents(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const revokeConsent = trpc5.openBankingV2.revokeConsent.useMutation({
+  const revokeConsent = trpc.wave80.openBankingV2.revokeConsent.useMutation({
     onSuccess: () => { toast.success("Consent revoked"); refetchConsents(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const syncAccounts = trpc5.openBankingV2.syncAccounts.useMutation({
+  const syncAccounts = trpc.wave80.openBankingV2.syncAccounts.useMutation({
     onSuccess: () => toast.success("Accounts synced"),
     onError: (e: { message: string }) => toast.error(e.message),
   });

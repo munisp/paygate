@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,9 +14,9 @@ export default function POSv2() {
   const [terminalModel, setTerminalModel] = useState("Ingenico_iWL250");
   const [location, setLocation] = useState("");
 
-  const terminalsQuery = trpc3.posTerminalV2.getTerminals.useQuery(undefined, { enabled: !!user });
+  const terminalsQuery = trpc.tier6to8.posTerminalV2.getTerminals.useQuery(undefined, { enabled: !!user });
 
-  const provisionMutation = trpc3.posTerminalV2.provisionTerminal.useMutation({
+  const provisionMutation = trpc.tier6to8.posTerminalV2.provisionTerminal.useMutation({
     onSuccess: (data) => {
       toast("Terminal provisioned", { description: `Terminal ID: ${data.terminalId}` });
       terminalsQuery.refetch();
@@ -73,14 +73,14 @@ export default function POSv2() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium">Serial Number</label>
-              <Input placeholder="e.g. ING-2024-001234" value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} className="mt-1" />
+              <Input placeholder="e.g. ING-2024-001234" value={serialNumber} onChange={(e: any) => setSerialNumber(e.target.value)} className="mt-1" />
             </div>
             <div>
               <label className="text-sm font-medium">Terminal Model</label>
               <select
                 className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                 value={terminalModel}
-                onChange={(e) => setTerminalModel(e.target.value)}
+                onChange={(e: any) => setTerminalModel(e.target.value)}
               >
                 <option value="Ingenico_iWL250">Ingenico iWL250</option>
                 <option value="Verifone_VX520">Verifone VX520</option>
@@ -91,7 +91,7 @@ export default function POSv2() {
             </div>
             <div>
               <label className="text-sm font-medium">Location</label>
-              <Input placeholder="e.g. Lagos Island Branch" value={location} onChange={(e) => setLocation(e.target.value)} className="mt-1" />
+              <Input placeholder="e.g. Lagos Island Branch" value={location} onChange={(e: any) => setLocation(e.target.value)} className="mt-1" />
             </div>
           </div>
           <Button

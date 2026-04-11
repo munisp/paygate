@@ -27,19 +27,19 @@ export default function VirtualCards() {
   const { data, isLoading } = trpc.virtualCards.list.useQuery(undefined, { staleTime: 60_000 });
   const createCard = trpc.virtualCards.create.useMutation({
     onSuccess: () => { toast.success("Virtual card issued"); setShowCreate(false); setForm({ label: "", currency: "USD", spendLimit: "", brand: "visa" }); utils.virtualCards.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const toggleFreeze = trpc.virtualCards.toggleFreeze.useMutation({
     onSuccess: () => { toast.success("Card updated"); utils.virtualCards.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const topUp = trpc.virtualCards.topUp.useMutation({
     onSuccess: (res) => { toast.success(`Card topped up — new balance: ${res.newBalance}`); setTopUpCard(null); setTopUpAmount(""); utils.virtualCards.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const updateSpendLimit = trpc.virtualCards.updateSpendLimit.useMutation({
     onSuccess: () => { toast.success("Spend limit updated"); setEditLimitCard(null); setEditLimitValue(""); utils.virtualCards.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const cards = (data ?? []).filter((c: any) =>
@@ -85,19 +85,19 @@ export default function VirtualCards() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Label (optional)</label>
-              <input value={form.label} onChange={(e) => setForm(f => ({ ...f, label: e.target.value }))} placeholder="e.g. Marketing Budget"
+              <input value={form.label} onChange={(e: any) => setForm(f => ({ ...f, label: e.target.value }))} placeholder="e.g. Marketing Budget"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Currency</label>
-              <select value={form.currency} onChange={(e) => setForm(f => ({ ...f, currency: e.target.value }))}
+              <select value={form.currency} onChange={(e: any) => setForm(f => ({ ...f, currency: e.target.value }))}
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
                 {["USD", "EUR", "GBP", "NGN"].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Network</label>
-              <select value={form.brand} onChange={(e) => setForm(f => ({ ...f, brand: e.target.value as "visa" | "mastercard" }))}
+              <select value={form.brand} onChange={(e: any) => setForm(f => ({ ...f, brand: e.target.value as "visa" | "mastercard" }))}
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
                 <option value="visa">Visa</option>
                 <option value="mastercard">Mastercard</option>
@@ -105,7 +105,7 @@ export default function VirtualCards() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Spend Limit (optional)</label>
-              <input type="number" value={form.spendLimit} onChange={(e) => setForm(f => ({ ...f, spendLimit: e.target.value }))} placeholder="No limit"
+              <input type="number" value={form.spendLimit} onChange={(e: any) => setForm(f => ({ ...f, spendLimit: e.target.value }))} placeholder="No limit"
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
           </div>

@@ -42,7 +42,7 @@ function CreateOrderDialog({
       onClose();
       setTableId(""); setCovers(2); setNotes("");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   return (
@@ -71,7 +71,7 @@ function CreateOrderDialog({
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Covers</label>
             <div className="flex gap-2">
-              {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+              {[1, 2, 3, 4, 5, 6, 8, 10].map((n: any) => (
                 <button
                   key={n}
                   onClick={() => setCovers(n)}
@@ -89,7 +89,7 @@ function CreateOrderDialog({
             <Input
               placeholder="Allergies, special requests…"
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e: any) => setNotes(e.target.value)}
             />
           </div>
         </div>
@@ -132,7 +132,7 @@ function AddItemDialog({
       toast.success("Item added");
       onClose();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleMenuSelect = (itemId: string) => {
@@ -170,22 +170,22 @@ function AddItemDialog({
           )}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Item Name *</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Jollof Rice" />
+            <Input value={name} onChange={(e: any) => setName(e.target.value)} placeholder="e.g. Jollof Rice" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Qty</label>
-              <Input type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+              <Input type="number" min={1} value={qty} onChange={(e: any) => setQty(Number(e.target.value))} />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Unit Price (₦)</label>
-              <Input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
+              <Input type="number" min={0} value={price} onChange={(e: any) => setPrice(e.target.value)} placeholder="0.00" />
             </div>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Course</label>
             <div className="flex gap-2">
-              {[1, 2, 3].map((n) => (
+              {[1, 2, 3].map((n: any) => (
                 <button
                   key={n}
                   onClick={() => setCourse(n)}
@@ -200,7 +200,7 @@ function AddItemDialog({
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Modifiers / Notes</label>
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="No onions, extra spicy…" />
+            <Input value={notes} onChange={(e: any) => setNotes(e.target.value)} placeholder="No onions, extra spicy…" />
           </div>
         </div>
         <DialogFooter>
@@ -237,7 +237,7 @@ function SplitBillDialog({ order, onClose }: { order: any; onClose: () => void }
       toast.success(`${result.shares?.length ?? splitCount} payment links generated`);
       onClose();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   return (
@@ -255,7 +255,7 @@ function SplitBillDialog({ order, onClose }: { order: any; onClose: () => void }
           <div className="space-y-2">
             <label className="text-sm font-medium">Split between</label>
             <div className="flex gap-2 flex-wrap">
-              {[2, 3, 4, 5, 6, 8, 10].map((n) => (
+              {[2, 3, 4, 5, 6, 8, 10].map((n: any) => (
                 <button
                   key={n}
                   onClick={() => setSplitCount(n)}
@@ -312,12 +312,12 @@ export default function RestaurantOrders() {
 
   const updateStatus = trpc.restaurant.updateOrderStatus.useMutation({
     onSuccess: () => { utils.restaurant.listOrders.invalidate(); toast.success("Status updated"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const sendToKitchen = trpc.restaurant.updateOrderStatus.useMutation({
     onSuccess: () => { utils.restaurant.listOrders.invalidate(); toast.success("Sent to kitchen"); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const orders: any[] = data ?? [];
@@ -325,7 +325,7 @@ export default function RestaurantOrders() {
   const menuItems: any[] = (menuData as any)?.items ?? [];
 
   const counts = Object.fromEntries(
-    Object.keys(STATUS_CFG).map((s) => [s, orders.filter((o) => o.status === s).length])
+    Object.keys(STATUS_CFG).map((s: any) => [s, orders.filter((o: any) => o.status === s).length])
   );
 
   return (
@@ -342,7 +342,7 @@ export default function RestaurantOrders() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setShowStats((s) => !s)}>
+          <Button variant="outline" size="sm" onClick={() => setShowStats((s: any) => !s)}>
             <BarChart3 className="w-3.5 h-3.5 mr-1" />
             {showStats ? "Hide" : "Table-Turn Stats"}
           </Button>

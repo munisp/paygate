@@ -33,7 +33,7 @@ export default function AdminAuditTrail() {
       URL.revokeObjectURL(url);
       toast.success(`Exported ${data.rowCount} rows`);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const events = (listQuery.data as any)?.events ?? [];
@@ -57,19 +57,19 @@ export default function AdminAuditTrail() {
           <CardContent className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <Label className="text-slate-400 text-xs">Action Filter</Label>
-              <Input value={filters.action} onChange={(e) => setFilters(f => ({ ...f, action: e.target.value }))} placeholder="e.g. payment.created" className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
+              <Input value={filters.action} onChange={(e: any) => setFilters(f => ({ ...f, action: e.target.value }))} placeholder="e.g. payment.created" className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
             </div>
             <div>
               <Label className="text-slate-400 text-xs">Merchant ID</Label>
-              <Input value={filters.merchantId} onChange={(e) => setFilters(f => ({ ...f, merchantId: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
+              <Input value={filters.merchantId} onChange={(e: any) => setFilters(f => ({ ...f, merchantId: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
             </div>
             <div>
               <Label className="text-slate-400 text-xs">Start Date</Label>
-              <Input type="date" value={filters.startDate} onChange={(e) => setFilters(f => ({ ...f, startDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
+              <Input type="date" value={filters.startDate} onChange={(e: any) => setFilters(f => ({ ...f, startDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
             </div>
             <div>
               <Label className="text-slate-400 text-xs">End Date</Label>
-              <Input type="date" value={filters.endDate} onChange={(e) => setFilters(f => ({ ...f, endDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
+              <Input type="date" value={filters.endDate} onChange={(e: any) => setFilters(f => ({ ...f, endDate: e.target.value }))} className="mt-1 bg-slate-800 border-slate-700 text-white text-sm" />
             </div>
           </CardContent>
         </Card>

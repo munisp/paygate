@@ -187,7 +187,7 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
           <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
         <div className="flex justify-between">
-          {["Blink", "Turn Left", "Turn Right", "Smile"].map((s, i) => (
+          {["Blink", "Turn Left", "Turn Right", "Smile"].map((s: any, i: any) => (
             <span key={s} className={`text-xs font-medium ${progress >= (i + 1) * 25 ? "text-emerald-600" : "text-muted-foreground"}`}>{s}</span>
           ))}
         </div>
@@ -264,7 +264,7 @@ export default function Onboarding() {
         </div>
 
         <div className="space-y-2 flex-1">
-          {STEPS.map((s) => {
+          {STEPS.map((s: any) => {
             const done = step > s.id;
             const active = step === s.id;
             return (

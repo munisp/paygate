@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,14 +8,14 @@ import { Code2, Palette, Key } from "lucide-react";
 export default function WhiteLabelSDK() {
   const [primaryColor, setPrimaryColor] = useState("#1a56db");
   const [logoUrl, setLogoUrl] = useState("");
-  const { data: config, refetch } = trpc3.whiteLabelSDK.getSDKConfig.useQuery();
-  const { data: guide } = trpc3.whiteLabelSDK.getIntegrationGuide.useQuery({ platform: "web" });
-  const { data: analytics } = trpc3.whiteLabelSDK.getSDKAnalytics.useQuery({ period: "30d" });
-  const updateMutation = trpc3.whiteLabelSDK.updateBranding.useMutation({
+  const { data: config, refetch } = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery();
+  const { data: guide } = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform: "web" });
+  const { data: analytics } = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period: "30d" });
+  const updateMutation = trpc.tier6to8.whiteLabelSDK.updateBranding.useMutation({
     onSuccess: () => { toast.success("Branding updated"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const rotateMutation = trpc3.whiteLabelSDK.rotateSdkKey.useMutation({
+  const rotateMutation = trpc.tier6to8.whiteLabelSDK.rotateSdkKey.useMutation({
     onSuccess: (d: any) => { toast.success(`New SDK key: ${d.sdkKey.slice(0, 20)}...`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });

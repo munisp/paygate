@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,12 +11,12 @@ export default function BulkScheduler() {
   const [name, setName] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [payments, setPayments] = useState("");
-  const { data: schedules } = trpc3.bulkScheduler.getSchedules.useQuery({ status: "all" });
-  const createMutation = trpc3.bulkScheduler.createSchedule.useMutation({
-    onSuccess: (d) => toast.success(`Schedule created: ${d.scheduleId}`),
+  const { data: schedules } = trpc.tier6to8.bulkScheduler.getSchedules.useQuery({ status: "all" });
+  const createMutation = trpc.tier6to8.bulkScheduler.createSchedule.useMutation({
+    onSuccess: (d: any) => toast.success(`Schedule created: ${d.scheduleId}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const cancelMutation = trpc3.bulkScheduler.cancelSchedule.useMutation({
+  const cancelMutation = trpc.tier6to8.bulkScheduler.cancelSchedule.useMutation({
     onSuccess: () => toast.success("Schedule cancelled"),
     onError: (e: any) => toast.error(e.message),
   });

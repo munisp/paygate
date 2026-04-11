@@ -78,7 +78,7 @@ export default function Analytics() {
 
   const isLoading = oLoading || tsLoading;
   const series = (timeSeries ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) }));
-  const fraudSeries = (fraudTrend ?? []).map((r) => ({ ...r, date: fmtDate(r.date) }));
+  const fraudSeries = (fraudTrend ?? []).map((r: any) => ({ ...r, date: fmtDate(r.date) }));
 
   const totalVolume = Number(overview?.transactions?.totalVolume ?? 0);
   const totalCount = Number(overview?.transactions?.totalCount ?? 0);
@@ -87,13 +87,13 @@ export default function Analytics() {
   const successRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   // Fraud summary KPIs from trend data
-  const totalFraudAlerts = fraudSeries.reduce((s, r) => s + r.total, 0);
-  const totalBlocked = fraudSeries.reduce((s, r) => s + r.blocked, 0);
+  const totalFraudAlerts = fraudSeries.reduce((s: any, r: any) => s + r.total, 0);
+  const totalBlocked = fraudSeries.reduce((s: any, r: any) => s + r.blocked, 0);
   const avgBlockRate = fraudSeries.length > 0
-    ? Math.round(fraudSeries.reduce((s, r) => s + r.blockRate, 0) / fraudSeries.length)
+    ? Math.round(fraudSeries.reduce((s: any, r: any) => s + r.blockRate, 0) / fraudSeries.length)
     : 0;
   const avgRiskScore = fraudSeries.length > 0
-    ? (fraudSeries.reduce((s, r) => s + r.avgRiskScore, 0) / fraudSeries.length).toFixed(1)
+    ? (fraudSeries.reduce((s: any, r: any) => s + r.avgRiskScore, 0) / fraudSeries.length).toFixed(1)
     : "0.0";
 
   const kpis = [
@@ -163,7 +163,7 @@ export default function Analytics() {
 
       {/* Transaction KPI cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {kpis.map((k) => (
+        {kpis.map((k: any) => (
           <div key={k.label} className="bg-card rounded-xl border border-border p-5">
             {isLoading ? <div className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-32" /></div> : (
               <>
@@ -196,7 +196,7 @@ export default function Analytics() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v) => fmt(v)} />
+              <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v: any) => fmt(v)} />
               <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
                 formatter={(v: number) => [fmt(v), "Volume"]} />
               <Area type="monotone" dataKey="volume" stroke="#4F46E5" strokeWidth={2} fill="url(#aGrad)" dot={false} />
@@ -238,7 +238,7 @@ export default function Analytics() {
           { label: "Blocked Txns", value: String(totalBlocked), sub: "Declined by fraud gate", color: "text-rose-600" },
           { label: "Avg Block Rate", value: `${avgBlockRate}%`, sub: "% of alerts blocked", color: avgBlockRate > 10 ? "text-rose-600" : "text-emerald-600" },
           { label: "Avg Risk Score", value: avgRiskScore, sub: "0–100 scale", color: Number(avgRiskScore) > 60 ? "text-rose-600" : "text-emerald-600" },
-        ].map((k) => (
+        ].map((k: any) => (
           <div key={k.label} className="bg-card rounded-xl border border-border p-5">
             {ftLoading ? <div className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-20" /></div> : (
               <>
@@ -298,7 +298,7 @@ export default function Analytics() {
                 yAxisId="left"
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                 axisLine={false} tickLine={false}
-                tickFormatter={(v) => `${v}%`}
+                tickFormatter={(v: any) => `${v}%`}
                 domain={[0, 100]}
               />
               <YAxis
@@ -383,7 +383,7 @@ export default function Analytics() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="left" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={fmt} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={(v: any) => `${v}%`} domain={[0, 100]} />
                 <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
                   formatter={(v: number, name: string) => [name === "Success Rate" ? `${v}%` : fmt(v), name]} />
                 <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />

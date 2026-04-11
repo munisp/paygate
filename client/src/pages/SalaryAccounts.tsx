@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,16 +12,16 @@ export default function SalaryAccounts() {
   const [expectedSalary, setExpectedSalary] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
 
-  const { data: account } = trpc4.salaryAccounts.getAccount.useQuery();
-  const { data: transactions } = trpc4.salaryAccounts.getTransactions.useQuery({ page: 1, limit: 20 });
+  const { data: account } = trpc.newFeatures.salaryAccounts.getAccount.useQuery();
+  const { data: transactions } = trpc.newFeatures.salaryAccounts.getTransactions.useQuery({ page: 1, limit: 20 });
 
-  const openMutation = trpc4.salaryAccounts.openAccount.useMutation({
-    onSuccess: (d) => toast.success(`Account ${d.accountNumber} opened at ${d.bankName}`),
-    onError: (e) => toast.error(e.message),
+  const openMutation = trpc.newFeatures.salaryAccounts.openAccount.useMutation({
+    onSuccess: (d: any) => toast.success(`Account ${d.accountNumber} opened at ${d.bankName}`),
+    onError: (e: any) => toast.error(e.message),
   });
-  const advanceMutation = trpc4.salaryAccounts.getSalaryAdvance.useMutation({
-    onSuccess: (d) => toast.success(`Advance of ₦${(d.approvedAmountKobo / 100).toLocaleString()} approved`),
-    onError: (e) => toast.error(e.message),
+  const advanceMutation = trpc.newFeatures.salaryAccounts.getSalaryAdvance.useMutation({
+    onSuccess: (d: any) => toast.success(`Advance of ₦${(d.approvedAmountKobo / 100).toLocaleString()} approved`),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;

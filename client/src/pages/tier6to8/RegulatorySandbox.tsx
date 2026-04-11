@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,17 +8,17 @@ import { FlaskConical, Play, CheckCircle } from "lucide-react";
 
 export default function RegulatorySandbox() {
   const [selectedScenario, setSelectedScenario] = useState("");
-  const { data: status } = trpc3.regulatorySandbox.getSandboxStatus.useQuery();
-  const { data: scenarios } = trpc3.regulatorySandbox.getTestScenarios.useQuery();
-  const enableMutation = trpc3.regulatorySandbox.enableSandbox.useMutation({
+  const { data: status } = trpc.tier6to8.regulatorySandbox.getSandboxStatus.useQuery();
+  const { data: scenarios } = trpc.tier6to8.regulatorySandbox.getTestScenarios.useQuery();
+  const enableMutation = trpc.tier6to8.regulatorySandbox.enableSandbox.useMutation({
     onSuccess: (d: any) => toast.success(`Sandbox enabled — ID: ${d.sandboxId}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const runMutation = trpc3.regulatorySandbox.runTestScenario.useMutation({
+  const runMutation = trpc.tier6to8.regulatorySandbox.runTestScenario.useMutation({
     onSuccess: (d: any) => toast.success(`Scenario passed: ${d.passed ? "✓" : "✗"} — ${d.message}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const submitMutation = trpc3.regulatorySandbox.submitForApproval.useMutation({
+  const submitMutation = trpc.tier6to8.regulatorySandbox.submitForApproval.useMutation({
     onSuccess: (d: any) => toast.success(`Submitted for CBN approval — Ref: ${d.submissionRef}`),
     onError: (e: any) => toast.error(e.message),
   });

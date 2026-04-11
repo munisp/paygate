@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ export default function OpenBankingPortal() {
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [sdkToken, setSdkToken] = useState<string | null>(null);
 
-  const consentMutation = trpc2.openBanking.issueConsentToken.useMutation({
+  const consentMutation = trpc.tier1to5.openBanking.issueConsentToken.useMutation({
     onSuccess: (data: any) => {
       setGeneratedToken(data.consentToken ?? data.token ?? JSON.stringify(data));
       toast("Consent token issued successfully");
@@ -26,7 +26,7 @@ export default function OpenBankingPortal() {
     onError: (e: any) => toast("Failed to issue consent token", { description: e.message }),
   });
 
-  const sdkTokenMutation = trpc2.openBanking.issueSDKToken.useMutation({
+  const sdkTokenMutation = trpc.tier1to5.openBanking.issueSDKToken.useMutation({
     onSuccess: (data: any) => {
       setSdkToken(data.token ?? data.sdkToken ?? JSON.stringify(data));
       toast("SDK token issued");
@@ -34,7 +34,7 @@ export default function OpenBankingPortal() {
     onError: (e: any) => toast("Failed to issue SDK token", { description: e.message }),
   });
 
-  const customerDataQuery = trpc2.openBanking.getCustomerData.useQuery(
+  const customerDataQuery = trpc.tier1to5.openBanking.getCustomerData.useQuery(
     { customerId, dataType: fetchDataType, consentToken },
     { enabled: !!customerId && !!consentToken }
   );
@@ -86,7 +86,7 @@ export default function OpenBankingPortal() {
         <CardContent className="space-y-4">
           <div>
             <label className="text-sm font-medium">Customer ID</label>
-            <Input placeholder="e.g. cust_123456" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="mt-1" />
+            <Input placeholder="e.g. cust_123456" value={customerId} onChange={(e: any) => setCustomerId(e.target.value)} className="mt-1" />
           </div>
           <div>
             <label className="text-sm font-medium">Data Types</label>
@@ -131,14 +131,14 @@ export default function OpenBankingPortal() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium">Consent Token</label>
-              <Input placeholder="Paste consent token here" value={consentToken} onChange={(e) => setConsentToken(e.target.value)} className="mt-1" />
+              <Input placeholder="Paste consent token here" value={consentToken} onChange={(e: any) => setConsentToken(e.target.value)} className="mt-1" />
             </div>
             <div>
               <label className="text-sm font-medium">Data Type</label>
               <select
                 className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                 value={fetchDataType}
-                onChange={(e) => setFetchDataType(e.target.value as any)}
+                onChange={(e: any) => setFetchDataType(e.target.value as any)}
               >
                 <option value="account_balance">Account Balance</option>
                 <option value="transaction_history">Transaction History</option>

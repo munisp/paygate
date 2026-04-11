@@ -42,7 +42,7 @@ function TopUpDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () 
       setAmount("");
       window.open(data.checkoutUrl, "_blank");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const handleTopUp = () => {
     const amountKobo = Math.round(parseFloat(amount) * 100);
@@ -50,7 +50,7 @@ function TopUpDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () 
     checkout.mutate({ amountKobo, currency: "NGN", origin: window.location.origin });
   };
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Top Up Wallet</DialogTitle>

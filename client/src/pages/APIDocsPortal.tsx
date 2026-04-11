@@ -1,13 +1,13 @@
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 export default function APIDocsPortal() {
-  const { data: spec } = trpc4.apiDocs.getOpenAPISpec.useQuery();
-  const { data: sdkInfo } = trpc4.apiDocs.getSDKInfo.useQuery();
-  const { data: changelog } = trpc4.apiDocs.getChangelog.useQuery();
+  const { data: spec } = trpc.newFeatures.apiDocs.getOpenAPISpec.useQuery();
+  const { data: sdkInfo } = trpc.newFeatures.apiDocs.getSDKInfo.useQuery();
+  const { data: changelog } = trpc.newFeatures.apiDocs.getChangelog.useQuery();
 
   const copyCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -144,7 +144,7 @@ export default function APIDocsPortal() {
                     <p className="text-xs text-muted-foreground">{new Date(v.date).toLocaleDateString()}</p>
                   </div>
                   <ul className="space-y-0.5">
-                    {v.changes?.map((c, i) => <li key={i} className="text-xs text-muted-foreground">• {c}</li>)}
+                    {v.changes?.map((c: any, i: any) => <li key={i} className="text-xs text-muted-foreground">• {c}</li>)}
                   </ul>
                 </div>
               ))}

@@ -186,7 +186,7 @@ export default function FraudRisk() {
   const sortedDbAlerts = useMemo(() => {
     let rows = [...(dbAlerts?.rows ?? [])];
     if (dbStatusFilter !== "all") rows = rows.filter(r => r.status === dbStatusFilter);
-    rows.sort((a, b) => {
+    rows.sort((a: any, b: any) => {
       let av: any = a[dbSortField as keyof typeof a];
       let bv: any = b[dbSortField as keyof typeof b];
       if (dbSortField === "createdAt") { av = new Date(av as string).getTime(); bv = new Date(bv as string).getTime(); }

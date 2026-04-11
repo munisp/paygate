@@ -33,7 +33,7 @@ function PinDialog({ open, onClose, onConfirm, isPending }: {
 }) {
   const [pin, setPin] = useState("");
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setPin(""); } }}>
+    <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">
         <DialogHeader><DialogTitle>Enter Transaction PIN</DialogTitle></DialogHeader>
         <div className="py-4">
@@ -108,7 +108,7 @@ export default function BillPay() {
       setVerifiedName(data.customerName ?? "Verified");
       setStep("verify");
     },
-    onError: (e) => toast.error("Verification failed: " + e.message),
+    onError: (e: any) => toast.error("Verification failed: " + e.message),
   });
 
   const payBill = trpc.consumerBills.pay.useMutation({
@@ -200,7 +200,7 @@ export default function BillPay() {
               <div className="space-y-1.5">
                 <Label>Provider</Label>
                 {billersLoading ? <Skeleton className="h-10 rounded-lg" /> : (
-                  <Select value={selectedBillerCode} onValueChange={(v) => {
+                  <Select value={selectedBillerCode} onValueChange={(v: any) => {
                     setSelectedBillerCode(v);
                     setSelectedBillerName((billers as any[]).find(b => b.code === v)?.name ?? v);
                   }}>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,15 +22,15 @@ export default function RemittanceV2() {
   const [recipientBankCode, setRecipientBankCode] = useState("");
   const [purpose, setPurpose] = useState("FAMILY_SUPPORT");
 
-  const corridorsQuery = trpc3.remittanceV2.getCorridors.useQuery();
-  const historyQuery = trpc3.remittanceV2.getRemittanceHistory.useQuery({ limit: 20 }, { enabled: !!user });
+  const corridorsQuery = trpc.tier6to8.remittanceV2.getCorridors.useQuery();
+  const historyQuery = trpc.tier6to8.remittanceV2.getRemittanceHistory.useQuery({ limit: 20 }, { enabled: !!user });
 
-  const quoteQuery = trpc3.remittanceV2.getQuote.useQuery(
+  const quoteQuery = trpc.tier6to8.remittanceV2.getQuote.useQuery(
     { fromCountry, toCountry, sendAmountKobo: Math.round(parseFloat(sendAmount || "0") * 100), deliveryMethod },
     { enabled: !!user && !!sendAmount && parseFloat(sendAmount) > 0 }
   );
 
-  const sendMutation = trpc3.remittanceV2.sendRemittance.useMutation({
+  const sendMutation = trpc.tier6to8.remittanceV2.sendRemittance.useMutation({
     onSuccess: (data) => {
       toast("Remittance sent", { description: `Tracking: ${data.trackingCode}` });
       historyQuery.refetch();
@@ -105,14 +105,14 @@ export default function RemittanceV2() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium">Send Amount (NGN)</label>
-                  <Input type="number" placeholder="e.g. 50000" value={sendAmount} onChange={(e) => setSendAmount(e.target.value)} className="mt-1" />
+                  <Input type="number" placeholder="e.g. 50000" value={sendAmount} onChange={(e: any) => setSendAmount(e.target.value)} className="mt-1" />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Delivery Method</label>
                   <select
                     className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                     value={deliveryMethod}
-                    onChange={(e) => setDeliveryMethod(e.target.value as any)}
+                    onChange={(e: any) => setDeliveryMethod(e.target.value as any)}
                   >
                     <option value="bank_account">Bank Account</option>
                     <option value="mobile_money">Mobile Money</option>
@@ -156,7 +156,7 @@ export default function RemittanceV2() {
                 ].map(({ key, label, placeholder, value, set }) => (
                   <div key={key}>
                     <label className="text-sm font-medium">{label}</label>
-                    <Input placeholder={placeholder} value={value} onChange={(e) => set(e.target.value)} className="mt-1" />
+                    <Input placeholder={placeholder} value={value} onChange={(e: any) => set(e.target.value)} className="mt-1" />
                   </div>
                 ))}
               </div>

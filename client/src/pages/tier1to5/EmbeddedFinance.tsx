@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,19 +19,19 @@ export default function EmbeddedFinance() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEvents, setWebhookEvents] = useState<string[]>(["payment.completed", "payment.failed"]);
 
-  const { data: webhooks, isLoading, refetch: refetchWebhooks } = trpc2.embeddedFinance.getWebhooks.useQuery();
+  const { data: webhooks, isLoading, refetch: refetchWebhooks } = trpc.tier1to5.embeddedFinance.getWebhooks.useQuery();
 
-  const registerWebhookMutation = trpc2.embeddedFinance.registerWebhook.useMutation({
+  const registerWebhookMutation = trpc.tier1to5.embeddedFinance.registerWebhook.useMutation({
     onSuccess: () => { toast.success("Webhook registered."); refetchWebhooks(); setWebhookUrl(""); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const deleteWebhookMutation = trpc2.embeddedFinance.deleteWebhook.useMutation({
+  const deleteWebhookMutation = trpc.tier1to5.embeddedFinance.deleteWebhook.useMutation({
     onSuccess: () => { toast.success("Webhook deleted."); refetchWebhooks(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const retryMutation = trpc2.embeddedFinance.retryWebhookDelivery.useMutation({
+  const retryMutation = trpc.tier1to5.embeddedFinance.retryWebhookDelivery.useMutation({
     onSuccess: () => toast.success("Delivery retried."),
     onError: (err: any) => toast.error(err.message),
   });

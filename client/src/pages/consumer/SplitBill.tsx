@@ -49,7 +49,7 @@ export default function SplitBill() {
   const updateParticipant = (i: number, field: keyof Participant, val: string) =>
     setParticipants(p => p.map((item, idx) => idx === i ? { ...item, [field]: val } : item));
 
-  const totalAmount = participants.reduce((s, p) => s + (parseFloat(p.shareAmount) || 0), 0);
+  const totalAmount = participants.reduce((s: any, p: any) => s + (parseFloat(p.shareAmount) || 0), 0);
 
   const handleCreate = () => {
     if (!title) { toast.error("Enter a title"); return; }
@@ -147,7 +147,7 @@ export default function SplitBill() {
                 </Button>
               </div>
               <div className="space-y-2">
-                {participants.map((p, i) => (
+                {participants.map((p: any, i: any) => (
                   <div key={i} className="flex gap-2 items-center">
                     <Input placeholder="Name" value={p.name} onChange={e => updateParticipant(i, "name", e.target.value)} className="flex-1" />
                     <Input type="number" placeholder="₦ Share" value={p.shareAmount} onChange={e => updateParticipant(i, "shareAmount", e.target.value)} className="w-28" />

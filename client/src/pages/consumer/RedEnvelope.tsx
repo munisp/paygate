@@ -33,7 +33,7 @@ function ClaimView({ envelopeId }: { envelopeId: string }) {
       utils.consumerWallet.history.invalidate();
       utils.redEnvelope.status.invalidate({ envelopeId });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   if (isLoading) {
@@ -160,7 +160,7 @@ export default function RedEnvelope() {
       utils.consumerWallet.getBalance.invalidate();
       utils.consumerWallet.history.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleCreate = () => {

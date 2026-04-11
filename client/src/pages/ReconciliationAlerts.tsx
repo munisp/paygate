@@ -64,15 +64,14 @@ export default function ReconciliationAlerts() {
 
   const utils = trpc.useUtils();
 
-  const { data: stats, isLoading: statsLoading } = trpc.reconciliation.getStats.useQuery({});
+  const { data: stats, isLoading: statsLoading } = trpc.wave80.reconciliation.getStats.useQuery({});
 
-  const { data, isLoading, refetch } = trpc.reconciliation.listAlerts.useQuery({
+  const { data, isLoading, refetch } = trpc.wave80.reconciliation.listAlerts.useQuery({
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: PAGE_SIZE,
-    offset: page * PAGE_SIZE,
   });
 
-  const updateMutation = trpc.reconciliation.updateAlert.useMutation({
+  const updateMutation = trpc.wave80.reconciliation.updateAlert.useMutation({
     onSuccess: () => {
       toast.success("Alert status updated");
       utils.reconciliation.listAlerts.invalidate();
@@ -84,7 +83,7 @@ export default function ReconciliationAlerts() {
     onError: (err) => toast.error(err.message),
   });
 
-  const dismissMutation = trpc.reconciliation.dismissAlert.useMutation({
+  const dismissMutation = trpc.wave80.reconciliation.dismissAlert.useMutation({
     onSuccess: () => {
       toast.success("Alert dismissed");
       utils.reconciliation.listAlerts.invalidate();
@@ -93,12 +92,12 @@ export default function ReconciliationAlerts() {
     onError: (err) => toast.error(err.message),
   });
 
-  const alerts = data?.alerts ?? [];
-  const total = data?.total ?? 0;
+  const alerts = (data as any[]) ?? [];
+  const total = alerts.length;
 
   const filteredAlerts = search
     ? alerts.filter(
-        (a) =>
+        (a: any) =>
           a.merchantId.toLowerCase().includes(search.toLowerCase()) ||
           a.currency.toLowerCase().includes(search.toLowerCase()),
       )
@@ -177,13 +176,13 @@ export default function ReconciliationAlerts() {
                 <Input
                   placeholder="Search by merchant ID or currency..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e: any) => setSearch(e.target.value)}
                   className="pl-9"
                 />
               </div>
               <Select
                 value={statusFilter}
-                onValueChange={(v) => {
+                onValueChange={(v: any) => {
                   setStatusFilter(v as AlertStatus | "all");
                   setPage(0);
                 }}
@@ -272,7 +271,7 @@ export default function ReconciliationAlerts() {
                                   variant="ghost"
                                   className="h-7 text-xs text-muted-foreground"
                                   onClick={() =>
-                                    dismissMutation.mutate({ id: alert.id, notes: "Dismissed by operator" })
+                                    dismissMutation.mutate({ alertId: alert.id })
                                   }
                                   disabled={dismissMutation.isPending}
                                 >
@@ -302,7 +301,7 @@ export default function ReconciliationAlerts() {
                 variant="outline"
                 size="sm"
                 disabled={page === 0}
-                onClick={() => setPage((p) => p - 1)}
+                onClick={() => setPage((p: any) => p - 1)}
               >
                 Previous
               </Button>
@@ -310,7 +309,7 @@ export default function ReconciliationAlerts() {
                 variant="outline"
                 size="sm"
                 disabled={(page + 1) * PAGE_SIZE >= total}
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => setPage((p: any) => p + 1)}
               >
                 Next
               </Button>
@@ -333,7 +332,7 @@ export default function ReconciliationAlerts() {
               <label className="text-sm font-medium">New Status</label>
               <Select
                 value={updateStatus}
-                onValueChange={(v) => setUpdateStatus(v as AlertStatus)}
+                onValueChange={(v: any) => setUpdateStatus(v as AlertStatus)}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -350,7 +349,7 @@ export default function ReconciliationAlerts() {
               <Textarea
                 placeholder="Add investigation notes or resolution details…"
                 value={updateNotes}
-                onChange={(e) => setUpdateNotes(e.target.value)}
+                onChange={(e: any) => setUpdateNotes(e.target.value)}
                 rows={3}
               />
             </div>
@@ -363,9 +362,8 @@ export default function ReconciliationAlerts() {
               onClick={() => {
                 if (!selectedAlert) return;
                 updateMutation.mutate({
-                  id: selectedAlert,
+                  alertId: selectedAlert,
                   status: updateStatus,
-                  notes: updateNotes || undefined,
                 });
               }}
               disabled={updateMutation.isPending}

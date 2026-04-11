@@ -469,7 +469,7 @@ function WebhookEventLog() {
       }
       utils.webhookDeliveries.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
     onSettled: () => setRetryingId(null),
   });
 
@@ -536,7 +536,7 @@ function WebhookEventLog() {
           </div>
         ) : (
           <div className="divide-y divide-slate-700/50">
-            {rows.map((d) => (
+            {rows.map((d: any) => (
               <div key={d.id} className="hover:bg-slate-700/20 transition-colors">
                 {/* Row summary */}
                 <button
@@ -565,7 +565,7 @@ function WebhookEventLog() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={(e) => handleRetry(d.id, e)}
+                        onClick={(e: any) => handleRetry(d.id, e)}
                         disabled={retryingId === d.id}
                         className="h-6 px-2 text-[10px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20"
                       >
@@ -681,7 +681,7 @@ function SandboxRunner({ mode }: { mode: EnvMode }) {
       });
       toast.success("Sandbox charge completed");
     },
-    onError: (e) => {
+    onError: (e: any) => {
       setResult({ status: "error", message: e.message });
       toast.error("Sandbox charge failed: " + e.message);
     },
@@ -962,7 +962,7 @@ export default function DeveloperPortal() {
         <CardContent className="space-y-4">
           {/* Sample selector */}
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(SAMPLES) as (keyof typeof SAMPLES)[]).map((s) => (
+            {(Object.keys(SAMPLES) as (keyof typeof SAMPLES)[]).map((s: any) => (
               <Button
                 key={s}
                 variant={activeSample === s ? "default" : "outline"}
@@ -978,9 +978,9 @@ export default function DeveloperPortal() {
           </div>
 
           {/* Language tabs */}
-          <Tabs value={activeLang} onValueChange={(v) => setActiveLang(v as LangId)}>
+          <Tabs value={activeLang} onValueChange={(v: any) => setActiveLang(v as LangId)}>
             <TabsList className="bg-slate-900 border border-slate-700 h-9">
-              {LANGUAGES.map((l) => (
+              {LANGUAGES.map((l: any) => (
                 <TabsTrigger
                   key={l.id}
                   value={l.id}
@@ -991,10 +991,10 @@ export default function DeveloperPortal() {
               ))}
             </TabsList>
 
-            {LANGUAGES.map((l) => (
+            {LANGUAGES.map((l: any) => (
               <TabsContent key={l.id} value={l.id} className="mt-3">
                 <CodeBlock
-                  code={(SAMPLES[activeSample][l.id] as (key: string) => string)(activeKey)}
+                  code={(SAMPLES[activeSample as keyof typeof SAMPLES][l.id as keyof (typeof SAMPLES)[keyof typeof SAMPLES]] as (key: string) => string)(activeKey)}
                   lang={l.label}
                 />
               </TabsContent>

@@ -2,15 +2,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { QrCode, Users, TrendingUp, BarChart3, Download } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function QrMerchantAnalytics() {
-  const { data: overview } = trpc5.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" });
-  const { data: topCodes } = trpc5.qrMerchantAnalytics.getTopQrCodes.useQuery();
-  const { data: insights } = trpc5.qrMerchantAnalytics.getCustomerInsights.useQuery();
+  const { data: overview } = trpc.wave80.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" });
+  const { data: topCodes } = trpc.wave80.qrMerchantAnalytics.getTopQrCodes.useQuery();
+  const { data: insights } = trpc.wave80.qrMerchantAnalytics.getCustomerInsights.useQuery();
 
-  const exportReport = trpc5.qrMerchantAnalytics.exportReport.useMutation({
+  const exportReport = trpc.wave80.qrMerchantAnalytics.exportReport.useMutation({
     onSuccess: () => toast.success("Report export started"),
     onError: (e: { message: string }) => toast.error(e.message),
   });

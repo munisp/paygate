@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Leaf, TrendingUp, Award, ShoppingCart } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const PROJECTS = [
@@ -22,16 +22,16 @@ export default function CarbonCreditsV2() {
   const [selectedProject, setSelectedProject] = useState<typeof PROJECTS[0] | null>(null);
   const [qty, setQty] = useState("1");
 
-  const { data: creditsData, isLoading, refetch } = trpc5.carbonCreditsV2.listCredits.useQuery({});
-  const { data: stats } = trpc5.carbonCreditsV2.getStats.useQuery();
+  const { data: creditsData, isLoading, refetch } = trpc.wave80.carbonCreditsV2.listCredits.useQuery({});
+  const { data: stats } = trpc.wave80.carbonCreditsV2.getStats.useQuery();
 
-  const purchase = trpc5.carbonCreditsV2.purchaseCredits.useMutation({
+  const purchase = trpc.wave80.carbonCreditsV2.purchaseCredits.useMutation({
     onSuccess: () => { toast.success("Credits purchased"); setBuyOpen(false); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const retire = trpc5.carbonCreditsV2.retireCredits.useMutation({
+  const retire = trpc.wave80.carbonCreditsV2.retireCredits.useMutation({
     onSuccess: () => { toast.success("Credits retired"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const credits = creditsData?.credits ?? [];

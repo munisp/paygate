@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,15 +15,15 @@ export default function DCCDashboard() {
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
   const [lockAmount, setLockAmount] = useState("");
 
-  const { data: rates, isLoading, refetch } = trpc2.dcc.getLiveRates.useQuery({ baseCurrency: "NGN", targetCurrencies: CURRENCIES });
-  const { data: marginConfig } = trpc2.dcc.getDCCMarginConfig.useQuery();
+  const { data: rates, isLoading, refetch } = trpc.tier1to5.dcc.getLiveRates.useQuery({ baseCurrency: "NGN", targetCurrencies: CURRENCIES });
+  const { data: marginConfig } = trpc.tier1to5.dcc.getDCCMarginConfig.useQuery();
 
-  const lockMutation = trpc2.dcc.lockRate.useMutation({
+  const lockMutation = trpc.tier1to5.dcc.lockRate.useMutation({
     onSuccess: (data: any) => toast.success(`Rate locked: 1 ${selectedCurrency} = ₦${data.lockedRate?.toFixed(2)} (valid ${data.validForSeconds}s)`),
     onError: (err: any) => toast.error(err.message),
   });
 
-  const updateMarginMutation = trpc2.dcc.updateDCCMargin.useMutation({
+  const updateMarginMutation = trpc.tier1to5.dcc.updateDCCMargin.useMutation({
     onSuccess: () => toast.success("DCC margin updated."),
     onError: (err: any) => toast.error(err.message),
   });

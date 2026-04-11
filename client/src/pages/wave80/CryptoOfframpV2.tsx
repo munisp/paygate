@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowRight, Clock, CheckCircle, TrendingUp } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function CryptoOfframpV2() {
@@ -15,15 +15,15 @@ export default function CryptoOfframpV2() {
   const [accountNumber, setAccountNumber] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
 
-  const { data: txData, isLoading, refetch } = trpc5.cryptoOfframpV2.listTransactions.useQuery({});
-  const { data: stats } = trpc5.cryptoOfframpV2.getStats.useQuery();
-  const { data: ratesData } = trpc5.cryptoOfframpV2.getRates.useQuery();
+  const { data: txData, isLoading, refetch } = trpc.wave80.cryptoOfframpV2.listTransactions.useQuery({});
+  const { data: stats } = trpc.wave80.cryptoOfframpV2.getStats.useQuery();
+  const { data: ratesData } = trpc.wave80.cryptoOfframpV2.getRates.useQuery();
 
-  const initiate = trpc5.cryptoOfframpV2.initiateOfframp.useMutation({
+  const initiate = trpc.wave80.cryptoOfframpV2.initiateOfframp.useMutation({
     onSuccess: () => { toast.success("Off-ramp initiated"); setAmount(""); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const cancel = trpc5.cryptoOfframpV2.cancelTransaction.useMutation({
+  const cancel = trpc.wave80.cryptoOfframpV2.cancelTransaction.useMutation({
     onSuccess: () => { toast.success("Transaction cancelled"); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });

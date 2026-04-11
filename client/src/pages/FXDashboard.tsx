@@ -65,10 +65,10 @@ function RateAlertDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [direction, setDirection] = useState<"above" | "below">("above");
   const setAlert = trpc.fx.setAlert.useMutation({
     onSuccess: () => { toast.success("Rate alert configured — you will be notified via the platform"); onClose(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader><DialogTitle>Add Rate Alert</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
@@ -146,7 +146,7 @@ export default function FXDashboard() {
       setXbStep("done");
       setXbStatusMsg("Transfer submitted successfully via " + xbForm.rail.toUpperCase());
     },
-    onError: (e) => {
+    onError: (e: any) => {
       toast.error(e.message);
     },
   });
@@ -195,16 +195,16 @@ export default function FXDashboard() {
   // Live FX rates from DB
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? 60_000 : false });
   const fetchAndStoreMutation = trpc.fx.fetchAndStore.useMutation({
-    onSuccess: (d) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
+    onSuccess: (d: any) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
     onError: () => toast.error("Failed to fetch live rates"),
   });
   const convertMutation = trpc.fx.convertCurrency.useMutation({
-    onSuccess: (d) => toast.success(`Conversion complete: ${d.convertedAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${d.toCurrency} (ref: ${d.conversionId})`),
-    onError: (e) => toast.error(e.message),
+    onSuccess: (d: any) => toast.success(`Conversion complete: ${d.convertedAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${d.toCurrency} (ref: ${d.conversionId})`),
+    onError: (e: any) => toast.error(e.message),
   });
   const savePrefsMutation = trpc.fx.savePreferences.useMutation({
     onSuccess: () => toast.success("Settlement preferences saved!"),
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   // Merge live DB rates into the rates map
@@ -505,7 +505,7 @@ export default function FXDashboard() {
               <>
                 {/* Step indicator */}
                 <div className="flex items-center gap-2 text-xs">
-                  {(["form", "quote", "confirm", "done"] as const).map((s, i) => (
+                  {(["form", "quote", "confirm", "done"] as const).map((s: any, i: any) => (
                     <>
                       <div key={s} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium ${
                         xbStep === s ? "bg-primary text-primary-foreground" :

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 as trpc } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,7 +12,7 @@ function formatNGN(kobo: number) {
 export default function SettlementForecast() {
   const [days, setDays] = useState(30);
 
-  const { data: forecast, isLoading } = trpc.settlementForecast.getForecast.useQuery({ days });
+  const { data: forecast, isLoading } = trpc.tier6to8.settlementForecast.getForecast.useQuery({ days });
 
   const TrendIcon = forecast?.trend === "up" ? TrendingUp : forecast?.trend === "down" ? TrendingDown : Minus;
   const trendColor = forecast?.trend === "up" ? "text-green-600" : forecast?.trend === "down" ? "text-red-600" : "text-yellow-600";
@@ -24,7 +24,7 @@ export default function SettlementForecast() {
           <h1 className="text-2xl font-bold text-foreground">Settlement Forecast</h1>
           <p className="text-muted-foreground">Predictive settlement timeline and cash flow projections</p>
         </div>
-        <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
+        <Select value={String(days)} onValueChange={(v: any) => setDays(Number(v))}>
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -40,7 +40,7 @@ export default function SettlementForecast() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
+          {[1, 2, 3].map((i: any) => (
             <Card key={i} className="animate-pulse">
               <CardContent className="pt-6 h-24 bg-muted/20 rounded" />
             </Card>

@@ -31,7 +31,7 @@ export default function AdminKYCReview() {
       setNotes("");
       toast.success("KYC submission reviewed");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const stats = statsQuery.data as Record<string, number> | null | undefined;
@@ -58,7 +58,7 @@ export default function AdminKYCReview() {
             { label: "Pending", key: "pending", icon: Clock, color: "text-amber-400" },
             { label: "Approved", key: "approved", icon: CheckCircle, color: "text-green-400" },
             { label: "Rejected", key: "rejected", icon: XCircle, color: "text-red-400" },
-          ].map((s) => (
+          ].map((s: any) => (
             <Card key={s.key} className="bg-slate-900 border-slate-800">
               <CardContent className="p-4 flex items-center gap-3">
                 <s.icon className={`w-6 h-6 ${s.color}`} />
@@ -75,7 +75,7 @@ export default function AdminKYCReview() {
 
         {/* Filter */}
         <div className="flex items-center gap-3">
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as any); setPage(1); }}>
+          <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v as any); setPage(1); }}>
             <SelectTrigger className="w-40 bg-slate-800 border-slate-700 text-white">
               <SelectValue />
             </SelectTrigger>
@@ -157,7 +157,7 @@ export default function AdminKYCReview() {
             </DialogHeader>
             <div className="py-2">
               <Label className="text-slate-300">Notes {reviewDialog.decision === "rejected" && "(required)"}</Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)}
+              <Textarea value={notes} onChange={(e: any) => setNotes(e.target.value)}
                 placeholder={reviewDialog.decision === "rejected" ? "Reason for rejection..." : "Optional notes..."}
                 className="mt-1 bg-slate-800 border-slate-700 text-white" rows={3} />
             </div>

@@ -70,7 +70,7 @@ export default function Payouts() {
       setNameFromCache(data.fromCache);
       toast.success(`Account verified: ${data.accountName}${data.fromCache ? " (cached)" : ""}`);
     },
-    onError: (e) => {
+    onError: (e: any) => {
       setResolvedName(null);
       toast.error(`Account verification failed: ${e.message}`);
     },
@@ -93,7 +93,7 @@ export default function Payouts() {
       setNameFromCache(false);
       utils.payouts.list.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const createBulk = trpc.payouts.createBulk.useMutation({
@@ -107,20 +107,20 @@ export default function Payouts() {
         toast.warning(`${result.succeeded} succeeded, ${result.failed} failed`);
       }
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const approveMutation = trpc.payouts.approve.useMutation({
     onSuccess: () => { toast.success("Payout approved and queued for processing"); utils.payouts.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const rejectMutation = trpc.payouts.reject.useMutation({
     onSuccess: () => { toast.success("Payout rejected"); utils.payouts.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const updateApprovalSettings = trpc.payouts.updateApprovalSettings.useMutation({
     onSuccess: () => { toast.success("Approval settings saved"); utils.payouts.list.invalidate(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const settingsQuery = trpc.settings.get.useQuery(undefined, { staleTime: 60_000 });
   const merchant = settingsQuery.data?.merchant;
@@ -210,7 +210,7 @@ export default function Payouts() {
               </div>
               <Switch
                 checked={approvalEnabled}
-                onCheckedChange={(v) => updateApprovalSettings.mutate({ payoutApprovalEnabled: v, payoutApprovalThreshold: approvalThreshold })}
+                onCheckedChange={(v: any) => updateApprovalSettings.mutate({ payoutApprovalEnabled: v, payoutApprovalThreshold: approvalThreshold })}
                 disabled={updateApprovalSettings.isPending}
               />
             </div>
@@ -221,7 +221,7 @@ export default function Payouts() {
                   <input
                     type="number"
                     value={thresholdInput || approvalThreshold}
-                    onChange={(e) => setThresholdInput(e.target.value)}
+                    onChange={(e: any) => setThresholdInput(e.target.value)}
                     className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none"
                     placeholder="500000"
                     min={100}
@@ -261,7 +261,7 @@ export default function Payouts() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pendingApprovalRows.map((p) => (
+              {pendingApprovalRows.map((p: any) => (
                 <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}...</td>
                   <td className="px-4 py-3">{p.bankCode ?? "—"} · {p.accountNumber ?? "—"}</td>
@@ -342,7 +342,7 @@ export default function Payouts() {
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Account Number *</label>
               <div className="flex gap-2">
                 <input value={form.accountNumber}
-                  onChange={(e) => { setForm(f => ({ ...f, accountNumber: e.target.value })); setResolvedName(null); }}
+                  onChange={(e: any) => { setForm(f => ({ ...f, accountNumber: e.target.value })); setResolvedName(null); }}
                   placeholder="10-digit account number" className="flex-1 px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
                 <Button type="button" variant="outline" size="sm" onClick={handleVerifyAccount}
                   disabled={resolveAccount.isPending || form.accountNumber.length !== 10 || !form.bankCode}
@@ -369,19 +369,19 @@ export default function Payouts() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Amount *</label>
-              <input type="number" value={form.amount} onChange={(e) => setForm(f => ({ ...f, amount: e.target.value }))}
+              <input type="number" value={form.amount} onChange={(e: any) => setForm(f => ({ ...f, amount: e.target.value }))}
                 placeholder="Amount" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Currency</label>
-              <select value={form.currency} onChange={(e) => setForm(f => ({ ...f, currency: e.target.value }))}
+              <select value={form.currency} onChange={(e: any) => setForm(f => ({ ...f, currency: e.target.value }))}
                 className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
                 {["NGN","GHS","KES","ZAR","USD"].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Narration</label>
-              <input value={form.narration} onChange={(e) => setForm(f => ({ ...f, narration: e.target.value }))}
+              <input value={form.narration} onChange={(e: any) => setForm(f => ({ ...f, narration: e.target.value }))}
                 placeholder="Payment description" className="w-full px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
             </div>
             <div className="sm:col-span-2 flex gap-3">
@@ -427,7 +427,7 @@ export default function Payouts() {
           {bulkErrors.length > 0 && (
             <div className="bg-red-50 rounded-lg p-3 space-y-1">
               <p className="text-xs font-semibold text-red-700">Parse warnings ({bulkErrors.length} rows skipped):</p>
-              {bulkErrors.slice(0, 5).map((e, i) => <p key={i} className="text-xs text-red-600">{e}</p>)}
+              {bulkErrors.slice(0, 5).map((e: any, i: any) => <p key={i} className="text-xs text-red-600">{e}</p>)}
               {bulkErrors.length > 5 && <p className="text-xs text-red-500">…and {bulkErrors.length - 5} more</p>}
             </div>
           )}
@@ -444,7 +444,7 @@ export default function Payouts() {
                     ))}</tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {bulkRows.slice(0, 10).map((r, i) => (
+                    {bulkRows.slice(0, 10).map((r: any, i: any) => (
                       <tr key={i} className="hover:bg-muted/30">
                         <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                         <td className="px-3 py-2 font-mono font-semibold">{r.amount.toLocaleString()}</td>
@@ -495,7 +495,7 @@ export default function Payouts() {
                     ))}</tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {bulkResults.map((r) => (
+                    {bulkResults.map((r: any) => (
                       <tr key={r.index} className={r.success ? "" : "bg-red-50/50"}>
                         <td className="px-3 py-2 text-muted-foreground">{r.index + 1}</td>
                         <td className="px-3 py-2">
@@ -533,7 +533,7 @@ export default function Payouts() {
               <tr key={i}><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td></tr>
             )) : rows.length === 0 ? (
               <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No payouts yet</td></tr>
-            ) : rows.map((p) => (
+            ) : rows.map((p: any) => (
               <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}...</td>
                 <td className="px-4 py-3">{p.bankCode} · {p.accountNumber}</td>

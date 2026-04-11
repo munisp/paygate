@@ -61,10 +61,10 @@ export default function GoLiveChecklist() {
   });
 
   const items = data?.items ?? [];
-  const okCount = items.filter((i) => i.status === "ok").length;
-  const blockers = items.filter((i) => i.status === "pending").length;
-  const warnings = items.filter((i) => i.status === "warning").length;
-  const progress = items.length > 0 ? Math.round((okCount / items.filter((i) => i.status !== "info").length) * 100) : 0;
+  const okCount = items.filter((i: any) => i.status === "ok").length;
+  const blockers = items.filter((i: any) => i.status === "pending").length;
+  const warnings = items.filter((i: any) => i.status === "warning").length;
+  const progress = items.length > 0 ? Math.round((okCount / items.filter((i: any) => i.status !== "info").length) * 100) : 0;
   const isReadyToLaunch = blockers === 0 && warnings === 0;
 
   return (
@@ -95,7 +95,7 @@ export default function GoLiveChecklist() {
                 {isReadyToLaunch ? "🎉 Ready to launch!" : `${blockers} blocker${blockers !== 1 ? "s" : ""} remaining`}
               </p>
               <p className="text-xs text-muted-foreground">
-                {okCount} of {items.filter((i) => i.status !== "info").length} required items complete
+                {okCount} of {items.filter((i: any) => i.status !== "info").length} required items complete
               </p>
             </div>
             <div className="flex gap-2">

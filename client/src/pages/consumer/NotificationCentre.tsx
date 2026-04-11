@@ -45,7 +45,7 @@ export default function NotificationCentre() {
         )}
       </div>
 
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+      <Tabs value={filter} onValueChange={(v: any) => setFilter(v as any)}>
         <TabsList>
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="unread">

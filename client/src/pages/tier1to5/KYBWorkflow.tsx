@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,15 +17,15 @@ export default function KYBWorkflow() {
     directorName: "", directorBvn: "", businessAddress: "", state: "", industry: ""
   });
 
-  const { data: status, isLoading, refetch } = trpc2.kyb.getKYBStatus.useQuery();
-  const { data: reports } = trpc2.kyb.getComplianceReports.useQuery({ reportType: undefined });
+  const { data: status, isLoading, refetch } = trpc.tier1to5.kyb.getKYBStatus.useQuery();
+  const { data: reports } = trpc.tier1to5.kyb.getComplianceReports.useQuery({ reportType: undefined });
 
-  const submitMutation = trpc2.kyb.submitKYB.useMutation({
+  const submitMutation = trpc.tier1to5.kyb.submitKYB.useMutation({
     onSuccess: () => { toast.success("KYB submitted. Temporal workflow started — verification takes 1-3 business days."); setShowSubmit(false); refetch(); },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const generateReportMutation = trpc2.kyb.generateCBNReport.useMutation({
+  const generateReportMutation = trpc.tier1to5.kyb.generateCBNReport.useMutation({
     onSuccess: (data: any) => { toast.success(`CBN report generated: ${data.reportId}`); },
     onError: (err: any) => toast.error(err.message),
   });

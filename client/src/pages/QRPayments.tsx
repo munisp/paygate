@@ -90,7 +90,7 @@ export default function QRPayments() {
 
   const stopScanning = () => {
     cancelAnimationFrame(animFrameRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current?.getTracks().forEach((t: any) => t.stop());
     streamRef.current = null;
     setScanning(false);
   };
@@ -141,12 +141,12 @@ export default function QRPayments() {
                 <div>
                   <Label htmlFor="qr-amount">Amount (NGN) — optional</Label>
                   <Input id="qr-amount" type="number" placeholder="e.g. 5000" value={amount}
-                    onChange={(e) => setAmount(e.target.value)} className="mt-1" />
+                    onChange={(e: any) => setAmount(e.target.value)} className="mt-1" />
                 </div>
                 <div>
                   <Label htmlFor="qr-desc">Description — optional</Label>
                   <Input id="qr-desc" placeholder="e.g. Invoice #1234" value={description}
-                    onChange={(e) => setDescription(e.target.value)} className="mt-1" />
+                    onChange={(e: any) => setDescription(e.target.value)} className="mt-1" />
                 </div>
                 <Button className="w-full" onClick={handleGenerate} disabled={generateMutation.isPending}>
                   {generateMutation.isPending

@@ -4,7 +4,7 @@
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { trpc4 } from "@/lib/trpc4";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,10 +40,10 @@ export default function Billing() {
   const [, navigate] = useLocation();
   const [upgradingPlan, setUpgradingPlan] = useState<string | null>(null);
 
-  const { data: subscription, isLoading } = trpc4.portalBilling.getSubscription.useQuery();
-  const { data: plans } = trpc4.portalBilling.listPlans.useQuery();
+  const { data: subscription, isLoading } = trpc.newFeatures.portalBilling.getSubscription.useQuery();
+  const { data: plans } = trpc.newFeatures.portalBilling.listPlans.useQuery();
 
-  const checkoutMutation = trpc4.portalBilling.createCheckoutSession.useMutation({
+  const checkoutMutation = trpc.newFeatures.portalBilling.createCheckoutSession.useMutation({
     onSuccess: (data) => {
       if (data.url) {
         window.open(data.url, "_blank");
@@ -57,14 +57,14 @@ export default function Billing() {
     },
   });
 
-  const portalMutation = trpc4.portalBilling.createPortalSession.useMutation({
+  const portalMutation = trpc.newFeatures.portalBilling.createPortalSession.useMutation({
     onSuccess: (data) => {
       if (data.url) window.open(data.url, "_blank");
     },
     onError: (err) => toast.error(err.message),
   });
 
-  const cancelMutation = trpc4.portalBilling.cancelSubscription.useMutation({
+  const cancelMutation = trpc.newFeatures.portalBilling.cancelSubscription.useMutation({
     onSuccess: () => toast.success("Subscription will cancel at period end."),
     onError: (err) => toast.error(err.message),
   });
@@ -254,7 +254,7 @@ export default function Billing() {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-2 pr-4 font-medium">Feature</th>
-                  {["Free", "Starter", "Growth", "Enterprise"].map((p) => (
+                  {["Free", "Starter", "Growth", "Enterprise"].map((p: any) => (
                     <th key={p} className="text-center py-2 px-3 font-medium">{p}</th>
                   ))}
                 </tr>
@@ -280,9 +280,9 @@ export default function Billing() {
                 ].map((row) => (
                   <tr key={row.name} className="hover:bg-muted/30">
                     <td className="py-2 pr-4 text-foreground">{row.name}</td>
-                    {(["free", "starter", "growth", "enterprise"] as const).map((p) => (
+                    {(["free", "starter", "growth", "enterprise"] as const).map((p: any) => (
                       <td key={p} className="text-center py-2 px-3">
-                        {row[p] ? (
+                        {row[p as keyof typeof row] ? (
                           <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />
                         ) : (
                           <span className="text-muted-foreground/40">—</span>

@@ -90,7 +90,7 @@ export default function USSDSessions() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {statCards.map((c) => (
+        {statCards.map((c: any) => (
           <Card key={c.label}>
             <CardContent className="pt-4 pb-3">
               <div className="flex items-center justify-between">
@@ -116,7 +116,7 @@ export default function USSDSessions() {
               <Input
                 placeholder="Search by MSISDN or session ID…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e: any) => setSearch(e.target.value)}
                 className="pl-9"
               />
             </div>
@@ -159,7 +159,7 @@ export default function USSDSessions() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sessions.map((s) => {
+                {sessions.map((s: any) => {
                   const cfg = STATUS_CONFIG[s.status] ?? STATUS_CONFIG.failed;
                   return (
                     <TableRow key={s.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedSession(s as UssdSession)}>
@@ -176,7 +176,7 @@ export default function USSDSessions() {
                       <TableCell className="text-muted-foreground text-sm">{durationSec(s as UssdSession)}</TableCell>
                       <TableCell className="text-muted-foreground text-sm">{new Date(s.startedAt).toLocaleString()}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedSession(s as UssdSession); }}>
+                        <Button variant="ghost" size="sm" onClick={(e: any) => { e.stopPropagation(); setSelectedSession(s as UssdSession); }}>
                           View
                         </Button>
                       </TableCell>

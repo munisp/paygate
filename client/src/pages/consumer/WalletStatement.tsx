@@ -63,7 +63,7 @@ export default function WalletStatement() {
       t.status ?? "completed",
     ]);
     const csv = [headers, ...rows]
-      .map((r) => r.map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .map((r: any) => r.map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(","))
       .join("\n");
     downloadCSV(csv, `wallet-statement-${period}d-${Date.now()}.csv`);
     toast.success("Statement exported as CSV");
@@ -168,7 +168,7 @@ th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PERIODS.map((p) => (
+                {PERIODS.map((p: any) => (
                   <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                 ))}
               </SelectContent>

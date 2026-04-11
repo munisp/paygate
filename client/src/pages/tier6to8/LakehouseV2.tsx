@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -7,18 +7,18 @@ import { Database, Play, Save } from "lucide-react";
 export default function LakehouseV2() {
   const [sql, setSql] = useState("SELECT merchant_id, SUM(amount_kobo) as total FROM transactions GROUP BY merchant_id ORDER BY total DESC LIMIT 10");
   const [queryName, setQueryName] = useState("");
-  const { data: datasets } = trpc3.lakehouseV2.getDatasets.useQuery();
-  const { data: savedQueries } = trpc3.lakehouseV2.getSavedQueries.useQuery();
-  const aiAnalysisMutation = trpc3.lakehouseV2.getAIAnalysis.useMutation();
-  const runMutation = trpc3.lakehouseV2.runQuery.useMutation({
+  const { data: datasets } = trpc.tier6to8.lakehouseV2.getDatasets.useQuery();
+  const { data: savedQueries } = trpc.tier6to8.lakehouseV2.getSavedQueries.useQuery();
+  const aiAnalysisMutation = trpc.tier6to8.lakehouseV2.getAIAnalysis.useMutation();
+  const runMutation = trpc.tier6to8.lakehouseV2.runQuery.useMutation({
     onSuccess: (d: any) => toast.success(`Query returned ${d.rowCount} rows in ${d.executionMs}ms`),
     onError: (e: any) => toast.error(e.message),
   });
-  const saveMutation = trpc3.lakehouseV2.saveQuery.useMutation({
+  const saveMutation = trpc.tier6to8.lakehouseV2.saveQuery.useMutation({
     onSuccess: () => toast.success("Query saved"),
     onError: (e: any) => toast.error(e.message),
   });
-  const exportMutation = trpc3.lakehouseV2.exportDataset.useMutation({
+  const exportMutation = trpc.tier6to8.lakehouseV2.exportDataset.useMutation({
     onSuccess: (d: any) => { window.open(d.downloadUrl, "_blank"); toast.success("Export ready"); },
     onError: (e: any) => toast.error(e.message),
   });

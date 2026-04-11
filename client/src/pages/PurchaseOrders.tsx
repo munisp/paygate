@@ -46,12 +46,12 @@ export default function PurchaseOrders() {
 
   // KPI counts
   const allOrders = orders;
-  const pending = allOrders.filter((o) => o.status === "pending");
-  const approved = allOrders.filter((o) => o.status === "approved");
-  const received = allOrders.filter((o) => o.status === "received");
+  const pending = allOrders.filter((o: any) => o.status === "pending");
+  const approved = allOrders.filter((o: any) => o.status === "approved");
+  const received = allOrders.filter((o: any) => o.status === "received");
   const totalCommitted = allOrders
-    .filter((o) => o.status !== "cancelled")
-    .reduce((s, o) => s + Number(o.totalCostKobo ?? 0), 0);
+    .filter((o: any) => o.status !== "cancelled")
+    .reduce((s: any, o: any) => s + Number(o.totalCostKobo ?? 0), 0);
 
   const TABS: { key: POStatus; label: string; count?: number }[] = [
     { key: "all", label: "All", count: allOrders.length },
@@ -101,7 +101,7 @@ export default function PurchaseOrders() {
 
       {/* Status Filter Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {TABS.map((t) => (
+        {TABS.map((t: any) => (
           <button
             key={t.key}
             onClick={() => setStatusFilter(t.key)}

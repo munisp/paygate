@@ -123,13 +123,13 @@ export default function ConsumerCrossBorder() {
               <Label>Corridor</Label>
               <Select
                 value={String(corridorIdx)}
-                onValueChange={(v) => { setCorridorIdx(Number(v)); setQuoteData(null); }}
+                onValueChange={(v: any) => { setCorridorIdx(Number(v)); setQuoteData(null); }}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CORRIDORS.map((c, i) => (
+                  {CORRIDORS.map((c: any, i: any) => (
                     <SelectItem key={i} value={String(i)}>{c.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -138,12 +138,12 @@ export default function ConsumerCrossBorder() {
 
             <div>
               <Label>Transfer Rail</Label>
-              <Select value={rail} onValueChange={(v) => setRail(v as any)}>
+              <Select value={rail} onValueChange={(v: any) => setRail(v as any)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {RAILS.map((r) => (
+                  {RAILS.map((r: any) => (
                     <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -156,7 +156,7 @@ export default function ConsumerCrossBorder() {
                 type="number"
                 placeholder="e.g. 50000"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e: any) => setAmount(e.target.value)}
               />
             </div>
 
@@ -180,7 +180,7 @@ export default function ConsumerCrossBorder() {
               <Input
                 placeholder={recipientIdType === "MSISDN" ? "+254712345678" : recipientIdType === "EMAIL" ? "recipient@email.com" : "Account number"}
                 value={recipientPhone}
-                onChange={(e) => setRecipientPhone(e.target.value)}
+                onChange={(e: any) => setRecipientPhone(e.target.value)}
               />
             </div>
 

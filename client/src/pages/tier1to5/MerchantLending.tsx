@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc2 } from "@/lib/trpc2";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,14 +16,14 @@ export default function MerchantLending() {
   const [notes, setNotes] = useState("");
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
 
-  const creditScoreQuery = trpc2.lending.getCreditScore.useQuery(undefined, { enabled: !!user });
-  const applicationsQuery = trpc2.lending.getLoanApplications.useQuery(undefined, { enabled: !!user });
-  const offersQuery = trpc2.lending.getLoanOffers.useQuery(
+  const creditScoreQuery = trpc.merchantLending.getCreditScore.useQuery(undefined, { enabled: !!user });
+  const applicationsQuery = trpc.merchantLending.getLoanApplications.useQuery(undefined, { enabled: !!user });
+  const offersQuery = trpc.merchantLending.getLoanOffers.useQuery(
     { applicationId: selectedApplicationId! },
     { enabled: !!selectedApplicationId }
   );
 
-  const applyMutation = trpc2.lending.applyForLoan.useMutation({
+  const applyMutation = trpc.merchantLending.applyForLoan.useMutation({
     onSuccess: (data: any) => {
       toast("Loan application submitted", { description: `Application ID: ${data.applicationId ?? data.id}` });
       applicationsQuery.refetch();
@@ -33,7 +33,7 @@ export default function MerchantLending() {
     onError: (e: any) => toast("Application failed", { description: e.message }),
   });
 
-  const acceptMutation = trpc2.lending.acceptLoanOffer.useMutation({
+  const acceptMutation = trpc.merchantLending.acceptLoanOffer.useMutation({
     onSuccess: () => {
       toast("Loan offer accepted — disbursement in progress");
       applicationsQuery.refetch();
@@ -115,7 +115,7 @@ export default function MerchantLending() {
                 type="number"
                 placeholder="e.g. 500000"
                 value={requestAmount}
-                onChange={(e) => setRequestAmount(e.target.value)}
+                onChange={(e: any) => setRequestAmount(e.target.value)}
                 className="mt-1"
               />
             </div>
@@ -124,7 +124,7 @@ export default function MerchantLending() {
               <select
                 className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                 value={repaymentDays}
-                onChange={(e) => setRepaymentDays(parseInt(e.target.value))}
+                onChange={(e: any) => setRepaymentDays(parseInt(e.target.value))}
               >
                 <option value={30}>30 days</option>
                 <option value={60}>60 days</option>
@@ -138,7 +138,7 @@ export default function MerchantLending() {
               <select
                 className="w-full mt-1 border rounded-md px-3 py-2 text-sm bg-background"
                 value={purpose}
-                onChange={(e) => setPurpose(e.target.value as any)}
+                onChange={(e: any) => setPurpose(e.target.value as any)}
               >
                 <option value="working_capital">Working Capital</option>
                 <option value="inventory">Inventory Purchase</option>
@@ -150,7 +150,7 @@ export default function MerchantLending() {
           </div>
           <div>
             <label className="text-sm font-medium">Notes (optional)</label>
-            <Input placeholder="Additional context for your application..." value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1" />
+            <Input placeholder="Additional context for your application..." value={notes} onChange={(e: any) => setNotes(e.target.value)} className="mt-1" />
           </div>
           <Button
             onClick={() => applyMutation.mutate({ requestedAmountKobo: Math.round(parseFloat(requestAmount) * 100), purposeCode: purpose, repaymentDays, notes: notes || undefined })}

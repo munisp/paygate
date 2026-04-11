@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { trpc3 } from "@/lib/trpc3";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,16 +9,16 @@ import { Shield } from "lucide-react";
 
 export default function EscrowService() {
   const [form, setForm] = useState({ buyerId: "", sellerId: "", amountKobo: "", description: "", releaseDays: 7 });
-  const { data: escrows } = trpc3.escrow.getEscrows.useQuery({ status: "all" });
-  const createMutation = trpc3.escrow.createEscrow.useMutation({
-    onSuccess: (d) => toast.success(`Escrow created: ${d.escrowId}`),
+  const { data: escrows } = trpc.tier6to8.escrow.getEscrows.useQuery({ status: "all" });
+  const createMutation = trpc.tier6to8.escrow.createEscrow.useMutation({
+    onSuccess: (d: any) => toast.success(`Escrow created: ${d.escrowId}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const releaseMutation = trpc3.escrow.releaseEscrow.useMutation({
+  const releaseMutation = trpc.tier6to8.escrow.releaseEscrow.useMutation({
     onSuccess: () => toast.success("Escrow released to seller"),
     onError: (e: any) => toast.error(e.message),
   });
-  const disputeMutation = trpc3.escrow.disputeEscrow.useMutation({
+  const disputeMutation = trpc.tier6to8.escrow.disputeEscrow.useMutation({
     onSuccess: () => toast.success("Dispute raised"),
     onError: (e: any) => toast.error(e.message),
   });

@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bell, Mail, MessageSquare, Webhook, Smartphone, Send } from "lucide-react";
-import { trpc5 } from "@/lib/trpc5";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const iconMap: Record<string, React.ElementType> = {
@@ -16,15 +16,15 @@ const iconMap: Record<string, React.ElementType> = {
 export default function RealtimeNotifications() {
   const [tab, setTab] = useState("preferences");
 
-  const { data: prefsData, refetch: refetchPrefs } = trpc5.realtimeNotifications.getPreferences.useQuery();
-  const { data: historyData, isLoading: loadingHistory } = trpc5.realtimeNotifications.getNotificationHistory.useQuery({});
-  const { data: statsData } = trpc5.realtimeNotifications.getDeliveryStats.useQuery({});
+  const { data: prefsData, refetch: refetchPrefs } = trpc.wave80.realtimeNotifications.getPreferences.useQuery();
+  const { data: historyData, isLoading: loadingHistory } = trpc.wave80.realtimeNotifications.getNotificationHistory.useQuery({});
+  const { data: statsData } = trpc.wave80.realtimeNotifications.getDeliveryStats.useQuery({});
 
-  const updatePrefs = trpc5.realtimeNotifications.updatePreferences.useMutation({
+  const updatePrefs = trpc.wave80.realtimeNotifications.updatePreferences.useMutation({
     onSuccess: () => { toast.success("Preferences saved"); refetchPrefs(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const testNotification = trpc5.realtimeNotifications.testNotification.useMutation({
+  const testNotification = trpc.wave80.realtimeNotifications.testNotification.useMutation({
     onSuccess: () => toast.success("Test notification sent"),
     onError: (e: { message: string }) => toast.error(e.message),
   });
