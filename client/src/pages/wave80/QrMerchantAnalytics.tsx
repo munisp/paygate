@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function QrMerchantAnalytics() {
-  const { data: overview } = trpc.wave80.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" });
+  const { isLoading, data: overview } = trpc.wave80.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" });
   const { data: topCodes } = trpc.wave80.qrMerchantAnalytics.getTopQrCodes.useQuery();
   const { data: insights } = trpc.wave80.qrMerchantAnalytics.getCustomerInsights.useQuery();
 
@@ -14,6 +14,17 @@ export default function QrMerchantAnalytics() {
     onSuccess: () => toast.success("Report export started"),
     onError: (e: { message: string }) => toast.error(e.message),
   });
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

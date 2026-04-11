@@ -34,7 +34,7 @@ export default function OpenBankingPortal() {
     onError: (e: any) => toast("Failed to issue SDK token", { description: e.message }),
   });
 
-  const customerDataQuery = trpc.tier1to5.openBanking.getCustomerData.useQuery(
+  const { data: customerData, isLoading: customerDataLoading } = trpc.tier1to5.openBanking.getCustomerData.useQuery(
     { customerId, dataType: fetchDataType, consentToken },
     { enabled: !!customerId && !!consentToken }
   );
@@ -146,10 +146,11 @@ export default function OpenBankingPortal() {
               </select>
             </div>
           </div>
-          {customerDataQuery.data && (
+          {customerDataLoading && <div className="flex items-center justify-center h-16"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div></div>}
+          {customerData && (
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-sm font-medium mb-2">Response:</p>
-              <pre className="text-xs overflow-x-auto">{JSON.stringify(customerDataQuery.data, null, 2)}</pre>
+              <pre className="text-xs overflow-x-auto">{JSON.stringify(customerData, null, 2)}</pre>
             </div>
           )}
         </CardContent>

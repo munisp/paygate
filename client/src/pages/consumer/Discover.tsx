@@ -68,7 +68,7 @@ export default function Discover() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch wallet balance for the quick stats banner
-  const { data: walletData } = trpc.consumerWallet.getBalance.useQuery(
+  const {isLoading, data: walletData} = trpc.consumerWallet.getBalance.useQuery(
     { currency: "NGN" },
     { staleTime: 60_000 }
   );
@@ -82,6 +82,17 @@ export default function Discover() {
       !searchQuery || item.label.toLowerCase().includes(searchQuery.toLowerCase())
     ),
   })).filter(section => section.items.length > 0);
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-4 space-y-6 pb-8">

@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Tag, Ticket, CheckCircle, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function Coupons() {
   useOnboardingGate();
@@ -49,6 +50,17 @@ export default function Coupons() {
     if (!amount || parseFloat(amount) < 1) { toast.error("Enter the order amount to check discount"); return; }
     setQueryInput({ code, amountKobo: Math.round(parseFloat(amount) * 100) });
   };
+
+  if (!isLoading && !redemptionsData) {
+    return (
+      <div className="p-6">
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">

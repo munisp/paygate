@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, DollarSign, Activity, CheckCircle } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function AdminRevenue() {
   const [period, setPeriod] = useState<"day" | "week" | "month" | "year">("month");

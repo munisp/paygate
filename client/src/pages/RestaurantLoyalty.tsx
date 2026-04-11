@@ -17,7 +17,7 @@ export default function RestaurantLoyalty() {
 
   const utils = trpc.useUtils();
 
-  const { data: program, refetch: refetchProgram } = trpc.restaurant.getLoyaltyProgram.useQuery(
+  const {isLoading, data: program, refetch: refetchProgram} = trpc.restaurant.getLoyaltyProgram.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
@@ -59,6 +59,17 @@ export default function RestaurantLoyalty() {
   const prog: any = program ?? {};
   const acct: any = account ?? {};
   const hist: any[] = (history as any) ?? [];
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

@@ -12,7 +12,7 @@ export default function TaxWithholding() {
   const [txType, setTxType] = useState<"goods" | "services" | "rent" | "dividend" | "interest">("services");
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const year = parseInt(period.slice(0, 4));
-  const { data: summary } = trpc.tier6to8.taxWithholding.getTaxSummary.useQuery({ year });
+  const { isLoading, data: summary } = trpc.tier6to8.taxWithholding.getTaxSummary.useQuery({ year });
   const calcQuery = trpc.tier6to8.taxWithholding.calculateWithholding.useQuery(
     { transactionAmountKobo: Math.round(parseFloat(txAmount || "0") * 100), transactionType: txType, vendorType: "company" },
     { enabled: parseFloat(txAmount) > 0 }
@@ -25,6 +25,17 @@ export default function TaxWithholding() {
     onSuccess: (d: any) => { window.open(d.certificateUrl, "_blank"); toast.success("Tax certificate generated"); },
     onError: (e: any) => toast.error(e.message),
   });
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

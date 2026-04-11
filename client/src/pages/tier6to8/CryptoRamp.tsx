@@ -12,7 +12,7 @@ export default function CryptoRamp() {
   const [crypto, setCrypto] = useState<"USDC" | "USDT" | "BTC" | "ETH">("USDC");
   const [fiatAmount, setFiatAmount] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
-  const { data: quote } = trpc.tier6to8.cryptoRamp.getQuote.useQuery(
+  const { isLoading, data: quote } = trpc.tier6to8.cryptoRamp.getQuote.useQuery(
     { direction, cryptoCurrency: crypto, fiatAmountKobo: Math.round(parseFloat(fiatAmount || "0") * 100) },
     { enabled: parseFloat(fiatAmount) > 0 }
   );
@@ -21,6 +21,17 @@ export default function CryptoRamp() {
     onSuccess: (d: any) => toast.success(`Ramp initiated — Ref: ${d.transactionId}`),
     onError: (e: any) => toast.error(e.message),
   });
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

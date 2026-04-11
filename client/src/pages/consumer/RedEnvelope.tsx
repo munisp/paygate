@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Gift, Share2, CheckCircle, Loader2, ArrowLeft, Copy, Clock } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 // ─── Claim View (when visiting /consumer/red-envelope/:id) ───────────────────
 function ClaimView({ envelopeId }: { envelopeId: string }) {
@@ -65,6 +66,17 @@ function ClaimView({ envelopeId }: { envelopeId: string }) {
   const isFull = envelope.claimedSlots >= envelope.slots;
   const canClaim = envelope.status === "active" && !isExpired && !isFull;
   const perSlotAvg = (envelope.totalAmountKobo / envelope.slots / 100).toFixed(0);
+
+  if (!isLoading && !envelope) {
+    return (
+      <div className="p-6">
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-red-500 to-red-700 flex items-center justify-center p-4">

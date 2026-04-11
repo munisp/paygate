@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { RefreshCw, Shield, Zap, AlertTriangle } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 function formatNGN(kobo: number) {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(kobo / 100);
@@ -30,6 +31,17 @@ export default function ChargebackAutomation() {
     lost: "bg-gray-100 text-gray-800",
     withdrawn: "bg-blue-100 text-blue-800",
   };
+
+  if (!isLoading && !chargebacks) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

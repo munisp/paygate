@@ -11,7 +11,7 @@ export default function WealthManagement() {
   const [goalTarget, setGoalTarget] = useState("");
   const [goalDate, setGoalDate] = useState("");
 
-  const { data: portfolio } = trpc.newFeatures.wealthManagement.getPortfolioSummary.useQuery();
+  const {isLoading, data: portfolio} = trpc.newFeatures.wealthManagement.getPortfolioSummary.useQuery();
   const { data: riskProfile } = trpc.newFeatures.wealthManagement.getRiskProfile.useQuery();
   const { data: recommendations } = trpc.newFeatures.wealthManagement.getRecommendations.useQuery();
   const { data: goals } = trpc.newFeatures.wealthManagement.getGoals.useQuery();
@@ -24,6 +24,17 @@ export default function WealthManagement() {
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const riskColors: Record<string, string> = { Conservative: "text-green-600", Moderate: "text-yellow-600", Aggressive: "text-red-600" };
   const assetColors = ["bg-blue-500", "bg-green-500", "bg-yellow-500", "bg-purple-500", "bg-orange-500", "bg-cyan-500"];
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

@@ -30,7 +30,7 @@ export default function ConsumerQuickPay() {
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<"pay" | "receive">("pay");
 
-  const { data: walletData } = trpc.consumerWallet.getBalance.useQuery({}, { staleTime: 30_000 });
+  const {isLoading, data: walletData} = trpc.consumerWallet.getBalance.useQuery({}, { staleTime: 30_000 });
   const { data: txData } = trpc.consumerWallet.history.useQuery({ limit: 5, offset: 0 }, { staleTime: 30_000 });
   const balance = walletData?.balanceKobo ?? 0;
   const transactions = txData?.rows ?? [];
@@ -64,6 +64,17 @@ export default function ConsumerQuickPay() {
 
   const formatAmount = (kobo: number) =>
     new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(kobo / 100);
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="min-h-screen bg-background pb-24">

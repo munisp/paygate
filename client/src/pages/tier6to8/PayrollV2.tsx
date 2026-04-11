@@ -8,7 +8,7 @@ import { Users, CheckCircle } from "lucide-react";
 
 export default function PayrollV2() {
   const [payPeriod, setPayPeriod] = useState(new Date().toISOString().slice(0, 7));
-  const { data: runs, refetch } = trpc.tier6to8.payrollV2.getPayrollRuns.useQuery({});
+  const { isLoading, data: runs, refetch } = trpc.tier6to8.payrollV2.getPayrollRuns.useQuery({});
   const createMutation = trpc.tier6to8.payrollV2.createPayrollRun.useMutation({
     onSuccess: (d: any) => { toast.success(`Payroll run created — ${d.employeeCount} employees, \u20a6${(d.totalGrossKobo / 100).toLocaleString()}`); refetch(); },
     onError: (e: any) => toast.error(e.message),
@@ -23,6 +23,17 @@ export default function PayrollV2() {
   });
   const statusColor = (s: string): "default" | "destructive" | "secondary" =>
     s === "completed" ? "default" : s === "failed" ? "destructive" : "secondary";
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

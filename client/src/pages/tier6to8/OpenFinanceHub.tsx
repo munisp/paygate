@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Link2, Database } from "lucide-react";
 const PROVIDERS = [{ id: "mono", name: "Mono", logo: "🏦" }, { id: "okra", name: "Okra", logo: "🔗" }, { id: "stitch", name: "Stitch", logo: "🧵" }, { id: "plaid", name: "Plaid", logo: "🔐" }];
 export default function OpenFinanceHub() {
-  const { data: providers, refetch } = trpc.tier6to8.openFinance.getConnectedProviders.useQuery();
+  const { isLoading, data: providers, refetch } = trpc.tier6to8.openFinance.getConnectedProviders.useQuery();
   const { data: insights } = trpc.tier6to8.openFinance.getDataInsights.useQuery({ providerId: "mono" });
   const connectMutation = trpc.tier6to8.openFinance.connectProvider.useMutation({
     onSuccess: (d: any) => { window.open(d.authUrl, "_blank"); toast.success("Opening provider auth..."); refetch(); },
@@ -16,6 +16,12 @@ export default function OpenFinanceHub() {
     onSuccess: () => { toast.success("Provider disconnected"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { RefreshCw, AlertTriangle, Eye, CheckCircle, XCircle } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 function formatNGN(kobo: number) {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(kobo / 100);
@@ -31,6 +32,17 @@ export default function AMLMonitor() {
     high: "bg-orange-100 text-orange-800",
     critical: "bg-red-100 text-red-800",
   };
+
+  if (!isLoading && !alerts) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

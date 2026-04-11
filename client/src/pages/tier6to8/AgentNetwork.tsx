@@ -13,18 +13,22 @@ export default function AgentNetwork() {
   const [showOnboard, setShowOnboard] = useState(false);
   const [form, setForm] = useState({ agentName: "", phoneNumber: "", bvn: "", nin: "", address: "", lga: "", state: "", terminalType: "POS" as "POS" | "mobile" | "kiosk", cashFloatLimitKobo: 500000 });
 
-  const networkQuery = trpc.tier6to8.agentBankingV2.getAgentNetwork.useQuery(undefined, { enabled: !!user });
+  const { data, isLoading, refetch } = trpc.tier6to8.agentBankingV2.getAgentNetwork.useQuery(undefined, { enabled: !!user });
 
   const onboardMutation = trpc.tier6to8.agentBankingV2.onboardAgent.useMutation({
-    onSuccess: (data) => {
-      toast("Agent onboarded", { description: `Agent code: ${data.agentCode}` });
-      networkQuery.refetch();
+    onSuccess: (agentData) => {
+      toast("Agent onboarded", { description: `Agent code: ${agentData.agentCode}` });
+      refetch();
       setShowOnboard(false);
     },
     onError: (e: any) => toast("Onboarding failed", { description: e.message }),
   });
 
-  const data = networkQuery.data;
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -34,7 +38,7 @@ export default function AgentNetwork() {
           <p className="text-muted-foreground">Manage agents, float balances, and commissions</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => networkQuery.refetch()} variant="outline" size="sm">
+          <Button onClick={() => refetch()} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" /> Refresh
           </Button>
           <Button onClick={() => setShowOnboard(true)} size="sm">

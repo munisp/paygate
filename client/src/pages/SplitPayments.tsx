@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Split, Plus, Trash2, RefreshCw, CheckCircle } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 function formatNGN(kobo: number) {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(kobo / 100);
@@ -45,6 +46,17 @@ export default function SplitPayments() {
     setSplits(s => s.map((sp, idx) => idx === i ? { ...sp, [field]: value } : sp));
 
   const totalPct = splits.filter(s => s.splitType === "percentage").reduce((acc, s) => acc + (s.value || 0), 0);
+
+  if (!isLoading && !rules) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

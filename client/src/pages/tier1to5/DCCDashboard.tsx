@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { RefreshCw, Globe, TrendingUp, Lock } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "ZAR", "KES", "GHS"];
 
@@ -27,6 +28,17 @@ export default function DCCDashboard() {
     onSuccess: () => toast.success("DCC margin updated."),
     onError: (err: any) => toast.error(err.message),
   });
+
+  if (!isLoading && !rates) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

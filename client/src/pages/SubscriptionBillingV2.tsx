@@ -18,7 +18,7 @@ export default function SubscriptionBillingV2() {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
 
-  const { data: plans, refetch: refetchPlans } = trpc.newFeatures.subscriptionBillingV2.listPlans.useQuery();
+  const { isLoading, data: plans, refetch: refetchPlans } = trpc.newFeatures.subscriptionBillingV2.listPlans.useQuery();
   const { data: subscribers } = trpc.newFeatures.subscriptionBillingV2.listSubscribers.useQuery({ planId: selectedPlan ?? undefined, page: 1 });
   const { data: churn } = trpc.newFeatures.subscriptionBillingV2.getChurnAnalytics.useQuery({ period: "30d" });
 
@@ -37,6 +37,17 @@ export default function SubscriptionBillingV2() {
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const statusColors: Record<string, string> = { active: "bg-green-100 text-green-700", cancelled: "bg-red-100 text-red-700", past_due: "bg-orange-100 text-orange-700", trialing: "bg-blue-100 text-blue-700" };
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

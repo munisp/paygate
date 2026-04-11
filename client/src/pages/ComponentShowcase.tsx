@@ -172,6 +172,7 @@ import {
 import { useState } from "react";
 import { toast as sonnerToast } from "sonner";
 import { AIChatBox, type Message } from "@/components/AIChatBox";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function ComponentsShowcase() {
   const { theme, toggleTheme } = useTheme();

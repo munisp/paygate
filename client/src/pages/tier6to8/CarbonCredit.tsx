@@ -10,7 +10,7 @@ import { Leaf, Award, BarChart3 } from "lucide-react";
 export default function CarbonCredit() {
   const [selectedYear, setSelectedYear] = useState(2026);
   const [purchaseForm, setPurchaseForm] = useState({ listingId: "", tonnes: 1, retirementPurpose: "Scope 1 emissions offset" });
-  const { data: listings } = trpc.tier6to8.carbonCredit.getListings.useQuery({});
+  const { isLoading, data: listings } = trpc.tier6to8.carbonCredit.getListings.useQuery({});
   const { data: certificates } = trpc.tier6to8.carbonCredit.getMyCertificates.useQuery();
   const { data: report } = trpc.tier6to8.carbonCredit.getEmissionsReport.useQuery({ year: selectedYear });
   const purchaseMutation = trpc.tier6to8.carbonCredit.purchaseCredits.useMutation({
@@ -19,6 +19,17 @@ export default function CarbonCredit() {
   });
 
   const scoreColor = report?.score === "A" ? "text-green-600" : report?.score === "B" ? "text-yellow-600" : "text-red-600";
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

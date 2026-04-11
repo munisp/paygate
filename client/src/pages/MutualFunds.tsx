@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function MutualFunds() {
   const [category, setCategory] = useState<"equity" | "debt" | "hybrid" | "money_market" | "all">("all");
@@ -22,6 +23,17 @@ export default function MutualFunds() {
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const riskColor = (r: string) => ({ Low: "bg-green-100 text-green-700", Moderate: "bg-yellow-100 text-yellow-700", High: "bg-red-100 text-red-700" }[r] ?? "bg-gray-100 text-gray-700");
+
+  if (!isLoading && !fundsData) {
+    return (
+      <div className="p-6">
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">

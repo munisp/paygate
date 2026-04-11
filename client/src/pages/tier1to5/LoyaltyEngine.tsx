@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { RefreshCw, Star, Gift, TrendingUp, Users } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function LoyaltyEngine() {
   const [redeemPoints, setRedeemPoints] = useState("");
@@ -31,6 +32,17 @@ export default function LoyaltyEngine() {
     gold: "text-yellow-600 bg-yellow-50 border-yellow-200",
     platinum: "text-purple-600 bg-purple-50 border-purple-200",
   };
+
+  if (!isLoading && !account) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

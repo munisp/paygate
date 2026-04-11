@@ -813,13 +813,29 @@ const reconciliationProxyRouter = router({
       return getReconciliationStats(input.merchantId ?? null);
     }),
   listAlerts: protectedProcedure
-    .input(z.object({ merchantId: z.string().optional(), status: z.string().optional(), limit: z.number().optional() }))
-    .query(async () => {
+    .input(z.object({
+      merchantId: z.string().optional(),
+      status: z.string().optional(),
+      limit: z.number().min(1).max(100).default(20),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) return [];
+      if (!db) return { alerts: [], total: 0 };
       const { reconciliationAlerts } = await import('../drizzle/schema');
-      const { desc: descOp } = await import('drizzle-orm');
-      return db.select().from(reconciliationAlerts).orderBy(descOp(reconciliationAlerts.createdAt)).limit(20);
+      const { desc: descOp, eq: eqOp, count, and } = await import('drizzle-orm');
+      const conditions = [];
+      if (input.status) conditions.push(eqOp(reconciliationAlerts.status, input.status as any));
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const [alerts, [{ total }]] = await Promise.all([
+        db.select().from(reconciliationAlerts)
+          .where(whereClause)
+          .orderBy(descOp(reconciliationAlerts.createdAt))
+          .limit(input.limit)
+          .offset(input.offset),
+        db.select({ total: count() }).from(reconciliationAlerts).where(whereClause),
+      ]);
+      return { alerts, total };
     }),
   dismissAlert: protectedProcedure
     .input(z.object({ alertId: z.string() }))

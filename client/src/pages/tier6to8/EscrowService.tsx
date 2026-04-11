@@ -9,7 +9,7 @@ import { Shield } from "lucide-react";
 
 export default function EscrowService() {
   const [form, setForm] = useState({ buyerId: "", sellerId: "", amountKobo: "", description: "", releaseDays: 7 });
-  const { data: escrows } = trpc.tier6to8.escrow.getEscrows.useQuery({ status: "all" });
+  const { isLoading, data: escrows } = trpc.tier6to8.escrow.getEscrows.useQuery({ status: "all" });
   const createMutation = trpc.tier6to8.escrow.createEscrow.useMutation({
     onSuccess: (d: any) => toast.success(`Escrow created: ${d.escrowId}`),
     onError: (e: any) => toast.error(e.message),
@@ -25,6 +25,17 @@ export default function EscrowService() {
 
   const statusColor = (s: string): "default" | "destructive" | "secondary" =>
     s === "released" ? "default" : s === "disputed" ? "destructive" : "secondary";
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

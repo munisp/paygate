@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 interface ServiceInfo {
   name: string;

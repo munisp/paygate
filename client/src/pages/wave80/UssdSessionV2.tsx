@@ -8,12 +8,23 @@ import { trpc } from "@/lib/trpc";
 export default function UssdSessionV2() {
   const [tab, setTab] = useState("analytics");
 
-  const { data: analyticsData } = trpc.wave80.ussdSessionV2.getSessionAnalytics.useQuery({ period: "7d" });
+  const { isLoading, data: analyticsData } = trpc.wave80.ussdSessionV2.getSessionAnalytics.useQuery({ period: "7d" });
   const { data: menuData } = trpc.wave80.ussdSessionV2.getMenuFlow.useQuery();
   const { data: dropOffData } = trpc.wave80.ussdSessionV2.getDropOffAnalysis.useQuery({ period: "7d" });
 
   const analytics = analyticsData ?? { totalSessions: 0, completedSessions: 0, abandonedSessions: 0, avgSessionDuration: 0 };
   const menuFlow = menuData?.menus ?? [];
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { RefreshCw, Brain, TrendingUp, Users, BarChart3, Lightbulb } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 function formatNGN(kobo: number) {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(kobo / 100);
@@ -19,6 +20,17 @@ export default function AIInsights() {
   const periodDays = period === 'last_7_days' ? 7 : period === 'last_30_days' ? 30 : period === 'last_90_days' ? 90 : 365;
   const { data: insights, isLoading, refetch } = trpc.tier1to5.aiInsights.getInsights.useQuery({ periodDays });
   const { data: cohort } = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 });
+
+  if (!isLoading && !insights) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

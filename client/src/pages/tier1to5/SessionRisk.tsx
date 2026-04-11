@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { RefreshCw, Fingerprint, Shield, Clock, AlertTriangle } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function SessionRisk() {
   const { data: history, isLoading, refetch } = trpc.tier1to5.sessionRisk.getRiskHistory.useQuery({ limit: 50 });
@@ -21,6 +22,17 @@ export default function SessionRisk() {
     if (score < 60) return "Medium";
     return "High";
   };
+
+  if (!isLoading && !history) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

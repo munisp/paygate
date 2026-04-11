@@ -10,7 +10,7 @@ import { CreditCard } from "lucide-react";
 export default function BNPLv2() {
   const [customerId, setCustomerId] = useState("");
   const [amount, setAmount] = useState("");
-  const { data: loansData } = trpc.tier6to8.bnplV2.getLoans.useQuery({ status: "all" });
+  const { isLoading, data: loansData } = trpc.tier6to8.bnplV2.getLoans.useQuery({ status: "all" });
   const checkMutation = trpc.tier6to8.bnplV2.checkEligibility.useMutation({
     onSuccess: (d: any) => toast.success(`Score: ${d.creditScore} — Max: ₦${(d.maxAmountKobo / 100).toLocaleString()}`),
     onError: (e: any) => toast.error(e.message),
@@ -26,6 +26,17 @@ export default function BNPLv2() {
 
   const statusColor = (s: string): "default" | "destructive" | "secondary" =>
     s === "active" ? "default" : s === "defaulted" ? "destructive" : "secondary";
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

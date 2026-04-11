@@ -18,7 +18,7 @@ export default function InternationalRemittance() {
   const [recipientAccount, setRecipientAccount] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
 
-  const { data: corridors } = trpc.newFeatures.internationalRemittance.getCorridors.useQuery();
+  const {isLoading, data: corridors} = trpc.newFeatures.internationalRemittance.getCorridors.useQuery();
   const { data: transfers } = trpc.newFeatures.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 20 });
   const { data: quoteData } = trpc.newFeatures.internationalRemittance.getQuote.useQuery(
     quoteParams ?? { corridorId: "", sendAmountUSD: 0, deliveryMethod: "bank_transfer" },
@@ -35,6 +35,17 @@ export default function InternationalRemittance() {
   });
 
   const selectedCorridorData = corridors?.corridors?.find(c => c.id === selectedCorridor);
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

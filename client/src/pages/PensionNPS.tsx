@@ -11,7 +11,7 @@ export default function PensionNPS() {
   const [contribType, setContribType] = useState<"voluntary" | "mandatory">("voluntary");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  const { data: account } = trpc.newFeatures.pension.getAccount.useQuery();
+  const {isLoading, data: account} = trpc.newFeatures.pension.getAccount.useQuery();
   const { data: pfas } = trpc.newFeatures.pension.listPFAs.useQuery();
   const { data: statements } = trpc.newFeatures.pension.getStatements.useQuery({ year: selectedYear });
 
@@ -21,6 +21,17 @@ export default function PensionNPS() {
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

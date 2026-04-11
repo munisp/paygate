@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 export default function APIDocsPortal() {
-  const { data: spec } = trpc.newFeatures.apiDocs.getOpenAPISpec.useQuery();
+  const {isLoading, data: spec} = trpc.newFeatures.apiDocs.getOpenAPISpec.useQuery();
   const { data: sdkInfo } = trpc.newFeatures.apiDocs.getSDKInfo.useQuery();
   const { data: changelog } = trpc.newFeatures.apiDocs.getChangelog.useQuery();
 
@@ -32,6 +32,17 @@ export default function APIDocsPortal() {
     PATCH: "bg-orange-100 text-orange-700",
     DELETE: "bg-red-100 text-red-700",
   };
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

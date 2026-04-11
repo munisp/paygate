@@ -8,7 +8,7 @@ import { toast } from "sonner";
 export default function PrivacyPayments() {
   const [privateId, setPrivateId] = useState<{ privateId: string; qrCode: string; expiresAt: string } | null>(null);
 
-  const { data: settings } = trpc.newFeatures.privacyPayments.getPrivacySettings.useQuery();
+  const {isLoading, data: settings} = trpc.newFeatures.privacyPayments.getPrivacySettings.useQuery();
   const { data: history } = trpc.newFeatures.privacyPayments.getPrivateTransactionHistory.useQuery({ page: 1, limit: 20 });
 
   const updateMutation = trpc.newFeatures.privacyPayments.updatePrivacySettings.useMutation({
@@ -38,6 +38,17 @@ export default function PrivacyPayments() {
       </button>
     </div>
   );
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

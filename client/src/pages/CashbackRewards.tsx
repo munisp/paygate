@@ -12,7 +12,7 @@ export default function CashbackRewards() {
   const [merchantCashbackPct, setMerchantCashbackPct] = useState("2");
   const [merchantMaxCashback, setMerchantMaxCashback] = useState("5000");
 
-  const { data: balance } = trpc.newFeatures.cashbackRewards.getBalance.useQuery();
+  const {isLoading, data: balance} = trpc.newFeatures.cashbackRewards.getBalance.useQuery();
   const { data: history } = trpc.newFeatures.cashbackRewards.getHistory.useQuery({ page: 1, limit: 10, type: "all" });
   const { data: campaigns } = trpc.newFeatures.cashbackRewards.getActiveCampaigns.useQuery();
   const { data: merchantConfig } = trpc.newFeatures.cashbackRewards.getMerchantCashbackConfig.useQuery();
@@ -28,6 +28,17 @@ export default function CashbackRewards() {
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const tierColors: Record<string, string> = { Bronze: "text-orange-600", Silver: "text-gray-500", Gold: "text-yellow-600", Platinum: "text-blue-600" };
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

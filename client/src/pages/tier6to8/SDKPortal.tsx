@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Key, Code, RefreshCw, Copy, RotateCcw, BarChart2 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function SDKPortal() {
   const { user } = useAuth();

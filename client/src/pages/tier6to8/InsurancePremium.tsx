@@ -10,7 +10,7 @@ import { Shield, Plus, CreditCard, FileText } from "lucide-react";
 
 export default function InsurancePremium() {
   const [enrollForm, setEnrollForm] = useState({ customerId: "", productId: "", phoneNumber: "", idNumber: "" });
-  const { data: products } = trpc.tier6to8.insurance.getProducts.useQuery();
+  const { isLoading, data: products } = trpc.tier6to8.insurance.getProducts.useQuery();
   const { data: policies } = trpc.tier6to8.insurance.getPolicies.useQuery({ status: "all" });
   const enrollMutation = trpc.tier6to8.insurance.enrollCustomer.useMutation({
     onSuccess: () => { toast.success("Customer enrolled successfully"); setEnrollForm({ customerId: "", productId: "", phoneNumber: "", idNumber: "" }); },
@@ -20,6 +20,17 @@ export default function InsurancePremium() {
     onSuccess: () => toast.success("Premium collected"),
     onError: (e: any) => toast.error(e.message),
   });
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

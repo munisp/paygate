@@ -19,7 +19,7 @@ export default function ReportsCenter() {
   const [scheduleFreq, setScheduleFreq] = useState<"daily" | "weekly" | "monthly">("monthly");
   const [scheduleType, setScheduleType] = useState<"transactions" | "settlements" | "customers" | "tax">("transactions");
 
-  const { data: history } = trpc.newFeatures.reports.listReports.useQuery({ page: 1, limit: 20 });
+  const {isLoading, data: history} = trpc.newFeatures.reports.listReports.useQuery({ page: 1, limit: 20 });
   const { data: scheduled } = trpc.newFeatures.reports.getScheduledReports.useQuery();
 
   const txReportMutation = trpc.newFeatures.reports.generateTransactionReport.useMutation({
@@ -40,6 +40,17 @@ export default function ReportsCenter() {
   });
 
   const formatColors: Record<string, string> = { csv: "bg-green-100 text-green-700", pdf: "bg-red-100 text-red-700", xlsx: "bg-blue-100 text-blue-700" };
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

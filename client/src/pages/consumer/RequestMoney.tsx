@@ -16,12 +16,14 @@ import { toast } from "sonner";
 import { ArrowLeft, Share2, CheckCircle, XCircle, Clock, Loader2, Copy, Link } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 function PinDialog({ open, onClose, onConfirm, isPending, amount, requesterName }: {
   open: boolean; onClose: () => void; onConfirm: (pin: string) => void;
   isPending: boolean; amount: number; requesterName: string;
 }) {
   const [pin, setPin] = useState("");
+
   return (
     <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">

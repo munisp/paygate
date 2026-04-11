@@ -10,7 +10,7 @@ export default function ConsumerInsurance() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [claimPolicyId, setClaimPolicyId] = useState<string | null>(null);
 
-  const { data: products } = trpc.newFeatures.consumerInsurance.listProducts.useQuery({ type: typeFilter });
+  const {isLoading, data: products} = trpc.newFeatures.consumerInsurance.listProducts.useQuery({ type: typeFilter });
   const { data: policies } = trpc.newFeatures.consumerInsurance.getActivePolicies.useQuery();
   const { data: claims } = trpc.newFeatures.consumerInsurance.getClaims.useQuery();
 
@@ -25,6 +25,17 @@ export default function ConsumerInsurance() {
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const typeColor: Record<string, string> = { health: "bg-green-100 text-green-700", life: "bg-blue-100 text-blue-700", shop: "bg-orange-100 text-orange-700", device: "bg-purple-100 text-purple-700", travel: "bg-cyan-100 text-cyan-700" };
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

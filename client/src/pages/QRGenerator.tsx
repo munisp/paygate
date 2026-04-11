@@ -54,7 +54,7 @@ export default function QRGenerator() {
   const [selectedLinkId, setSelectedLinkId] = useState("");
   const [generatedUrl, setGeneratedUrl] = useState("");
 
-  const { data: merchantData } = trpc.settings.get.useQuery();
+  const {isLoading, data: merchantData} = trpc.settings.get.useQuery();
   const { data: linksData } = trpc.paymentLinks.list.useQuery();
 
   const merchantId = merchantData?.merchant?.id ?? "mid_demo";
@@ -86,6 +86,17 @@ export default function QRGenerator() {
     a.click();
     toast.success("QR code downloading...");
   }
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">

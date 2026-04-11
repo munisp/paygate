@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { ArrowLeft, ShieldCheck, Clock, CheckCircle, XCircle, Loader2, Upload } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 const STATUS_CONFIG = {
   pending: { label: "Pending Review", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", icon: Clock },
@@ -55,6 +56,17 @@ export default function ConsumerKYC() {
 
   const statusCfg = kycStatus ? STATUS_CONFIG[kycStatus] : null;
   const StatusIcon = statusCfg?.icon;
+
+  if (!isLoading && !kyc) {
+    return (
+      <div className="p-6">
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">

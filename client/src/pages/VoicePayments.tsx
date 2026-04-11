@@ -14,7 +14,7 @@ export default function VoicePayments() {
   const [language, setLanguage] = useState<"en" | "yo" | "ig" | "ha" | "pcm">("en");
   const [volume, setVolume] = useState("80");
 
-  const { data: devices, refetch } = trpc.newFeatures.voicePayments.getSoundboxDevices.useQuery();
+  const {isLoading, data: devices, refetch} = trpc.newFeatures.voicePayments.getSoundboxDevices.useQuery();
   const { data: alerts } = trpc.newFeatures.voicePayments.getPaymentAlerts.useQuery(
     { deviceId: selectedDevice ?? "" },
     { enabled: !!selectedDevice }
@@ -39,6 +39,17 @@ export default function VoicePayments() {
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const statusColor = (s: string) => ({ online: "bg-green-100 text-green-700", offline: "bg-red-100 text-red-700", idle: "bg-yellow-100 text-yellow-700" }[s] ?? "bg-gray-100 text-gray-700");
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

@@ -2437,3 +2437,20 @@
 - [x] USSD sessions: ussd_sessions schema, ussdRouter (list/stats/ingest), USSDSessions.tsx wired
 - [x] Production hardening verified: helmet, rate-limit, CSP, health-check, default env constants all present
 - [x] All 1908 tests pass (55 test files)
+
+### Wave 85 — Production Completeness & Comprehensive Archive
+- [x] Add customer.subscription.* Stripe webhook handlers (checkout.session.completed portal type, subscription.updated, subscription.deleted, invoice.paid, invoice.payment_failed)
+- [x] Add pagination (offset/limit) to reconciliation.listAlerts backend procedure
+- [x] Make Billing.tsx plan comparison table dynamic from listPlans API
+- [x] Add generic dispatchWebhook helper for all event types in webhookDispatch.ts
+- [x] Webhook events already wired via webhookEventHooks.ts for all mutations (gold purchase, insurance, remittance, pension, cashback)
+- [x] Add seed-wave85-complete.mjs for all Wave 76/77/80 tables
+- [x] Add server/validation.test.ts with 35 comprehensive validation tests
+- [x] Add BridgeEmptyState component and wire to 41 bridge-dependent pages
+- [x] Add loading spinners to 39 pages missing isLoading handling
+- [x] Add client/src/lib/validation.ts with 15 form validation utilities
+- [x] Fix ReconciliationAlerts pagination UI (wire offset to backend)
+- [x] Add PRODUCTION.md comprehensive production guide
+- [x] 56 test files, 1943 tests passing
+- [x] 0 TypeScript errors
+- [x] Generate comprehensive archive from /home/ubuntu (all directories, no exclusions)

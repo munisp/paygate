@@ -12,7 +12,7 @@ export default function SalaryAccounts() {
   const [expectedSalary, setExpectedSalary] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
 
-  const { data: account } = trpc.newFeatures.salaryAccounts.getAccount.useQuery();
+  const {isLoading, data: account} = trpc.newFeatures.salaryAccounts.getAccount.useQuery();
   const { data: transactions } = trpc.newFeatures.salaryAccounts.getTransactions.useQuery({ page: 1, limit: 20 });
 
   const openMutation = trpc.newFeatures.salaryAccounts.openAccount.useMutation({
@@ -26,6 +26,17 @@ export default function SalaryAccounts() {
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
   const txTypeColor = (t: string) => ({ credit: "text-green-600", debit: "text-red-600" }[t] ?? "text-gray-600");
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

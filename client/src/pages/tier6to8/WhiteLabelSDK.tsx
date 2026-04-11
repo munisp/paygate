@@ -8,7 +8,7 @@ import { Code2, Palette, Key } from "lucide-react";
 export default function WhiteLabelSDK() {
   const [primaryColor, setPrimaryColor] = useState("#1a56db");
   const [logoUrl, setLogoUrl] = useState("");
-  const { data: config, refetch } = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery();
+  const { isLoading, data: config, refetch } = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery();
   const { data: guide } = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform: "web" });
   const { data: analytics } = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period: "30d" });
   const updateMutation = trpc.tier6to8.whiteLabelSDK.updateBranding.useMutation({
@@ -19,6 +19,12 @@ export default function WhiteLabelSDK() {
     onSuccess: (d: any) => { toast.success(`New SDK key: ${d.sdkKey.slice(0, 20)}...`); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">

@@ -240,7 +240,7 @@ export default function Billing() {
         </div>
       </div>
 
-      {/* Feature Access Matrix */}
+      {/* Feature Access Matrix — dynamic from listPlans API */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -254,35 +254,45 @@ export default function Billing() {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-2 pr-4 font-medium">Feature</th>
-                  {["Free", "Starter", "Growth", "Enterprise"].map((p: any) => (
-                    <th key={p} className="text-center py-2 px-3 font-medium">{p}</th>
+                  {(plans ?? []).map((p: any) => (
+                    <th key={p.key} className="text-center py-2 px-3 font-medium">{p.name}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
+                {/* Always-available core features */}
                 {[
-                  { name: "Dashboard & Analytics", free: true, starter: true, growth: true, enterprise: true },
-                  { name: "Transactions & Payouts", free: true, starter: true, growth: true, enterprise: true },
-                  { name: "Payment Links & Webhooks", free: true, starter: true, growth: true, enterprise: true },
-                  { name: "Reports Center", free: false, starter: true, growth: true, enterprise: true },
-                  { name: "AI Insights V2", free: false, starter: true, growth: true, enterprise: true },
-                  { name: "Cashback & Rewards", free: false, starter: true, growth: true, enterprise: true },
-                  { name: "EMI Checkout", free: false, starter: true, growth: true, enterprise: true },
-                  { name: "Bulk Collections", free: false, starter: true, growth: true, enterprise: true },
-                  { name: "Wealth Management", free: false, starter: false, growth: true, enterprise: true },
-                  { name: "Subscription Billing V2", free: false, starter: false, growth: true, enterprise: true },
-                  { name: "Digital Gold & Mutual Funds", free: false, starter: false, growth: true, enterprise: true },
-                  { name: "International Remittance", free: false, starter: false, growth: true, enterprise: true },
-                  { name: "Nodal Accounts", free: false, starter: false, growth: false, enterprise: true },
-                  { name: "Salary Accounts", free: false, starter: false, growth: false, enterprise: true },
-                  { name: "Privacy Payments", free: false, starter: false, growth: false, enterprise: true },
-                  { name: "API Docs Portal (White-label)", free: false, starter: false, growth: false, enterprise: true },
+                  { name: "Dashboard & Analytics" },
+                  { name: "Transactions & Payouts" },
+                  { name: "Payment Links & Webhooks" },
+                  { name: "Virtual Cards" },
+                  { name: "Customer Management" },
                 ].map((row) => (
                   <tr key={row.name} className="hover:bg-muted/30">
                     <td className="py-2 pr-4 text-foreground">{row.name}</td>
-                    {(["free", "starter", "growth", "enterprise"] as const).map((p: any) => (
-                      <td key={p} className="text-center py-2 px-3">
-                        {row[p as keyof typeof row] ? (
+                    {(plans ?? []).map((p: any) => (
+                      <td key={p.key} className="text-center py-2 px-3">
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {/* Feature-flag gated features */}
+                {[
+                  { name: "Reports Center", flag: "reportsCenter" },
+                  { name: "AI Insights V2", flag: "aiInsightsV2" },
+                  { name: "Wealth Management", flag: "wealthManagement" },
+                  { name: "Subscription Billing V2", flag: "subscriptionBillingV2" },
+                  { name: "Digital Gold & Mutual Funds", flag: "digitalGold" },
+                  { name: "International Remittance", flag: "internationalRemittance" },
+                  { name: "Nodal Accounts", flag: "nodalAccounts" },
+                  { name: "Salary Accounts", flag: "salaryAccounts" },
+                ].map((row) => (
+                  <tr key={row.name} className="hover:bg-muted/30">
+                    <td className="py-2 pr-4 text-foreground">{row.name}</td>
+                    {(plans ?? []).map((p: any) => (
+                      <td key={p.key} className="text-center py-2 px-3">
+                        {p.featureFlags?.[row.flag] ? (
                           <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />
                         ) : (
                           <span className="text-muted-foreground/40">—</span>

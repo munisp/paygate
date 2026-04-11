@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { Banknote, TrendingUp, Clock, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 function formatNGN(kobo: number) {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(kobo / 100);
@@ -42,6 +43,17 @@ export default function MerchantLending() {
     rejected: "bg-red-100 text-red-800",
     completed: "bg-gray-100 text-gray-800",
   };
+
+  if (!isLoading && !loans) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

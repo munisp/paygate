@@ -8,7 +8,7 @@ import { FlaskConical, Play, CheckCircle } from "lucide-react";
 
 export default function RegulatorySandbox() {
   const [selectedScenario, setSelectedScenario] = useState("");
-  const { data: status } = trpc.tier6to8.regulatorySandbox.getSandboxStatus.useQuery();
+  const { isLoading, data: status } = trpc.tier6to8.regulatorySandbox.getSandboxStatus.useQuery();
   const { data: scenarios } = trpc.tier6to8.regulatorySandbox.getTestScenarios.useQuery();
   const enableMutation = trpc.tier6to8.regulatorySandbox.enableSandbox.useMutation({
     onSuccess: (d: any) => toast.success(`Sandbox enabled — ID: ${d.sandboxId}`),
@@ -22,6 +22,17 @@ export default function RegulatorySandbox() {
     onSuccess: (d: any) => toast.success(`Submitted for CBN approval — Ref: ${d.submissionRef}`),
     onError: (e: any) => toast.error(e.message),
   });
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

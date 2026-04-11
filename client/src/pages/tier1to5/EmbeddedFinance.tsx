@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Code, Webhook, Activity, Copy, Plus, RefreshCw } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 const WEBHOOK_EVENTS = [
   "payment.completed", "payment.failed", "payment.pending",
@@ -52,6 +53,17 @@ pg.checkout({
   onSuccess: (ref) => console.log('Paid:', ref),
   onClose: () => console.log('Closed'),
 });`;
+
+  if (!isLoading && !webhooks) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

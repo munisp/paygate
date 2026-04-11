@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Zap, Wifi, Phone, Tv, Droplets, CheckCircle, Loader2, ArrowLeft, Clock } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 const ICON_MAP: Record<string, React.ElementType> = {
   electricity: Zap, internet: Wifi, airtime: Phone, cable: Tv, water: Droplets, data: Wifi,
@@ -32,6 +33,7 @@ function PinDialog({ open, onClose, onConfirm, isPending }: {
   open: boolean; onClose: () => void; onConfirm: (pin: string) => void; isPending: boolean;
 }) {
   const [pin, setPin] = useState("");
+
   return (
     <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">

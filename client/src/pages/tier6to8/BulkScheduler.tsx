@@ -11,7 +11,7 @@ export default function BulkScheduler() {
   const [name, setName] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [payments, setPayments] = useState("");
-  const { data: schedules } = trpc.tier6to8.bulkScheduler.getSchedules.useQuery({ status: "all" });
+  const { isLoading, data: schedules } = trpc.tier6to8.bulkScheduler.getSchedules.useQuery({ status: "all" });
   const createMutation = trpc.tier6to8.bulkScheduler.createSchedule.useMutation({
     onSuccess: (d: any) => toast.success(`Schedule created: ${d.scheduleId}`),
     onError: (e: any) => toast.error(e.message),
@@ -31,6 +31,17 @@ export default function BulkScheduler() {
 
   const statusColor = (s: string): "default" | "destructive" | "secondary" =>
     s === "completed" ? "default" : s === "failed" ? "destructive" : "secondary";
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

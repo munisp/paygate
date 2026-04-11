@@ -76,7 +76,7 @@ export default function DeveloperSandbox() {
   const [results, setResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
-  const { data: apiKeys } = trpc.apiKeys.list.useQuery();
+  const {isLoading, data: apiKeys} = trpc.apiKeys.list.useQuery();
   const { data: webhooks } = trpc.webhooks.list.useQuery();
 
   function handleEventTypeChange(type: string) {
@@ -126,6 +126,17 @@ export default function DeveloperSandbox() {
     navigator.clipboard.writeText(key);
     toast.success("API key copied");
   }
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">

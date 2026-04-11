@@ -16,7 +16,7 @@ export default function NodalAccounts() {
   const [destBank, setDestBank] = useState("044");
   const [narration, setNarration] = useState("");
 
-  const { data: accounts, refetch } = trpc.newFeatures.nodalAccounts.listNodalAccounts.useQuery();
+  const {isLoading, data: accounts, refetch} = trpc.newFeatures.nodalAccounts.listNodalAccounts.useQuery();
   const { data: txHistory } = trpc.newFeatures.nodalAccounts.getNodalTransactions.useQuery(
     { accountId: selectedAccount ?? "" },
     { enabled: !!selectedAccount }
@@ -38,6 +38,17 @@ export default function NodalAccounts() {
     { code: "044", name: "Access Bank" }, { code: "058", name: "GTBank" }, { code: "057", name: "Zenith Bank" },
     { code: "033", name: "UBA" }, { code: "011", name: "First Bank" }, { code: "032", name: "Union Bank" },
   ];
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

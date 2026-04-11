@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { ArrowLeft, UserPlus, User, Trash2, Send, Search, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function Contacts() {
   useOnboardingGate();
@@ -45,6 +46,17 @@ export default function Contacts() {
     onSuccess: () => { toast.success("Contact removed"); utils.contacts.list.invalidate(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
+
+  if (!isLoading && !data) {
+    return (
+      <div className="p-6">
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">

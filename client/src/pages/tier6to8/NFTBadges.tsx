@@ -8,11 +8,17 @@ import { Gem, Zap } from "lucide-react";
 
 export default function NFTBadges() {
   const [mintForm, setMintForm] = useState({ collectionId: "", customerId: "", tier: "bronze" });
-  const { data: collections } = trpc.tier6to8.nftBadges.getCollections.useQuery();
+  const { isLoading, data: collections } = trpc.tier6to8.nftBadges.getCollections.useQuery();
   const mintMutation = trpc.tier6to8.nftBadges.mintBadge.useMutation({
     onSuccess: (d: any) => toast.success(`Badge minted — Token #${d.tokenId}`),
     onError: (e: any) => toast.error(e.message),
   });
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">

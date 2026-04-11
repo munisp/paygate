@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { RefreshCw, Building, FileText, CheckCircle, Clock, Download } from "lucide-react";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function KYBWorkflow() {
   const [showSubmit, setShowSubmit] = useState(false);
@@ -38,6 +39,17 @@ export default function KYBWorkflow() {
     rejected: "bg-red-100 text-red-800",
     requires_update: "bg-orange-100 text-orange-800",
   };
+
+  if (!isLoading && !status) {
+    return (
+      <DashboardLayout>
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>

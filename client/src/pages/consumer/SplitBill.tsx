@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Users, Plus, Trash2, Copy, Loader2, Share2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 interface Participant {
   name: string;
@@ -69,6 +70,17 @@ export default function SplitBill() {
     const link = `${window.location.origin}/consumer/split/${sessionId}`;
     navigator.clipboard.writeText(link).then(() => toast.success("Link copied!")).catch(() => {});
   };
+
+  if (!isLoading && !sessions) {
+    return (
+      <div className="p-6">
+        <BridgeEmptyState
+          variant="offline"
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">

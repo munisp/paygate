@@ -9,7 +9,7 @@ import { Zap, Clock } from "lucide-react";
 
 export default function RTGSDashboard() {
   const [form, setForm] = useState({ beneficiaryBank: "", beneficiaryAccount: "", beneficiaryName: "", amountKobo: "", narration: "" });
-  const { data: history } = trpc.tier6to8.rtgs.getRTGSHistory.useQuery({ limit: 20 });
+  const { isLoading, data: history } = trpc.tier6to8.rtgs.getRTGSHistory.useQuery({ limit: 20 });
   const { data: limits } = trpc.tier6to8.rtgs.getRTGSLimits.useQuery();
   const initiateMutation = trpc.tier6to8.rtgs.initiateRTGS.useMutation({
     onSuccess: (d: any) => toast.success(`RTGS initiated — Ref: ${d.rtgsRef}`),
@@ -18,6 +18,17 @@ export default function RTGSDashboard() {
 
   const statusColor = (s: string): "default" | "destructive" | "secondary" =>
     s === "settled" ? "default" : s === "failed" ? "destructive" : "secondary";
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

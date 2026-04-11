@@ -69,13 +69,14 @@ export default function ReconciliationAlerts() {
   const { data, isLoading, refetch } = trpc.wave80.reconciliation.listAlerts.useQuery({
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
   });
 
   const updateMutation = trpc.wave80.reconciliation.updateAlert.useMutation({
     onSuccess: () => {
       toast.success("Alert status updated");
-      utils.reconciliation.listAlerts.invalidate();
-      utils.reconciliation.getStats.invalidate();
+      utils.wave80.reconciliation.listAlerts.invalidate();
+      utils.wave80.reconciliation.getStats.invalidate();
       setUpdateDialogOpen(false);
       setSelectedAlert(null);
       setUpdateNotes("");
@@ -86,14 +87,14 @@ export default function ReconciliationAlerts() {
   const dismissMutation = trpc.wave80.reconciliation.dismissAlert.useMutation({
     onSuccess: () => {
       toast.success("Alert dismissed");
-      utils.reconciliation.listAlerts.invalidate();
-      utils.reconciliation.getStats.invalidate();
+      utils.wave80.reconciliation.listAlerts.invalidate();
+      utils.wave80.reconciliation.getStats.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
 
-  const alerts = (data as any[]) ?? [];
-  const total = alerts.length;
+  const alerts = (data as any)?.alerts ?? [];
+  const total = (data as any)?.total ?? 0;
 
   const filteredAlerts = search
     ? alerts.filter(
@@ -226,7 +227,7 @@ export default function ReconciliationAlerts() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAlerts.map((alert) => {
+                    {filteredAlerts.map((alert: any) => {
                       const cfg = STATUS_CONFIG[alert.status as AlertStatus] ?? STATUS_CONFIG.open;
                       const Icon = cfg.icon;
                       return (

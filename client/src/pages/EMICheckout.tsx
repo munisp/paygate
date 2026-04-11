@@ -13,7 +13,7 @@ export default function EMICheckout() {
   const [subsidyPct, setSubsidyPct] = useState("0");
   const [minOrder, setMinOrder] = useState("10000");
 
-  const { data: plans } = trpc.newFeatures.emiCheckout.getEMIPlans.useQuery(
+  const {isLoading, data: plans} = trpc.newFeatures.emiCheckout.getEMIPlans.useQuery(
     { amountKobo: Math.round(parseFloat(purchaseAmount) * 100) },
     { enabled: parseFloat(purchaseAmount) > 0 }
   );
@@ -29,6 +29,17 @@ export default function EMICheckout() {
   });
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

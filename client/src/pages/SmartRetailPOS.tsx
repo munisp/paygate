@@ -17,7 +17,7 @@ export default function SmartRetailPOS() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [lastSale, setLastSale] = useState<{ saleId: string; totalAmountKobo: number; receiptUrl: string; loyaltyPointsEarned: number } | null>(null);
 
-  const { data: config } = trpc.newFeatures.smartRetailPOS.getRetailConfig.useQuery();
+  const {isLoading, data: config} = trpc.newFeatures.smartRetailPOS.getRetailConfig.useQuery();
   const { data: alerts } = trpc.newFeatures.smartRetailPOS.getInventoryAlerts.useQuery();
   const { data: dailySummary } = trpc.newFeatures.smartRetailPOS.getDailySalesSummary.useQuery({ date: selectedDate });
 
@@ -42,6 +42,17 @@ export default function SmartRetailPOS() {
   const removeItem = (i: number) => setCart(prev => prev.filter((_, idx) => idx !== i));
 
   const cartTotal = cart.reduce((sum, item) => sum + item.unitPriceKobo * item.quantity * (1 - item.discount / 100), 0);
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

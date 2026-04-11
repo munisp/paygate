@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowRight, Globe, RefreshCw, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
+import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 const CORRIDORS = [
   { label: "NGN → KES (Nigeria → Kenya)", source: "NGN", target: "KES", corridor: "NG-KE" },

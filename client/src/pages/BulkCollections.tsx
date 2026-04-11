@@ -15,7 +15,7 @@ export default function BulkCollections() {
   const [items, setItems] = useState<CollectionItem[]>([{ customerName: "", customerPhone: "", customerEmail: "", amountKobo: 0, reference: `ref_${Date.now()}` }]);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
-  const { data: collections, refetch } = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" });
+  const {isLoading, data: collections, refetch} = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" });
   const { data: details } = trpc.newFeatures.bulkCollections.getCollectionDetails.useQuery(
     { collectionId: selectedCollection ?? "" },
     { enabled: !!selectedCollection }
@@ -40,6 +40,17 @@ export default function BulkCollections() {
   const addItem = () => setItems(prev => [...prev, { customerName: "", customerPhone: "", customerEmail: "", amountKobo: 0, reference: `ref_${Date.now()}` }]);
   const updateItem = (i: number, field: keyof CollectionItem, value: string | number) =>
     setItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
+
+  if (isLoading) return (
+
+    <div className="flex items-center justify-center h-64">
+
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+
+    </div>
+
+  );
+
 
   return (
     <div className="p-6 space-y-6">

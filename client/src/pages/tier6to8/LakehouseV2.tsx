@@ -7,7 +7,7 @@ import { Database, Play, Save } from "lucide-react";
 export default function LakehouseV2() {
   const [sql, setSql] = useState("SELECT merchant_id, SUM(amount_kobo) as total FROM transactions GROUP BY merchant_id ORDER BY total DESC LIMIT 10");
   const [queryName, setQueryName] = useState("");
-  const { data: datasets } = trpc.tier6to8.lakehouseV2.getDatasets.useQuery();
+  const { isLoading, data: datasets } = trpc.tier6to8.lakehouseV2.getDatasets.useQuery();
   const { data: savedQueries } = trpc.tier6to8.lakehouseV2.getSavedQueries.useQuery();
   const aiAnalysisMutation = trpc.tier6to8.lakehouseV2.getAIAnalysis.useMutation();
   const runMutation = trpc.tier6to8.lakehouseV2.runQuery.useMutation({
@@ -22,6 +22,12 @@ export default function LakehouseV2() {
     onSuccess: (d: any) => { window.open(d.downloadUrl, "_blank"); toast.success("Export ready"); },
     onError: (e: any) => toast.error(e.message),
   });
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">

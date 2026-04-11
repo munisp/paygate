@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Smartphone, Users, Zap } from "lucide-react";
 export default function SuperApp() {
-  const { data: config, refetch } = trpc.tier6to8.superApp.getAppConfig.useQuery();
+  const { isLoading, data: config, refetch } = trpc.tier6to8.superApp.getAppConfig.useQuery();
   const { data: stats } = trpc.tier6to8.superApp.getConsumerStats.useQuery({ period: "30d" });
   const pushMutation = trpc.tier6to8.superApp.pushAppUpdate.useMutation({
     onSuccess: (d: any) => { toast.success(`Update pushed to ${d.devicesReached} devices`); refetch(); },
@@ -15,6 +15,12 @@ export default function SuperApp() {
     onSuccess: () => { toast.success("Modules updated"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">

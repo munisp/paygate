@@ -315,6 +315,106 @@ async function startServer() {
             console.log(`[Stripe] Payment failed: ${pi.id}`);
             break;
           }
+          // ── Portal Subscription Lifecycle ────────────────────────────────
+          case "customer.subscription.created":
+          case "customer.subscription.updated": {
+            const sub = event.data.object as any;
+            const stripeCustomerId = sub.customer as string;
+            const stripeSubscriptionId = sub.id as string;
+            const status = sub.status as string;
+            const planKey = (sub.metadata?.plan_key ?? "free") as string;
+            const currentPeriodEnd = sub.current_period_end
+              ? new Date((sub.current_period_end as number) * 1000)
+              : null;
+            const cancelAtPeriodEnd = sub.cancel_at_period_end as boolean;
+            try {
+              const { getDb } = await import("../db");
+              const db = await getDb();
+              if (db) {
+                const { portalSubscriptions } = await import("../../drizzle/schema");
+                const { eq } = await import("drizzle-orm");
+                const existing = await db
+                  .select()
+                  .from(portalSubscriptions)
+                  .where(eq(portalSubscriptions.stripeCustomerId, stripeCustomerId))
+                  .limit(1);
+                if (existing.length > 0) {
+                  await db
+                    .update(portalSubscriptions)
+                    .set({ stripeSubscriptionId, plan: planKey, status, currentPeriodEnd, cancelAtPeriodEnd: cancelAtPeriodEnd ? 1 : 0, updatedAt: new Date() })
+                    .where(eq(portalSubscriptions.stripeCustomerId, stripeCustomerId));
+                  console.log(`[Stripe] Portal subscription ${event.type}: merchantId=${existing[0].merchantId}, plan=${planKey}, status=${status}`);
+                }
+              }
+            } catch (subErr: any) {
+              console.error(`[Stripe] Failed to update portal subscription on ${event.type}:`, subErr.message);
+            }
+            break;
+          }
+          case "customer.subscription.deleted": {
+            const sub = event.data.object as any;
+            const stripeCustomerId = sub.customer as string;
+            try {
+              const { getDb } = await import("../db");
+              const db = await getDb();
+              if (db) {
+                const { portalSubscriptions } = await import("../../drizzle/schema");
+                const { eq } = await import("drizzle-orm");
+                await db
+                  .update(portalSubscriptions)
+                  .set({ plan: "free", status: "canceled", stripeSubscriptionId: null, cancelAtPeriodEnd: 0, updatedAt: new Date() })
+                  .where(eq(portalSubscriptions.stripeCustomerId, stripeCustomerId));
+                console.log(`[Stripe] Portal subscription canceled: stripeCustomerId=${stripeCustomerId}`);
+              }
+            } catch (delErr: any) {
+              console.error("[Stripe] Failed to cancel portal subscription:", delErr.message);
+            }
+            break;
+          }
+          case "invoice.paid": {
+            const invoice = event.data.object as any;
+            const stripeCustomerId = invoice.customer as string;
+            if (invoice.subscription) {
+              try {
+                const { getDb } = await import("../db");
+                const db = await getDb();
+                if (db) {
+                  const { portalSubscriptions } = await import("../../drizzle/schema");
+                  const { eq } = await import("drizzle-orm");
+                  await db
+                    .update(portalSubscriptions)
+                    .set({ status: "active", updatedAt: new Date() })
+                    .where(eq(portalSubscriptions.stripeCustomerId, stripeCustomerId));
+                  console.log(`[Stripe] Invoice paid — subscription reactivated: stripeCustomerId=${stripeCustomerId}`);
+                }
+              } catch (invErr: any) {
+                console.error("[Stripe] Failed to reactivate subscription on invoice.paid:", invErr.message);
+              }
+            }
+            break;
+          }
+          case "invoice.payment_failed": {
+            const invoice = event.data.object as any;
+            const stripeCustomerId = invoice.customer as string;
+            if (invoice.subscription) {
+              try {
+                const { getDb } = await import("../db");
+                const db = await getDb();
+                if (db) {
+                  const { portalSubscriptions } = await import("../../drizzle/schema");
+                  const { eq } = await import("drizzle-orm");
+                  await db
+                    .update(portalSubscriptions)
+                    .set({ status: "past_due", updatedAt: new Date() })
+                    .where(eq(portalSubscriptions.stripeCustomerId, stripeCustomerId));
+                  console.log(`[Stripe] Invoice payment failed — subscription past_due: stripeCustomerId=${stripeCustomerId}`);
+                }
+              } catch (invErr: any) {
+                console.error("[Stripe] Failed to update subscription on invoice.payment_failed:", invErr.message);
+              }
+            }
+            break;
+          }
           default:
             console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
         }
