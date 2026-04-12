@@ -144,6 +144,8 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: FileCheck, label: "Compliance & KYC", path: "/compliance" },
       { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow" },
+      { icon: Building2, label: "KYB Verification", path: "/kyb-verification", badge: "New" },
+      { icon: FileCheck, label: "Compliance Reports", path: "/compliance-reports", badge: "New" },
       { icon: Receipt, label: "Tax Filing", path: "/tax-filing", badge: "New" },
       { icon: Receipt, label: "Tax Withholding", path: "/tax-withholding" },
       { icon: Receipt, label: "Tax Engine", path: "/tax-engine" },
@@ -283,6 +285,7 @@ const navGroups: NavGroup[] = [
 
 const devItems: NavItem[] = [
   { icon: Key, label: "API Keys", path: "/api-keys" },
+  { icon: Key, label: "SDK Tokens", path: "/sdk-tokens", badge: "New" },
   { icon: Webhook, label: "Webhooks", path: "/webhooks" },
   { icon: Code2, label: "Developer", path: "/developer" },
   { icon: Code2, label: "Dev Sandbox", path: "/developer-sandbox", badge: "New" },

@@ -1,4 +1,5 @@
 import { ollamaRouter } from "./ollamaRouter";
+import { orphanedTablesRouter } from "./orphanedTablesCRUD";
 import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';
 import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
@@ -6556,6 +6557,7 @@ export const appRouter = router({
   //               wealthManagement, emiCheckout, bulkCollections, apiDocs, salaryAccounts, privacyPayments,
   //               reports, aiInsightsV2, nodalAccounts, smartRetailPOS, internationalRemittance, subscriptionBillingV2
   newFeatures: newFeaturesRouter,
+  orphaned: orphanedTablesRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

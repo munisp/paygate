@@ -189,6 +189,9 @@ import USSDSessions from "./pages/USSDSessions";
 import DeveloperSandbox from "./pages/DeveloperSandbox";
 import NotificationCentre from "./pages/consumer/NotificationCentre";
 import WalletStatement from "./pages/consumer/WalletStatement";
+import KYBVerification from "./pages/KYBVerification";
+import ComplianceReports from "./pages/ComplianceReports";
+import SDKTokens from "./pages/SDKTokens";
 
 function Router() {
   const [location] = useLocation();
@@ -314,6 +317,7 @@ function Router() {
       <Route path="/admin/config" component={AdminConfig} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
+      <Route path="/go-live-checklist" component={GoLiveChecklist} />
         <Route path="/quick-pay" component={QuickPay} />
         <Route path="/notifications" component={NotificationsCenter} />
         <Route path="/audit-log" component={AuditLog} />
@@ -326,6 +330,7 @@ function Router() {
         <Route path="/split-payments" component={SplitPayments} />
         <Route path="/recurring-billing" component={RecurringBilling} />
         <Route path="/dcc" component={DCCDashboard} />
+        <Route path="/dcc-checkout" component={DCCDashboard} />
         <Route path="/reconciliation" component={ReconciliationEngine} />
         <Route path="/invoice-builder" component={InvoiceBuilder} />
         <Route path="/chargeback-automation" component={ChargebackAutomation} />
@@ -363,6 +368,7 @@ function Router() {
         <Route path="/cohort-analytics" component={CohortAnalytics} />
         <Route path="/pos-v2" component={POSv2} />
         <Route path="/remittance-v2" component={RemittanceV2} />
+        <Route path="/remittance" component={RemittanceV2} />
         <Route path="/dispute-automation" component={DisputeAutomation} />
         <Route path="/open-banking-portal" component={OpenBankingPortal} />
         <Route path="/merchant-lending-v2" component={MerchantLendingV2} />
@@ -381,6 +387,7 @@ function Router() {
         <Route path="/salary-accounts" component={SalaryAccounts} />
         <Route path="/privacy-payments" component={PrivacyPayments} />
         <Route path="/reports-center" component={ReportsCenter} />
+        <Route path="/reports" component={ReportsCenter} />
         <Route path="/ai-insights-v2" component={AIInsightsV2} />
         <Route path="/nodal-accounts" component={NodalAccounts} />
         <Route path="/smart-pos" component={SmartRetailPOS} />
@@ -396,6 +403,7 @@ function Router() {
         <Route path="/marketplace-pay" component={MarketplacePay} />
         <Route path="/loyalty-v3" component={LoyaltyV3} />
         <Route path="/crypto-offramp-v2" component={CryptoOfframpV2} />
+        <Route path="/crypto-offramp" component={CryptoOfframpV2} />
         <Route path="/nfc-pay" component={NfcPay} />
         <Route path="/qr-analytics" component={QrMerchantAnalytics} />
         <Route path="/invoice-financing-v2" component={InvoiceFinancingV2} />
@@ -412,6 +420,10 @@ function Router() {
         <Route path="/qr-generator" component={QRGenerator} />
         <Route path="/ussd-sessions" component={USSDSessions} />
         <Route path="/developer-sandbox" component={DeveloperSandbox} />
+        {/* Wave 85 — Orphaned Table CRUD Pages */}
+        <Route path="/kyb-verification" component={KYBVerification} />
+        <Route path="/compliance-reports" component={ComplianceReports} />
+        <Route path="/sdk-tokens" component={SDKTokens} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

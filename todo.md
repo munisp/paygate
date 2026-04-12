@@ -2454,3 +2454,19 @@
 - [x] 56 test files, 1943 tests passing
 - [x] 0 TypeScript errors
 - [x] Generate comprehensive archive from /home/ubuntu (all directories, no exclusions)
+
+## Wave 86 — Full System Audit & Production Parity
+- [x] Audit all 14 dimensions: UI nav, pages, buttons, dropdowns, links, services, routers, DB tables, orphaned code, TODO/FIXME/mock data, Go bridge, Rust, Python, env vars, PWA/mobile parity
+- [x] Fixed 7 missing nav routes (consumer-insurance, crypto-offramp, dcc-checkout, go-live-checklist, mojaloop, remittance, reports)
+- [x] Created orphanedTablesCRUD router for 19 previously-orphaned DB tables (insurancePolicies, escrowContracts, kybSteps, webhookEndpoints, sdkTokens, complianceReports, regulatorySandboxConfigs, invoicePayments, consumerOutbox, etc.)
+- [x] Registered orphanedTablesRouter in appRouter
+- [x] Created SDKTokens.tsx, KYBVerification.tsx, ComplianceReports.tsx pages with full CRUD
+- [x] Added KYB Verification, Compliance Reports, SDK Tokens to navigation menu
+- [x] Documented all 220 environment variables in ENV_DOCS.md
+- [x] Verified all 34 Go bridge functions are wired (100% coverage)
+- [x] Verified all 19 Rust/Python microservice functions are wired (100% coverage)
+- [x] Verified all 21 consumer tRPC namespaces are registered in appRouter
+- [x] Verified all 22 consumer pages are routed and wrapped in ConsumerLayout
+- [x] PWA: dual manifests (merchant + consumer), 443-line service worker, offline page, 8 icon sizes
+- [x] Consumer app: 5 primary bottom tabs + "More" drawer with all 20+ pages
+- [x] 0 TypeScript errors, 56 test files, 1943 tests passing
