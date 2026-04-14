@@ -55,7 +55,8 @@ if (!OTLP_ENDPOINT) {
           getNodeAutoInstrumentations({
             "@opentelemetry/instrumentation-http": { enabled: true },
             "@opentelemetry/instrumentation-express": { enabled: true },
-            "@opentelemetry/instrumentation-mysql2": { enabled: true },
+            "@opentelemetry/instrumentation-mysql2": { enabled: false },
+            "@opentelemetry/instrumentation-pg": { enabled: true },
             "@opentelemetry/instrumentation-ioredis": { enabled: true },
             "@opentelemetry/instrumentation-dns": { enabled: false },
             "@opentelemetry/instrumentation-net": { enabled: false },

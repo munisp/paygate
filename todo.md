@@ -2562,3 +2562,21 @@
 - [x] Full test suite: 2016 tests pass across 58 files
 - [x] Server running clean: no errors in logs after restart
 - [x] PostgreSQL: 167 tables, 70+ seeded with realistic data
+
+## Production-Ready Final Pass (Apr 14, 2026 — All Features Complete)
+
+- [x] All 167 database tables seeded with realistic Nigerian fintech domain data (6,645+ rows, 0 empty tables)
+- [x] All 9 stub Python services fully implemented with business logic (cashback, EMI, remittance, mutual funds, pension, salary, soundbox, wealth, bulk collections)
+- [x] OpenTelemetry wired: Node.js portal (tracing.ts first import in index.ts), Go bridge (telemetry middleware package), all 9 Python services (shared/telemetry.py with Flask auto-instrumentation)
+- [x] Observability stack: Tempo (traces), Loki (logs), Promtail (log shipper), OTEL Collector, Grafana datasource provisioning (Prometheus+Tempo+Loki)
+- [x] infra/docker-compose.observability.yml: Grafana, Prometheus, Tempo, Loki, Promtail, OTEL Collector
+- [x] infra/tempo/tempo.yml: Tempo distributed tracing config (OTLP HTTP/gRPC, local storage, 7-day retention)
+- [x] infra/loki/loki.yml: Loki log aggregation config (TSDB v13, 7-day retention)
+- [x] infra/promtail/promtail.yml: Promtail log shipper (Docker container discovery + static paths)
+- [x] infra/otel-collector/otel-collector.yml: OTEL Collector (OTLP → Tempo + Prometheus, health filter)
+- [x] infra/grafana/provisioning/datasources/datasources.yml: Grafana datasource provisioning (Prometheus, Tempo, Loki with trace/log correlation)
+- [x] infra/grafana/provisioning/dashboards/dashboards.yml: Grafana dashboard provisioning config
+- [x] Playwright E2E test suite: e2e/merchant-portal.spec.ts, e2e/business-workflows.spec.ts, e2e/api-integration.spec.ts (50+ test cases)
+- [x] playwright.config.ts: full Playwright config (Chrome, Firefox, Mobile Chrome, auth state)
+- [x] All production env defaults updated to Docker service names (env.ts — 23 localhost → service names)
+- [x] 0 TypeScript errors | 58 test files | 2,016 tests passing

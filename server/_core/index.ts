@@ -1,3 +1,4 @@
+import "../tracing"; // MUST be first — initialises OpenTelemetry before any other imports
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
