@@ -29,7 +29,7 @@ x-portal-base: &portal-base
   restart: unless-stopped
   environment:
     NODE_ENV: production
-    DATABASE_URL: ${DATABASE_URL}
+    DATABASE_URL: ${PG_DATABASE_URL}
     JWT_SECRET: ${JWT_SECRET}
     VITE_APP_ID: ${VITE_APP_ID}
     OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
@@ -121,7 +121,7 @@ x-bridge-base: &bridge-base
     MOJALOOP_URL: ${MOJALOOP_URL:-https://ml-api-adapter.paygate.ng}
     MOJALOOP_API_KEY: ${MOJALOOP_API_KEY}
     PORTAL_TRPC_URL: http://portal-1:3000/api/trpc
-    DATABASE_URL: ${DATABASE_URL}
+    DATABASE_URL: ${PG_DATABASE_URL}
     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     OTEL_SERVICE_NAME: paygate-bridge
@@ -135,6 +135,28 @@ x-bridge-base: &bridge-base
     start_period: 20s
 
 services:
+
+  # ─── PostgreSQL Database ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: paygate-postgres
+    restart: unless-stopped
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paygate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_prod_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-paygate}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paygate} -d ${POSTGRES_DB:-paygate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # ─── Portal replicas ─────────────────────────────────────────────────────────
   portal-1:
     <<: *portal-base
@@ -255,7 +277,7 @@ services:
       LOG_LEVEL: info
       APNS_BUNDLE_ID: com.paygate.consumer
       API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-}
       APNS_KEY_ID: ${APNS_KEY_ID:-}
@@ -283,7 +305,7 @@ services:
       PORTAL_BASE_URL: http://portal-1:3000
       INTERNAL_API_KEY: ${MIDDLEWARE_INTERNAL_KEY}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     ports:
       - "8095:8095"
     networks:
@@ -304,7 +326,7 @@ services:
       PORT: "8083"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     ports:
       - "8083:8083"
@@ -325,7 +347,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8097"
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
@@ -347,7 +369,7 @@ services:
     command: ["/app/consumer-outbox-relay"]
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
@@ -402,7 +424,7 @@ services:
       PORT: "8094"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     ports:
       - "8094:8094"
     networks:
@@ -423,7 +445,7 @@ services:
       PORT: "8100"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       BRIDGE_URL: http://bridge-1:8080
     ports:
       - "8100:8100"
@@ -446,7 +468,7 @@ services:
       LOG_LEVEL: info
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks:
       - paygate-net
 
@@ -514,7 +536,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       TEMPORAL_HOST_PORT: temporal:7233
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: paygate-credit-scoring
@@ -547,7 +569,7 @@ services:
       TEMPORAL_HOST_PORT: temporal:7233
       TEMPORAL_NAMESPACE: paygate
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: paygate-billing-engine
@@ -601,7 +623,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8103"
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       LAKEHOUSE_URL: http://lakehouse-audit:8085
@@ -629,7 +651,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8104"
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
@@ -689,7 +711,7 @@ services:
       TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: paygate-loyalty-ledger
@@ -714,7 +736,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8107"
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       LAKEHOUSE_URL: http://lakehouse-audit:8085
       BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
       BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
@@ -743,7 +765,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8108"
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
@@ -764,21 +786,6 @@ services:
       retries: 3
       start_period: 20s
 
-volumes:
-  redis-data:
-  tb-data-1:
-  tb-data-2:
-  tb-data-3:
-  prometheus-data:
-  grafana-data:
-  lakehouse-data:
-
-networks:
-  paygate-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
   # ─── Tier 6-8 Services ────────────────────────────────────────────────────
 
@@ -1123,7 +1130,7 @@ networks:
       PORT: "9020"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       GOLDTECH_BASE_URL: ${GOLDTECH_BASE_URL:-https://api.goldtech.ng/v1}
       GOLDTECH_API_KEY: ${GOLDTECH_API_KEY:-}
     networks: [paygate-net]
@@ -1142,7 +1149,7 @@ networks:
       PORT: "9021"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       COWRYWISE_BASE_URL: ${COWRYWISE_BASE_URL:-https://api.cowrywise.com/v1}
       COWRYWISE_API_KEY: ${COWRYWISE_API_KEY:-}
     networks: [paygate-net]
@@ -1161,7 +1168,7 @@ networks:
       PORT: "9022"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       AON_INSURANCE_URL: ${AON_INSURANCE_URL:-https://api.aon.ng/v1}
       AON_INSURANCE_API_KEY: ${AON_INSURANCE_API_KEY:-}
     networks: [paygate-net]
@@ -1180,7 +1187,7 @@ networks:
       PORT: "9023"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       PENCOM_API_URL: ${PENCOM_API_URL:-https://api.pencom.gov.ng/v1}
       PENCOM_API_KEY: ${PENCOM_API_KEY:-}
     networks: [paygate-net]
@@ -1199,7 +1206,7 @@ networks:
       PORT: "9024"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     networks: [paygate-net]
     healthcheck:
@@ -1217,7 +1224,7 @@ networks:
       PORT: "9025"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       SOUNDBOX_MQTT_BROKER: ${SOUNDBOX_MQTT_BROKER:-mqtt://mqtt-broker:1883}
     networks: [paygate-net]
     healthcheck:
@@ -1235,7 +1242,7 @@ networks:
       PORT: "9026"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9026/health"]
@@ -1252,7 +1259,7 @@ networks:
       PORT: "9027"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9027/health"]
@@ -1269,7 +1276,7 @@ networks:
       PORT: "9028"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9028/health"]
@@ -1286,7 +1293,7 @@ networks:
       PORT: "9029"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9029/health"]
@@ -1303,7 +1310,7 @@ networks:
       PORT: "9030"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9030/health"]
@@ -1320,7 +1327,7 @@ networks:
       PORT: "9031"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       REPORTS_BUCKET_NAME: ${REPORTS_BUCKET_NAME:-paygate-reports}
     networks: [paygate-net]
     healthcheck:
@@ -1338,7 +1345,7 @@ networks:
       PORT: "9032"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
       BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
     networks: [paygate-net]
@@ -1357,7 +1364,7 @@ networks:
       PORT: "9033"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9033/health"]
@@ -1374,7 +1381,7 @@ networks:
       PORT: "9034"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
     networks: [paygate-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9034/health"]
@@ -1391,7 +1398,7 @@ networks:
       PORT: "9035"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       FLUTTERWAVE_BASE_URL: ${FLUTTERWAVE_BASE_URL:-https://api.flutterwave.com/v3}
       FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
       WORLDREMIT_BASE_URL: ${WORLDREMIT_BASE_URL:-https://api.worldremit.com/v1}
@@ -1412,7 +1419,7 @@ networks:
       PORT: "9036"
       LOG_LEVEL: info
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${PG_DATABASE_URL}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
     networks: [paygate-net]
     healthcheck:
@@ -1420,3 +1427,140 @@ networks:
       interval: 30s
       timeout: 10s
       retries: 3
+
+
+  # ─── Rust Services ─────────────────────────────────────────────────────────
+  billing-engine:
+    image: paygate/billing-engine:${BILLING_ENGINE_VERSION:-latest}
+    container_name: paygate-billing-engine
+    restart: unless-stopped
+    ports: ["8200:8200"]
+    environment:
+      PORT: "8200"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  credit-scoring:
+    image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
+    container_name: paygate-credit-scoring
+    restart: unless-stopped
+    ports: ["8201:8201"]
+    environment:
+      PORT: "8201"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8201/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  inventory-engine:
+    image: paygate/inventory-engine:${INVENTORY_ENGINE_VERSION:-latest}
+    container_name: paygate-inventory-engine
+    restart: unless-stopped
+    ports: ["8202:8202"]
+    environment:
+      PORT: "8202"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8202/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  loyalty-ledger:
+    image: paygate/loyalty-ledger:${LOYALTY_LEDGER_VERSION:-latest}
+    container_name: paygate-loyalty-ledger
+    restart: unless-stopped
+    ports: ["8203:8203"]
+    environment:
+      PORT: "8203"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8203/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tigerbeetle-recon:
+    image: paygate/tigerbeetle-recon:${TB_RECON_VERSION:-latest}
+    container_name: paygate-tigerbeetle-recon
+    restart: unless-stopped
+    ports: ["8204:8204"]
+    environment:
+      PORT: "8204"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8204/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  wallet-ffi:
+    image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-latest}
+    container_name: paygate-wallet-ffi
+    restart: unless-stopped
+    ports: ["8205:8205"]
+    environment:
+      PORT: "8205"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8205/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis-data:
+  tb-data-1:
+  tb-data-2:
+  tb-data-3:
+  prometheus-data:
+  grafana-data:
+  lakehouse-data:
+
+  postgres-data:
+networks:
+  paygate-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+

@@ -27,11 +27,11 @@ spec:
           ports:
             - containerPort: 9011
           env:
-            - name: DATABASE_URL
+            - name: PG_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: paygate-secrets
-                  key: DATABASE_URL
+                  key: PG_DATABASE_URL
             - name: PORT
               value: "9011"
           resources:
@@ -78,11 +78,11 @@ spec:
           ports:
             - containerPort: 9015
           env:
-            - name: DATABASE_URL
+            - name: PG_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: paygate-secrets
-                  key: DATABASE_URL
+                  key: PG_DATABASE_URL
             - name: PORT
               value: "9015"
           resources:
@@ -129,11 +129,11 @@ spec:
           ports:
             - containerPort: 9012
           env:
-            - name: DATABASE_URL
+            - name: PG_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: paygate-secrets
-                  key: DATABASE_URL
+                  key: PG_DATABASE_URL
             - name: PORT
               value: "9012"
           resources:
@@ -180,11 +180,11 @@ spec:
           ports:
             - containerPort: 9013
           env:
-            - name: DATABASE_URL
+            - name: PG_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: paygate-secrets
-                  key: DATABASE_URL
+                  key: PG_DATABASE_URL
             - name: PORT
               value: "9013"
           resources:
@@ -231,11 +231,11 @@ spec:
           ports:
             - containerPort: 9014
           env:
-            - name: DATABASE_URL
+            - name: PG_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: paygate-secrets
-                  key: DATABASE_URL
+                  key: PG_DATABASE_URL
             - name: PORT
               value: "9014"
           resources:
@@ -328,11 +328,11 @@ spec:
           ports:
             - containerPort: 9010
           env:
-            - name: DATABASE_URL
+            - name: PG_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: paygate-secrets
-                  key: DATABASE_URL
+                  key: PG_DATABASE_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:

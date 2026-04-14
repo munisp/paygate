@@ -15,5 +15,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    env: {
+      // Ensure PostgreSQL is always used in tests (not MySQL/TiDB)
+      PG_DATABASE_URL:
+        process.env.PG_DATABASE_URL ??
+        "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev",
+    },
   },
 });
