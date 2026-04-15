@@ -1,4 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
+import OfflineIndicator from "@/components/OfflineIndicator";
+import { PWAInstallBanner } from "@/components/PWAInstallBanner";
+import { PWAUpdateToast } from "@/components/PWAUpdateToast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch, useLocation } from "wouter";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -437,6 +440,9 @@ function App() {
         <TooltipProvider>
           <Toaster richColors position="top-right" />
           <Router />
+          <OfflineIndicator />
+          <PWAInstallBanner />
+          <PWAUpdateToast />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

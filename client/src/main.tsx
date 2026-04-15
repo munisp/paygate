@@ -89,6 +89,30 @@ const trpc5Client = trpc5.createClient({
   links: [httpBatchLink({ url: "/api/trpc5", transformer: superjson, fetch(input, init) { return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }); } })],
 });
 
+// ─── Service Worker Registration ─────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .then((reg) => {
+        console.log('[PWA] Service worker registered, scope:', reg.scope);
+        // Poll for updates every 60 s while the app is open
+        setInterval(() => reg.update(), 60_000);
+        // Notify the React app when a new SW version is waiting
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              window.dispatchEvent(new CustomEvent('pwa:update-available'));
+            }
+          });
+        });
+      })
+      .catch((err) => console.warn('[PWA] Service worker registration failed:', err));
+  });
+}
+
 createRoot(document.getElementById("root")!).render(
   // Each provider uses its own QueryClient to prevent context collision.
   // The primary QueryClientProvider (queryClient) is the one used by useQuery/useMutation
