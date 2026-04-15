@@ -13,6 +13,8 @@ resources:
   - ingress.yaml
   - ../services/python-services.yaml
   - ../monitoring/prometheus-rules.yaml
+  - ../services/rust-services.yaml
+  - hpa-pdb.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: paygate

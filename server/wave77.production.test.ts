@@ -69,7 +69,7 @@ vi.mock("./db", () => ({
 
 // ─── Mock env ─────────────────────────────────────────────────────────────────
 vi.mock("./_core/env", () => ({
-  env: {
+  ENV: {
     MIDDLEWARE_BRIDGE_URL: "http://localhost:8080",
     MIDDLEWARE_INTERNAL_KEY: "test-internal-key",
     STRIPE_SECRET_KEY: "sk_test_mock",
@@ -396,47 +396,47 @@ describe("Portal Billing DB helpers", () => {
 // ─── Production env defaults ──────────────────────────────────────────────────
 describe("Production env defaults", () => {
   it("GOLDTECH_BASE_URL has correct production URL", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.GOLDTECH_BASE_URL).toBe("https://api.goldtech.ng/v1");
   });
 
   it("COWRYWISE_BASE_URL has correct production URL", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.COWRYWISE_BASE_URL).toBe("https://api.cowrywise.com/v1");
   });
 
   it("PENCOM_API_URL has correct production URL", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.PENCOM_API_URL).toBe("https://api.pencom.gov.ng/v1");
   });
 
   it("FLUTTERWAVE_BASE_URL has correct production URL", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.FLUTTERWAVE_BASE_URL).toBe("https://api.flutterwave.com/v3");
   });
 
   it("WORLDREMIT_BASE_URL has correct production URL", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.WORLDREMIT_BASE_URL).toBe("https://api.worldremit.com/v1");
   });
 
   it("PAYMENT_LINK_BASE_URL has correct production URL", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.PAYMENT_LINK_BASE_URL).toBe("https://pay.paygate.ng");
   });
 
   it("PORTAL_BILLING_STARTER_PRICE_ID is set", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.PORTAL_BILLING_STARTER_PRICE_ID).toBeTruthy();
   });
 
   it("PORTAL_BILLING_GROWTH_PRICE_ID is set", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.PORTAL_BILLING_GROWTH_PRICE_ID).toBeTruthy();
   });
 
   it("PORTAL_BILLING_ENTERPRISE_PRICE_ID is set", async () => {
-    const { env } = await import("./_core/env");
+    const { ENV: env } = await import("./_core/env");
     expect(env.PORTAL_BILLING_ENTERPRISE_PRICE_ID).toBeTruthy();
   });
 });
