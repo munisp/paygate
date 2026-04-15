@@ -922,3 +922,99 @@ global_rules:
     proxy-rewrite:
       regex_uri: ["^/api/subscription-billing-v2/(.*)", "/$1"]
     jwt-auth: {}
+
+# ─── MinIO S3 API (internal only — no jwt-auth) ──────────────────────────────
+- id: minio-s3-api
+  uri: /internal/minio/*
+  name: minio-s3-api
+  upstream:
+    type: roundrobin
+    nodes:
+      minio:9000: 1
+  plugins:
+    ip-restriction:
+      whitelist:
+        - 172.20.0.0/16
+    proxy-rewrite:
+      regex_uri: ["^/internal/minio/(.*)", "/$1"]
+
+# ─── MinIO Console UI (ops team only) ────────────────────────────────────────
+- id: minio-console
+  uri: /ops/minio/*
+  name: minio-console
+  upstream:
+    type: roundrobin
+    nodes:
+      minio:9001: 1
+  plugins:
+    ip-restriction:
+      whitelist:
+        - 172.20.0.0/16
+    proxy-rewrite:
+      regex_uri: ["^/ops/minio/(.*)", "/$1"]
+
+# ─── Apache Spark Master Web UI (ops team only) ───────────────────────────────
+- id: spark-master-ui
+  uri: /ops/spark/*
+  name: spark-master-ui
+  upstream:
+    type: roundrobin
+    nodes:
+      spark-master:8080: 1
+  plugins:
+    ip-restriction:
+      whitelist:
+        - 172.20.0.0/16
+    proxy-rewrite:
+      regex_uri: ["^/ops/spark/(.*)", "/$1"]
+
+# ─── Trino Web UI + REST API (ops team only) ─────────────────────────────────
+- id: trino-api
+  uri: /ops/trino/*
+  name: trino-api
+  upstream:
+    type: roundrobin
+    nodes:
+      trino:8080: 1
+  plugins:
+    ip-restriction:
+      whitelist:
+        - 172.20.0.0/16
+    proxy-rewrite:
+      regex_uri: ["^/ops/trino/(.*)", "/$1"]
+
+# ─── DataFusion credit-scoring service ───────────────────────────────────────
+- id: credit-scoring-datafusion
+  uri: /api/v1/credit-scoring/datafusion/*
+  name: credit-scoring-datafusion
+  upstream:
+    type: roundrobin
+    nodes:
+      credit-scoring:8100: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/v1/credit-scoring/datafusion/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 10
+      burst: 5
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}
+
+# ─── Fraud Heatmap Sedona/H3 geospatial endpoint ─────────────────────────────
+- id: fraud-heatmap-geo
+  uri: /api/v1/fraud-heatmap/geo
+  name: fraud-heatmap-geo
+  upstream:
+    type: roundrobin
+    nodes:
+      fraud-heatmap:8105: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 5
+      burst: 3
+      key: consumer_name
+      rejected_code: 429
+    prometheus: {}

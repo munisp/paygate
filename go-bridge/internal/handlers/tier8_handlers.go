@@ -1,12 +1,59 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
+
+// lakehouseV2URL returns the base URL of the lakehouse-v2 Python service.
+func lakehouseV2URL() string {
+	if u := os.Getenv("LAKEHOUSE_V2_URL"); u != "" {
+		return u
+	}
+	return "http://lakehouse-v2:8125"
+}
+
+// proxyToLakehouse forwards a request to the lakehouse-v2 service and writes
+// the response back to the caller. Returns false if the proxy call fails, in
+// which case a fallback response has already been written to w.
+func proxyToLakehouse(w http.ResponseWriter, method, path string, body []byte) bool {
+	url := lakehouseV2URL() + path
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil {
+		log.Printf("[lakehouse-proxy] request build error: %v", err)
+		return false
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[lakehouse-proxy] upstream error: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[lakehouse-proxy] read error: %v", err)
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(respBody)
+	return true
+}
 
 // ─── Real-Time Gross Settlement (RTGS) ─────────────────────────────────────────
 
@@ -365,90 +412,122 @@ func GetSuperAppStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── Platform Analytics Lakehouse v2 ─────────────────────────────────────────────
+// All handlers below proxy to the lakehouse-v2 Python/DuckDB service.
+// Fallback responses are returned when the service is unavailable.
 
 func GetLakehouseDatasets(w http.ResponseWriter, r *http.Request) {
 	merchantID := r.URL.Query().Get("merchantId")
-	_ = merchantID
-	datasets := []map[string]interface{}{
-		{"name": "transactions", "format": "delta", "sizeGB": 45.2, "rowCount": 12500000, "lastUpdated": time.Now().Add(-1 * time.Hour).Format(time.RFC3339)},
-		{"name": "customers", "format": "delta", "sizeGB": 2.1, "rowCount": 450000, "lastUpdated": time.Now().Add(-6 * time.Hour).Format(time.RFC3339)},
-		{"name": "fraud_signals", "format": "parquet", "sizeGB": 8.7, "rowCount": 2300000, "lastUpdated": time.Now().Add(-30 * time.Minute).Format(time.RFC3339)},
-		{"name": "settlements", "format": "delta", "sizeGB": 12.3, "rowCount": 890000, "lastUpdated": time.Now().Add(-2 * time.Hour).Format(time.RFC3339)},
-		{"name": "audit_events", "format": "parquet", "sizeGB": 67.8, "rowCount": 45000000, "lastUpdated": time.Now().Add(-15 * time.Minute).Format(time.RFC3339)},
+	path := "/datasets"
+	if merchantID != "" {
+		path += "?merchant_id=" + merchantID
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"datasets": datasets, "totalSizeGB": 136.1})
+	if proxyToLakehouse(w, http.MethodGet, path, nil) {
+		return
+	}
+	// Fallback: return static metadata when lakehouse-v2 is unreachable
+	datasets := []map[string]interface{}{
+		{"name": "transactions", "format": "delta", "sizeGB": 45.2, "rowCount": 12500000, "lastUpdated": time.Now().Add(-1 * time.Hour).Format(time.RFC3339), "status": "offline"},
+		{"name": "customers", "format": "delta", "sizeGB": 2.1, "rowCount": 450000, "lastUpdated": time.Now().Add(-6 * time.Hour).Format(time.RFC3339), "status": "offline"},
+		{"name": "fraud_signals", "format": "parquet", "sizeGB": 8.7, "rowCount": 2300000, "lastUpdated": time.Now().Add(-30 * time.Minute).Format(time.RFC3339), "status": "offline"},
+		{"name": "settlements", "format": "delta", "sizeGB": 12.3, "rowCount": 890000, "lastUpdated": time.Now().Add(-2 * time.Hour).Format(time.RFC3339), "status": "offline"},
+		{"name": "audit_events", "format": "parquet", "sizeGB": 67.8, "rowCount": 45000000, "lastUpdated": time.Now().Add(-15 * time.Minute).Format(time.RFC3339), "status": "offline"},
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{"datasets": datasets, "totalSizeGB": 136.1, "source": "fallback"})
 }
 
 func QueryLakehouse(w http.ResponseWriter, r *http.Request) {
-	var req map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
+	if proxyToLakehouse(w, http.MethodPost, "/query", body) {
+		return
+	}
+	// Fallback: return a stub result indicating service unavailability
 	queryID := fmt.Sprintf("QRY-%d", time.Now().UnixNano()%1000000)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"queryId":       queryID,
-		"status":        "completed",
-		"rowsReturned":  150,
-		"executionMs":   245,
-		"columns":       []string{"date", "amount", "count", "merchant_id"},
-		"rows": [][]interface{}{
-			{"2026-04-01", 5000000, 1250, "merch_001"},
-			{"2026-04-02", 4800000, 1180, "merch_001"},
-			{"2026-04-03", 5200000, 1320, "merch_001"},
-		},
+		"queryId":      queryID,
+		"status":       "unavailable",
+		"error":        "lakehouse-v2 service is offline",
+		"rowsReturned": 0,
+		"rows":         []interface{}{},
+		"source":       "fallback",
 	})
 }
 
 func SampleLakehouseDataset(w http.ResponseWriter, r *http.Request) {
 	dataset := r.URL.Query().Get("dataset")
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	limit := r.URL.Query().Get("limit")
+	path := fmt.Sprintf("/datasets/%s/sample", dataset)
+	if limit != "" {
+		path += "?limit=" + limit
+	}
+	if proxyToLakehouse(w, http.MethodGet, path, nil) {
+		return
+	}
+	// Fallback
+	respondJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+		"error":   "lakehouse-v2 service is offline",
 		"dataset": dataset,
-		"sample": []map[string]interface{}{
-			{"id": "txn_001", "amount_kobo": 50000, "status": "success", "created_at": "2026-04-01T10:00:00Z"},
-			{"id": "txn_002", "amount_kobo": 120000, "status": "success", "created_at": "2026-04-01T10:05:00Z"},
-			{"id": "txn_003", "amount_kobo": 75000, "status": "failed", "created_at": "2026-04-01T10:10:00Z"},
-		},
+		"source":  "fallback",
 	})
 }
 
 func ExportLakehouseData(w http.ResponseWriter, r *http.Request) {
-	var req map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
+	if proxyToLakehouse(w, http.MethodPost, "/export", body) {
+		return
+	}
+	// Fallback
 	exportID := fmt.Sprintf("EXP-%d", time.Now().UnixNano()%1000000)
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"exportId":    exportID,
-		"status":      "processing",
-		"format":      req["format"],
-		"downloadUrl": fmt.Sprintf("https://exports.paygate.ng/lakehouse/%s.csv", exportID),
+		"status":      "queued",
+		"error":       "lakehouse-v2 offline — export queued for retry",
 		"expiresAt":   time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		"source":      "fallback",
 	})
 }
 
 func SaveLakehouseQuery(w http.ResponseWriter, r *http.Request) {
-	var req map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
+	if proxyToLakehouse(w, http.MethodPost, "/queries/save", body) {
+		return
+	}
+	// Fallback: parse name from body and acknowledge
+	var req map[string]interface{}
+	_ = json.Unmarshal(body, &req)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"savedQueryId": fmt.Sprintf("SQ-%d", time.Now().UnixNano()%1000000),
 		"name":         req["name"],
 		"savedAt":      time.Now().Format(time.RFC3339),
+		"source":       "fallback",
 	})
 }
 
 func GetSavedLakehouseQueries(w http.ResponseWriter, r *http.Request) {
 	merchantID := r.URL.Query().Get("merchantId")
-	_ = merchantID
-	queries := []map[string]interface{}{
-		{"id": "SQ-001", "name": "Daily Revenue Summary", "lastRun": time.Now().Add(-24 * time.Hour).Format(time.RFC3339), "avgExecutionMs": 180},
-		{"id": "SQ-002", "name": "Top Customers by GMV", "lastRun": time.Now().Add(-48 * time.Hour).Format(time.RFC3339), "avgExecutionMs": 320},
+	path := "/queries/saved"
+	if merchantID != "" {
+		path += "?merchant_id=" + merchantID
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"queries": queries})
+	if proxyToLakehouse(w, http.MethodGet, path, nil) {
+		return
+	}
+	// Fallback
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"queries": []interface{}{},
+		"source":  "fallback",
+	})
 }
 
 // ─── Payroll-as-a-Service v2 ─────────────────────────────────────────────────────

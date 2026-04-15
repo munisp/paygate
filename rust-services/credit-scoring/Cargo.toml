@@ -1,6 +1,6 @@
 [package]
 name = "credit-scoring"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 
 [[bin]]
@@ -21,3 +21,27 @@ serde_json = "1"
 libc = "0.2"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+
+# Apache DataFusion — in-process SQL analytics engine (Rust-native)
+# Used for batch credit feature extraction from Parquet/CSV datasets on S3/MinIO
+datafusion = { version = "43", features = ["parquet", "csv"] }
+
+# Async runtime (required by DataFusion)
+tokio = { version = "1", features = ["full"] }
+
+# Arrow columnar format (DataFusion's native format)
+arrow = { version = "53", features = ["prettyprint"] }
+arrow-schema = "53"
+arrow-array = "53"
+
+# Parquet file I/O
+parquet = { version = "53", features = ["async"] }
+
+# Object store (S3/MinIO) for reading Parquet from lakehouse
+object_store = { version = "0.11", features = ["aws"] }
+
+# URL parsing for object store config
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }

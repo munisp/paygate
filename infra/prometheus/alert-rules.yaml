@@ -330,3 +330,128 @@ groups:
         annotations:
           summary: "High EMI delinquency rate (>5%)"
           description: "{{ $value | humanizePercentage }} of EMI instalments are overdue."
+
+  # ─── Lakehouse / Analytics Infrastructure ────────────────────────────────
+  - name: paygate.lakehouse
+    interval: 30s
+    rules:
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: minio
+        annotations:
+          summary: "MinIO object store is down"
+          description: "MinIO (lakehouse S3-compatible store) has been unreachable for >2 minutes. Delta Lake writes will fail."
+
+      - alert: MinIOHighDiskUsage
+        expr: minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes < 0.15
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: minio
+        annotations:
+          summary: "MinIO disk usage >85%"
+          description: "MinIO usable free space is below 15%. Lakehouse writes may fail soon."
+
+      - alert: SparkMasterDown
+        expr: up{job="spark-master"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          team: platform
+          service: spark
+        annotations:
+          summary: "Spark master is down"
+          description: "Apache Spark master has been unreachable for >3 minutes. Sedona geospatial jobs and Delta Lake batch writes will fail."
+
+      - alert: SparkNoWorkers
+        expr: spark_workers_alive < 1
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: spark
+        annotations:
+          summary: "No Spark workers alive"
+          description: "All Spark workers are down. Batch analytics and Sedona spatial clustering are unavailable."
+
+      - alert: TrinoDown
+        expr: up{job="trino"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: platform
+          service: trino
+        annotations:
+          summary: "Trino query engine is down"
+          description: "Trino has been unreachable for >3 minutes. Ad-hoc lakehouse SQL queries will fail."
+
+      - alert: TrinoHighQueryFailureRate
+        expr: rate(trino_query_failed_total[10m]) / (rate(trino_query_completed_total[10m]) + 1) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: trino
+        annotations:
+          summary: "Trino query failure rate >10%"
+          description: "{{ $value | humanizePercentage }} of Trino queries are failing."
+
+      - alert: LakehouseV2Down
+        expr: up{job="lakehouse-v2"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: lakehouse-v2
+        annotations:
+          summary: "Lakehouse v2 service is down"
+          description: "The DuckDB-backed lakehouse-v2 service has been unreachable for >2 minutes. All analytics queries will fall back to stubs."
+
+      - alert: LakehouseV2SlowQueries
+        expr: histogram_quantile(0.95, rate(lakehouse_query_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: lakehouse-v2
+        annotations:
+          summary: "Lakehouse v2 P95 query latency >30s"
+          description: "95th percentile DuckDB query latency is {{ $value }}s. Consider query optimisation or adding Spark offload."
+
+      - alert: CreditScoringDataFusionDown
+        expr: up{job="credit-scoring"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: risk
+          service: credit-scoring
+        annotations:
+          summary: "Credit scoring (DataFusion) service is down"
+          description: "The Rust/DataFusion credit-scoring service has been unreachable for >2 minutes. BNPL and loan origination will be blocked."
+
+      - alert: FraudHeatmapSedonaDown
+        expr: up{job="fraud-heatmap"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: risk
+          service: fraud-heatmap
+        annotations:
+          summary: "Fraud heatmap (Sedona) service is down"
+          description: "The Apache Sedona geospatial fraud-heatmap service is unreachable. Geo-clustering and H3 heatmaps are unavailable."
+
+      - alert: FraudHeatmapHighRiskClusters
+        expr: paygate_fraud_heatmap_high_risk_cells > 50
+        for: 15m
+        labels:
+          severity: warning
+          team: risk
+          service: fraud-heatmap
+        annotations:
+          summary: "High number of high-risk geo clusters detected"
+          description: "{{ $value }} H3 cells are currently flagged as high-risk by Sedona spatial analysis."

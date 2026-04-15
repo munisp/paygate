@@ -121,10 +121,18 @@ export const ENV = {
   sdkCdnUrl: process.env.SDK_CDN_URL ?? "https://cdn.paygate.ng/sdk",
   // Consumer Super App
   superAppUrl: process.env.SUPER_APP_URL ?? "http://super-app:8123",
-  // Lakehouse v2
-  lakehouseV2Url: process.env.LAKEHOUSE_V2_URL ?? "http://lakehouse-v2:8124",
-  deltaLakeUrl: process.env.DELTA_LAKE_URL ?? "http://delta-lake:8998",
-  sparkThriftUrl: process.env.SPARK_THRIFT_URL ?? "jdbc:hive2://spark-thrift:10000",
+  // Lakehouse v2 (DuckDB + Delta Lake + Sedona)
+  lakehouseV2Url: process.env.LAKEHOUSE_V2_URL ?? "http://lakehouse-v2-service:8125",
+  // MinIO / S3-compatible object store
+  s3Endpoint: process.env.S3_ENDPOINT ?? "http://minio:9000",
+  s3Bucket: process.env.S3_BUCKET ?? "paygate-lakehouse",
+  minioRootUser: process.env.MINIO_ROOT_USER ?? "minioadmin",
+  minioRootPassword: process.env.MINIO_ROOT_PASSWORD ?? "minioadmin",
+  // Apache Spark
+  sparkMaster: process.env.SPARK_MASTER ?? "spark://spark-master:7077",
+  sparkThriftUrl: process.env.SPARK_THRIFT_URL ?? "jdbc:hive2://spark-master:10000",
+  // Trino distributed SQL
+  trinoUrl: process.env.TRINO_URL ?? "http://trino:8080",
   // Payroll v2
   payrollV2Url: process.env.PAYROLL_V2_URL ?? "http://payroll-v2:8125",
   pensionAdminUrl: process.env.PENSION_ADMIN_URL ?? "https://api.pencom.gov.ng/v1",

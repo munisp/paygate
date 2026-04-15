@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
+import { ENV as env } from "./_core/env";
 
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
@@ -641,6 +642,8 @@ const superAppRouter = router({
 });
 
 // ─── Tier 8: Platform Analytics Lakehouse v2 ─────────────────────────────────
+// All lakehouse procedures proxy through the Go bridge → lakehouse-v2 Python/DuckDB
+// service. The bridge now makes real HTTP calls (no mocks).
 const lakehouseV2Router = router({
   runQuery: protectedProcedure
     .input(z.object({
@@ -650,7 +653,7 @@ const lakehouseV2Router = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/lakehouse-v2/query", { ...input, merchantId: ctx.user.id });
-      return res as { columns: string[]; rows: unknown[][]; rowCount: number; executionTimeMs: number; queryId: string };
+      return res as { columns: string[]; rows: unknown[][]; rowCount: number; executionTimeMs: number; queryId: string; engine: string };
     }),
   getSavedQueries: protectedProcedure.query(async ({ ctx }) => {
     const res = await bridgeGet(`/lakehouse-v2/saved-queries?merchantId=${ctx.user.id}`);
@@ -669,7 +672,7 @@ const lakehouseV2Router = router({
     }),
   getDatasets: protectedProcedure.query(async ({ ctx }) => {
     const res = await bridgeGet(`/lakehouse-v2/datasets?merchantId=${ctx.user.id}`);
-    return res as { datasets: { name: string; rowCount: number; sizeBytes: number; lastUpdated: string; schema: { column: string; type: string }[] }[] };
+    return res as { datasets: { name: string; rowCount: number; sizeBytes: number; lastUpdated: string; format: string; status: string; schema: { column: string; type: string }[] }[] };
   }),
   exportDataset: protectedProcedure
     .input(z.object({
@@ -680,6 +683,65 @@ const lakehouseV2Router = router({
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/lakehouse-v2/export", { ...input, merchantId: ctx.user.id });
       return res as { exportId: string; downloadUrl: string; expiresAt: string; sizeBytes: number };
+    }),
+  // ── Apache Sedona: geospatial fraud heatmap via DuckDB+H3 ─────────────────
+  getGeoFraudHeatmap: protectedProcedure
+    .input(z.object({
+      radiusKm: z.number().min(0.1).max(500).default(50),
+      centerLat: z.number().optional(),
+      centerLng: z.number().optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      resolution: z.number().int().min(3).max(12).default(7),
+    }))
+    .query(async ({ ctx, input }) => {
+      const res = await bridgePost("/fraud-heatmap/geo", { ...input, merchantId: ctx.user.id });
+      return res as {
+        cells: { h3Index: string; lat: number; lng: number; count: number; riskScore: number }[];
+        totalEvents: number;
+        engine: string;
+        sedonaVersion: string;
+      };
+    }),
+  // ── Apache DataFusion: credit scoring with lakehouse feature extraction ────
+  getMerchantCreditScore: protectedProcedure
+    .input(z.object({
+      repaymentHistoryScore: z.number().min(0).max(1).default(0.8),
+      outstandingLoanKobo: z.number().int().min(0).default(0),
+      includeFeatures: z.boolean().default(false),
+    }))
+    .query(async ({ ctx, input }) => {
+      const res = await fetch(`${env.creditScoringUrl}/score/merchant/${ctx.user.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          merchant_id: ctx.user.id,
+          repayment_history_score: input.repaymentHistoryScore,
+          outstanding_loan_kobo: input.outstandingLoanKobo,
+          include_features: input.includeFeatures,
+        }),
+      });
+      if (!res.ok) throw new Error(`Credit scoring failed: ${res.status}`);
+      return res.json() as Promise<{
+        score: number;
+        tier: string;
+        maxLoanKobo: number;
+        interestRateBps: number;
+        featureSource: string;
+        lakehouseFeatures?: Record<string, unknown>;
+      }>;
+    }),
+  // ── DataFusion raw analytics query (admin only) ───────────────────────────
+  runDataFusionQuery: protectedProcedure
+    .input(z.object({ sql: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await fetch(`${env.creditScoringUrl}/analytics/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql: input.sql }),
+      });
+      if (!res.ok) throw new Error(`DataFusion query failed: ${res.status}`);
+      return res.json() as Promise<{ rows: unknown[]; count: number; engine: string }>;
     }),
   getAIAnalysis: protectedProcedure
     .input(z.object({ question: z.string(), datasetName: z.string() }))

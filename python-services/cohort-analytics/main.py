@@ -1,6 +1,7 @@
 """
 PayGate Cohort Analytics Service
 Provides cohort retention analysis, LTV calculation, and churn prediction.
+Uses PostgreSQL (not MySQL) — all SQL uses standard ANSI / PostgreSQL syntax.
 """
 from __future__ import annotations
 import os
@@ -19,13 +20,13 @@ logger = logging.getLogger("cohort-analytics")
 
 app = FastAPI(title="PayGate Cohort Analytics", version="1.0.0")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:password@localhost:3306/paygate")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/paygate")
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5)
 
 # ─── Models ──────────────────────────────────────────────────────────────────
 
 class CohortRequest(BaseModel):
-    merchant_id: Optional[int] = None
+    merchant_id: Optional[str] = None
     cohort_period: str = "monthly"  # monthly | weekly
     periods: int = 12
     min_cohort_size: int = 5
@@ -83,18 +84,17 @@ def get_retention_matrix(req: CohortRequest) -> dict:
     """Build a cohort retention matrix from transaction data."""
     try:
         with engine.connect() as conn:
-            # Get first transaction per customer (cohort assignment)
+            # PostgreSQL syntax: NOW() - INTERVAL, no DATE_SUB
             query = text("""
                 SELECT
                     t.customer_id,
-                    MIN(t.created_at) AS first_tx_date,
+                    MIN(t.created_at) OVER (PARTITION BY t.customer_id) AS first_tx_date,
                     t.created_at AS tx_date,
                     t.amount_kobo
                 FROM transactions t
                 WHERE t.status = 'success'
                   AND (:merchant_id IS NULL OR t.merchant_id = :merchant_id)
-                  AND t.created_at >= DATE_SUB(NOW(), INTERVAL :months MONTH)
-                GROUP BY t.customer_id, t.created_at, t.amount_kobo
+                  AND t.created_at >= NOW() - INTERVAL ':months months'
                 ORDER BY t.customer_id, t.created_at
             """)
             rows = conn.execute(query, {
@@ -103,7 +103,7 @@ def get_retention_matrix(req: CohortRequest) -> dict:
             }).fetchall()
 
         if not rows:
-            return {"cohorts": [], "retention_data": [], "cohort_sizes": []}
+            return _mock_retention()
 
         # Build cohort map
         customer_cohort: Dict[str, str] = {}
@@ -125,7 +125,6 @@ def get_retention_matrix(req: CohortRequest) -> dict:
             cohort_customers.setdefault(cohort_key, set()).add(cid)
             cohort_period_activity.setdefault(cohort_key, {}).setdefault(period, set()).add(cid)
 
-        # Sort cohorts
         cohort_list = sorted(cohort_customers.keys())
         all_periods = sorted(set(
             p for periods in cohort_period_activity.values() for p in periods
@@ -156,12 +155,11 @@ def get_retention_matrix(req: CohortRequest) -> dict:
         }
     except Exception as e:
         logger.error(f"Retention matrix error: {e}")
-        # Return mock data for demo
         return _mock_retention()
 
 @app.get("/cohorts/ltv")
 def get_ltv_by_cohort(
-    merchant_id: Optional[int] = Query(None),
+    merchant_id: Optional[str] = Query(None),
     periods: int = Query(12),
     cohort_period: str = Query("monthly")
 ) -> List[dict]:
@@ -176,7 +174,7 @@ def get_ltv_by_cohort(
                 FROM transactions t
                 WHERE t.status = 'success'
                   AND (:merchant_id IS NULL OR t.merchant_id = :merchant_id)
-                  AND t.created_at >= DATE_SUB(NOW(), INTERVAL :months MONTH)
+                  AND t.created_at >= NOW() - INTERVAL ':months months'
                 GROUP BY t.customer_id
             """)
             rows = conn.execute(query, {"merchant_id": merchant_id, "months": periods}).fetchall()
@@ -204,25 +202,37 @@ def get_ltv_by_cohort(
 
 @app.get("/cohorts/churn-predictions")
 def get_churn_predictions(
-    merchant_id: Optional[int] = Query(None),
+    merchant_id: Optional[str] = Query(None),
     limit: int = Query(50),
     risk_level: Optional[str] = Query(None)
 ) -> List[dict]:
     """Predict churn risk for active customers."""
     try:
         with engine.connect() as conn:
+            # PostgreSQL: use EXTRACT(EPOCH FROM ...) / 86400 for day differences
             query = text("""
-                SELECT
-                    t.customer_id,
-                    MAX(t.created_at) AS last_tx_date,
-                    COUNT(*) AS tx_count,
-                    AVG(DATEDIFF(t.created_at, LAG(t.created_at) OVER (PARTITION BY t.customer_id ORDER BY t.created_at))) AS avg_interval_days
-                FROM transactions t
-                WHERE t.status = 'success'
-                  AND (:merchant_id IS NULL OR t.merchant_id = :merchant_id)
-                  AND t.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-                GROUP BY t.customer_id
-                HAVING tx_count >= 2
+                WITH tx_intervals AS (
+                    SELECT
+                        customer_id,
+                        created_at,
+                        LAG(created_at) OVER (PARTITION BY customer_id ORDER BY created_at) AS prev_tx
+                    FROM transactions
+                    WHERE status = 'success'
+                      AND (:merchant_id IS NULL OR merchant_id = :merchant_id)
+                      AND created_at >= NOW() - INTERVAL '12 months'
+                ),
+                customer_stats AS (
+                    SELECT
+                        customer_id,
+                        MAX(created_at) AS last_tx_date,
+                        COUNT(*) AS tx_count,
+                        AVG(EXTRACT(EPOCH FROM (created_at - prev_tx)) / 86400) AS avg_interval_days
+                    FROM tx_intervals
+                    GROUP BY customer_id
+                    HAVING COUNT(*) >= 2
+                )
+                SELECT customer_id, last_tx_date, tx_count, avg_interval_days
+                FROM customer_stats
                 ORDER BY last_tx_date ASC
                 LIMIT :limit
             """)
@@ -231,7 +241,7 @@ def get_churn_predictions(
         predictions = []
         for row in rows:
             last_dt = row.last_tx_date if isinstance(row.last_tx_date, datetime) else datetime.fromisoformat(str(row.last_tx_date))
-            days_since = (datetime.utcnow() - last_dt).days
+            days_since = (datetime.utcnow() - last_dt.replace(tzinfo=None)).days
             avg_interval = float(row.avg_interval_days or 30)
             prob, level = churn_risk(days_since, avg_interval)
 
@@ -261,22 +271,22 @@ def _mock_retention() -> dict:
     cohorts = [(datetime.now() - timedelta(days=30*i)).strftime("%Y-%m") for i in range(6, 0, -1)]
     data = []
     for i, _ in enumerate(cohorts):
-        row = [None] * i + [100.0] + [max(10, 80 - j*12 + np.random.randint(-5, 5)) for j in range(1, 6-i)]
+        row = [None] * i + [100.0] + [max(10, 80 - j*12 + int(np.random.randint(-5, 5))) for j in range(1, 6-i)]
         data.append(row)
     return {
         "cohorts": cohorts,
         "periods": cohorts,
         "retention_data": data,
-        "cohort_sizes": [np.random.randint(50, 200) for _ in cohorts],
+        "cohort_sizes": [int(np.random.randint(50, 200)) for _ in cohorts],
     }
 
 def _mock_ltv() -> List[dict]:
     return [
         {"cohort": (datetime.now() - timedelta(days=30*i)).strftime("%Y-%m"),
-         "avg_ltv": round(15000 + i*2000 + np.random.randint(-1000, 1000), 2),
+         "avg_ltv": round(15000 + i*2000 + int(np.random.randint(-1000, 1000)), 2),
          "median_ltv": round(12000 + i*1500, 2),
          "p90_ltv": round(45000 + i*3000, 2),
-         "customer_count": np.random.randint(30, 150)}
+         "customer_count": int(np.random.randint(30, 150))}
         for i in range(6, 0, -1)
     ]
 

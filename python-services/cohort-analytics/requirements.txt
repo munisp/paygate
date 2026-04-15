@@ -1,7 +1,10 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
-pymysql==1.1.1
+psycopg2-binary==2.9.9
 numpy==1.26.4
 pydantic==2.10.3
-cryptography==43.0.3
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-exporter-otlp==1.27.0
+prometheus-client==0.21.0

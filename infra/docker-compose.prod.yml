@@ -999,19 +999,145 @@ services:
     networks: [paygate-net]
     depends_on: [kafka, redis]
 
+  # ─── MinIO Object Store (S3-compatible lakehouse storage) ──────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    container_name: paygate-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console UI
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_SITE_NAME: paygate-lakehouse
+    volumes:
+      - minio-data:/data
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO bucket initialisation (runs once, creates paygate-lakehouse bucket)
+  minio-init:
+    image: minio/mc:RELEASE.2024-11-17T19-35-25Z
+    container_name: paygate-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin} &&
+        mc mb --ignore-existing local/paygate-lakehouse &&
+        mc mb --ignore-existing local/paygate-exports &&
+        mc anonymous set download local/paygate-exports &&
+        echo 'MinIO buckets ready'
+      "
+    networks: [paygate-net]
+
+  # ─── Apache Spark 3.5 (Delta Lake + Sedona) ──────────────────────────────────
+  spark-master:
+    image: bitnami/spark:3.5.3
+    container_name: paygate-spark-master
+    restart: unless-stopped
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+    ports:
+      - "8086:8080"   # Spark Master Web UI
+      - "7077:7077"   # Spark Master RPC
+    volumes:
+      - spark-logs:/opt/bitnami/spark/logs
+    networks: [paygate-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  spark-worker:
+    image: bitnami/spark:3.5.3
+    container_name: paygate-spark-worker
+    restart: unless-stopped
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: "4G"
+      SPARK_WORKER_CORES: "4"
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+    volumes:
+      - spark-logs:/opt/bitnami/spark/logs
+    networks: [paygate-net]
+    depends_on: [spark-master]
+
+  # ─── Trino (distributed SQL query engine for lakehouse) ───────────────────────
+  trino:
+    image: trinodb/trino:457
+    container_name: paygate-trino
+    restart: unless-stopped
+    ports:
+      - "8090:8080"   # Trino Web UI + REST API
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+    networks: [paygate-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ─── lakehouse-v2 Python/DuckDB service ────────────────────────────────────────
   lakehouse-v2-service:
     image: paygate/lakehouse-v2:${LAKEHOUSE_V2_VERSION:-latest}
+    build:
+      context: ../python-services/lakehouse-v2
+      dockerfile: Dockerfile
     container_name: paygate-lakehouse-v2
     restart: unless-stopped
     ports: ["8125:8125"]
     environment:
       PORT: "8125"
-      DELTA_LAKE_URL: "${DELTA_LAKE_URL:-http://spark:8998}"
-      SPARK_THRIFT_URL: "${SPARK_THRIFT_URL:-jdbc:hive2://spark:10000}"
-      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      # S3/MinIO object store
+      S3_ENDPOINT: "http://minio:9000"
+      S3_BUCKET: "paygate-lakehouse"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      AWS_REGION: "us-east-1"
+      # Spark
+      SPARK_MASTER: "spark://spark-master:7077"
+      SEDONA_ENABLED: "true"
+      # Trino for ad-hoc queries
+      TRINO_URL: "http://trino:8080"
       DATABASE_URL: "${DATABASE_URL}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
     networks: [paygate-net]
-    depends_on: [kafka]
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8125/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   payroll-v2-service:
     image: paygate/payroll-v2:${PAYROLL_V2_VERSION:-latest}
@@ -1555,8 +1681,9 @@ volumes:
   prometheus-data:
   grafana-data:
   lakehouse-data:
-
   postgres-data:
+  minio-data:
+  spark-logs:
 networks:
   paygate-net:
     driver: bridge
