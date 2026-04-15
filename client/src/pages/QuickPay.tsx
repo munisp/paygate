@@ -366,7 +366,8 @@ export default function QuickPay() {
     if (id === "request") { window.location.href = "/consumer/request-money"; return; }
     if (id === "split") { window.location.href = "/consumer/split-bill"; return; }
     if (id === "topup") { window.location.href = "/consumer"; return; }
-    setActiveShortcut(id);
+    // All shortcuts are routed — no fallback dialog needed
+    window.location.href = "/dashboard";
   };
 
   return (

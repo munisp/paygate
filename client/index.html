@@ -2,24 +2,110 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
     <title>PayGate Merchant Portal</title>
+    <meta name="description" content="PayGate — Africa's most powerful payment infrastructure. Accept payments, manage payouts, fight fraud, and grow your business." />
+    <meta name="keywords" content="payments, fintech, merchant portal, Nigeria, Africa, NIP, USSD, BNPL, virtual cards" />
+    <meta name="author" content="PayGate" />
+    <meta name="robots" content="noindex, nofollow" />
 
-    <!-- PWA -->
+    <!-- Security -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+
+    <!-- PWA Core -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#4F46E5" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Android / Chrome PWA -->
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="PayGate" />
+
+    <!-- iOS / Safari PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PayGate" />
+
+    <!-- Apple Touch Icons (multiple sizes for all devices) -->
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="57x57"   href="/icons/icon-96x96.png" />
+    <link rel="apple-touch-icon" sizes="60x60"   href="/icons/icon-96x96.png" />
+    <link rel="apple-touch-icon" sizes="72x72"   href="/icons/icon-96x96.png" />
+    <link rel="apple-touch-icon" sizes="76x76"   href="/icons/icon-96x96.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
+
+    <!-- Apple Splash Screens (iPhone/iPad) -->
+    <!-- iPhone SE (1st gen) 640x1136 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" href="/splash/splash-640x1136.png" />
+    <!-- iPhone 8 750x1334 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" href="/splash/splash-750x1334.png" />
+    <!-- iPhone 8 Plus 1242x2208 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3)" href="/splash/splash-1242x2208.png" />
+    <!-- iPhone X/XS 1125x2436 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" href="/splash/splash-1125x2436.png" />
+    <!-- iPhone XR/11 828x1792 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" href="/splash/splash-828x1792.png" />
+    <!-- iPhone 11 Pro Max 1242x2688 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" href="/splash/splash-1242x2688.png" />
+    <!-- iPhone 12/13/14 1170x2532 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" href="/splash/splash-1170x2532.png" />
+    <!-- iPhone 14 Pro 1179x2556 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" href="/splash/splash-1179x2556.png" />
+    <!-- iPad Mini 1536x2048 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" href="/splash/splash-1536x2048.png" />
+    <!-- iPad Pro 11" 1668x2388 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" href="/splash/splash-1668x2388.png" />
+    <!-- iPad Pro 12.9" 2048x2732 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" href="/splash/splash-2048x2732.png" />
+
+    <!-- Favicons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="96x96"   href="/icons/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="32x32"   href="/icons/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="16x16"   href="/icons/icon-96x96.png" />
+    <link rel="shortcut icon" href="/icons/icon-96x96.png" />
+
+    <!-- Microsoft Tiles -->
+    <meta name="msapplication-TileColor" content="#4F46E5" />
+    <meta name="msapplication-TileImage" content="/icons/icon-192x192.png" />
+    <meta name="msapplication-config" content="/browserconfig.xml" />
+
+    <!-- Open Graph (for sharing) -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:title"       content="PayGate Merchant Portal" />
+    <meta property="og:description" content="Africa's most powerful payment infrastructure." />
+    <meta property="og:image"       content="/icons/icon-512x512.png" />
+    <meta property="og:url"         content="https://paygate.manus.space" />
+    <meta property="og:site_name"   content="PayGate" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card"        content="summary" />
+    <meta name="twitter:title"       content="PayGate Merchant Portal" />
+    <meta name="twitter:description" content="Africa's most powerful payment infrastructure." />
+    <meta name="twitter:image"       content="/icons/icon-512x512.png" />
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+    <!-- Inline critical CSS for splash/loading state -->
+    <style>
+      html, body { margin: 0; padding: 0; background: #4F46E5; }
+      #root:empty::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        display: flex;
+        background: #4F46E5;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
