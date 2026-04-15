@@ -1673,6 +1673,33 @@ services:
       timeout: 10s
       retries: 3
 
+  # ─── Delta Lake Compaction Job (run manually or via K8s CronJob nightly) ──────────────
+  spark-compaction:
+    image: paygate/spark-compaction:${SPARK_COMPACTION_VERSION:-latest}
+    build:
+      context: ../python-services/spark-compaction
+      dockerfile: Dockerfile
+    container_name: paygate-spark-compaction
+    restart: "no"
+    environment:
+      S3_BUCKET: "paygate-lakehouse"
+      S3_ENDPOINT: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      AWS_REGION: "us-east-1"
+      SPARK_MASTER: "spark://spark-master:7077"
+      VACUUM_RETAIN_HOURS: "168"
+      COMPACT_TARGET_SIZE_MB: "128"
+      DRY_RUN: "false"
+    networks: [paygate-net]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
 volumes:
   redis-data:
   tb-data-1:

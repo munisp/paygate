@@ -65,3 +65,17 @@ data:
 
   # Sync relay
   SYNC_RELAY_URL: "http://paygate-sync-relay:9030"
+
+  # Lakehouse / Analytics stack
+  LAKEHOUSE_V2_URL: "http://paygate-lakehouse-v2:8125"
+  FRAUD_HEATMAP_URL: "http://paygate-fraud-heatmap:8120"
+  CREDIT_SCORING_URL: "http://paygate-credit-scoring:8200"
+  SPARK_MASTER_URL: "spark://paygate-spark-master:7077"
+  TRINO_URL: "http://paygate-trino:8080"
+  MINIO_ENDPOINT: "http://paygate-minio:9000"
+  MINIO_BUCKET: "paygate-lakehouse"
+  MINIO_EXPORTS_BUCKET: "paygate-exports"
+  AWS_REGION: "us-east-1"
+  SEDONA_ENABLED: "true"
+  H3_RESOLUTION: "7"
+  DATAFUSION_ENABLED: "true"

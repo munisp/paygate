@@ -129,3 +129,33 @@ scrape_configs:
       - targets: ["intl-remittance:9029"]
     metrics_path: /metrics
     scrape_interval: 30s
+  - job_name: paygate-lakehouse-v2
+    static_configs:
+      - targets: ["lakehouse-v2-service:8125"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-fraud-heatmap
+    static_configs:
+      - targets: ["fraud-heatmap:8120"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-minio
+    static_configs:
+      - targets: ["minio:9000"]
+    metrics_path: /minio/v2/metrics/cluster
+    scrape_interval: 30s
+  - job_name: paygate-spark-master
+    static_configs:
+      - targets: ["spark-master:8080"]
+    metrics_path: /metrics/prometheus
+    scrape_interval: 30s
+  - job_name: paygate-trino
+    static_configs:
+      - targets: ["trino:8080"]
+    metrics_path: /v1/jmx/mbean/trino.execution:name=QueryManager
+    scrape_interval: 30s
+  - job_name: paygate-credit-scoring
+    static_configs:
+      - targets: ["credit-scoring:8200"]
+    metrics_path: /metrics
+    scrape_interval: 30s

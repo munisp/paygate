@@ -677,39 +677,74 @@ func nipNameEnquiryAPI(ctx context.Context, req types.NIPNameEnquiryRequest) typ
 		}
 	}
 
-	// Real NIBSS NIP API call
-	payload := fmt.Sprintf(`{"accountNumber":"%s","bankCode":"%s","channelCode":"1"}`,
+	// Real NIBSS NIP API call with full response body parsing
+	payload2 := fmt.Sprintf(`{"accountNumber":"%s","bankCode":"%s","channelCode":"1"}`,
 		req.AccountNumber, req.BankCode)
-	payloadBytes := []byte(payload)
-
-	nipKey := os.Getenv("NIBSS_NIP_KEY")
-	headers := map[string]string{
+	nipKey2 := os.Getenv("NIBSS_NIP_KEY")
+	headers2 := map[string]string{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + nipKey,
+		"Authorization": "Bearer " + nipKey2,
 	}
-
-	statusCode, err := httpPost(ctx, nipURL+"/api/v1/nameEnquiry", payloadBytes, headers)
-	if err != nil || statusCode >= 400 {
-		slog.Warn("[nip] NIBSS API call failed", "status", statusCode, "err", err)
-		return types.NIPNameEnquiryResponse{
-			AccountName:   "ACCOUNT NAME UNAVAILABLE",
-			BankCode:      req.BankCode,
-			AccountNumber: req.AccountNumber,
-			SessionID:     uuid.NewString(),
-		}
+	_, respBody, bodyErr := httpPostWithBody(ctx, nipURL+"/api/v1/nameEnquiry", []byte(payload2), headers2)
+	if bodyErr != nil {
+		slog.Warn("[nip] NIBSS body read failed", "err", bodyErr)
+		return types.NIPNameEnquiryResponse{AccountName: "ACCOUNT NAME UNAVAILABLE", BankCode: req.BankCode, AccountNumber: req.AccountNumber, SessionID: uuid.NewString()}
 	}
-
-	// In a real implementation, parse the JSON response body here.
-	// For now, return a placeholder since we don't have the response body.
+	var nipResp struct {
+		AccountName  string `json:"accountName"`
+		SessionID    string `json:"sessionID"`
+		ResponseCode string `json:"responseCode"`
+	}
+	if decErr := json.Unmarshal(respBody, &nipResp); decErr != nil {
+		slog.Warn("[nip] Failed to decode NIBSS response", "err", decErr)
+		return types.NIPNameEnquiryResponse{AccountName: "ACCOUNT NAME UNAVAILABLE", BankCode: req.BankCode, AccountNumber: req.AccountNumber, SessionID: uuid.NewString()}
+	}
+	sessionID := nipResp.SessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
 	return types.NIPNameEnquiryResponse{
-		AccountName:   "ACCOUNT HOLDER",
+		AccountName:   nipResp.AccountName,
 		BankCode:      req.BankCode,
 		AccountNumber: req.AccountNumber,
-		SessionID:     uuid.NewString(),
+		SessionID:     sessionID,
 	}
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
+
+// httpPostWithBody makes an HTTP POST request and returns the status code and response body.
+func httpPostWithBody(ctx context.Context, targetURL string, body []byte, headers map[string]string) (int, []byte, error) {
+	if _, err := url.ParseRequestURI(targetURL); err != nil {
+		return 0, nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL,
+		strings.NewReader(string(body)))
+	if err != nil {
+		return 0, nil, err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	respBody := make([]byte, 0, 4096)
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			respBody = append(respBody, buf[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return resp.StatusCode, respBody, nil
+}
 
 // httpPost makes an HTTP POST request and returns the status code.
 func httpPost(ctx context.Context, targetURL string, body []byte, headers map[string]string) (int, error) {

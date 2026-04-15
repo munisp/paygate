@@ -6,6 +6,7 @@ namespace: paygate
 resources:
   - namespace.yaml
   - configmap.yaml
+  - trino-configmap.yaml
   - secrets-template.yaml
   - portal-deployment.yaml
   - go-bridge-deployment.yaml
