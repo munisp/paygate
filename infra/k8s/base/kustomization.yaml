@@ -15,6 +15,7 @@ resources:
   - ../monitoring/prometheus-rules.yaml
   - ../services/rust-services.yaml
   - hpa-pdb.yaml
+  - network-policy.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: paygate

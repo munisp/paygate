@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
   CreditCard, Star, Zap, Building2, CheckCircle2, ArrowUpRight,
-  Settings, AlertCircle, Crown, Sparkles,
+  Settings, AlertCircle, Crown, Sparkles, ExternalLink, Clock,
 } from "lucide-react";
 
 const PLAN_ICONS: Record<string, React.ReactNode> = {
@@ -76,6 +76,15 @@ export default function Billing() {
 
   const currentPlan = subscription?.plan ?? "free";
 
+  // Stripe key mode — shows claim banner when in test/unconfigured mode
+  const { data: stripeMode } = trpc.stripe.getKeyMode.useQuery(undefined, { staleTime: 300_000 });
+  const sandboxClaimUrl = stripeMode?.sandboxClaimUrl;
+  const sandboxExpiry = stripeMode?.sandboxExpiry ? new Date(stripeMode.sandboxExpiry) : null;
+  const daysUntilExpiry = sandboxExpiry
+    ? Math.ceil((sandboxExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
+  const isTestMode = stripeMode?.mode === 'test' || stripeMode?.mode === 'unconfigured';
+
   // Check for success/cancel query params
   const searchParams = new URLSearchParams(window.location.search);
   const isSuccess = searchParams.get("success") === "1";
@@ -103,6 +112,39 @@ export default function Billing() {
           </Button>
         )}
       </div>
+
+      {/* Stripe Sandbox Claim Banner */}
+      {isTestMode && sandboxClaimUrl && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+          <Clock className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900">
+              Claim Your Stripe Test Sandbox
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Your Stripe sandbox is provisioned and ready. Claim it to activate test payments.
+              {daysUntilExpiry !== null && daysUntilExpiry > 0 && (
+                <span className="ml-1 font-medium">Expires in {daysUntilExpiry} day{daysUntilExpiry !== 1 ? 's' : ''}.</span>
+              )}
+            </p>
+            <div className="flex items-center gap-3 mt-2">
+              <Button
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white h-7 text-xs"
+                onClick={() => window.open(sandboxClaimUrl, '_blank')}
+              >
+                <ExternalLink className="w-3 h-3 mr-1.5" />
+                Claim Sandbox
+              </Button>
+              <span className="text-xs text-amber-600">
+                Use card{' '}
+                <code className="font-mono bg-amber-100 px-1 rounded">4242 4242 4242 4242</code>{' '}
+                for testing
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success / Cancel banners */}
       {isSuccess && (

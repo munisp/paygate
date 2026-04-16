@@ -2680,3 +2680,11 @@
 - [x] esbuild exit 0 on server/_core/index.ts and server/routers.ts
 - [x] Server health: curl /api/health returns ok
 - [x] 0 TODO/FIXME items in TypeScript/Go/Python/Rust files
+
+## Wave 19 — Suggested Next Steps (Apr 16 2026)
+- [x] Stripe sandbox claim banner in Billing.tsx (trpc.stripe.getKeyMode, countdown, deep-link to claim_sandbox URL)
+- [x] Billing.tsx: ExternalLink + Clock icons, 5-min stale-time query
+- [x] Pages audit: ConsumerProfile and Discover already fully wired to tRPC
+- [x] K8s NetworkPolicy: infra/k8s/base/network-policy.yaml — 11 policies (default-deny-all, allow-dns-egress, portal, go-bridge, python-services, rust-services, postgres, redis, tigerbeetle, kafka, monitoring)
+- [x] kustomization.yaml: network-policy.yaml added to resources list
+- [x] NETWORK-POLICY-README.md: traffic matrix, apply/test instructions
