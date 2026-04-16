@@ -1544,6 +1544,53 @@ setInterval(async () => {
         content: `The following tables have >25% dead tuples and need VACUUM:\n\n${tableList}\n\nRun: VACUUM ANALYZE <table_name>;`,
       });
     }
+
+    // ── Auto-VACUUM trigger for tables with >40% bloat ─────────────────────────
+    // Uses pg_advisory_lock (lock id: 7331) to prevent concurrent VACUUM runs.
+    // Only tables with n_live_tup > 5000 and bloat_pct > 40 are targeted.
+    const highBloatResult = await pool.query(
+      `SELECT relname AS table_name,
+              n_dead_tup,
+              n_live_tup,
+              round(100.0 * n_dead_tup / NULLIF(n_live_tup, 0), 1) AS bloat_pct
+       FROM pg_stat_user_tables
+       WHERE n_live_tup > 5000
+         AND n_dead_tup::float / NULLIF(n_live_tup, 0) > 0.40
+       ORDER BY bloat_pct DESC
+       LIMIT 10`
+    );
+    if (highBloatResult.rows && highBloatResult.rows.length > 0) {
+      // Try to acquire advisory lock — skip if another instance is already running VACUUM
+      const lockResult = await pool.query(`SELECT pg_try_advisory_lock(7331) AS acquired`);
+      const lockAcquired = lockResult.rows?.[0]?.acquired === true;
+      if (lockAcquired) {
+        const vacuumedTables: string[] = [];
+        try {
+          for (const row of highBloatResult.rows) {
+            const tbl = row.table_name as string;
+            // Sanitize table name — only allow alphanumeric + underscore
+            if (!/^[a-z_][a-z0-9_]*$/.test(tbl)) {
+              console.warn(`[autoVacuum] Skipping suspicious table name: ${tbl}`);
+              continue;
+            }
+            console.info(`[autoVacuum] Running VACUUM ANALYZE on ${tbl} (bloat: ${row.bloat_pct}%)`);
+            await pool.query(`VACUUM ANALYZE ${tbl}`);
+            vacuumedTables.push(`${tbl} (was ${row.bloat_pct}% bloat)`);
+          }
+        } finally {
+          await pool.query(`SELECT pg_advisory_unlock(7331)`);
+        }
+        if (vacuumedTables.length > 0) {
+          await notifyOwner({
+            title: '🧹 Auto-VACUUM Completed',
+            content: `Automatic VACUUM ANALYZE was triggered for ${vacuumedTables.length} high-bloat table(s):\n\n${vacuumedTables.join('\n')}\n\nThese tables had >40% dead tuples and were automatically cleaned.`,
+          });
+          console.info(`[autoVacuum] Completed. Tables vacuumed: ${vacuumedTables.join(', ')}`);
+        }
+      } else {
+        console.info('[autoVacuum] Skipped — another instance holds the advisory lock (7331)');
+      }
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[dbHealthAlert] Check failed:', msg);

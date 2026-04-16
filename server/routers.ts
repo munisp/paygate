@@ -1879,6 +1879,46 @@ const analyticsRouter = router({
       const merchant = await requireMerchant(user.id);
       return getChannelBreakdown(merchant.id, input.from, input.to);
     }),
+
+  // Liveness score histogram for KYC submissions over the last N days
+  livenessHistogram: protectedProcedure
+    .input(z.object({ days: z.number().int().min(7).max(90).default(30) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { buckets: [], totalSubmissions: 0, passRate: 0, avgScore: 0 };
+      const { kycSubmissions } = await import('../drizzle/schema');
+      const { gte, and, isNotNull, sql: sqlExpr } = await import('drizzle-orm');
+      const since = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000);
+      const rows = await db
+        .select({ livenessScore: kycSubmissions.livenessScore })
+        .from(kycSubmissions)
+        .where(and(
+          isNotNull(kycSubmissions.livenessScore),
+          gte(kycSubmissions.createdAt, since),
+        ));
+      // Build histogram buckets: 0-10%, 10-20%, ..., 90-100%
+      const buckets = Array.from({ length: 10 }, (_, i) => ({
+        label: `${i * 10}–${(i + 1) * 10}%`,
+        min: i * 0.1,
+        max: (i + 1) * 0.1,
+        count: 0,
+      }));
+      let totalScore = 0;
+      let passCount = 0;
+      for (const row of rows) {
+        const score = row.livenessScore ?? 0;
+        totalScore += score;
+        if (score >= 0.9) passCount++;
+        const bucketIdx = Math.min(Math.floor(score * 10), 9);
+        buckets[bucketIdx].count++;
+      }
+      const totalSubmissions = rows.length;
+      const passRate = totalSubmissions > 0 ? passCount / totalSubmissions : 0;
+      const avgScore = totalSubmissions > 0 ? totalScore / totalSubmissions : 0;
+      return { buckets, totalSubmissions, passRate, avgScore };
+    }),
 });
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
 
@@ -2460,6 +2500,32 @@ const complianceKycRouter = router({
 
       logger.info(`[kyc.saveLivenessResult] merchant=${merchant.id} sub=${submissionId} score=${input.livenessScore} passed=${input.passed}`);
       return { saved: true, submissionId, passed: input.passed };
+    }),
+
+  // Admin: manually override a borderline liveness score with a mandatory audit note
+  overrideLiveness: protectedProcedure
+    .input(z.object({
+      submissionId: z.number(),
+      override: z.boolean(),
+      note: z.string().min(10, 'Note must be at least 10 characters for audit trail'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
+      const { eq: eqOp } = await import('drizzle-orm');
+      await db
+        .update(kycTbl)
+        .set({
+          livenessOverride: input.override,
+          livenessOverrideNote: input.note,
+          livenessOverrideBy: ctx.user.openId,
+          livenessOverrideAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eqOp(kycTbl.id, input.submissionId));
+      logger.info(`[kyc.overrideLiveness] reviewer=${ctx.user.openId} sub=${input.submissionId} override=${input.override} note="${input.note}"`);
+      return { overridden: true, submissionId: input.submissionId };
     }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────

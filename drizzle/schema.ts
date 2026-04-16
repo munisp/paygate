@@ -479,6 +479,11 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   livenessChallengeType: text("liveness_challenge_type"), // 'blink' | 'nod' | 'smile'
   livenessPassedAt: timestamp("liveness_passed_at"),
   livenessSessionId: text("liveness_session_id"),
+  // Liveness override (reviewer can manually override a borderline score)
+  livenessOverride: boolean("liveness_override"),         // true = reviewer accepted despite low score
+  livenessOverrideNote: text("liveness_override_note"),   // mandatory note when overriding
+  livenessOverrideBy: text("liveness_override_by"),       // reviewer openId
+  livenessOverrideAt: timestamp("liveness_override_at"),  // when override was recorded
   // OCR extraction results
   ocrExtractedData: jsonb("ocr_extracted_data"),
   ocrConfidence: real("ocr_confidence"),

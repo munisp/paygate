@@ -62,6 +62,10 @@ export default function Analytics() {
     { staleTime: 120_000 },
   );
   const { data: channelData, isLoading: chLoading } = trpc.analytics.channelBreakdown.useQuery(range, { staleTime: 60_000 });
+  const { data: livenessData, isLoading: lvLoading } = trpc.analytics.livenessHistogram.useQuery(
+    { days: Math.min(days, 90) },
+    { staleTime: 120_000 },
+  );
   const CHANNEL_COLORS: Record<string, string> = {
     card: "#4F46E5",
     bank_transfer: "#10B981",
@@ -437,6 +441,73 @@ export default function Analytics() {
             </table>
           </div>
         )}
+      </div>
+      {/* Liveness Score Histogram */}
+      <div className="bg-card rounded-xl border border-border p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Liveness Score Distribution</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">KYC submission liveness scores over the last {days} days</p>
+          </div>
+          {!lvLoading && livenessData && (
+            <div className="flex items-center gap-4 text-xs">
+              <div className="text-center">
+                <p className="font-bold text-lg text-foreground">{livenessData.totalSubmissions}</p>
+                <p className="text-muted-foreground">Submissions</p>
+              </div>
+              <div className="text-center">
+                <p className={`font-bold text-lg ${
+                  livenessData.passRate >= 0.9 ? 'text-emerald-500' :
+                  livenessData.passRate >= 0.7 ? 'text-amber-500' : 'text-red-500'
+                }`}>{(livenessData.passRate * 100).toFixed(1)}%</p>
+                <p className="text-muted-foreground">Pass Rate</p>
+              </div>
+              <div className="text-center">
+                <p className={`font-bold text-lg ${
+                  livenessData.avgScore >= 0.9 ? 'text-emerald-500' :
+                  livenessData.avgScore >= 0.7 ? 'text-amber-500' : 'text-red-500'
+                }`}>{(livenessData.avgScore * 100).toFixed(1)}%</p>
+                <p className="text-muted-foreground">Avg Score</p>
+              </div>
+            </div>
+          )}
+        </div>
+        {lvLoading ? <Skeleton className="h-48 w-full" /> : (
+          livenessData && livenessData.totalSubmissions > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={livenessData.buckets} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 }}
+                  formatter={(val: any) => [val, 'Submissions']}
+                />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {livenessData.buckets.map((b: any, i: number) => (
+                    <Cell
+                      key={i}
+                      fill={
+                        b.min >= 0.9 ? '#10B981' :
+                        b.min >= 0.7 ? '#F59E0B' : '#EF4444'
+                      }
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
+              No liveness data in this period
+            </div>
+          )
+        )}
+        {/* Legend */}
+        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /> Pass (≥90%)</div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-500" /> Borderline (70–89%)</div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-red-500" /> Fail (&lt;70%)</div>
+        </div>
       </div>
     </div>
   );
