@@ -1211,6 +1211,62 @@ async function startServer() {
     }
   });
 
+  // ─── SSE: Mobile Notifications Stream (Bearer token auth) ──────────────────
+  // React Native cannot set cookies on SSE requests, so we accept a Bearer token
+  // in the Authorization header or as a ?token= query param (for EventSource polyfills).
+  app.get("/api/mobile/notifications/stream", async (req: any, res: any) => {
+    try {
+      // Accept token from Authorization header or query param
+      const authHeader = req.headers["authorization"] ?? "";
+      const queryToken = (req.query?.token as string) ?? "";
+      const rawToken = authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : queryToken;
+      if (!rawToken) return res.status(401).json({ error: "Unauthorized" });
+      // Verify the JWT session token
+      const { sdk } = await import("./sdk");
+      let sessionUser: { openId: string } | null = null;
+      try {
+        sessionUser = await sdk.verifySession(rawToken) as { openId: string };
+      } catch {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+      if (!sessionUser?.openId) return res.status(401).json({ error: "Unauthorized" });
+      const { getUserByOpenId, getMerchantByOwnerId } = await import("../db");
+      const user = await getUserByOpenId(sessionUser.openId);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const merchant = await getMerchantByOwnerId(user.id);
+      if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+      const merchantId = merchant.id;
+      // Set SSE headers — allow CORS for mobile clients
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.flushHeaders();
+      // Register this client in the shared notifClients map (same map as web SSE)
+      if (!notifClients.has(merchantId)) notifClients.set(merchantId, new Set());
+      notifClients.get(merchantId)!.add(res);
+      // Send initial connected event with unread count so mobile badge updates immediately
+      try {
+        const { countUnreadNotifications } = await import("../db");
+        const unreadCount = await countUnreadNotifications(merchantId);
+        res.write(`event: connected\ndata: ${JSON.stringify({ merchantId, unreadCount })}\n\n`);
+      } catch { /* non-fatal */ }
+      // Heartbeat every 25s to keep connection alive through proxies
+      const heartbeat = setInterval(() => {
+        try { res.write(`: heartbeat\n\n`); } catch { clearInterval(heartbeat); }
+      }, 25_000);
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        notifClients.get(merchantId)?.delete(res);
+      });
+    } catch {
+      res.status(500).json({ error: "Mobile notification SSE setup failed" });
+    }
+  });
+
   // ─── Per-route mutation rate limiters ──────────────────────────────────────
   // These run before the tRPC middleware and apply stricter limits to sensitive
   // financial mutation endpoints.  tRPC batch requests include the procedure

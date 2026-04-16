@@ -57,7 +57,7 @@ import {
   listSlaBreachedSettlements, markSettlementSlaBreached, markSettlementSlaAlertSent,
   // Notifications
   createMerchantNotification, listMerchantNotifications, countUnreadNotifications,
-  markNotificationRead, markAllNotificationsRead,
+  markNotificationRead, markAllNotificationsRead, dismissNotification, dismissAllNotifications,
   // DB connection (used by subscriptions/POS routers)
   getDb,
 } from "./db";
@@ -3687,11 +3687,14 @@ const notificationsRouter = router({
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(50),
       unreadOnly: z.boolean().default(false),
+      type: z.enum(['payment', 'fraud', 'dispute', 'system', 'kyc', 'payout']).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      return listMerchantNotifications(merchant.id, input);
+      const notifications = await listMerchantNotifications(merchant.id, input);
+      const unreadCount = await countUnreadNotifications(merchant.id);
+      return { notifications, unreadCount };
     }),
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
@@ -3711,6 +3714,20 @@ const notificationsRouter = router({
     const user = await resolveUser(ctx.user.openId);
     const merchant = await requireMerchant(user.id);
     await markAllNotificationsRead(merchant.id);
+    return { success: true };
+  }),
+  dismiss: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      await dismissNotification(input.id, merchant.id);
+      return { success: true };
+    }),
+  dismissAll: protectedProcedure.mutation(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await requireMerchant(user.id);
+    await dismissAllNotifications(merchant.id);
     return { success: true };
   }),
   seedDemo: protectedProcedure.mutation(async ({ ctx }) => {

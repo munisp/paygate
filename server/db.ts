@@ -870,12 +870,20 @@ export async function createMerchantNotification(data: {
   body: string;
   entityId?: string;
   entityType?: string;
-}): Promise<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; createdAt: Date } | null> {
+  priority?: string;
+  actionUrl?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; priority: string; actionUrl: string | null; metadata: string | null; createdAt: Date } | null> {
   const db = await getDb(); if (!db) return null;
   const result = await db.execute(sql`
-    INSERT INTO merchant_notifications (merchant_id, type, title, body, entity_id, entity_type, is_read, created_at)
-    VALUES (${data.merchantId}, ${data.type}, ${data.title}, ${data.body}, ${data.entityId ?? null}, ${data.entityType ?? null}, false, NOW())
-    RETURNING id, merchant_id, type, title, body, entity_id, entity_type, is_read, created_at
+    INSERT INTO merchant_notifications
+      (merchant_id, type, title, body, entity_id, entity_type, is_read, priority, action_url, metadata, created_at)
+    VALUES
+      (${data.merchantId}, ${data.type}, ${data.title}, ${data.body},
+       ${data.entityId ?? null}, ${data.entityType ?? null}, false,
+       ${data.priority ?? 'medium'}, ${data.actionUrl ?? null},
+       ${data.metadata ? JSON.stringify(data.metadata) : null}, NOW())
+    RETURNING id, merchant_id, type, title, body, entity_id, entity_type, is_read, priority, action_url, metadata, created_at
   `) as any;
   const row = (result?.rows ?? result)?.[0];
   if (!row) return null;
@@ -888,19 +896,38 @@ export async function createMerchantNotification(data: {
     entityId: row.entity_id,
     entityType: row.entity_type,
     isRead: row.is_read,
+    priority: row.priority ?? 'medium',
+    actionUrl: row.action_url ?? null,
+    metadata: row.metadata ?? null,
     createdAt: row.created_at,
   };
 }
 
-export async function listMerchantNotifications(merchantId: string, options?: { limit?: number; unreadOnly?: boolean }): Promise<Array<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; createdAt: Date }>> {
+export async function listMerchantNotifications(
+  merchantId: string,
+  options?: { limit?: number; unreadOnly?: boolean; type?: string }
+): Promise<Array<{
+  id: number; merchantId: string; type: string; title: string; body: string;
+  entityId: string | null; entityType: string | null; isRead: boolean;
+  priority: string; actionUrl: string | null; metadata: string | null; createdAt: Date;
+}>> {
   const db = await getDb(); if (!db) return [];
   const limit = options?.limit ?? 50;
   const unreadFilter = options?.unreadOnly ? sql` AND is_read = false` : sql``;
+  const typeFilter = options?.type ? sql` AND type = ${options.type}` : sql``;
   const result = await db.execute(sql`
-    SELECT id, merchant_id, type, title, body, entity_id, entity_type, is_read, created_at
+    SELECT id, merchant_id, type, title, body, entity_id, entity_type, is_read,
+           COALESCE(priority, 'medium') as priority,
+           action_url, metadata, created_at
     FROM merchant_notifications
-    WHERE merchant_id = ${merchantId}${unreadFilter}
-    ORDER BY created_at DESC
+    WHERE merchant_id = ${merchantId}
+      AND dismissed_at IS NULL
+      ${unreadFilter}${typeFilter}
+    ORDER BY
+      CASE COALESCE(priority, 'medium')
+        WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4
+      END,
+      created_at DESC
     LIMIT ${limit}
   `) as unknown as { rows: any[] } | any[];
   const rows: any[] = (result as any).rows ?? result;
@@ -913,6 +940,9 @@ export async function listMerchantNotifications(merchantId: string, options?: { 
     entityId: r.entity_id,
     entityType: r.entity_type,
     isRead: r.is_read,
+    priority: r.priority ?? 'medium',
+    actionUrl: r.action_url ?? null,
+    metadata: r.metadata ?? null,
     createdAt: r.created_at,
   }));
 }
@@ -937,6 +967,22 @@ export async function markAllNotificationsRead(merchantId: string): Promise<void
   const db = await getDb(); if (!db) return;
   await db.execute(sql`
     UPDATE merchant_notifications SET is_read = true WHERE merchant_id = ${merchantId} AND is_read = false
+  `);
+}
+export async function dismissNotification(id: number, merchantId: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.execute(sql`
+    UPDATE merchant_notifications
+    SET dismissed_at = NOW(), is_read = true
+    WHERE id = ${id} AND merchant_id = ${merchantId}
+  `);
+}
+export async function dismissAllNotifications(merchantId: string): Promise<void> {
+  const db = await getDb(); if (!db) return;
+  await db.execute(sql`
+    UPDATE merchant_notifications
+    SET dismissed_at = NOW(), is_read = true
+    WHERE merchant_id = ${merchantId} AND dismissed_at IS NULL
   `);
 }
 

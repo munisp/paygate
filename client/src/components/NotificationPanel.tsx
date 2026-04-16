@@ -59,10 +59,11 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
 
-  const { data: notifs = [], isLoading, refetch } = trpc.notifications.list.useQuery(
+  const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 50, unreadOnly: false },
     { enabled: open, refetchInterval: open ? 15000 : false }
   );
+  const notifs = listData?.notifications ?? [];
 
   const markReadMutation = trpc.notifications.markRead.useMutation({
     onSuccess: () => {
@@ -79,7 +80,7 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
     },
   });
 
-  const unreadCount = notifs.filter(n => !n.isRead).length;
+  const unreadCount = listData?.unreadCount ?? notifs.filter((n: any) => !n.isRead).length;
 
   useEffect(() => {
     if (open) refetch();
@@ -146,7 +147,7 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {notifs.map(n => {
+              {notifs.map((n: any) => {
                 const cfg = getTypeConfig(n.type);
                 return (
                   <div

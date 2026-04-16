@@ -141,10 +141,11 @@ export default function NotificationsCenter() {
     }
   };
 
-  const { data: notifications, isLoading, refetch } = trpc.notifications.list.useQuery(
+  const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 100, unreadOnly: false },
     { refetchInterval: 15_000 }
   );
+  const notifications = listData?.notifications;
   const { data: countData } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 15_000 });
 
   const markReadMutation = trpc.notifications.markRead.useMutation({
@@ -165,7 +166,7 @@ export default function NotificationsCenter() {
 
   const filtered = useMemo(() => {
     if (!notifications) return [];
-    return notifications.filter((n: any) => matchesFilter(n, filter, search));
+    return (notifications as any[]).filter((n: any) => matchesFilter(n, filter, search));
   }, [notifications, filter, search]);
 
   const unreadCount = countData?.count ?? 0;
@@ -278,7 +279,7 @@ export default function NotificationsCenter() {
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Total", value: notifications?.length ?? 0, icon: Bell, color: "text-blue-600" },
+          { label: "Total", value: (notifications as any[])?.length ?? 0, icon: Bell, color: "text-blue-600" },
           { label: "Unread", value: unreadCount, icon: BellOff, color: "text-red-500" },
           { label: "In view", value: filtered.length, icon: Filter, color: "text-muted-foreground" },
         ].map(({ label, value, icon: Icon, color }) => (

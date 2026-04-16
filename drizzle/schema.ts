@@ -786,11 +786,20 @@ export const merchantNotifications = pgTable("merchant_notifications", {
   entityId: varchar("entity_id", { length: 64 }),
   entityType: varchar("entity_type", { length: 32 }),
   isRead: boolean("is_read").notNull().default(false),
+  /** priority: low | medium | high | critical — drives badge colour and sort order */
+  priority: varchar("priority", { length: 16 }).notNull().default("medium"),
+  /** deep-link path for the mobile app, e.g. /transactions/txn_abc */
+  actionUrl: varchar("action_url", { length: 512 }),
+  /** JSON metadata (amount, currency, transactionId, etc.) */
+  metadata: text("metadata"),
+  /** soft-delete — dismissed by user but not erased from DB */
+  dismissedAt: timestamp("dismissed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("notif_merchant_idx").on(t.merchantId),
   index("notif_merchant_read_idx").on(t.merchantId, t.isRead),
   index("notif_created_idx").on(t.createdAt),
+  index("notif_priority_idx").on(t.merchantId, t.priority),
 ]);
 export type MerchantNotification = typeof merchantNotifications.$inferSelect;
 export type InsertMerchantNotification = typeof merchantNotifications.$inferInsert;

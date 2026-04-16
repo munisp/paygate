@@ -1,8 +1,20 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Platform } from "react-native";
+import { Platform, StyleSheet } from "react-native";
+import { useNotificationStore } from "../../src/stores/notificationStore";
+import { useEffect } from "react";
 
 export default function TabLayout() {
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const loadPersistedUnreadCount = useNotificationStore(
+    (s) => s.loadPersistedUnreadCount
+  );
+
+  // Load persisted unread count on app start so badge shows before SSE connects
+  useEffect(() => {
+    loadPersistedUnreadCount();
+  }, [loadPersistedUnreadCount]);
+
   return (
     <Tabs
       screenOptions={{
@@ -80,8 +92,22 @@ export default function TabLayout() {
         name="notifications"
         options={{
           title: "Alerts",
+          // Expo Router's native badge — shows a red dot with count on the tab icon
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: "#ef4444",
+            color: "#fff",
+            fontSize: 10,
+            fontWeight: "700",
+            minWidth: 16,
+            height: 16,
+          },
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="notifications" size={size} color={color} />
+            <Ionicons
+              name={unreadCount > 0 ? "notifications" : "notifications-outline"}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
