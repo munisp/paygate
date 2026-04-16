@@ -1699,3 +1699,10 @@ setInterval(async () => {
 }, 6 * 60 * 60 * 1000); // every 6 hours
 
 startServer().catch(console.error);
+// ─── Notification Digest Email Cron Jobs ─────────────────────────────────────
+// Merchant daily digest, consumer weekly digest, admin weekly report
+import("../digestEmail").then(({ registerDigestCronJobs }) => {
+  registerDigestCronJobs();
+}).catch((err: unknown) => {
+  console.warn("[digestEmail] Failed to register cron jobs:", err);
+});

@@ -172,6 +172,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
 
   # ─── Portal replicas ─────────────────────────────────────────────────────────
   portal-1:
@@ -179,12 +187,28 @@ services:
     container_name: paygate-portal-1
     ports:
       - "3001:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   portal-2:
     <<: *portal-base
     container_name: paygate-portal-2
     ports:
       - "3002:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # ─── Go Bridge replicas ───────────────────────────────────────────────────────
   bridge-1:
@@ -192,12 +216,28 @@ services:
     container_name: paygate-bridge-1
     ports:
       - "8081:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   bridge-2:
     <<: *bridge-base
     container_name: paygate-bridge-2
     ports:
       - "8082:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── APISIX (load balancer + API gateway) ─────────────────────────────────────
   apisix:
@@ -218,6 +258,14 @@ services:
         condition: service_healthy
       portal-2:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Redis ────────────────────────────────────────────────────────────────────
   redis:
@@ -235,6 +283,14 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # ─── TigerBeetle cluster (3 nodes) ────────────────────────────────────────────
   tb-1:
@@ -246,6 +302,14 @@ services:
       - tb-data-1:/data
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   tb-2:
     image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
@@ -256,6 +320,14 @@ services:
       - tb-data-2:/data
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   tb-3:
     image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
@@ -266,6 +338,14 @@ services:
       - tb-data-3:/data
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Temporal ─────────────────────────────────────────────────────────────────
   temporal:
@@ -282,6 +362,14 @@ services:
       - "7233:7233"
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Push Service (Python FCM/APNs) ─────────────────────────────────────────
   push-service:
@@ -309,6 +397,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── USSD Gateway (Python) ───────────────────────────────────────────────────
   ussd-gateway:
@@ -332,6 +428,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Fraud Scoring (Python ML) ───────────────────────────────────────────────
   fraud-scoring:
@@ -354,6 +458,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # ─── Sync Relay (Go — offline POS mobile sync) ───────────────────────────────
   sync-relay:
@@ -377,6 +489,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Consumer Outbox Relay (Go) ───────────────────────────────────────────────
   consumer-outbox-relay:
@@ -391,6 +511,14 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Lakehouse Audit (Python Delta Lake) ─────────────────────────────────────
   lakehouse-audit:
@@ -409,6 +537,14 @@ services:
       - "8098:8098"
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── M-Pesa Connector (Python) ───────────────────────────────────────────────
   mpesa-connector:
@@ -430,6 +566,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Kiosk Health Monitor (Python) ───────────────────────────────────────────
   kiosk-health:
@@ -451,6 +595,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Payroll Service (Python) ────────────────────────────────────────────────
   payroll-service:
@@ -473,6 +625,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── USDC Lakehouse Consumer (Python) ────────────────────────────────────────
   usdc-lakehouse-consumer:
@@ -487,6 +647,14 @@ services:
       DATABASE_URL: ${PG_DATABASE_URL}
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Prometheus ───────────────────────────────────────────────────────────────
   prometheus:
@@ -506,6 +674,14 @@ services:
       - "9090:9090"
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Grafana ──────────────────────────────────────────────────────────────────
   grafana:
@@ -525,6 +701,14 @@ services:
       - paygate-net
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── OpenTelemetry Collector ──────────────────────────────────────────────────
   otel-collector:
@@ -540,6 +724,14 @@ services:
       - "9411:9411"   # Zipkin
     networks:
       - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 1: Credit Scoring Service (Rust FFI + Python wrapper) ──────────────
   credit-scoring:
@@ -571,6 +763,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 1: Billing Engine (Rust proration + Temporal dunning) ──────────────
   billing-engine:
@@ -604,6 +804,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 1: FX Rate Feed (Python + Fluvio streaming) ────────────────────────
   fx-rate-feed:
@@ -631,6 +839,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 2: Reconciliation Engine (Python + lakehouse + Kafka) ──────────────
   reconciliation-engine:
@@ -659,6 +875,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 3: AML Monitor (Python rule engine + Redis velocity + Kafka) ────────
   aml-monitor:
@@ -688,6 +912,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # ─── Tier 3: Session Risk (Go risk scorer + Redis session store) ──────────────
   session-risk:
@@ -716,6 +948,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # ─── Tier 4: Loyalty Ledger (Rust + Dapr state + Kafka events) ───────────────
   loyalty-ledger:
@@ -744,6 +984,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 5: AI Insights (Python + LLM + lakehouse aggregator) ───────────────
   ai-insights:
@@ -773,6 +1021,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Tier 5: Fraud Heatmap (Python ML clustering + Fluvio streaming) ─────────
   fraud-heatmap:
@@ -801,6 +1057,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
 
   # ─── Tier 6-8 Services ────────────────────────────────────────────────────
@@ -819,6 +1083,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, redis]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   carbon-credit-service:
     image: paygate/carbon-credit:${CARBON_VERSION:-latest}
@@ -833,6 +1105,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   nft-service:
     image: paygate/nft-service:${NFT_VERSION:-latest}
@@ -847,6 +1127,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   bnpl-v2-service:
     image: paygate/bnpl-v2:${BNPL_V2_VERSION:-latest}
@@ -862,6 +1150,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   crypto-ramp-service:
     image: paygate/crypto-ramp:${CRYPTO_RAMP_VERSION:-latest}
@@ -876,6 +1172,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   escrow-service:
     image: paygate/escrow-service:${ESCROW_VERSION:-latest}
@@ -891,6 +1195,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   bulk-scheduler-service:
     image: paygate/bulk-scheduler:${BULK_SCHED_VERSION:-latest}
@@ -906,6 +1218,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   tax-withholding-service:
     image: paygate/tax-withholding:${TAX_VERSION:-latest}
@@ -920,6 +1240,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   regulatory-sandbox-service:
     image: paygate/regulatory-sandbox:${REG_SANDBOX_VERSION:-latest}
@@ -932,6 +1260,14 @@ services:
       CBN_SANDBOX_KEY: "${CBN_SANDBOX_KEY}"
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   multi-currency-wallet-service:
     image: paygate/multi-currency-wallet:${MULTI_CURR_VERSION:-latest}
@@ -946,6 +1282,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   rtgs-service:
     image: paygate/rtgs-service:${RTGS_VERSION:-latest}
@@ -961,6 +1305,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   iso20022-service:
     image: paygate/iso20022:${ISO20022_VERSION:-latest}
@@ -975,6 +1327,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   open-finance-hub:
     image: paygate/open-finance-hub:${OPEN_FINANCE_VERSION:-latest}
@@ -990,6 +1350,14 @@ services:
       PERMIFY_URL: "${PERMIFY_URL:-http://permify:3476}"
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   white-label-sdk-service:
     image: paygate/white-label-sdk:${WHITE_LABEL_VERSION:-latest}
@@ -1001,6 +1369,14 @@ services:
       SDK_CDN_URL: "${SDK_CDN_URL:-https://cdn.paygate.ng/sdk}"
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   super-app-service:
     image: paygate/super-app:${SUPER_APP_VERSION:-latest}
@@ -1014,6 +1390,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, redis]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── MinIO Object Store (S3-compatible lakehouse storage) ──────────────────────
   minio:
@@ -1036,6 +1420,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # MinIO bucket initialisation (runs once, creates paygate-lakehouse bucket)
   minio-init:
@@ -1053,6 +1445,14 @@ services:
         echo 'MinIO buckets ready'
       "
     networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Apache Spark 3.5 (Delta Lake + Sedona) ──────────────────────────────────
   spark-master:
@@ -1080,6 +1480,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   spark-worker:
     image: bitnami/spark:3.5.3
@@ -1098,6 +1506,14 @@ services:
       - spark-logs:/opt/bitnami/spark/logs
     networks: [paygate-net]
     depends_on: [spark-master]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Trino (distributed SQL query engine for lakehouse) ───────────────────────
   trino:
@@ -1118,6 +1534,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── lakehouse-v2 Python/DuckDB service ────────────────────────────────────────
   lakehouse-v2-service:
@@ -1154,6 +1578,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   payroll-v2-service:
     image: paygate/payroll-v2:${PAYROLL_V2_VERSION:-latest}
@@ -1173,6 +1605,14 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
     networks: [paygate-net]
     depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ── New Python Microservices ──────────────────────────────────────────────────
   settlement-forecast:
@@ -1192,6 +1632,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   carbon-oracle:
     image: paygate/carbon-oracle:${CARBON_ORACLE_VERSION:-latest}
@@ -1209,6 +1657,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   insurance-pricing:
     image: paygate/insurance-pricing:${INSURANCE_PRICING_VERSION:-latest}
@@ -1227,6 +1683,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   tax-engine:
     image: paygate/tax-engine:${TAX_ENGINE_VERSION:-latest}
@@ -1244,6 +1708,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   iso20022-parser:
     image: paygate/iso20022-parser:${ISO20022_PARSER_VERSION:-latest}
@@ -1261,6 +1733,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Wave 76/77 New Feature Microservices ─────────────────────────────────────
   digital-gold-service:
@@ -1281,6 +1761,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   mutual-funds-service:
     image: paygate/mutual-funds-service:${MUTUAL_FUNDS_VERSION:-latest}
@@ -1300,6 +1788,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   insurance-service:
     image: paygate/insurance-service:${INSURANCE_VERSION:-latest}
@@ -1319,6 +1815,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   pension-service:
     image: paygate/pension-service:${PENSION_VERSION:-latest}
@@ -1338,6 +1842,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   cashback-service:
     image: paygate/cashback-service:${CASHBACK_VERSION:-latest}
@@ -1356,6 +1868,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   voice-payments-service:
     image: paygate/voice-payments-service:${VOICE_PAYMENTS_VERSION:-latest}
@@ -1374,6 +1894,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   wealth-service:
     image: paygate/wealth-service:${WEALTH_VERSION:-latest}
@@ -1391,6 +1919,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   emi-service:
     image: paygate/emi-service:${EMI_VERSION:-latest}
@@ -1408,6 +1944,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   bulk-collections-service:
     image: paygate/bulk-collections-service:${BULK_COLLECTIONS_VERSION:-latest}
@@ -1425,6 +1969,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   salary-service:
     image: paygate/salary-service:${SALARY_VERSION:-latest}
@@ -1442,6 +1994,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   privacy-payments-service:
     image: paygate/privacy-payments-service:${PRIVACY_PAYMENTS_VERSION:-latest}
@@ -1459,6 +2019,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   reports-service:
     image: paygate/reports-service:${REPORTS_VERSION:-latest}
@@ -1477,6 +2045,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   ai-insights-v2-service:
     image: paygate/ai-insights-v2-service:${AI_INSIGHTS_V2_VERSION:-latest}
@@ -1496,6 +2072,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   nodal-accounts-service:
     image: paygate/nodal-accounts-service:${NODAL_ACCOUNTS_VERSION:-latest}
@@ -1513,6 +2097,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   smart-retail-pos-service:
     image: paygate/smart-retail-pos-service:${SMART_RETAIL_POS_VERSION:-latest}
@@ -1530,6 +2122,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   intl-remittance-service:
     image: paygate/intl-remittance-service:${INTL_REMITTANCE_VERSION:-latest}
@@ -1551,6 +2151,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   subscription-billing-v2-service:
     image: paygate/subscription-billing-v2-service:${SUB_BILLING_V2_VERSION:-latest}
@@ -1569,6 +2177,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
 
   # ─── Rust Services ─────────────────────────────────────────────────────────
@@ -1591,6 +2207,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   credit-scoring:
     image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
@@ -1610,6 +2234,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   inventory-engine:
     image: paygate/inventory-engine:${INVENTORY_ENGINE_VERSION:-latest}
@@ -1629,6 +2261,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   loyalty-ledger:
     image: paygate/loyalty-ledger:${LOYALTY_LEDGER_VERSION:-latest}
@@ -1649,6 +2289,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   tigerbeetle-recon:
     image: paygate/tigerbeetle-recon:${TB_RECON_VERSION:-latest}
@@ -1668,6 +2316,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   wallet-ffi:
     image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-latest}
@@ -1688,6 +2344,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ─── Delta Lake Compaction Job (run manually or via K8s CronJob nightly) ──────────────
   spark-compaction:
@@ -1715,6 +2379,14 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
 volumes:
   redis-data:

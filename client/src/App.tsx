@@ -16,6 +16,7 @@ import Analytics from "./pages/Analytics";
 import Checkout from "./pages/Checkout";
 import APIKeys from "./pages/APIKeys";
 import Webhooks from "./pages/Webhooks";
+import WebhookDeliveries from "./pages/WebhookDeliveries";
 import Settings from "./pages/Settings";
 import Payouts from "./pages/Payouts";
 import USDCPayouts from "./pages/USDCPayouts";
@@ -287,6 +288,7 @@ function Router() {
         <Route path="/compliance/settings" component={ComplianceSettings} />
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
+        <Route path="/webhooks/deliveries" component={WebhookDeliveries} />
         <Route path="/settings" component={Settings} />
         <Route path="/qr-payments" component={QRPayments} />
         <Route path="/cross-border" component={CrossBorder} />

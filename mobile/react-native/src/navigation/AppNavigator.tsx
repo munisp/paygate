@@ -1,0 +1,250 @@
+/**
+ * PayGate Merchant Portal — React Native App Navigator
+ * Stack + Tab navigation with auth gating.
+ */
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { View, Text, StyleSheet } from "react-native";
+
+// Screens
+import LoginScreen from "../screens/LoginScreen";
+import DashboardScreen from "../screens/DashboardScreen";
+import TransactionsScreen from "../screens/TransactionsScreen";
+import CustomersScreen from "../screens/CustomersScreen";
+import PayoutsScreen from "../screens/PayoutsScreen";
+import AnalyticsScreen from "../screens/AnalyticsScreen";
+import APIKeysScreen from "../screens/APIKeysScreen";
+import WebhooksScreen from "../screens/WebhooksScreen";
+import SettingsScreen from "../screens/SettingsScreen";
+import NotificationsScreen from "../screens/NotificationsScreen";
+import DisputesScreen from "../screens/DisputesScreen";
+import VirtualCardsScreen from "../screens/VirtualCardsScreen";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type RootStackParamList = {
+  Login: undefined;
+  Main: undefined;
+  APIKeys: undefined;
+  Webhooks: undefined;
+  Notifications: undefined;
+  Disputes: undefined;
+  VirtualCards: undefined;
+  Settings: undefined;
+};
+
+export type MainTabParamList = {
+  Dashboard: undefined;
+  Transactions: undefined;
+  Customers: undefined;
+  Payouts: undefined;
+  Analytics: undefined;
+};
+
+// ─── Theme ────────────────────────────────────────────────────────────────────
+
+const colors = {
+  primary: "#6366F1",
+  background: "#0F172A",
+  card: "#1E293B",
+  text: "#F1F5F9",
+  muted: "#94A3B8",
+  border: "#334155",
+  tabActive: "#6366F1",
+  tabInactive: "#64748B",
+};
+
+// ─── Tab Icon ─────────────────────────────────────────────────────────────────
+
+function TabIcon({ label, focused }: { label: string; focused: boolean }) {
+  const icons: Record<string, string> = {
+    Dashboard: "⊞",
+    Transactions: "⇄",
+    Customers: "◉",
+    Payouts: "↑",
+    Analytics: "▲",
+  };
+  return (
+    <View style={styles.tabIcon}>
+      <Text style={[styles.tabEmoji, { opacity: focused ? 1 : 0.5 }]}>
+        {icons[label] ?? "•"}
+      </Text>
+      <Text
+        style={[
+          styles.tabLabel,
+          { color: focused ? colors.tabActive : colors.tabInactive },
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Main Tab Navigator ───────────────────────────────────────────────────────
+
+const Tab = createBottomTabNavigator<MainTabParamList>();
+
+function MainTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
+          borderTopWidth: 1,
+          height: 64,
+          paddingBottom: 8,
+        },
+        tabBarShowLabel: false,
+      }}
+    >
+      <Tab.Screen
+        name="Dashboard"
+        component={DashboardScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Dashboard" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Transactions"
+        component={TransactionsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Transactions" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Customers"
+        component={CustomersScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Customers" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Payouts"
+        component={PayoutsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Payouts" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Analytics"
+        component={AnalyticsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Analytics" focused={focused} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+// ─── Root Stack Navigator ─────────────────────────────────────────────────────
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+export default function AppNavigator() {
+  return (
+    <NavigationContainer
+      theme={{
+        dark: true,
+        colors: {
+          primary: colors.primary,
+          background: colors.background,
+          card: colors.card,
+          text: colors.text,
+          border: colors.border,
+          notification: colors.primary,
+        },
+        fonts: {
+          regular: { fontFamily: "System", fontWeight: "400" },
+          medium: { fontFamily: "System", fontWeight: "500" },
+          bold: { fontFamily: "System", fontWeight: "700" },
+          heavy: { fontFamily: "System", fontWeight: "900" },
+        },
+      }}
+    >
+      <Stack.Navigator
+        initialRouteName="Login"
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.card },
+          headerTintColor: colors.text,
+          headerTitleStyle: { fontWeight: "600" },
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Main"
+          component={MainTabs}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="APIKeys"
+          component={APIKeysScreen}
+          options={{ title: "API Keys" }}
+        />
+        <Stack.Screen
+          name="Webhooks"
+          component={WebhooksScreen}
+          options={{ title: "Webhooks" }}
+        />
+        <Stack.Screen
+          name="Notifications"
+          component={NotificationsScreen}
+          options={{ title: "Notifications" }}
+        />
+        <Stack.Screen
+          name="Disputes"
+          component={DisputesScreen}
+          options={{ title: "Disputes" }}
+        />
+        <Stack.Screen
+          name="VirtualCards"
+          component={VirtualCardsScreen}
+          options={{ title: "Virtual Cards" }}
+        />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{ title: "Settings" }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  tabIcon: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 4,
+  },
+  tabEmoji: {
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  tabLabel: {
+    fontSize: 10,
+    marginTop: 2,
+    fontWeight: "500",
+  },
+});

@@ -3,7 +3,7 @@
  * Creates the foundational data: tenants, users, merchants, customers, transactions
  * Run this BEFORE seed-full.mjs and seed-wave85-complete.mjs
  */
-import pg from './node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
+import pg from '../node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
 const { Client } = pg;
 
 const PG_URL = process.env.PG_DATABASE_URL || process.env.DATABASE_URL?.startsWith('postgresql') ? process.env.DATABASE_URL : 'postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev';
@@ -104,7 +104,7 @@ async function run() {
 
   // ── 5. Transactions ────────────────────────────────────────────────────────
   console.log('\n💳 Seeding transactions...');
-  const txStatuses = ['successful', 'successful', 'successful', 'failed', 'pending'];
+  const txStatuses = ['completed', 'completed', 'completed', 'failed', 'pending'];
   const channels = ['card', 'bank_transfer', 'ussd', 'qr', 'mobile_money'];
   let txCount = 0;
   for (let i = 0; i < 50; i++) {
@@ -112,19 +112,19 @@ async function run() {
     const amount = rand(1000, 500000);
     try {
       await client.query(`
-        INSERT INTO transactions (id, merchant_id, customer_id, reference, amount, currency, status, channel, description, fee, tenant_id, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, 'NGN', $6, $7, $8, $9, $10, NOW() - ($11 || ' hours')::interval, NOW())
+        INSERT INTO transactions (id, merchant_id, reference, amount, currency, status, channel, description, fee_amount, net_amount, tenant_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'NGN', $5, $6, $7, $8, $9, $10, NOW() - ($11 || ' hours')::interval, NOW())
         ON CONFLICT (id) DO NOTHING
       `, [
         `txn_${String(i+1).padStart(4,'0')}`,
         MERCHANT_IDS[i % 5],
-        `cust_${String((i % 20) + 1).padStart(3,'0')}`,
         `REF${Date.now()}${i}`,
         amount,
         status,
         channels[i % channels.length],
         `Payment for order #${1000 + i}`,
         Math.floor(amount * 0.015),
+        Math.floor(amount * 0.985),
         TENANT_ID,
         String(i * 12)
       ]);
