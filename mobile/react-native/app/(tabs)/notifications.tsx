@@ -33,6 +33,7 @@ import * as Haptics from 'expo-haptics';
 import { trpc } from '../../src/lib/trpc';
 import { useNotificationStore, AppNotification } from '../../src/stores/notificationStore';
 import { useRealtimeNotifications } from '../../src/hooks/useRealtimeNotifications';
+import { NotificationDetailSheet } from '../../src/components/NotificationDetailSheet';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -265,6 +266,8 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<AppNotification | null>(null);
+  const [sheetVisible, setSheetVisible] = useState(false);
 
   // Real-time SSE connection
   const { isConnected } = useRealtimeNotifications();
@@ -344,15 +347,15 @@ export default function NotificationsScreen() {
   }, [refetch]);
 
   const handlePress = useCallback(
-    (id: number, actionUrl: string | null) => {
-      if (!actionUrl) return;
-      try {
-        router.push(actionUrl as any);
-      } catch {
-        // Ignore invalid routes
+    (id: number, _actionUrl: string | null) => {
+      // Open detail sheet on tap — user can navigate from there
+      const notif = notifications.find((n) => n.id === id);
+      if (notif) {
+        setSelectedNotification(notif);
+        setSheetVisible(true);
       }
     },
-    [router]
+    [notifications]
   );
 
   const handleMarkRead = useCallback(
@@ -444,6 +447,12 @@ export default function NotificationsScreen() {
               <Ionicons name="trash-outline" size={18} color="#ef4444" />
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => router.push('/(tabs)/notification-preferences' as any)}
+          >
+            <Ionicons name="settings-outline" size={18} color="#94a3b8" />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -491,6 +500,12 @@ export default function NotificationsScreen() {
           </View>
         }
         contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : undefined}
+      />
+      {/* Notification detail bottom sheet */}
+      <NotificationDetailSheet
+        notification={selectedNotification}
+        visible={sheetVisible}
+        onClose={() => setSheetVisible(false)}
       />
     </GestureHandlerRootView>
   );

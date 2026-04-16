@@ -122,6 +122,7 @@ import {
   sendPayoutApprovalEmailViaMiddleware,
   nipNameEnquiryViaMiddleware,
 } from "./middlewareBridge";
+import { notificationPreferencesRouter } from './routers/notificationPreferences';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -2295,6 +2296,97 @@ const complianceKycRouter = router({
       return { success: true, modelName: input.modelName, promotedAt: new Date().toISOString() };
     }),
 
+
+  // ─── OCR Document Extraction ─────────────────────────────────────────────
+  extractDocument: protectedProcedure
+    .input(z.object({
+      submissionId: z.string(),
+      docType: z.enum(['passport', 'national_id', 'drivers_license', 'utility_bill', 'bank_statement', 'cac_certificate']),
+      documentUrl: z.string().url(),
+      mode: z.enum(['full', 'fast', 'vlm_only']).default('full'),
+      useRustEngine: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { ENV: envConfig } = await import('./_core/env');
+      const serviceUrl = input.useRustEngine ? envConfig.kycOcrRustUrl : envConfig.kycOcrUrl;
+      const endpoint = input.useRustEngine ? '/ocr' : '/extract';
+      try {
+        const resp = await fetch(`${serviceUrl}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envConfig.internalApiKey },
+          body: JSON.stringify({
+            submission_id: input.submissionId,
+            doc_type: input.docType,
+            image_url: input.documentUrl,
+            mode: input.mode,
+          }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!resp.ok) throw new Error(`OCR service error: ${resp.status}`);
+        const result = await resp.json();
+        await updateKycSubmission(input.submissionId, merchant.id, { status: 'under_review' });
+        logger.info(`[kyc.extractDocument] sub=${input.submissionId} confidence=${result.overall_confidence ?? result.confidence}`);
+        return result;
+      } catch (e: any) {
+        logger.error(`[kyc.extractDocument] failed: ${e.message}`);
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'OCR extraction failed' });
+      }
+    }),
+
+  // ─── Liveness Detection ──────────────────────────────────────────────────
+  checkLiveness: protectedProcedure
+    .input(z.object({
+      submissionId: z.string(),
+      frameBase64: z.string(),
+      mode: z.enum(['passive', 'active', 'full']).default('passive'),
+      challenge: z.enum(['blink', 'nod', 'turn_left', 'turn_right', 'smile', 'open_mouth']).optional(),
+      challengeFramesBase64: z.array(z.string()).optional(),
+      includeFaceEmbedding: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      await requireMerchant(user.id);
+      const endpointMap: Record<string, string> = {
+        passive: '/liveness/passive',
+        active: '/liveness/active',
+        full: '/liveness/full',
+      };
+      const endpoint = endpointMap[input.mode];
+      const body: Record<string, unknown> = {
+        submission_id: input.submissionId,
+        frame_base64: input.frameBase64,
+        include_face_embedding: input.includeFaceEmbedding,
+      };
+      if (input.mode === 'active' || input.mode === 'full') {
+        body.challenge = input.challenge ?? 'blink';
+        body.frames_base64 = input.challengeFramesBase64 ?? [];
+        body.passive_frame_base64 = input.frameBase64;
+      }
+      try {
+      const { ENV: envConfig2 } = await import('./_core/env');
+        const resp = await fetch(`${envConfig2.livenessUrl}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envConfig2.internalApiKey },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
+        const result = await resp.json();
+        logger.info(`[kyc.checkLiveness] sub=${input.submissionId} decision=${result.decision} score=${result.liveness_score}`);
+        if (result.decision === 'spoof') {
+          await updateKycSubmission(input.submissionId, String(user.id), {
+            status: 'rejected',
+            rejectionReason: `Liveness check failed: ${result.spoof_type ?? 'suspected spoof'} (score: ${result.liveness_score})`,
+          });
+        }
+        return result;
+      } catch (e: any) {
+        logger.error(`[kyc.checkLiveness] failed: ${e.message}`);
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Liveness check failed' });
+      }
+    }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
 const bnplRouter = router({
@@ -6520,6 +6612,7 @@ export const appRouter = router({
   adminMgmt: adminMgmtRouter,
   notifications: notificationsRouter,
   pushTokens: pushTokensRouter,
+  notificationPreferences: notificationPreferencesRouter,
   qrPayments: qrPaymentsRouter,
   grpc: grpcRouter,
   // Wave 28 — Subscriptions (Go scheduler) + POS Terminals

@@ -171,6 +171,9 @@ export const ENV = {
 
   // ─── KYC / Identity ───────────────────────────────────────────────────────
   youverifyApiKey: process.env.YOUVERIFY_API_KEY ?? "",
+  kycOcrUrl: process.env.KYC_OCR_URL ?? "http://kyc-ocr:8011",
+  kycOcrRustUrl: process.env.KYC_OCR_RUST_URL ?? "http://kyc-ocr-rust:8012",
+  livenessUrl: process.env.LIVENESS_URL ?? "http://liveness-detection:8013",
 
   // ─── Messaging / SMS ──────────────────────────────────────────────────────
   termiiApiKey: process.env.TERMII_API_KEY ?? "",

@@ -2656,3 +2656,14 @@
 - [ ] Create .env.example with all 50+ variables and defaults
 - [ ] Add env validation on server startup (zod parse)
 - [ ] Document all env vars in DEPLOYMENT.md
+
+## Wave 13
+- [ ] RN push notifications
+- [ ] RN notification detail sheet
+- [ ] RN notification preferences screen
+- [ ] PostgreSQL indexes + PgBouncer
+- [ ] Liveness detection plan doc
+- [ ] Middleware HA configs
+- [ ] PaddleOCR + Rust OCR + VLM + Docling services
+- [ ] Open-source liveness microservice
+- [ ] Wire liveness + OCR into KYC workflow

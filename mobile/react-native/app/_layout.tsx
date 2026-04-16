@@ -6,9 +6,11 @@ import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "../src/contexts/AuthContext";
 import { trpc, createTRPCClient } from "../src/lib/trpc";
+import { usePushNotifications } from "../src/hooks/usePushNotifications";
 
 SplashScreen.preventAutoHideAsync();
 
+// Foreground notification handler — show banner even when app is open
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -24,6 +26,18 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * Registers the device for push notifications once the user is authenticated.
+ * Must be rendered inside AuthProvider so it has access to the tRPC client
+ * (which needs the auth token).
+ */
+function PushNotificationBridge() {
+  const { token } = useAuth();
+  // Only register when the user is logged in
+  usePushNotifications();
+  return null;
+}
+
 function RootLayoutNav() {
   const { token, isLoading } = useAuth();
 
@@ -36,13 +50,17 @@ function RootLayoutNav() {
   if (isLoading) return null;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {!token ? (
-        <Stack.Screen name="(auth)" />
-      ) : (
-        <Stack.Screen name="(tabs)" />
-      )}
-    </Stack>
+    <>
+      {/* Wire push notifications for authenticated users */}
+      {token && <PushNotificationBridge />}
+      <Stack screenOptions={{ headerShown: false }}>
+        {!token ? (
+          <Stack.Screen name="(auth)" />
+        ) : (
+          <Stack.Screen name="(tabs)" />
+        )}
+      </Stack>
+    </>
   );
 }
 
