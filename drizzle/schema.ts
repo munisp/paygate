@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, serial, text, integer, bigint, varchar,
-  boolean, timestamp, jsonb, unique, index, uniqueIndex,
+  boolean, timestamp, jsonb, real, unique, index, uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -473,12 +473,23 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
   expiresAt: timestamp("expires_at"),
+  // Liveness detection fields
+  livenessScore: real("liveness_score"),
+  livenessMode: text("liveness_mode"), // 'passive' | 'active'
+  livenessChallengeType: text("liveness_challenge_type"), // 'blink' | 'nod' | 'smile'
+  livenessPassedAt: timestamp("liveness_passed_at"),
+  livenessSessionId: text("liveness_session_id"),
+  // OCR extraction results
+  ocrExtractedData: jsonb("ocr_extracted_data"),
+  ocrConfidence: real("ocr_confidence"),
+  ocrProcessedAt: timestamp("ocr_processed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("kyc_tenant_idx").on(t.tenantId),
   index("kyc_merchant_idx").on(t.merchantId),
   index("kyc_status_idx").on(t.status),
+  index("kyc_liveness_idx").on(t.livenessScore),
 ]);
 export type KycSubmission = typeof kycSubmissions.$inferSelect;
 export type InsertKycSubmission = typeof kycSubmissions.$inferInsert;

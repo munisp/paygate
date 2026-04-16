@@ -25,6 +25,7 @@ import { startIdempotencyCleanupWorker } from "../idempotencyCleanup";
 import { startNipBankRefreshWorker } from "../nipBankRefresh";
 import { startPushTokenCleanupWorker } from "../pushTokenCleanup";
 import { startNotificationPurgeWorker } from "../notificationPurge";
+import { notifyOwner } from "./notification";
 import { startReservationExpiryWorker } from "../reservationExpiryWorker";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 import { validateEnvironment } from "../security";
@@ -1498,5 +1499,55 @@ startNipBankRefreshWorker();       // Refresh NIP bank directory every 24h
 startPushTokenCleanupWorker();     // Purge stale device push tokens every 7 days
 startNotificationPurgeWorker();    // Purge old merchant notifications every 24h
 startReservationExpiryWorker();    // Release expired inventory reservations every 5 min
+
+// ─── DB Health Alerting Job (every 6 hours) ──────────────────────────────────
+// Fires owner notification when cache hit rate < 90% or table bloat > 25%
+setInterval(async () => {
+  try {
+    const { getDb } = await import("../db");
+    const db = await getDb();
+    if (!db) return; // DB not available in this environment
+    const pool = db.$client;
+    // Cache hit ratio check
+    const cacheResult = await pool.query(
+      `SELECT
+         sum(heap_blks_hit)::float / NULLIF(sum(heap_blks_hit) + sum(heap_blks_read), 0) AS cache_hit_pct
+       FROM pg_statio_user_tables`
+    );
+    const cacheHit = parseFloat(cacheResult.rows?.[0]?.cache_hit_pct ?? '1');
+    if (cacheHit < 0.90) {
+      await notifyOwner({
+        title: '⚠️ PostgreSQL Cache Hit Rate Low',
+        content: `Cache hit rate has dropped to ${(cacheHit * 100).toFixed(1)}% (threshold: 90%). Consider increasing shared_buffers or adding indexes to reduce sequential scans.`,
+      });
+    }
+    // Table bloat check (pg_stat_user_tables n_dead_tup / n_live_tup)
+    const bloatResult = await pool.query(
+      `SELECT relname AS table_name,
+              n_dead_tup,
+              n_live_tup,
+              CASE WHEN n_live_tup > 0
+                   THEN round(100.0 * n_dead_tup / n_live_tup, 1)
+                   ELSE 0 END AS bloat_pct
+       FROM pg_stat_user_tables
+       WHERE n_live_tup > 1000
+         AND n_dead_tup::float / NULLIF(n_live_tup, 0) > 0.25
+       ORDER BY bloat_pct DESC
+       LIMIT 5`
+    );
+    if (bloatResult.rows && bloatResult.rows.length > 0) {
+      const tableList = bloatResult.rows
+        .map((r: any) => `${r.table_name}: ${r.bloat_pct}% dead tuples`)
+        .join('\n');
+      await notifyOwner({
+        title: '⚠️ PostgreSQL Table Bloat Detected',
+        content: `The following tables have >25% dead tuples and need VACUUM:\n\n${tableList}\n\nRun: VACUUM ANALYZE <table_name>;`,
+      });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[dbHealthAlert] Check failed:', msg);
+  }
+}, 6 * 60 * 60 * 1000); // every 6 hours
 
 startServer().catch(console.error);

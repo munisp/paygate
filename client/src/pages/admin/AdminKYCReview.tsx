@@ -107,6 +107,7 @@ export default function AdminKYCReview() {
                     <TableHead className="text-slate-400">Merchant ID</TableHead>
                     <TableHead className="text-slate-400">Doc Type</TableHead>
                     <TableHead className="text-slate-400">Status</TableHead>
+                    <TableHead className="text-slate-400">Liveness</TableHead>
                     <TableHead className="text-slate-400">Submitted</TableHead>
                     <TableHead className="text-slate-400">Reviewed</TableHead>
                     <TableHead className="text-slate-400 text-right">Actions</TableHead>
@@ -120,6 +121,27 @@ export default function AdminKYCReview() {
                       <TableCell className="text-slate-300 text-sm capitalize">{s.docType?.replace(/_/g, " ")}</TableCell>
                       <TableCell>
                         <Badge className={`text-xs border ${statusColors[s.status] ?? "bg-slate-700 text-slate-300"}`}>{s.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {s.livenessScore != null ? (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-12 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  s.livenessScore >= 0.9 ? 'bg-emerald-500' :
+                                  s.livenessScore >= 0.7 ? 'bg-amber-500' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${(s.livenessScore * 100).toFixed(0)}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-mono ${
+                              s.livenessScore >= 0.9 ? 'text-emerald-400' :
+                              s.livenessScore >= 0.7 ? 'text-amber-400' : 'text-red-400'
+                            }`}>{(s.livenessScore * 100).toFixed(1)}%</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-slate-400 text-xs">{new Date(s.createdAt).toLocaleDateString("en-NG")}</TableCell>
                       <TableCell className="text-slate-400 text-xs">{s.reviewedAt ? new Date(s.reviewedAt).toLocaleDateString("en-NG") : "—"}</TableCell>
@@ -140,7 +162,7 @@ export default function AdminKYCReview() {
                     </TableRow>
                   ))}
                   {submissions.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-center text-slate-500 py-8">No submissions found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center text-slate-500 py-8">No submissions found</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>

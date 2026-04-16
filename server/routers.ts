@@ -2381,11 +2381,85 @@ const complianceKycRouter = router({
             rejectionReason: `Liveness check failed: ${result.spoof_type ?? 'suspected spoof'} (score: ${result.liveness_score})`,
           });
         }
+        // Persist liveness result to DB regardless of outcome
+        const db2 = await getDb();
+        if (db2) {
+          const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
+          const { eq: eqOp } = await import('drizzle-orm');
+          await db2.update(kycTbl).set({
+            livenessScore: result.liveness_score ?? null,
+            livenessMode: input.mode,
+            livenessChallengeType: input.challenge ?? null,
+            livenessPassedAt: result.decision === 'real' ? new Date() : null,
+            livenessSessionId: result.session_id ?? input.submissionId,
+            updatedAt: new Date(),
+          }).where(eqOp(kycTbl.id, input.submissionId));
+        }
         return result;
       } catch (e: any) {
         logger.error(`[kyc.checkLiveness] failed: ${e.message}`);
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Liveness check failed' });
       }
+    }),
+
+  // ─── Save Liveness Result (from onboarding wizard) ──────────────────────
+  saveLivenessResult: protectedProcedure
+    .input(z.object({
+      submissionId: z.string().optional(),
+      livenessScore: z.number().min(0).max(1),
+      livenessMode: z.enum(['passive', 'active', 'full']).default('passive'),
+      livenessChallengeType: z.string().optional(),
+      passed: z.boolean(),
+      sessionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
+      const { eq: eqOp, desc: descOp } = await import('drizzle-orm');
+
+      let submissionId = input.submissionId;
+      // If no submissionId provided, find or create the latest pending submission for this merchant
+      if (!submissionId) {
+        const [latest] = await db.select({ id: kycTbl.id })
+          .from(kycTbl)
+          .where(eqOp(kycTbl.merchantId, merchant.id))
+          .orderBy(descOp(kycTbl.createdAt))
+          .limit(1);
+        if (latest) {
+          submissionId = latest.id;
+        } else {
+          // Create a new submission record for liveness-only check
+          const newId = `kyc_${merchant.id}_${Date.now()}`;
+          await db.insert(kycTbl).values({
+            id: newId,
+            tenantId: merchant.tenantId ?? merchant.id,
+            merchantId: merchant.id,
+            docType: 'selfie' as any,
+            status: 'pending',
+            livenessScore: input.livenessScore,
+            livenessMode: input.livenessMode,
+            livenessChallengeType: input.livenessChallengeType ?? null,
+            livenessPassedAt: input.passed ? new Date() : null,
+            livenessSessionId: input.sessionId ?? null,
+          } as any);
+          return { saved: true, submissionId: newId, passed: input.passed };
+        }
+      }
+
+      await db.update(kycTbl).set({
+        livenessScore: input.livenessScore,
+        livenessMode: input.livenessMode,
+        livenessChallengeType: input.livenessChallengeType ?? null,
+        livenessPassedAt: input.passed ? new Date() : null,
+        livenessSessionId: input.sessionId ?? null,
+        updatedAt: new Date(),
+      }).where(eqOp(kycTbl.id, submissionId));
+
+      logger.info(`[kyc.saveLivenessResult] merchant=${merchant.id} sub=${submissionId} score=${input.livenessScore} passed=${input.passed}`);
+      return { saved: true, submissionId, passed: input.passed };
     }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
