@@ -97,6 +97,7 @@ import AdminSystemHealth from "./pages/admin/AdminSystemHealth";
 import AdminAuditTrail from "./pages/admin/AdminAuditTrail";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import AdminNotificationPreferences from "./pages/admin/AdminNotificationPreferences";
+import AdminWebhookAlerts from "./pages/admin/AdminWebhookAlerts";
 import AdminConfig from "./pages/admin/AdminConfig";
 import OllamaChat from "./pages/OllamaChat";
 import GoLiveChecklist from "./pages/GoLiveChecklist";
@@ -201,6 +202,8 @@ import WalletStatement from "./pages/consumer/WalletStatement";
 import KYBVerification from "./pages/KYBVerification";
 import ComplianceReports from "./pages/ComplianceReports";
 import SDKTokens from "./pages/SDKTokens";
+import MerchantGuide from "./pages/docs/MerchantGuide";
+import ConsumerGuide from "./pages/docs/ConsumerGuide";
 
 function Router() {
   const [location] = useLocation();
@@ -258,6 +261,7 @@ function Router() {
           {/* Wave 84 Consumer Routes */}
           <Route path="/consumer/notification-centre" component={NotificationCentre} />
           <Route path="/consumer/statement" component={WalletStatement} />
+          <Route path="/consumer/help" component={ConsumerGuide} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -267,6 +271,7 @@ function Router() {
   return (
     <Layout>
       <Switch>
+        <Route path="/docs/merchant-guide" component={MerchantGuide} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/transactions" component={Transactions} />
         <Route path="/customers" component={Customers} />
@@ -327,6 +332,7 @@ function Router() {
       <Route path="/admin/audit" component={AdminAuditTrail} />
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/admin/notifications/preferences" component={AdminNotificationPreferences} />
+      <Route path="/admin/webhook-alerts" component={AdminWebhookAlerts} />
       <Route path="/admin/config" component={AdminConfig} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />

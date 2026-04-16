@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Shield,
   Users,
+  Webhook,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +61,7 @@ const adminNavItems = [
       { label: "System Health", href: "/admin/health", icon: Activity },
       { label: "Audit Trail", href: "/admin/audit", icon: ScrollText },
       { label: "Notifications", href: "/admin/notifications", icon: Bell },
+      { label: "Webhook Alerts", href: "/admin/webhook-alerts", icon: Webhook },
       { label: "Configuration", href: "/admin/config", icon: Settings2 },
     ],
   },

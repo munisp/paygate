@@ -34,6 +34,8 @@ const AdminPrefsInput = z.object({
   // Thresholds
   highRiskScoreThreshold:   z.number().int().min(0).max(100).optional(),
   largePayoutThresholdKobo: z.number().int().min(0).optional(),
+  // Digest frequency
+  digestFrequency: z.enum(["realtime", "daily", "weekly", "never"]).optional(),
 });
 
 const COLUMN_MAP: Record<string, string> = {
@@ -55,6 +57,7 @@ const COLUMN_MAP: Record<string, string> = {
   alertWeeklyReport:     "alert_weekly_report",
   highRiskScoreThreshold:   "high_risk_score_threshold",
   largePayoutThresholdKobo: "large_payout_threshold_kobo",
+  digestFrequency:          "digest_frequency",
 };
 
 export const adminNotifPrefsRouter = router({
@@ -120,6 +123,7 @@ export const adminNotifPrefsRouter = router({
       alertWeeklyReport:     Boolean(row.alert_weekly_report),
       highRiskScoreThreshold:   Number(row.high_risk_score_threshold ?? 75),
       largePayoutThresholdKobo: Number(row.large_payout_threshold_kobo ?? 1000000000),
+      digestFrequency:          String(row.digest_frequency ?? "weekly") as "realtime" | "daily" | "weekly" | "never",
     };
   }),
 

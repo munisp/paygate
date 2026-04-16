@@ -949,6 +949,36 @@ const configPanelRouter = router({
     }),
 });
 
+// ─── Admin Webhook Failure Alerts Router ────────────────────────────────────
+const webhookAlertsAdminRouter = router({
+  summary: adminProcedure
+    .input(z.object({ windowMinutes: z.number().min(5).max(1440).default(60) }))
+    .query(async ({ input }) => {
+      const { getAdminWebhookFailureSummary } = await import('./webhookFailureAlerts');
+      return getAdminWebhookFailureSummary(input.windowMinutes);
+    }),
+  acknowledge: adminProcedure
+    .input(z.object({ deliveryId: z.string() }))
+    .mutation(async ({ input }) => {
+      const { acknowledgeAlert } = await import('./webhookFailureAlerts');
+      acknowledgeAlert(input.deliveryId);
+      return { acknowledged: true, deliveryId: input.deliveryId };
+    }),
+  acknowledgeAll: adminProcedure
+    .input(z.object({ windowMinutes: z.number().min(5).max(1440).default(60) }))
+    .mutation(async ({ input }) => {
+      const { getAdminWebhookFailureSummary, acknowledgeAlert } = await import('./webhookFailureAlerts');
+      const summary = await getAdminWebhookFailureSummary(input.windowMinutes);
+      summary.recentFailures.forEach((f) => acknowledgeAlert(f.id));
+      return { acknowledged: summary.recentFailures.length };
+    }),
+  poll: adminProcedure
+    .query(async () => {
+      const { pollWebhookFailures } = await import('./webhookFailureAlerts');
+      return pollWebhookFailures();
+    }),
+});
+
 // ─── Compose Admin Router ─────────────────────────────────────────────────────
 export const adminRouter = router({
   overview: platformOverviewRouter,
@@ -963,4 +993,5 @@ export const adminRouter = router({
   audit: auditAdminRouter,
   notifications: notifAdminRouter,
   config: configPanelRouter,
+  webhookAlerts: webhookAlertsAdminRouter,
 });

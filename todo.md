@@ -2739,3 +2739,21 @@
 - [x] Stripe webhook CI smoke test
 - [x] K8s NetworkPolicy CI smoke test
 - [x] Final archive: paygate_PRODUCTION_FINAL_v9_20260416.tar.gz (358MB, 2621 entries, 804 source files)
+
+### Wave 23 — Digest Frequency, Webhook Alerts, User Guides
+- [x] Add digest_frequency column to admin_notification_prefs, realtime_notification_preferences, consumer_notification_prefs
+- [x] tRPC procedures: getDigestFrequency, setDigestFrequency for all 3 scopes
+- [x] Admin UI: digest frequency selector in AdminNotificationPreferences page
+- [x] Merchant UI: digest frequency selector in MerchantNotificationPreferences page
+- [x] Consumer UI: digest frequency selector in ConsumerNotificationSettings page
+- [x] Update registerDigestCronJobs() to respect per-user frequency settings
+- [x] Server-side webhook failure watcher (polls webhook_deliveries every 60s) — server/webhookFailureAlerts.ts
+- [x] tRPC procedures: webhookAlerts.summary, webhookAlerts.acknowledge, webhookAlerts.acknowledgeAll, webhookAlerts.poll
+- [x] Admin real-time webhook failure alert dashboard (AdminWebhookAlerts.tsx, /admin/webhook-alerts)
+- [x] Webhook Alerts nav link added to AdminLayout sidebar
+- [x] digestEmail.ts fixes — account_id → user_id in consumer_loyalty_txns query
+- [x] Merchant user guide — comprehensive in-app guide at /docs/merchant-guide (15 sections)
+- [x] Consumer user guide — comprehensive in-app guide at /consumer/help (14 sections)
+- [x] Help Guide nav link added to merchant Layout.tsx sidebar
+- [x] Help Guide nav link added to ConsumerLayout.tsx More drawer
+- [x] Wave 23 complete — all items done

@@ -67,10 +67,11 @@ export default function AdminNotificationPreferences() {
     }
   }, [prefs]);
 
-  const update = trpc.adminNotifPrefs.update.useMutation({
+  const updateMutation = trpc.adminNotifPrefs.update.useMutation({
     onSuccess: () => { utils.adminNotifPrefs.get.invalidate(); toast.success("Preferences saved"); },
     onError: () => toast.error("Failed to save preferences"),
   });
+  const update = updateMutation;
 
   const toggle = (field: string) => { if (!prefs) return; update.mutate({ [field]: !(prefs as any)[field] }); };
   const saveThresholds = () => update.mutate({ highRiskScoreThreshold: riskThreshold, largePayoutThresholdKobo: payoutThresholdM * 1_000_000 });
@@ -154,6 +155,35 @@ export default function AdminNotificationPreferences() {
           </div>
         </div>
       </section>
+      {/* Digest Frequency */}
+      <section>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Alert Digest Frequency</h2>
+        <div className="bg-card border rounded-xl p-5">
+          <p className="text-sm text-muted-foreground mb-4">Choose how often you receive email digest summaries of platform activity and system alerts.</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {(["realtime", "daily", "weekly", "never"] as const).map(freq => (
+              <button
+                key={freq}
+                onClick={() => updateMutation.mutate({ digestFrequency: freq })}
+                className={`py-3 px-4 rounded-lg border text-sm font-medium capitalize transition-all ${
+                  (prefs as any).digestFrequency === freq
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    : "border-border bg-background text-foreground hover:border-primary/50"
+                }`}
+              >
+                {freq === "realtime" ? "Real-time" : freq.charAt(0).toUpperCase() + freq.slice(1)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            {(prefs as any).digestFrequency === "realtime" && "Immediate email for every system event."}
+            {(prefs as any).digestFrequency === "daily" && "Daily platform summary each morning."}
+            {(prefs as any).digestFrequency === "weekly" && "Weekly system report every Monday."}
+            {(prefs as any).digestFrequency === "never" && "Alert digest emails are disabled."}
+          </p>
+        </div>
+      </section>
+
       <div className="flex items-center justify-center">
         <Badge variant="outline" className="text-xs text-muted-foreground">Changes saved automatically</Badge>
       </div>

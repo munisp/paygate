@@ -43,6 +43,8 @@ const ConsumerPrefsInput = z.object({
   quietHoursEnabled: z.boolean().optional(),
   quietHoursStart:   z.string().regex(/^\d{2}:\d{2}$/).optional(),
   quietHoursEnd:     z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  // Digest frequency
+  digestFrequency: z.enum(["realtime", "daily", "weekly", "never"]).optional(),
 });
 
 const COLUMN_MAP: Record<string, string> = {
@@ -71,6 +73,7 @@ const COLUMN_MAP: Record<string, string> = {
   quietHoursEnabled: "quiet_hours_enabled",
   quietHoursStart:   "quiet_hours_start",
   quietHoursEnd:     "quiet_hours_end",
+  digestFrequency:   "digest_frequency",
 };
 
 export const consumerNotifPrefsRouter = router({
@@ -139,6 +142,7 @@ export const consumerNotifPrefsRouter = router({
       quietHoursEnabled: Boolean(row.quiet_hours_enabled),
       quietHoursStart:   String(row.quiet_hours_start ?? "22:00"),
       quietHoursEnd:     String(row.quiet_hours_end ?? "07:00"),
+      digestFrequency:   String(row.digest_frequency ?? "weekly") as "realtime" | "daily" | "weekly" | "never",
     };
   }),
 

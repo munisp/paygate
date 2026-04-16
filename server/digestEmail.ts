@@ -273,7 +273,7 @@ export async function sendMerchantDailyDigests(): Promise<void> {
       SELECT np.merchant_id, np.email_enabled, m.email, m.business_name, m.currency
       FROM realtime_notification_preferences np
       JOIN merchants m ON m.id = np.merchant_id
-      WHERE np.email_enabled IS TRUE
+      WHERE np.email_enabled = 1
       LIMIT 500
     `);
     const prefs = extractRows(prefsResult);
@@ -288,15 +288,15 @@ export async function sendMerchantDailyDigests(): Promise<void> {
           COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_tx
         FROM transactions
         WHERE merchant_id = ${pref.merchant_id}
-          AND created_at >= ${yesterday.toISOString().split("T")[0]}
-          AND created_at < ${now.toISOString().split("T")[0]}
+          AND created_at >= ${yesterday.toISOString().split("T")[0]}::timestamptz
+          AND created_at < ${now.toISOString().split("T")[0]}::timestamptz
       `);
       const stat = extractRows(statsResult)[0] ?? { tx_count: 0, tx_volume: 0, failed_tx: 0 };
 
       const newCustResult = await drizzle.execute(sql`
         SELECT COUNT(*) as cnt FROM customers
         WHERE merchant_id = ${pref.merchant_id}
-          AND created_at >= ${yesterday.toISOString().split("T")[0]}
+          AND created_at >= ${yesterday.toISOString().split("T")[0]}::timestamptz
       `);
       const newCustomers = Number(extractRows(newCustResult)[0]?.cnt ?? 0);
 
@@ -363,27 +363,27 @@ export async function sendConsumerWeeklyDigests(): Promise<void> {
       if (!pref.email) continue;
 
       const sentResult = await drizzle.execute(sql`
-        SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
+        SELECT COUNT(*) as cnt, COALESCE(SUM(amount_kobo), 0) as total
         FROM consumer_wallet_txns
         WHERE wallet_id IN (SELECT id FROM consumer_wallets WHERE user_id = ${pref.user_id})
-          AND txn_type = 'debit'
+          AND type = 'debit'
           AND created_at >= ${weekStart.toISOString()}
       `);
       const sent = extractRows(sentResult)[0] ?? { cnt: 0, total: 0 };
 
       const receivedResult = await drizzle.execute(sql`
-        SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
+        SELECT COUNT(*) as cnt, COALESCE(SUM(amount_kobo), 0) as total
         FROM consumer_wallet_txns
         WHERE wallet_id IN (SELECT id FROM consumer_wallets WHERE user_id = ${pref.user_id})
-          AND txn_type = 'credit'
+          AND type = 'credit'
           AND created_at >= ${weekStart.toISOString()}
       `);
       const received = extractRows(receivedResult)[0] ?? { cnt: 0, total: 0 };
 
       const cashbackResult = await drizzle.execute(sql`
-        SELECT COALESCE(SUM(amount), 0) as total
+        SELECT COALESCE(SUM(points), 0) as total
         FROM consumer_loyalty_txns
-        WHERE account_id IN (SELECT id FROM consumer_loyalty_accounts WHERE user_id = ${pref.user_id})
+        WHERE user_id = ${pref.user_id}
           AND created_at >= ${weekStart.toISOString()}
       `);
       const cashback = extractRows(cashbackResult)[0] ?? { total: 0 };
@@ -444,26 +444,26 @@ export async function sendAdminWeeklyReports(): Promise<void> {
     // Platform-wide stats
     const txStatsResult = await drizzle.execute(sql`
       SELECT COUNT(*) as total_tx, COALESCE(SUM(amount), 0) as total_volume
-      FROM transactions WHERE created_at >= ${weekStart.toISOString()}
+      FROM transactions WHERE created_at >= ${weekStart.toISOString()}::timestamptz
     `);
     const txStats = extractRows(txStatsResult)[0] ?? { total_tx: 0, total_volume: 0 };
 
     const merchantStatsResult = await drizzle.execute(sql`
       SELECT
-        COUNT(CASE WHEN last_active_at >= ${weekStart.toISOString()} THEN 1 END) as active,
+        COUNT(CASE WHEN status = 'active' THEN 1 END) as active,
         COUNT(CASE WHEN created_at >= ${weekStart.toISOString()} THEN 1 END) as new_merchants
       FROM merchants
     `);
     const mStat = extractRows(merchantStatsResult)[0] ?? { active: 0, new_merchants: 0 };
 
     const fraudResult = await drizzle.execute(sql`
-      SELECT COUNT(*) as cnt FROM fraud_cases
-      WHERE created_at >= ${weekStart.toISOString()} AND status = 'open'
+      SELECT COUNT(*) as cnt FROM fraud_alerts
+      WHERE created_at >= ${weekStart.toISOString()}::timestamptz AND status = 'open'
     `);
     const fraudAlerts = Number(extractRows(fraudResult)[0]?.cnt ?? 0);
 
     const kycResult = await drizzle.execute(sql`
-      SELECT COUNT(*) as cnt FROM kyc_verifications WHERE status = 'pending'
+      SELECT COUNT(*) as cnt FROM kyc_submissions WHERE status = 'pending'
     `);
     const kycPending = Number(extractRows(kycResult)[0]?.cnt ?? 0);
 

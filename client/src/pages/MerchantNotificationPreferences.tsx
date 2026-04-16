@@ -70,13 +70,15 @@ export default function MerchantNotificationPreferences() {
 
   const { data: prefs, isLoading } = trpc.notificationPreferences.get.useQuery();
 
-  const update = trpc.notificationPreferences.update.useMutation({
+  const updateMutation = trpc.notificationPreferences.update.useMutation({
     onSuccess: () => {
       utils.notificationPreferences.get.invalidate();
       toast.success("Preferences saved");
     },
     onError: () => toast.error("Failed to save preferences"),
   });
+  // keep legacy alias for toggle helper
+  const update = updateMutation;
 
   const toggle = (field: string) => {
     if (!prefs) return;
@@ -177,6 +179,41 @@ export default function MerchantNotificationPreferences() {
             icon={Settings} label="System & Platform Updates"
             enabled={prefs.eventSystem} onToggle={() => toggle("eventSystem")}
           />
+        </div>
+      </section>
+
+      <Separator />
+
+      {/* Digest Frequency */}
+      <section>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          Email Digest Frequency
+        </h2>
+        <div className="bg-card border rounded-xl p-5">
+          <p className="text-sm text-muted-foreground mb-4">
+            Choose how often you receive email digest summaries of your account activity.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {(["realtime", "daily", "weekly", "never"] as const).map(freq => (
+              <button
+                key={freq}
+                onClick={() => update.mutate({ digestFrequency: freq })}
+                className={`py-3 px-4 rounded-lg border text-sm font-medium capitalize transition-all ${
+                  prefs.digestFrequency === freq
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    : "border-border bg-background text-foreground hover:border-primary/50"
+                }`}
+              >
+                {freq === "realtime" ? "Real-time" : freq.charAt(0).toUpperCase() + freq.slice(1)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            {prefs.digestFrequency === "realtime" && "You will receive an email for every event immediately."}
+            {prefs.digestFrequency === "daily" && "You will receive a daily summary email each morning."}
+            {prefs.digestFrequency === "weekly" && "You will receive a weekly summary email every Monday."}
+            {prefs.digestFrequency === "never" && "Digest emails are disabled. You will only receive real-time alerts."}
+          </p>
         </div>
       </section>
 

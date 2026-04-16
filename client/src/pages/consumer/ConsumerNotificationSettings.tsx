@@ -290,6 +290,37 @@ export default function ConsumerNotificationSettings() {
           )}
         </section>
 
+        <Separator />
+
+        {/* Digest Frequency */}
+        <section>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Email Digest Frequency</h2>
+          <div className="bg-card border rounded-xl p-4">
+            <p className="text-sm text-muted-foreground mb-4">Choose how often you receive email summaries of your wallet activity.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["realtime", "daily", "weekly", "never"] as const).map(freq => (
+                <button
+                  key={freq}
+                  onClick={() => update.mutate({ digestFrequency: freq })}
+                  className={`py-2.5 px-3 rounded-lg border text-sm font-medium capitalize transition-all ${
+                    (prefs as any).digestFrequency === freq
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-foreground hover:border-primary/50"
+                  }`}
+                >
+                  {freq === "realtime" ? "Real-time" : freq.charAt(0).toUpperCase() + freq.slice(1)}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              {(prefs as any).digestFrequency === "realtime" && "Immediate email for every transaction."}
+              {(prefs as any).digestFrequency === "daily" && "Daily wallet summary each morning."}
+              {(prefs as any).digestFrequency === "weekly" && "Weekly spending summary every Monday."}
+              {(prefs as any).digestFrequency === "never" && "Email digests are disabled."}
+            </p>
+          </div>
+        </section>
+
         {/* Status badge */}
         <div className="flex items-center justify-center gap-2 pt-2">
           <Badge variant="outline" className="text-xs text-muted-foreground">

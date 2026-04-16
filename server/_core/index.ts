@@ -1706,3 +1706,9 @@ import("../digestEmail").then(({ registerDigestCronJobs }) => {
 }).catch((err: unknown) => {
   console.warn("[digestEmail] Failed to register cron jobs:", err);
 });
+// ─── Webhook Failure Alert Poller ────────────────────────────────────────────
+import("../webhookFailureAlerts").then(({ startWebhookFailurePoller }) => {
+  startWebhookFailurePoller(60_000); // poll every 60 seconds
+}).catch((err: unknown) => {
+  console.warn("[webhookFailureAlerts] Failed to start poller:", err);
+});

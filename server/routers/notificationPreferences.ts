@@ -24,6 +24,7 @@ const PrefsInput = z.object({
   eventFraud: z.boolean().optional(),
   eventKyc: z.boolean().optional(),
   eventSystem: z.boolean().optional(),
+  digestFrequency: z.enum(["realtime", "daily", "weekly", "never"]).optional(),
 });
 
 export const notificationPreferencesRouter = router({
@@ -68,6 +69,7 @@ export const notificationPreferencesRouter = router({
       eventFraud:     Boolean(row.event_fraud),
       eventKyc:       Boolean(row.event_kyc),
       eventSystem:    Boolean((row as any).event_system ?? 1),
+      digestFrequency: String((row as any).digest_frequency ?? "daily") as "realtime" | "daily" | "weekly" | "never",
     };
   }),
 
@@ -101,12 +103,17 @@ export const notificationPreferencesRouter = router({
         eventFraud:     "event_fraud",
         eventKyc:       "event_kyc",
         eventSystem:    "event_system",
+        digestFrequency: "digest_frequency",
       };
 
       for (const [key, col] of Object.entries(fieldMap)) {
         const val = (input as any)[key];
         if (val !== undefined) {
-          sets.push(`${col} = ${val ? 1 : 0}`);
+          if (key === "digestFrequency") {
+            sets.push(`${col} = '${String(val).replace(/'/g, "''")}'`);
+          } else {
+            sets.push(`${col} = ${val ? 1 : 0}`);
+          }
         }
       }
 

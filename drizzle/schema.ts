@@ -3218,6 +3218,8 @@ export const realtimeNotificationPreferences = pgTable("realtime_notification_pr
   eventPayout: integer("event_payout").notNull().default(1),
   eventFraud: integer("event_fraud").notNull().default(1),
   eventKyc: integer("event_kyc").notNull().default(1),
+  // Digest frequency: 'realtime' | 'hourly' | 'daily' | 'weekly'
+  digestFrequency: text("digest_frequency").notNull().default("daily"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [index("rtn_pref_merchant_idx").on(t.merchantId)]);
@@ -3297,6 +3299,8 @@ export const consumerNotificationPrefs = pgTable("consumer_notification_prefs", 
   quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(false),
   quietHoursStart:   text("quiet_hours_start").notNull().default("22:00"),
   quietHoursEnd:     text("quiet_hours_end").notNull().default("07:00"),
+  // Digest frequency: 'realtime' | 'daily' | 'weekly' | 'never'
+  digestFrequency: text("digest_frequency").notNull().default("weekly"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [index("consumer_notif_pref_user_idx").on(t.userId)]);
@@ -3329,6 +3333,8 @@ export const adminNotificationPrefs = pgTable("admin_notification_prefs", {
   // Thresholds
   highRiskScoreThreshold:    integer("high_risk_score_threshold").notNull().default(75),
   largePayoutThresholdKobo:  integer("large_payout_threshold_kobo").notNull().default(1000000000),
+  // Digest frequency: 'realtime' | 'hourly' | 'daily' | 'weekly'
+  digestFrequency: text("digest_frequency").notNull().default("daily"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [index("admin_notif_pref_user_idx").on(t.userId)]);

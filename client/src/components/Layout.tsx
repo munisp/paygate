@@ -295,6 +295,7 @@ const devItems: NavItem[] = [
   { icon: Shield, label: "Role Sync", path: "/role-sync" },
   { icon: Building2, label: "NIP Banks", path: "/nip-banks", badge: "CBN" },
   { icon: Settings, label: "Settings", path: "/settings" },
+  { icon: BookOpen, label: "Help Guide", path: "/docs/merchant-guide" },
 ];
 
 const ONBOARDING_STEPS = [
