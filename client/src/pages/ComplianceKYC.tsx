@@ -1,12 +1,14 @@
 import { useState, useRef, ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Shield, CheckCircle, AlertTriangle, Clock, FileText, Upload, Eye, Download, RefreshCw, ChevronRight, Loader2 } from "lucide-react";
+import { Shield, CheckCircle, AlertTriangle, Clock, FileText, Upload, Eye, Download, RefreshCw, ChevronRight, Loader2, Scan, Brain, ChevronDown, ChevronUp, User, Calendar, Hash, MapPin, Flag, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const statusColor: Record<string, string> = {
   verified: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -333,14 +335,159 @@ export default function ComplianceKYC() {
   );
 }
 
-function KycLivePanel() {
-  const { data, isLoading } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
-  const { data: stats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 60_000 });
-  const updateStatus = trpc.complianceKyc.updateStatus.useMutation({ onSuccess: () => toast.success("KYC status updated") });
+
+// ─── OCR Result Panel ────────────────────────────────────────────────────────
+function OcrResultPanel({ result, onClose }: { result: any; onClose: () => void }) {
+  const confidence = result?.overall_confidence ?? result?.confidence ?? 0;
+  const confidencePct = Math.round(confidence * 100);
+  const confidenceColor = confidencePct >= 80 ? "text-emerald-400" : confidencePct >= 60 ? "text-amber-400" : "text-red-400";
+
+  const fields = result?.extracted_fields ?? result?.fields ?? {};
+  const fieldIcons: Record<string, any> = {
+    full_name: <User className="w-3.5 h-3.5" />,
+    date_of_birth: <Calendar className="w-3.5 h-3.5" />,
+    id_number: <Hash className="w-3.5 h-3.5" />,
+    address: <MapPin className="w-3.5 h-3.5" />,
+    nationality: <Flag className="w-3.5 h-3.5" />,
+    expiry_date: <Calendar className="w-3.5 h-3.5" />,
+    issue_date: <Calendar className="w-3.5 h-3.5" />,
+    gender: <User className="w-3.5 h-3.5" />,
+  };
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="bg-zinc-800/60 rounded-xl p-4 border border-zinc-700">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-blue-400" />
+            <span className="text-sm font-medium text-white">OCR Confidence Score</span>
+          </div>
+          <span className={`text-2xl font-bold font-mono ${confidenceColor}`}>{confidencePct}%</span>
+        </div>
+        <Progress value={confidencePct} className="h-2 bg-zinc-700" />
+        <p className="text-xs text-zinc-500 mt-1.5">
+          {confidencePct >= 80 ? "High confidence — data is reliable" :
+           confidencePct >= 60 ? "Medium confidence — manual review recommended" :
+           "Low confidence — document quality may be poor"}
+        </p>
+      </div>
+      {result?.doc_type && (
+        <div className="flex items-center gap-2 text-sm">
+          <FileText className="w-4 h-4 text-zinc-400" />
+          <span className="text-zinc-400">Document type:</span>
+          <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20 capitalize">
+            {String(result.doc_type).replace(/_/g, " ")}
+          </Badge>
+          {result?.issuing_country && (
+            <Badge className="bg-zinc-700 text-zinc-300 border-zinc-600">{result.issuing_country}</Badge>
+          )}
+        </div>
+      )}
+      {Object.keys(fields).length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Extracted Fields</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {Object.entries(fields).map(([key, val]: [string, any]) => (
+              <div key={key} className="bg-zinc-800/40 rounded-lg p-3 border border-zinc-700/50">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-zinc-500">{fieldIcons[key] ?? <Info className="w-3.5 h-3.5" />}</span>
+                  <span className="text-xs text-zinc-500 capitalize">{key.replace(/_/g, " ")}</span>
+                  {val?.confidence && (
+                    <span className={`ml-auto text-xs font-mono ${val.confidence >= 0.8 ? "text-emerald-400" : "text-amber-400"}`}>
+                      {Math.round(val.confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-white font-medium truncate">
+                  {typeof val === "object" ? (val?.value ?? JSON.stringify(val)) : String(val)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {result?.validation_flags && result.validation_flags.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Validation Flags</p>
+          <div className="space-y-1.5">
+            {result.validation_flags.map((flag: string, i: number) => (
+              <div key={i} className="flex items-center gap-2 text-sm text-amber-300 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/20">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                {flag}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {result?.vlm_summary && (
+        <div>
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">AI Document Analysis</p>
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 text-sm text-zinc-300 leading-relaxed">
+            {result.vlm_summary}
+          </div>
+        </div>
+      )}
+      <Button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white">Close</Button>
+    </div>
+  );
+}
+
+function KycLivePanel() {
+  const { data, isLoading, refetch } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: stats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 60_000 });
+  const updateStatus = trpc.complianceKyc.updateStatus.useMutation({
+    onSuccess: () => { toast.success("KYC status updated"); refetch(); },
+  });
+  const extractDocument = trpc.complianceKyc.extractDocument.useMutation({
+    onSuccess: (result) => { setOcrResult(result); setOcrDialogOpen(true); toast.success("Document extracted successfully"); },
+    onError: (e: any) => toast.error(`OCR failed: ${e.message}`),
+  });
+
+  const [ocrDialogOpen, setOcrDialogOpen] = useState(false);
+  const [ocrResult, setOcrResult] = useState<any>(null);
+  const [extractingId, setExtractingId] = useState<string | null>(null);
+  const [extractDocType, setExtractDocType] = useState<Record<string, string>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const docTypeOptions = [
+    { value: "passport", label: "Passport" },
+    { value: "national_id", label: "National ID" },
+    { value: "drivers_license", label: "Driver's License" },
+    { value: "utility_bill", label: "Utility Bill" },
+    { value: "bank_statement", label: "Bank Statement" },
+    { value: "cac_certificate", label: "CAC Certificate" },
+  ];
+
+  const handleExtract = async (kyc: any) => {
+    if (!kyc.documentUrl) { toast.error("No document URL — upload a document first"); return; }
+    const docType = extractDocType[kyc.id] ?? "national_id";
+    setExtractingId(kyc.id);
+    try {
+      await extractDocument.mutateAsync({
+        submissionId: kyc.id,
+        docType: docType as any,
+        documentUrl: kyc.documentUrl,
+        mode: "full",
+        useRustEngine: false,
+      });
+    } finally { setExtractingId(null); }
+  };
+
+  return (
+    <>
+      <Dialog open={ocrDialogOpen} onOpenChange={setOcrDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto bg-zinc-900 border-zinc-700">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Scan className="w-5 h-5 text-blue-400" />
+              OCR Extraction Result
+            </DialogTitle>
+          </DialogHeader>
+          {ocrResult && <OcrResultPanel result={ocrResult} onClose={() => setOcrDialogOpen(false)} />}
+        </DialogContent>
+      </Dialog>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         {[
           { label: "Total", value: stats?.total ?? "—" },
           { label: "Pending", value: stats?.pending ?? "—" },
@@ -353,34 +500,98 @@ function KycLivePanel() {
           </div>
         ))}
       </div>
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> :
-      (data?.rows ?? []).map(kyc => (
-        <div key={kyc.id} className="flex items-center justify-between gap-4 p-3 rounded-lg border border-border">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">{kyc.id}</p>
-            <p className="text-xs text-muted-foreground">{kyc.docType} · {kyc.docType.replace("_", " ")} · {new Date(kyc.createdAt).toLocaleDateString()}</p>
-          </div>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
-            kyc.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
-            kyc.status === 'rejected' ? 'bg-red-100 text-red-700' :
-            kyc.status === 'under_review' ? 'bg-amber-100 text-amber-700' :
-            'bg-muted text-muted-foreground'
-          }`}>{kyc.status.replace("_", " ")}</span>
-          {kyc.status === 'pending' && (
-            <button onClick={() => updateStatus.mutate({ id: kyc.id, status: 'under_review' })}
-              className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground" disabled={updateStatus.isPending}>Review</button>
-          )}
-          {kyc.status === 'under_review' && (
-            <div className="flex gap-1">
-              <button onClick={() => updateStatus.mutate({ id: kyc.id, status: 'approved' })}
-                className="text-xs px-2 py-1 rounded bg-emerald-600 text-white" disabled={updateStatus.isPending}>Approve</button>
-              <button onClick={() => updateStatus.mutate({ id: kyc.id, status: 'rejected' })}
-                className="text-xs px-2 py-1 rounded bg-red-600 text-white" disabled={updateStatus.isPending}>Reject</button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
 
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading submissions…
+        </div>
+      ) : (data?.rows ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">No KYC submissions yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {(data?.rows ?? []).map((kyc: any) => (
+            <div key={kyc.id} className="rounded-xl border border-border bg-card/50 overflow-hidden">
+              <div className="flex items-center gap-3 p-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate font-mono">{kyc.id}</p>
+                  <p className="text-xs text-muted-foreground">{kyc.docType.replace(/_/g, " ")} · {new Date(kyc.createdAt).toLocaleDateString()}</p>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize whitespace-nowrap ${
+                  kyc.status === "approved" ? "bg-emerald-100 text-emerald-700" :
+                  kyc.status === "rejected" ? "bg-red-100 text-red-700" :
+                  kyc.status === "under_review" ? "bg-amber-100 text-amber-700" :
+                  "bg-muted text-muted-foreground"
+                }`}>{kyc.status.replace(/_/g, " ")}</span>
+                <div className="flex items-center gap-1.5">
+                  {kyc.status === "pending" && (
+                    <button onClick={() => updateStatus.mutate({ id: kyc.id, status: "under_review" })}
+                      className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground disabled:opacity-50"
+                      disabled={updateStatus.isPending}>Review</button>
+                  )}
+                  {kyc.status === "under_review" && (
+                    <>
+                      <button onClick={() => updateStatus.mutate({ id: kyc.id, status: "approved" })}
+                        className="text-xs px-2 py-1 rounded bg-emerald-600 text-white disabled:opacity-50"
+                        disabled={updateStatus.isPending}>Approve</button>
+                      <button onClick={() => updateStatus.mutate({ id: kyc.id, status: "rejected" })}
+                        className="text-xs px-2 py-1 rounded bg-red-600 text-white disabled:opacity-50"
+                        disabled={updateStatus.isPending}>Reject</button>
+                    </>
+                  )}
+                  <button onClick={() => setExpandedId(expandedId === kyc.id ? null : kyc.id)}
+                    className="text-xs px-2 py-1 rounded bg-zinc-700 text-zinc-300 hover:bg-zinc-600 flex items-center gap-1">
+                    <Scan className="w-3 h-3" />
+                    OCR
+                    {expandedId === kyc.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+              {expandedId === kyc.id && (
+                <div className="border-t border-border bg-muted/20 p-4 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <Brain className="w-3.5 h-3.5 text-blue-400" />
+                    AI Document Extraction
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Document type:</span>
+                      <Select value={extractDocType[kyc.id] ?? "national_id"}
+                        onValueChange={(v) => setExtractDocType(prev => ({ ...prev, [kyc.id]: v }))}>
+                        <SelectTrigger className="h-7 text-xs w-40 bg-background border-border">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {docTypeOptions.map(opt => (
+                            <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button size="sm"
+                      className="h-7 bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5"
+                      disabled={extractingId === kyc.id || !kyc.documentUrl}
+                      onClick={() => handleExtract(kyc)}>
+                      {extractingId === kyc.id ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /> Extracting…</>
+                      ) : (
+                        <><Scan className="w-3 h-3" /> Extract Document</>
+                      )}
+                    </Button>
+                    {!kyc.documentUrl && (
+                      <span className="text-xs text-amber-400 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Upload document first
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Uses PaddleOCR + Docling + VLM to extract structured fields with per-field confidence scores.
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
 }

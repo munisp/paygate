@@ -667,6 +667,113 @@ const systemHealthRouter = router({
     );
     return counts;
   }),
+
+  getIndexHealth: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { indexes: [], tables: [], summary: { totalIndexes: 0, unusedIndexes: 0, bloatedTables: 0 } };
+    try {
+      // Unused indexes (scans == 0, not primary keys)
+      const unusedIndexes = await db.execute(sql.raw(`
+        SELECT
+          schemaname,
+          tablename,
+          indexname,
+          idx_scan AS scans,
+          idx_tup_read AS tuples_read,
+          idx_tup_fetch AS tuples_fetched,
+          pg_size_pretty(pg_relation_size(indexrelid)) AS index_size,
+          pg_relation_size(indexrelid) AS index_size_bytes
+        FROM pg_stat_user_indexes
+        WHERE idx_scan = 0
+          AND indexname NOT LIKE '%_pkey'
+          AND indexname NOT LIKE '%_unique'
+        ORDER BY pg_relation_size(indexrelid) DESC
+        LIMIT 30
+      `));
+
+      // All indexes with usage stats
+      const allIndexes = await db.execute(sql.raw(`
+        SELECT
+          s.schemaname,
+          s.tablename,
+          s.indexname,
+          s.idx_scan AS scans,
+          s.idx_tup_read AS tuples_read,
+          pg_size_pretty(pg_relation_size(s.indexrelid)) AS index_size,
+          pg_relation_size(s.indexrelid) AS index_size_bytes,
+          CASE WHEN s.idx_scan = 0 AND s.indexname NOT LIKE '%_pkey' THEN true ELSE false END AS is_unused
+        FROM pg_stat_user_indexes s
+        ORDER BY pg_relation_size(s.indexrelid) DESC
+        LIMIT 50
+      `));
+
+      // Table bloat and seq scan stats
+      const tableStats = await db.execute(sql.raw(`
+        SELECT
+          schemaname,
+          relname AS tablename,
+          seq_scan,
+          seq_tup_read,
+          idx_scan,
+          n_tup_ins AS inserts,
+          n_tup_upd AS updates,
+          n_tup_del AS deletes,
+          n_live_tup AS live_tuples,
+          n_dead_tup AS dead_tuples,
+          CASE WHEN n_live_tup > 0 THEN ROUND((n_dead_tup::numeric / n_live_tup) * 100, 2) ELSE 0 END AS bloat_pct,
+          pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+          pg_total_relation_size(relid) AS total_size_bytes,
+          last_vacuum,
+          last_autovacuum,
+          last_analyze,
+          last_autoanalyze
+        FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(relid) DESC
+        LIMIT 30
+      `));
+
+      // Cache hit ratio
+      const cacheStats = await db.execute(sql.raw(`
+        SELECT
+          SUM(heap_blks_hit) AS heap_hits,
+          SUM(heap_blks_read) AS heap_reads,
+          CASE WHEN SUM(heap_blks_hit) + SUM(heap_blks_read) > 0
+            THEN ROUND((SUM(heap_blks_hit)::numeric / (SUM(heap_blks_hit) + SUM(heap_blks_read))) * 100, 2)
+            ELSE 0
+          END AS cache_hit_pct
+        FROM pg_statio_user_tables
+      `));
+
+      const indexArr = Array.from(allIndexes as any);
+      const tableArr = Array.from(tableStats as any);
+      const cacheArr = Array.from(cacheStats as any);
+      const unusedArr = Array.from(unusedIndexes as any);
+
+      const bloatedTables = tableArr.filter((t: any) => Number(t.bloat_pct) > 20).length;
+
+      return {
+        indexes: indexArr,
+        tables: tableArr,
+        unusedIndexes: unusedArr,
+        cacheHitPct: (cacheArr[0] as any)?.cache_hit_pct ?? 0,
+        summary: {
+          totalIndexes: indexArr.length,
+          unusedIndexes: unusedArr.length,
+          bloatedTables,
+          cacheHitPct: (cacheArr[0] as any)?.cache_hit_pct ?? 0,
+        },
+      };
+    } catch (e: any) {
+      // pg_stat_* views may not be available on all DB engines (e.g. TiDB)
+      return {
+        indexes: [],
+        tables: [],
+        unusedIndexes: [],
+        cacheHitPct: 0,
+        summary: { totalIndexes: 0, unusedIndexes: 0, bloatedTables: 0, cacheHitPct: 0, error: e.message },
+      };
+    }
+  }),
 });
 
 // ─── 10. Audit Trail Admin ────────────────────────────────────────────────────
