@@ -3261,3 +3261,76 @@ export const ussdSessions = pgTable("ussd_sessions", {
 ]);
 export type UssdSession = typeof ussdSessions.$inferSelect;
 export type InsertUssdSession = typeof ussdSessions.$inferInsert;
+
+// ─── Consumer Notification Preferences ───────────────────────────────────────
+// Per-user, per-category, per-channel toggles for the consumer PWA.
+export const consumerNotificationPrefs = pgTable("consumer_notification_prefs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  // Channel toggles
+  pushEnabled:    boolean("push_enabled").notNull().default(true),
+  inAppEnabled:   boolean("in_app_enabled").notNull().default(true),
+  emailEnabled:   boolean("email_enabled").notNull().default(true),
+  smsEnabled:     boolean("sms_enabled").notNull().default(false),
+  // Category toggles (push)
+  pushPayments:   boolean("push_payments").notNull().default(true),
+  pushFraud:      boolean("push_fraud").notNull().default(true),
+  pushPromotions: boolean("push_promotions").notNull().default(false),
+  pushSystem:     boolean("push_system").notNull().default(true),
+  pushDisputes:   boolean("push_disputes").notNull().default(true),
+  pushLoans:      boolean("push_loans").notNull().default(true),
+  // Category toggles (in-app)
+  inAppPayments:   boolean("in_app_payments").notNull().default(true),
+  inAppFraud:      boolean("in_app_fraud").notNull().default(true),
+  inAppPromotions: boolean("in_app_promotions").notNull().default(true),
+  inAppSystem:     boolean("in_app_system").notNull().default(true),
+  inAppDisputes:   boolean("in_app_disputes").notNull().default(true),
+  inAppLoans:      boolean("in_app_loans").notNull().default(true),
+  // Category toggles (email)
+  emailPayments:   boolean("email_payments").notNull().default(true),
+  emailFraud:      boolean("email_fraud").notNull().default(true),
+  emailPromotions: boolean("email_promotions").notNull().default(false),
+  emailSystem:     boolean("email_system").notNull().default(true),
+  emailDisputes:   boolean("email_disputes").notNull().default(true),
+  emailLoans:      boolean("email_loans").notNull().default(false),
+  // Quiet hours
+  quietHoursEnabled: boolean("quiet_hours_enabled").notNull().default(false),
+  quietHoursStart:   text("quiet_hours_start").notNull().default("22:00"),
+  quietHoursEnd:     text("quiet_hours_end").notNull().default("07:00"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("consumer_notif_pref_user_idx").on(t.userId)]);
+export type ConsumerNotificationPrefs = typeof consumerNotificationPrefs.$inferSelect;
+export type InsertConsumerNotificationPrefs = typeof consumerNotificationPrefs.$inferInsert;
+
+// ─── Admin Notification Preferences ──────────────────────────────────────────
+// Per-admin toggles for system-level alerts and operational notifications.
+export const adminNotificationPrefs = pgTable("admin_notification_prefs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  // Channel toggles
+  pushEnabled:  boolean("push_enabled").notNull().default(true),
+  emailEnabled: boolean("email_enabled").notNull().default(true),
+  slackEnabled: boolean("slack_enabled").notNull().default(false),
+  // System alert categories
+  alertNewMerchant:      boolean("alert_new_merchant").notNull().default(true),
+  alertKycSubmission:    boolean("alert_kyc_submission").notNull().default(true),
+  alertKycApproval:      boolean("alert_kyc_approval").notNull().default(true),
+  alertHighRiskTxn:      boolean("alert_high_risk_txn").notNull().default(true),
+  alertFraudEscalation:  boolean("alert_fraud_escalation").notNull().default(true),
+  alertDisputeOpened:    boolean("alert_dispute_opened").notNull().default(true),
+  alertDisputeEscalated: boolean("alert_dispute_escalated").notNull().default(true),
+  alertPayoutApproval:   boolean("alert_payout_approval").notNull().default(true),
+  alertSystemError:      boolean("alert_system_error").notNull().default(true),
+  alertBridgeDown:       boolean("alert_bridge_down").notNull().default(true),
+  alertRateLimit:        boolean("alert_rate_limit").notNull().default(false),
+  alertDailyDigest:      boolean("alert_daily_digest").notNull().default(true),
+  alertWeeklyReport:     boolean("alert_weekly_report").notNull().default(true),
+  // Thresholds
+  highRiskScoreThreshold:    integer("high_risk_score_threshold").notNull().default(75),
+  largePayoutThresholdKobo:  integer("large_payout_threshold_kobo").notNull().default(1000000000),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [index("admin_notif_pref_user_idx").on(t.userId)]);
+export type AdminNotificationPrefs = typeof adminNotificationPrefs.$inferSelect;
+export type InsertAdminNotificationPrefs = typeof adminNotificationPrefs.$inferInsert;

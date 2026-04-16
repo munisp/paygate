@@ -10,8 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bell, Send } from "lucide-react";
+import { Bell, Send, Settings } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 const priorityColors: Record<string, string> = {
   low: "bg-slate-500/20 text-slate-400 border-slate-500/30",
@@ -21,6 +22,7 @@ const priorityColors: Record<string, string> = {
 };
 
 export default function AdminNotifications() {
+  const [, navigate] = useLocation();
   const [form, setForm] = useState({ title: "", message: "", targetType: "all_merchants" as any, priority: "normal" as any });
   const utils = trpc.useUtils();
   const broadcastsQuery = trpc.admin.notifications.listBroadcasts.useQuery({ limit: 20 });
@@ -41,6 +43,12 @@ export default function AdminNotifications() {
         <div>
           <h1 className="text-2xl font-bold text-white">Notification Center</h1>
           <p className="text-slate-400 text-sm mt-1">Broadcast notifications to merchants and users</p>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => navigate("/admin/notifications/preferences")} className="border-slate-700 text-slate-300 hover:text-white">
+            <Settings className="w-3.5 h-3.5 mr-1.5" />
+            Alert Preferences
+          </Button>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-slate-900 border-slate-800">

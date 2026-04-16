@@ -123,6 +123,8 @@ import {
   nipNameEnquiryViaMiddleware,
 } from "./middlewareBridge";
 import { notificationPreferencesRouter } from './routers/notificationPreferences';
+import { consumerNotifPrefsRouter } from './routers/consumerNotifPrefs';
+import { adminNotifPrefsRouter } from './routers/adminNotifPrefs';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -6871,6 +6873,8 @@ export const appRouter = router({
   notifications: notificationsRouter,
   pushTokens: pushTokensRouter,
   notificationPreferences: notificationPreferencesRouter,
+  consumerNotifPrefs: consumerNotifPrefsRouter,
+  adminNotifPrefs: adminNotifPrefsRouter,
   qrPayments: qrPaymentsRouter,
   grpc: grpcRouter,
   // Wave 28 — Subscriptions (Go scheduler) + POS Terminals

@@ -1,0 +1,163 @@
+name: Stripe Webhook Smoke Test
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "server/**"
+      - ".github/workflows/stripe-webhook-smoke.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "server/**"
+      - ".github/workflows/stripe-webhook-smoke.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: stripe-webhook-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stripe-webhook-smoke:
+    name: Stripe Webhook Smoke Test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    env:
+      NODE_ENV: test
+      # Minimal required env vars for the server to start
+      DATABASE_URL: "mysql://root:root@127.0.0.1:3306/paygate_test"
+      JWT_SECRET: "ci-test-jwt-secret-at-least-32-chars-long"
+      STRIPE_SECRET_KEY: "sk_test_ci_placeholder"
+      STRIPE_WEBHOOK_SECRET: "whsec_ci_placeholder_for_smoke_test"
+      VITE_APP_ID: "ci-app-id"
+      OAUTH_SERVER_URL: "http://localhost:9999"
+      VITE_OAUTH_PORTAL_URL: "http://localhost:9999"
+      OWNER_OPEN_ID: "ci-owner"
+      OWNER_NAME: "CI Owner"
+      BUILT_IN_FORGE_API_URL: "http://localhost:9999"
+      BUILT_IN_FORGE_API_KEY: "ci-forge-key"
+      VITE_FRONTEND_FORGE_API_KEY: "ci-frontend-forge-key"
+      VITE_FRONTEND_FORGE_API_URL: "http://localhost:9999"
+      INTERNAL_API_KEY: "ci-internal-key-at-least-32-chars-long"
+      MIDDLEWARE_INTERNAL_KEY: "ci-middleware-key"
+      PORT: "3099"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server bundle
+        run: |
+          npx esbuild server/_core/index.ts \
+            --platform=node \
+            --packages=external \
+            --bundle \
+            --format=esm \
+            --outfile=dist/server.mjs
+        env:
+          NODE_ENV: production
+
+      - name: Start server in background
+        run: |
+          node dist/server.mjs &
+          echo "SERVER_PID=$!" >> $GITHUB_ENV
+          # Wait for server to be ready (up to 30s)
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3099/api/health > /dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3099/api/health || (echo "Server failed to start" && exit 1)
+
+      - name: Smoke test - health endpoint
+        run: |
+          HEALTH=$(curl -sf http://localhost:3099/api/health)
+          echo "Health response: $HEALTH"
+          echo "$HEALTH" | grep -q '"status":"ok"' || (echo "Health check failed" && exit 1)
+
+      - name: Smoke test - Stripe webhook endpoint exists
+        run: |
+          # POST without signature should return 400 (not 404 or 500)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:3099/api/stripe/webhook \
+            -H "Content-Type: application/json" \
+            -d '{"type":"test","data":{}}')
+          echo "Webhook endpoint status (no sig): $STATUS"
+          # 400 = endpoint exists but signature invalid (expected)
+          # 200 = test event accepted
+          # 404 = route missing (FAIL)
+          # 500 = server error (FAIL)
+          if [ "$STATUS" = "404" ] || [ "$STATUS" = "500" ]; then
+            echo "FAIL: Stripe webhook endpoint returned $STATUS"
+            exit 1
+          fi
+          echo "PASS: Stripe webhook endpoint reachable (status $STATUS)"
+
+      - name: Smoke test - synthetic test event
+        run: |
+          # Stripe test events start with evt_test_ and bypass signature verification
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST http://localhost:3099/api/stripe/webhook \
+            -H "Content-Type: application/json" \
+            -H "stripe-signature: t=1234567890,v1=test_signature" \
+            -d '{
+              "id": "evt_test_smoke_ci_001",
+              "type": "checkout.session.completed",
+              "data": {
+                "object": {
+                  "id": "cs_test_smoke_ci_001",
+                  "payment_status": "paid",
+                  "amount_total": 5000,
+                  "currency": "usd",
+                  "customer_email": "ci-test@paygate.io",
+                  "client_reference_id": "ci-user-1",
+                  "metadata": {
+                    "user_id": "1",
+                    "customer_email": "ci-test@paygate.io",
+                    "customer_name": "CI Test User"
+                  }
+                }
+              }
+            }')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          echo "Test event response: $BODY (HTTP $HTTP_STATUS)"
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "FAIL: Expected 200 for test event, got $HTTP_STATUS"
+            exit 1
+          fi
+          echo "$BODY" | grep -q '"verified":true' || (echo "FAIL: Response missing verified:true" && exit 1)
+          echo "PASS: Stripe test event accepted with verified:true"
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -n "$SERVER_PID" ]; then
+            kill "$SERVER_PID" 2>/dev/null || true
+          fi
+
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stripe-webhook-smoke-logs
+          path: |
+            dist/server.mjs
+          retention-days: 7

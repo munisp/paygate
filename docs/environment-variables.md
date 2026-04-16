@@ -88,11 +88,33 @@ Copy this reference to create your deployment `.env` file.
 
 | Variable | Description |
 |---|---|
-| `VAPID_PUBLIC_KEY` | VAPID public key for Web Push |
-| `VAPID_PRIVATE_KEY` | VAPID private key for Web Push |
-| `VAPID_SUBJECT` | VAPID subject (mailto: or URL) |
-| `PUSH_SERVICE_URL` | Push notification service URL |
+| `VAPID_PUBLIC_KEY` | VAPID public key for Web Push (P-256 uncompressed, base64url) |
+| `VAPID_PRIVATE_KEY` | VAPID private key for Web Push (32-byte scalar, base64url) |
+| `VAPID_SUBJECT` | VAPID subject — `mailto:push@paygate.ng` or `https://paygate.ng` |
+| `PUSH_SERVICE_URL` | Push notification service URL (fallback FCM proxy) |
 | `PUSH_SERVICE_KEY` | Push service authentication key |
+
+### Generating VAPID Keys
+
+Run the built-in generator script **once per environment**. Keys must **never** be committed to source control.
+
+```bash
+# Interactive output (recommended for first-time setup)
+pnpm vapid:generate
+
+# .env format — pipe directly into your secrets manager
+pnpm vapid:generate:env
+
+# JSON format — useful for CI/CD pipelines
+pnpm vapid:generate:json
+```
+
+The script uses Node.js built-in `crypto` (no external dependencies) and produces a P-256 ECDH key pair suitable for the W3C Web Push Protocol.
+
+**After generating:**
+1. Copy the three values into **Settings → Secrets** in the Manus UI, or add them to your `.env` file.
+2. Restart the server — `webPush.ts` reads keys at startup.
+3. The `VAPID_PUBLIC_KEY` is served to the frontend via `trpc.pushTokens.getVapidPublicKey` and used by the `PushManager.subscribe()` call in `usePushNotifications.ts`.
 
 ---
 

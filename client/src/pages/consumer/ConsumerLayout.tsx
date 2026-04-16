@@ -10,7 +10,7 @@ import {
   CreditCard, FileText, Users, Gift, Tag, QrCode,
   ArrowDownLeft, RefreshCw, Shield, BarChart2,
   AlertTriangle, Umbrella, MoreHorizontal, X,
-  ChevronRight, Repeat, Lock, Fingerprint, Send
+  ChevronRight, Repeat, Lock, Fingerprint, Send, Settings
 } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
@@ -76,6 +76,7 @@ const MORE_SECTIONS = [
     title: "Notifications & Statements",
     items: [
       { path: "/consumer/notification-centre", label: "Notification Centre", icon: Bell },
+      { path: "/consumer/notifications/settings", label: "Notification Settings", icon: Settings },
       { path: "/consumer/statement", label: "Wallet Statement", icon: FileText },
     ],
   },

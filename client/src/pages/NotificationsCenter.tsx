@@ -16,6 +16,7 @@ import {
   Filter,
   RefreshCw,
   Search,
+  Settings,
   Shield,
   Trash2,
   Webhook,
@@ -201,6 +202,10 @@ export default function NotificationsCenter() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => navigate("/notifications/preferences")}>
+            <Settings className="h-3.5 w-3.5 mr-1.5" />
+            Preferences
+          </Button>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
             Refresh

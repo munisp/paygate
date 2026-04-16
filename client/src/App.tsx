@@ -42,6 +42,7 @@ import ConsumerProfile from "./pages/consumer/ConsumerProfile";
 import ConsumerHistory from "./pages/consumer/History";
 import ConsumerQuickPay from "./pages/consumer/ConsumerQuickPay";
 import ConsumerNotifications from "./pages/consumer/ConsumerNotifications";
+import ConsumerNotificationSettings from "./pages/consumer/ConsumerNotificationSettings";
 import ConsumerOnboarding from "./pages/consumer/ConsumerOnboarding";
 import RedEnvelope from "./pages/consumer/RedEnvelope";
 // Wave 68 Consumer Pages
@@ -94,12 +95,14 @@ import AdminCompliance from "./pages/admin/AdminCompliance";
 import AdminSystemHealth from "./pages/admin/AdminSystemHealth";
 import AdminAuditTrail from "./pages/admin/AdminAuditTrail";
 import AdminNotifications from "./pages/admin/AdminNotifications";
+import AdminNotificationPreferences from "./pages/admin/AdminNotificationPreferences";
 import AdminConfig from "./pages/admin/AdminConfig";
 import OllamaChat from "./pages/OllamaChat";
 import GoLiveChecklist from "./pages/GoLiveChecklist";
 import SettingsPayments from "./pages/SettingsPayments";
 import QuickPay from "./pages/QuickPay";
 import NotificationsCenter from "./pages/NotificationsCenter";
+import MerchantNotificationPreferences from "./pages/MerchantNotificationPreferences";
 import AuditLog from "./pages/AuditLog";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import Vendors from "./pages/Vendors";
@@ -232,6 +235,7 @@ function Router() {
           <Route path="/consumer/history" component={ConsumerHistory} />
           <Route path="/consumer/quick-pay" component={ConsumerQuickPay} />
           <Route path="/consumer/notifications" component={ConsumerNotifications} />
+          <Route path="/consumer/notifications/settings" component={ConsumerNotificationSettings} />
           <Route path="/consumer/onboarding" component={ConsumerOnboarding} />
           <Route path="/consumer/red-envelope/:id" component={RedEnvelope} />
           <Route path="/consumer/red-envelope" component={RedEnvelope} />
@@ -320,6 +324,7 @@ function Router() {
       <Route path="/admin/health" component={AdminSystemHealth} />
       <Route path="/admin/audit" component={AdminAuditTrail} />
       <Route path="/admin/notifications" component={AdminNotifications} />
+      <Route path="/admin/notifications/preferences" component={AdminNotificationPreferences} />
       <Route path="/admin/config" component={AdminConfig} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
@@ -327,6 +332,7 @@ function Router() {
       <Route path="/settings/payments" component={SettingsPayments} />
         <Route path="/quick-pay" component={QuickPay} />
         <Route path="/notifications" component={NotificationsCenter} />
+        <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />
         <Route path="/audit-log" component={AuditLog} />
         <Route path="/purchase-orders" component={PurchaseOrders} />
         <Route path="/vendors" component={Vendors} />

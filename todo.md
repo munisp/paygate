@@ -2697,3 +2697,22 @@
 - [x] ConsumerNotifications.tsx — PushSubscriptionBanner component wired to usePushNotifications hook (subscribe/unsubscribe, permission denied state, dismissed state)
 - [x] p2p.send router — VAPID Web Push fire-and-forget to recipient alongside existing FCM push (notifyUser from webPush.ts)
 - [x] Service worker push handlers already complete (push, notificationclick, pushsubscriptionchange)
+
+## Wave 21 — Notification Preferences (All 3 Scopes) + CI
+
+- [x] VAPID key generation script (scripts/generate-vapid-keys.mjs) with --env / --json modes
+- [x] pnpm vapid:generate script registered in package.json
+- [x] docs/environment-variables.md updated with VAPID generation instructions
+- [x] consumer_notification_prefs table added to drizzle/schema.ts and pushed to DB
+- [x] admin_notification_prefs table added to drizzle/schema.ts and pushed to DB
+- [x] consumerNotifPrefsRouter created (server/routers/consumerNotifPrefs.ts)
+- [x] adminNotifPrefsRouter created (server/routers/adminNotifPrefs.ts)
+- [x] Both routers registered in server/routers.ts
+- [x] /consumer/notifications/settings page with push/in-app/email/SMS per category
+- [x] /notifications/preferences page with channels + event categories (merchant)
+- [x] /admin/notifications/preferences page with channels, events, thresholds (admin)
+- [x] Preferences button added to NotificationsCenter (merchant)
+- [x] Alert Preferences button added to AdminNotifications
+- [x] Notification Settings nav link added to ConsumerLayout
+- [x] All three routes registered in App.tsx
+- [x] Stripe webhook smoke test CI workflow with 3-step test
