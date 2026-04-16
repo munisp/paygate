@@ -14,6 +14,7 @@ import 'screens/virtual_cards/virtual_cards_screen.dart';
 import 'screens/disputes/disputes_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/settings/profile_screen.dart';
+import 'screens/notifications/notifications_screen.dart';
 import 'widgets/main_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();

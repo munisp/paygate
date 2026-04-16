@@ -1,3 +1,4 @@
+import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
 import { ollamaRouter } from "./ollamaRouter";
 import { orphanedTablesRouter } from "./orphanedTablesCRUD";
 import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';
@@ -169,16 +170,24 @@ const authRouter = router({
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // VULN-010: Check brute force lockout before querying DB
+      await checkBruteForce(input.email);
       const [user] = await db.select().from(schema.users)
         .where(eq(schema.users.email, input.email)).limit(1);
-      if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+      if (!user) {
+        await recordFailedLogin(input.email);
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+      }
       // VULN-001 FIX: Use bcrypt-aware verifyPassword (supports legacy SHA-256 migration)
       const { verifyPassword, hashPassword } = await import('./securityUtils.js');
       const jwtSecret = process.env.JWT_SECRET ?? "";
       const { valid, needsMigration } = await verifyPassword(input.password, user.passwordHash ?? "", jwtSecret);
       if (!valid) {
+        await recordFailedLogin(input.email);
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
       }
+      // VULN-010: Clear failed login counter on successful authentication
+      await clearFailedLogins(input.email);
       // Migrate legacy SHA-256 hash to bcrypt on successful login
       if (needsMigration) {
         const newHash = await hashPassword(input.password);

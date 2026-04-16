@@ -27,7 +27,9 @@ package temporal
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/smtp"
@@ -536,8 +538,40 @@ func (a *ActivitySet) ExecuteMojalloopTransfer(ctx context.Context, input CrossB
 		slog.Warn("[activity] ExecuteMojalloopTransfer: MOJALOOP_URL not set — simulating transfer")
 		return nil
 	}
-	// TODO(production): POST to Mojaloop /transfers endpoint with quoteId.
-	slog.Info("[activity] ExecuteMojalloopTransfer: transfer submitted", "transfer_id", input.TransferID)
+	// POST to Mojaloop /transfers endpoint with quoteId
+	client := &http.Client{Timeout: 30 * time.Second}
+	payload := map[string]interface{}{
+		"transferId": input.TransferID,
+		"quoteId":    input.QuoteID,
+		"payerFsp":   input.PayerFSP,
+		"payeeFsp":   input.PayeeFSP,
+		"amount": map[string]string{
+			"amount":   fmt.Sprintf("%d", input.AmountKobo),
+			"currency": input.Currency,
+		},
+		"expiration": time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mojaloopURL+"/transfers", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("ExecuteMojalloopTransfer: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/vnd.interoperability.transfers+json;version=1.0")
+	req.Header.Set("Accept", "application/vnd.interoperability.transfers+json;version=1.0")
+	if apiKey := os.Getenv("MOJALOOP_API_KEY"); apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ExecuteMojalloopTransfer: HTTP error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ExecuteMojalloopTransfer: unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+	slog.Info("[activity] ExecuteMojalloopTransfer: transfer submitted",
+		"transfer_id", input.TransferID, "status", resp.StatusCode)
 	return nil
 }
 

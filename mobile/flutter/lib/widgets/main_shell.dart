@@ -10,6 +10,9 @@ class MainShell extends StatelessWidget {
     _TabItem(path: '/transactions', icon: Icons.receipt_long_rounded, label: 'Transactions'),
     _TabItem(path: '/payouts', icon: Icons.send_rounded, label: 'Payouts'),
     _TabItem(path: '/analytics', icon: Icons.bar_chart_rounded, label: 'Analytics'),
+    _TabItem(path: '/virtual-cards', icon: Icons.credit_card_rounded, label: 'Cards'),
+    _TabItem(path: '/disputes', icon: Icons.warning_amber_rounded, label: 'Disputes'),
+    _TabItem(path: '/notifications', icon: Icons.notifications_rounded, label: 'Alerts'),
     _TabItem(path: '/settings', icon: Icons.settings_rounded, label: 'Settings'),
   ];
 
@@ -34,6 +37,12 @@ class MainShell extends StatelessWidget {
         child: BottomNavigationBar(
           currentIndex: currentIndex,
           onTap: (i) => context.go(_tabs[i].path),
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: const Color(0xFF0f172a),
+          selectedItemColor: const Color(0xFF6366f1),
+          unselectedItemColor: const Color(0xFF64748b),
+          selectedLabelStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+          unselectedLabelStyle: const TextStyle(fontSize: 10),
           items: _tabs.map((t) => BottomNavigationBarItem(
             icon: Icon(t.icon),
             label: t.label,

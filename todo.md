@@ -2580,3 +2580,79 @@
 - [x] playwright.config.ts: full Playwright config (Chrome, Firefox, Mobile Chrome, auth state)
 - [x] All production env defaults updated to Docker service names (env.ts — 23 localhost → service names)
 - [x] 0 TypeScript errors | 58 test files | 2,016 tests passing
+
+## Final Production Pass (v4)
+
+### Security Hardening
+- [ ] Add Helmet.js CSP, HSTS, X-Frame-Options headers to Express server
+- [ ] Add express-rate-limit on auth, payment, and API key endpoints
+- [ ] Add zod input validation on all tRPC procedures missing it
+- [ ] Audit all error messages — mask stack traces in production
+- [ ] Add brute force protection on login endpoint
+- [ ] Add security.txt at /.well-known/security.txt
+- [ ] Add Content-Security-Policy nonce for inline scripts
+- [ ] Rotate and document all secrets in .env.example
+- [ ] Add CORS allowlist validation
+- [ ] Add request size limits to prevent DoS
+
+### Business Rules & Lifecycle Workflows
+- [ ] Transaction lifecycle state machine (pending→processing→completed/failed/reversed)
+- [ ] Payout approval threshold enforcement (configurable per merchant)
+- [ ] Dispute SLA timer (auto-escalate after 7 days)
+- [ ] KYC document upload and verification workflow
+- [ ] Virtual card spend limit enforcement
+- [ ] BNPL installment schedule generation
+- [ ] FX spread calculation and rate expiry
+- [ ] Fraud auto-block threshold (score > 0.85)
+- [ ] Settlement cut-off time enforcement
+- [ ] Webhook exponential backoff retry
+
+### CRUD & Search Completeness
+- [ ] Transactions: amount range filter, date range picker, status multi-select, CSV export
+- [ ] Customers: full-text search, KYC status filter, bulk actions
+- [ ] Payouts: batch creation UI, approval queue
+- [ ] Disputes: evidence file upload, timeline view
+- [ ] Virtual Cards: freeze/unfreeze, spend limit editor
+- [ ] Payment Links: QR code generation, expiry date
+- [ ] Webhooks: delivery log viewer, retry button
+- [ ] API Keys: permission scopes, IP whitelist
+- [ ] Team: email invite, role dropdown, remove confirmation
+
+### Seed Data
+- [ ] 100 realistic transactions with Nigerian merchant data
+- [ ] 20 customers with Lagos/Abuja addresses
+- [ ] 10 payouts in various states
+- [ ] 5 disputes with evidence
+- [ ] FX rates for 8 currency pairs
+- [ ] 3 virtual cards with transaction history
+- [ ] 5 payment links (active/expired/deactivated)
+- [ ] Webhook endpoints with delivery history
+
+### Docker & Infrastructure
+- [ ] Health checks for all docker-compose services
+- [ ] MinIO bucket init one-shot service
+- [ ] Grafana datasource auto-provisioning YAML
+- [ ] K8s NetworkPolicy for service isolation
+- [ ] Spark compaction CronJob K8s manifest
+
+### Smoke Tests
+- [ ] Auth flow smoke test
+- [ ] Transaction CRUD smoke test
+- [ ] Payout approval smoke test
+- [ ] Webhook delivery smoke test
+
+### Mobile Parity
+- [ ] React Native: Notifications screen
+- [ ] React Native: Payment Links screen
+- [ ] React Native: KYC/Onboarding screen
+- [ ] React Native: Quick Pay screen
+- [ ] Flutter: Notifications screen
+- [ ] Flutter: Payment Links screen
+- [ ] Flutter: KYC/Onboarding screen
+- [ ] Flutter: Quick Pay screen
+- [ ] Firebase setup documentation in DEPLOYMENT.md
+
+### Environment Variables
+- [ ] Create .env.example with all 50+ variables and defaults
+- [ ] Add env validation on server startup (zod parse)
+- [ ] Document all env vars in DEPLOYMENT.md

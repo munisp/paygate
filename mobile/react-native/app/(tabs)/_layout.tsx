@@ -6,7 +6,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#3b82f6",
+        tabBarActiveTintColor: "#6366f1",
         tabBarInactiveTintColor: "#64748b",
         tabBarStyle: {
           backgroundColor: "#0f172a",
@@ -55,6 +55,42 @@ export default function TabLayout() {
           title: "Analytics",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bar-chart" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="virtual-cards"
+        options={{
+          title: "Cards",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="card" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="disputes"
+        options={{
+          title: "Disputes",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="alert-circle" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Alerts",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="notifications" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person" size={size} color={color} />
           ),
         }}
       />

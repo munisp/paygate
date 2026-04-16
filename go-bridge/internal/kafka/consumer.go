@@ -18,6 +18,7 @@ package kafka
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -25,7 +26,35 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	_ "github.com/lib/pq"
 )
+
+// ─── lazy DB helper ───────────────────────────────────────────────────────────
+
+var (
+	_kafkaDB     *sql.DB
+	_kafkaDBOnce sync.Once
+)
+
+func getKafkaDB() *sql.DB {
+	_kafkaDBOnce.Do(func() {
+		dsn := os.Getenv("DATABASE_URL")
+		if dsn == "" {
+			return
+		}
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			slog.Warn("[kafka-consumer] DB open error", "err", err)
+			return
+		}
+		db.SetMaxOpenConns(5)
+		db.SetMaxIdleConns(2)
+		db.SetConnMaxLifetime(5 * time.Minute)
+		_kafkaDB = db
+	})
+	return _kafkaDB
+}
 
 // ─── Handler types ────────────────────────────────────────────────────────────
 
@@ -154,7 +183,22 @@ func HandleNIBSSConfirmation(ctx context.Context, key string, value []byte) erro
 		"status", event.Status,
 		"amount_kobo", event.Amount,
 	)
-	// TODO: Update transaction status in DB based on event.Status
+	// Update transaction status in DB based on event.Status
+	if db := getKafkaDB(); db != nil && event.TransactionID != "" {
+		dbStatus := "failed"
+		if event.Status == "00" || event.Status == "success" || event.Status == "completed" {
+			dbStatus = "completed"
+		}
+		_, err := db.ExecContext(ctx,
+			`UPDATE transactions SET status = $1, updated_at = NOW() WHERE id = $2`,
+			dbStatus, event.TransactionID,
+		)
+		if err != nil {
+			slog.Warn("[kafka-consumer] NIBSS: failed to update transaction status", "err", err, "tx_id", event.TransactionID)
+		} else {
+			slog.Info("[kafka-consumer] NIBSS: transaction status updated", "tx_id", event.TransactionID, "status", dbStatus)
+		}
+	}
 	return nil
 }
 
@@ -176,7 +220,25 @@ func HandleMojalooopCallback(ctx context.Context, key string, value []byte) erro
 		"amount", event.Amount,
 		"currency", event.Currency,
 	)
-	// TODO: Update cross-border transfer status in DB
+	// Update cross-border transfer status in DB
+	if db := getKafkaDB(); db != nil && event.TransferID != "" {
+		dbStatus := "pending"
+		switch event.State {
+		case "COMMITTED", "COMPLETED":
+			dbStatus = "completed"
+		case "ABORTED", "REJECTED":
+			dbStatus = "failed"
+		}
+		_, err := db.ExecContext(ctx,
+			`UPDATE cross_border_transfers SET status = $1, updated_at = NOW() WHERE mojaloop_transfer_id = $2`,
+			dbStatus, event.TransferID,
+		)
+		if err != nil {
+			slog.Warn("[kafka-consumer] Mojaloop: failed to update transfer status", "err", err, "transfer_id", event.TransferID)
+		} else {
+			slog.Info("[kafka-consumer] Mojaloop: transfer status updated", "transfer_id", event.TransferID, "status", dbStatus)
+		}
+	}
 	return nil
 }
 
@@ -193,7 +255,26 @@ func HandleFraudAlert(ctx context.Context, key string, value []byte) error {
 		"risk_score", event.RiskScore,
 		"alert_type", event.AlertType,
 	)
-	// TODO: Insert fraud alert into DB and trigger notification if action == "block"
+	// Insert fraud alert into DB and trigger notification if action == "block"
+	if db := getKafkaDB(); db != nil {
+		_, err := db.ExecContext(ctx, `
+			INSERT INTO fraud_alerts (id, merchant_id, transaction_id, alert_type, risk_score, status, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, 'open', $6, NOW())
+			ON CONFLICT (id) DO NOTHING`,
+			event.AlertID, event.MerchantID, event.TxID, event.AlertType, event.RiskScore,
+			fmt.Sprintf(`{"action":"%s","model":"%s"}`, event.Action, event.Model),
+		)
+		if err != nil {
+			slog.Warn("[kafka-consumer] fraud alert: DB insert error", "err", err)
+		}
+		// If action is "block", also flag the transaction
+		if event.Action == "block" && event.TxID != "" {
+			_, _ = db.ExecContext(ctx,
+				`UPDATE transactions SET status = 'flagged', updated_at = NOW() WHERE id = $1`,
+				event.TxID,
+			)
+		}
+	}
 	return nil
 }
 
@@ -215,7 +296,18 @@ func HandleSettlementConfirmed(ctx context.Context, key string, value []byte) er
 		"merchant_id", event.MerchantID,
 		"amount_kobo", event.Amount,
 	)
-	// TODO: Update settlement status in DB
+	// Update settlement status in DB
+	if db := getKafkaDB(); db != nil && event.SettlementID != "" {
+		_, err := db.ExecContext(ctx,
+			`UPDATE settlements SET status = 'confirmed', confirmed_at = $1, updated_at = NOW() WHERE id = $2`,
+			event.ConfirmedAt, event.SettlementID,
+		)
+		if err != nil {
+			slog.Warn("[kafka-consumer] settlement: DB update error", "err", err, "settlement_id", event.SettlementID)
+		} else {
+			slog.Info("[kafka-consumer] settlement status updated to confirmed", "settlement_id", event.SettlementID)
+		}
+	}
 	return nil
 }
 

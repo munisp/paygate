@@ -27,6 +27,7 @@ import { startPushTokenCleanupWorker } from "../pushTokenCleanup";
 import { startNotificationPurgeWorker } from "../notificationPurge";
 import { startReservationExpiryWorker } from "../reservationExpiryWorker";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
+import { validateEnvironment } from "../security";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -1092,6 +1093,8 @@ async function startServer() {
   });
 
   // Health check endpoint — includes circuit breaker states and DB ping
+  // Docker health check alias (Docker probes /health, not /api/health)
+  app.get("/health", (_req, res) => res.redirect(307, "/api/health"));
   app.get("/api/health", async (_req, res) => {
     const { getAllCircuitBreakerStats } = await import("../circuitBreaker");
     const { getDb } = await import("../db");
@@ -1431,6 +1434,7 @@ function validateEnv() {
 
 // ─── Background Schedulers ───────────────────────────────────────────────────────────────
 validateEnv();
+validateEnvironment(); // VULN-012: Extended env validation from security.ts
 startSlaEscalationScheduler();
 startWebhookRetryWorker();         // Exponential backoff retry (7 attempts, 30s poll)
 startIdempotencyCleanupWorker();   // Purge expired idempotency keys every 6 hours
