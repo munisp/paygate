@@ -6308,6 +6308,18 @@ const p2pRouter = router({
           data: { transferId, reference: ref, amountKobo: String(input.amountKobo) },
         });
       }).catch(() => {/* silent */});
+      // Fire-and-forget VAPID Web Push to recipient (browser/PWA subscribers)
+      import('./webPush').then(async ({ notifyUser: vapidNotifyUser }) => {
+        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
+        if (!recipientUser) return;
+        const amtFmt = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+        await vapidNotifyUser(recipientUser.id, {
+          title: '\u{1F4B8} Money Received',
+          body: `You received \u20A6${amtFmt} from ${user.name ?? 'someone'}`,
+          tag: `p2p-receive-${transferId}`,
+          data: { url: '/consumer/wallet', transferId, reference: ref },
+        });
+      }).catch(() => {/* silent — VAPID not configured */});
         return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
       };
       if (input.idempotencyKey) {

@@ -2688,3 +2688,12 @@
 - [x] K8s NetworkPolicy: infra/k8s/base/network-policy.yaml — 11 policies (default-deny-all, allow-dns-egress, portal, go-bridge, python-services, rust-services, postgres, redis, tigerbeetle, kafka, monitoring)
 - [x] kustomization.yaml: network-policy.yaml added to resources list
 - [x] NETWORK-POLICY-README.md: traffic matrix, apply/test instructions
+
+## Wave 20 — Suggested Next Steps (Apr 16 2026)
+
+- [x] /settings/payments page — Stripe go-live checklist sub-tab with key-mode chip, sandbox claim banner with countdown, test charge button, and progress bar
+- [x] Payment Config nav link added to Subscriptions & Billing sidebar group (badge: Go-Live)
+- [x] .github/workflows/k8s-netpol-smoke.yml — 3-job CI workflow: YAML validation (kubeval), NetworkPolicy dry-run on Kind+Calico cluster, PR diff reporter
+- [x] ConsumerNotifications.tsx — PushSubscriptionBanner component wired to usePushNotifications hook (subscribe/unsubscribe, permission denied state, dismissed state)
+- [x] p2p.send router — VAPID Web Push fire-and-forget to recipient alongside existing FCM push (notifyUser from webPush.ts)
+- [x] Service worker push handlers already complete (push, notificationclick, pushsubscriptionchange)

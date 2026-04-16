@@ -97,6 +97,7 @@ import AdminNotifications from "./pages/admin/AdminNotifications";
 import AdminConfig from "./pages/admin/AdminConfig";
 import OllamaChat from "./pages/OllamaChat";
 import GoLiveChecklist from "./pages/GoLiveChecklist";
+import SettingsPayments from "./pages/SettingsPayments";
 import QuickPay from "./pages/QuickPay";
 import NotificationsCenter from "./pages/NotificationsCenter";
 import AuditLog from "./pages/AuditLog";
@@ -323,6 +324,7 @@ function Router() {
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
       <Route path="/go-live-checklist" component={GoLiveChecklist} />
+      <Route path="/settings/payments" component={SettingsPayments} />
         <Route path="/quick-pay" component={QuickPay} />
         <Route path="/notifications" component={NotificationsCenter} />
         <Route path="/audit-log" component={AuditLog} />

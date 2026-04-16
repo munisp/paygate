@@ -93,6 +93,7 @@ const navGroups: NavGroup[] = [
       { icon: Receipt, label: "Subscription Billing v2", path: "/subscription-billing-v2" },
       { icon: Globe, label: "DCC Checkout", path: "/dcc-checkout" },
       { icon: CreditCard, label: "Portal Billing", path: "/billing" },
+      { icon: Rocket, label: "Payment Config", path: "/settings/payments", badge: "Go-Live" },
     ],
   },
   {

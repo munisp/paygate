@@ -1,21 +1,27 @@
 /**
  * Consumer Notifications
  * Mobile-first notification center for the consumer PWA.
- * Features: filter tabs, mark-all-read, dismiss, real-time polling.
+ * Features: filter tabs, mark-all-read, dismiss, real-time polling,
+ *           and Web Push subscription management (VAPID).
  */
 import { useState } from "react";
-import { Bell, Check, CheckCheck, Trash2, AlertTriangle, Info, CreditCard, ShieldAlert } from "lucide-react";
+import {
+  Bell, BellOff, BellRing, Check, CheckCheck, Trash2,
+  AlertTriangle, Info, CreditCard, ShieldAlert, Smartphone,
+  Zap, X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 type NotifType = "all" | "unread" | "payment" | "alert";
 
 const TYPE_ICONS: Record<string, { icon: typeof Bell; color: string; bg: string }> = {
-  fraud:   { icon: ShieldAlert, color: "text-red-400",    bg: "bg-red-500/15" },
-  payment: { icon: CreditCard,  color: "text-green-400",  bg: "bg-green-500/15" },
-  dispute: { icon: AlertTriangle, color: "text-amber-400", bg: "bg-amber-500/15" },
-  system:  { icon: Info,        color: "text-blue-400",   bg: "bg-blue-500/15" },
-  info:    { icon: Info,        color: "text-blue-400",   bg: "bg-blue-500/15" },
+  fraud:   { icon: ShieldAlert,   color: "text-red-400",    bg: "bg-red-500/15" },
+  payment: { icon: CreditCard,    color: "text-green-400",  bg: "bg-green-500/15" },
+  dispute: { icon: AlertTriangle, color: "text-amber-400",  bg: "bg-amber-500/15" },
+  system:  { icon: Info,          color: "text-blue-400",   bg: "bg-blue-500/15" },
+  info:    { icon: Info,          color: "text-blue-400",   bg: "bg-blue-500/15" },
 };
 
 function timeAgo(date: Date | string) {
@@ -28,6 +34,94 @@ function timeAgo(date: Date | string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// ── Push Subscription Banner ──────────────────────────────────────────────────
+function PushSubscriptionBanner() {
+  const { permission, isSubscribed, isLoading, subscribe, unsubscribe } =
+    usePushNotifications();
+  const [dismissed, setDismissed] = useState(false);
+
+  // Don't show if already subscribed and no action needed
+  if (dismissed) return null;
+
+  // Already subscribed — show a compact status chip
+  if (isSubscribed) {
+    return (
+      <div className="mx-5 mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-500/10 border border-green-500/20">
+        <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+          <BellRing className="w-4 h-4 text-green-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-green-400">Push alerts active</p>
+          <p className="text-xs text-muted-foreground">
+            You'll get notified instantly when payments arrive.
+          </p>
+        </div>
+        <button
+          onClick={() => unsubscribe()}
+          disabled={isLoading}
+          className="text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1 flex-shrink-0"
+        >
+          <BellOff className="w-3.5 h-3.5" />
+          {isLoading ? "…" : "Turn off"}
+        </button>
+      </div>
+    );
+  }
+
+  // Permission denied — show info
+  if (permission === "denied") {
+    return (
+      <div className="mx-5 mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+        <BellOff className="w-5 h-5 text-amber-400 flex-shrink-0" />
+        <p className="text-xs text-amber-300 flex-1">
+          Notifications blocked. Enable them in browser settings to receive payment alerts.
+        </p>
+        <button onClick={() => setDismissed(true)} className="text-muted-foreground hover:text-foreground">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  // Not yet subscribed — show CTA
+  return (
+    <div className="mx-5 mt-4 rounded-2xl bg-gradient-to-r from-primary/15 to-primary/5 border border-primary/20 overflow-hidden">
+      <div className="flex items-start gap-3 p-4">
+        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+          <Smartphone className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-foreground">Enable push alerts</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Get instant notifications when you receive money, a payment is due, or
+            suspicious activity is detected.
+          </p>
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={() => subscribe()}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {isLoading ? "Enabling…" : "Enable alerts"}
+            </button>
+            <button
+              onClick={() => setDismissed(true)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-2"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+        <button onClick={() => setDismissed(true)} className="text-muted-foreground hover:text-foreground flex-shrink-0">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function ConsumerNotifications() {
   const [filter, setFilter] = useState<NotifType>("all");
   const utils = trpc.useUtils();
@@ -41,7 +135,10 @@ export default function ConsumerNotifications() {
     onSuccess: () => utils.notifications.list.invalidate(),
   });
   const markAllRead = trpc.notifications.markAllRead.useMutation({
-    onSuccess: () => { utils.notifications.list.invalidate(); toast.success("All notifications marked as read"); },
+    onSuccess: () => {
+      utils.notifications.list.invalidate();
+      toast.success("All notifications marked as read");
+    },
   });
   // dismiss = mark as read (no separate dismiss procedure)
   const dismiss = trpc.notifications.markRead.useMutation({
@@ -88,6 +185,9 @@ export default function ConsumerNotifications() {
           )}
         </div>
       </div>
+
+      {/* Web Push Subscription Banner */}
+      <PushSubscriptionBanner />
 
       {/* Filter Tabs */}
       <div className="px-5 mt-4">
@@ -142,20 +242,30 @@ export default function ConsumerNotifications() {
                 }`}
               >
                 <div className="flex gap-3 p-4">
-                  <div className={`w-10 h-10 rounded-full ${meta.bg} flex items-center justify-center flex-shrink-0`}>
+                  <div
+                    className={`w-10 h-10 rounded-full ${meta.bg} flex items-center justify-center flex-shrink-0`}
+                  >
                     <IconComp className={`w-5 h-5 ${meta.color}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <p className={`text-sm font-semibold ${notif.isRead ? "text-muted-foreground" : "text-foreground"}`}>
+                      <p
+                        className={`text-sm font-semibold ${
+                          notif.isRead ? "text-muted-foreground" : "text-foreground"
+                        }`}
+                      >
                         {notif.title}
                       </p>
                       {!notif.isRead && (
                         <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.body}</p>
-                    <p className="text-[10px] text-muted-foreground/50 mt-1.5">{timeAgo(notif.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                      {notif.body}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/50 mt-1.5">
+                      {timeAgo(notif.createdAt)}
+                    </p>
                   </div>
                 </div>
                 {/* Actions */}
