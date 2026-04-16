@@ -343,6 +343,28 @@ export async function deleteTeamMember(id: number, merchantId: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
   await db.delete(teamMembers).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId)));
 }
+export async function updateTeamMemberRole(id: number, merchantId: string, role: string) {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  await db.update(teamMembers).set({ role: role as any, updatedAt: new Date() }).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId)));
+}
+export async function getTeamMember(id: number, merchantId: string) {
+  const db = await getDb(); if (!db) return null;
+  const rows = await db.select().from(teamMembers).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId))).limit(1);
+  return rows[0] ?? null;
+}
+export async function updateTeamMemberInviteToken(id: number, merchantId: string, token: string, expiry: Date) {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  await db.update(teamMembers).set({ inviteToken: token, inviteExpiresAt: expiry, updatedAt: new Date() }).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId)));
+}
+export async function acceptTeamInvite(token: string, email: string) {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const rows = await db.select().from(teamMembers).where(and(eq(teamMembers.inviteToken, token), eq(teamMembers.email, email))).limit(1);
+  const member = rows[0];
+  if (!member) return null;
+  if (member.inviteExpiresAt && member.inviteExpiresAt < new Date()) return null;
+  await db.update(teamMembers).set({ status: 'active' as any, inviteToken: null, inviteExpiresAt: null, updatedAt: new Date() }).where(eq(teamMembers.id, member.id));
+  return member;
+}
 
 // ─── Analytics ────────────────────────────────────────────────────────────────
 

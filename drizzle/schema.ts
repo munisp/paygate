@@ -157,6 +157,13 @@ export const merchants = pgTable("merchants", {
   // Reconciliation alert badge threshold — sidebar badge shows when open alert count >= this value
   reconAlertBadgeEnabled: boolean("recon_alert_badge_enabled").default(true).notNull(),
   reconAlertThreshold: integer("recon_alert_threshold").default(1).notNull(),
+  // Compliance settings
+  minLivenessScore: real("min_liveness_score").default(0.7).notNull(),
+  kybRequired: boolean("kyb_required").default(true).notNull(),
+  kycAutoApproveThreshold: real("kyc_auto_approve_threshold").default(0.95).notNull(),
+  amlScreeningEnabled: boolean("aml_screening_enabled").default(true).notNull(),
+  sanctionsCheckEnabled: boolean("sanctions_check_enabled").default(true).notNull(),
+  pepCheckEnabled: boolean("pep_check_enabled").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

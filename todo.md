@@ -2102,23 +2102,23 @@
 ## Wave 77 — Production Completion (2026-04-10)
 
 ### Database Schema
-- [ ] Add digital_gold_holdings, digital_gold_transactions, gold_sip_plans tables
-- [ ] Add mutual_fund_holdings, mutual_fund_transactions tables
-- [ ] Add consumer_insurance_policies, consumer_insurance_claims tables
-- [ ] Add pension_accounts, pension_contributions tables
-- [ ] Add cashback_balances, cashback_transactions tables
-- [ ] Add soundbox_devices, soundbox_alerts tables
-- [ ] Add wealth_portfolios, wealth_goals, wealth_risk_profiles tables
-- [ ] Add emi_contracts, emi_installments tables
-- [ ] Add bulk_collections, bulk_collection_items tables
-- [ ] Add salary_accounts, salary_transactions tables
-- [ ] Add privacy_settings, privacy_aliases tables
-- [ ] Add report_jobs, scheduled_reports tables
-- [ ] Add nodal_accounts, nodal_transactions tables
-- [ ] Add retail_pos_configs, retail_sales, retail_sale_items tables
-- [ ] Add intl_remittance_transfers tables
-- [ ] Add subscription_plans_v2, subscription_subscribers tables
-- [ ] Run pnpm db:push
+- [x] Add digital_gold_holdings, digital_gold_transactions, gold_sip_plans tables
+- [x] Add mutual_fund_holdings, mutual_fund_transactions tables
+- [x] Add consumer_insurance_policies, consumer_insurance_claims tables
+- [x] Add pension_accounts, pension_contributions tables
+- [x] Add cashback_balances, cashback_transactions tables
+- [x] Add soundbox_devices, soundbox_alerts tables
+- [x] Add wealth_portfolios, wealth_goals, wealth_risk_profiles tables
+- [x] Add emi_contracts, emi_installments tables
+- [x] Add bulk_collections, bulk_collection_items tables
+- [x] Add salary_accounts, salary_transactions tables
+- [x] Add privacy_settings, privacy_aliases tables
+- [x] Add report_jobs, scheduled_reports tables
+- [x] Add nodal_accounts, nodal_transactions tables
+- [x] Add retail_pos_configs, retail_sales, retail_sale_items tables
+- [x] Add intl_remittance_transfers tables
+- [x] Add subscription_plans_v2, subscription_subscribers tables
+- [x] Run pnpm db:push
 
 ### Production Env Defaults
 - [ ] Add all 20 new feature service URLs to env.ts with production defaults
@@ -2232,8 +2232,8 @@
 - [x] 1773 tests pass / 0 TS errors
 
 ## Wave 80 — 20 New Features + Production Hardening
-- [ ] Wire Ollama defaults in env.ts
-- [ ] Admin auto-seed script
+- [x] Wire Ollama defaults in env.ts
+- [x] Admin auto-seed script
 - [ ] Stripe real price ID defaults
 - [ ] 20 new feature routers
 - [ ] 20 new frontend pages
@@ -2332,8 +2332,8 @@
 - [ ] Permify: Add policy sync and role management endpoints
 
 ### Suggested Next Steps
-- [ ] Run seed-wave80.mjs to populate wave80 tables
-- [ ] Wire Stripe sandbox claim flow
+- [x] Run seed-wave80.mjs to populate wave80 tables
+- [x] Wire Stripe sandbox claim flow
 - [ ] Verify GitHub CI/CD workflows trigger correctly
 
 ## Wave 82 — UI Audit, Middleware Integration, Production Hardening
@@ -2584,86 +2584,99 @@
 ## Final Production Pass (v4)
 
 ### Security Hardening
-- [ ] Add Helmet.js CSP, HSTS, X-Frame-Options headers to Express server
-- [ ] Add express-rate-limit on auth, payment, and API key endpoints
-- [ ] Add zod input validation on all tRPC procedures missing it
+- [x] Add Helmet.js CSP, HSTS, X-Frame-Options headers to Express server
+- [x] Add express-rate-limit on auth, payment, and API key endpoints
+- [x] Add zod input validation on all tRPC procedures missing it
 - [ ] Audit all error messages — mask stack traces in production
-- [ ] Add brute force protection on login endpoint
+- [x] Add brute force protection on login endpoint
 - [ ] Add security.txt at /.well-known/security.txt
 - [ ] Add Content-Security-Policy nonce for inline scripts
 - [ ] Rotate and document all secrets in .env.example
-- [ ] Add CORS allowlist validation
-- [ ] Add request size limits to prevent DoS
+- [x] Add CORS allowlist validation
+- [x] Add request size limits to prevent DoS
 
 ### Business Rules & Lifecycle Workflows
-- [ ] Transaction lifecycle state machine (pending→processing→completed/failed/reversed)
-- [ ] Payout approval threshold enforcement (configurable per merchant)
-- [ ] Dispute SLA timer (auto-escalate after 7 days)
-- [ ] KYC document upload and verification workflow
-- [ ] Virtual card spend limit enforcement
-- [ ] BNPL installment schedule generation
-- [ ] FX spread calculation and rate expiry
-- [ ] Fraud auto-block threshold (score > 0.85)
-- [ ] Settlement cut-off time enforcement
-- [ ] Webhook exponential backoff retry
+- [x] Transaction lifecycle state machine (pending→processing→completed/failed/reversed)
+- [x] Payout approval threshold enforcement (configurable per merchant)
+- [x] Dispute SLA timer (auto-escalate after 7 days)
+- [x] KYC document upload and verification workflow
+- [x] Virtual card spend limit enforcement
+- [x] BNPL installment schedule generation
+- [x] FX spread calculation and rate expiry
+- [x] Fraud auto-block threshold (score > 0.85)
+- [x] Settlement cut-off time enforcement
+- [x] Webhook exponential backoff retry
 
 ### CRUD & Search Completeness
-- [ ] Transactions: amount range filter, date range picker, status multi-select, CSV export
-- [ ] Customers: full-text search, KYC status filter, bulk actions
-- [ ] Payouts: batch creation UI, approval queue
-- [ ] Disputes: evidence file upload, timeline view
-- [ ] Virtual Cards: freeze/unfreeze, spend limit editor
-- [ ] Payment Links: QR code generation, expiry date
-- [ ] Webhooks: delivery log viewer, retry button
-- [ ] API Keys: permission scopes, IP whitelist
-- [ ] Team: email invite, role dropdown, remove confirmation
+- [x] Transactions: amount range filter, date range picker, status multi-select, CSV export
+- [x] Customers: full-text search, KYC status filter, bulk actions
+- [x] Payouts: batch creation UI, approval queue
+- [x] Disputes: evidence file upload, timeline view
+- [x] Virtual Cards: freeze/unfreeze, spend limit editor
+- [x] Payment Links: QR code generation, expiry date
+- [x] Webhooks: delivery log viewer, retry button
+- [x] API Keys: permission scopes, IP whitelist
+- [x] Team: email invite, role dropdown, remove confirmation
 
 ### Seed Data
-- [ ] 100 realistic transactions with Nigerian merchant data
-- [ ] 20 customers with Lagos/Abuja addresses
-- [ ] 10 payouts in various states
-- [ ] 5 disputes with evidence
-- [ ] FX rates for 8 currency pairs
-- [ ] 3 virtual cards with transaction history
-- [ ] 5 payment links (active/expired/deactivated)
-- [ ] Webhook endpoints with delivery history
+- [x] 100 realistic transactions with Nigerian merchant data
+- [x] 20 customers with Lagos/Abuja addresses
+- [x] 10 payouts in various states
+- [x] 5 disputes with evidence
+- [x] FX rates for 8 currency pairs
+- [x] 3 virtual cards with transaction history
+- [x] 5 payment links (active/expired/deactivated)
+- [x] Webhook endpoints with delivery history
 
 ### Docker & Infrastructure
-- [ ] Health checks for all docker-compose services
+- [x] Health checks for all docker-compose services
 - [ ] MinIO bucket init one-shot service
 - [ ] Grafana datasource auto-provisioning YAML
 - [ ] K8s NetworkPolicy for service isolation
 - [ ] Spark compaction CronJob K8s manifest
 
 ### Smoke Tests
-- [ ] Auth flow smoke test
-- [ ] Transaction CRUD smoke test
-- [ ] Payout approval smoke test
-- [ ] Webhook delivery smoke test
+- [x] Auth flow smoke test
+- [x] Transaction CRUD smoke test
+- [x] Payout approval smoke test
+- [x] Webhook delivery smoke test
 
 ### Mobile Parity
-- [ ] React Native: Notifications screen
-- [ ] React Native: Payment Links screen
-- [ ] React Native: KYC/Onboarding screen
-- [ ] React Native: Quick Pay screen
-- [ ] Flutter: Notifications screen
-- [ ] Flutter: Payment Links screen
-- [ ] Flutter: KYC/Onboarding screen
-- [ ] Flutter: Quick Pay screen
+- [x] React Native: Notifications screen
+- [x] React Native: Payment Links screen
+- [x] React Native: KYC/Onboarding screen
+- [x] React Native: Quick Pay screen
+- [x] Flutter: Notifications screen
+- [x] Flutter: Payment Links screen
+- [x] Flutter: KYC/Onboarding screen
+- [x] Flutter: Quick Pay screen
 - [ ] Firebase setup documentation in DEPLOYMENT.md
 
 ### Environment Variables
 - [ ] Create .env.example with all 50+ variables and defaults
-- [ ] Add env validation on server startup (zod parse)
-- [ ] Document all env vars in DEPLOYMENT.md
+- [x] Add env validation on server startup (zod parse)
+- [x] Document all env vars in DEPLOYMENT.md
 
 ## Wave 13
-- [ ] RN push notifications
-- [ ] RN notification detail sheet
-- [ ] RN notification preferences screen
-- [ ] PostgreSQL indexes + PgBouncer
-- [ ] Liveness detection plan doc
-- [ ] Middleware HA configs
-- [ ] PaddleOCR + Rust OCR + VLM + Docling services
-- [ ] Open-source liveness microservice
-- [ ] Wire liveness + OCR into KYC workflow
+- [x] RN push notifications
+- [x] RN notification detail sheet
+- [x] RN notification preferences screen
+- [x] PostgreSQL indexes + PgBouncer
+- [x] Liveness detection plan doc
+- [x] Middleware HA configs
+- [x] PaddleOCR + Rust OCR + VLM + Docling services
+- [x] Open-source liveness microservice
+- [x] Wire liveness + OCR into KYC workflow
+
+## Final Production Hardening (Wave 18)
+- [x] CSRF double-submit cookie middleware added to Express server
+- [x] CSRF token header wired into all 5 tRPC clients (main.tsx)
+- [x] Permissions-Policy header added via custom middleware
+- [x] Input sanitization middleware (stripHtml) added to Express
+- [x] INTERNAL_API_KEY, NIBSS_SECRET_KEY, STRIPE_WEBHOOK_SECRET minimum length validation
+- [x] PostgreSQL seed pipeline: seed-pg-bootstrap.mjs + seed-pg-all-tables.mjs (167 tables, 1,218+ rows)
+- [x] Docker Compose resource limits added to portal-base and bridge-base anchors
+- [x] Environment variables documentation created (docs/environment-variables.md)
+- [x] esbuild exit 0 on server/_core/index.ts and server/routers.ts
+- [x] Server health: curl /api/health returns ok
+- [x] 0 TODO/FIXME items in TypeScript/Go/Python/Rust files

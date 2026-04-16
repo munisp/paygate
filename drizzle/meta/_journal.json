@@ -281,6 +281,13 @@
       "when": 1776365859553,
       "tag": "0039_dashing_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1776366842412,
+      "tag": "0040_lame_silverclaw",
+      "breakpoints": true
     }
   ]
 }

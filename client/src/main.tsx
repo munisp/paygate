@@ -73,20 +73,80 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+
+// ─── CSRF Token Helper ────────────────────────────────────────────────────────
+function getCsrfToken(): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  return document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrf-token='))
+    ?.split('=')[1];
+}
+
 const trpcClient = trpc.createClient({
-  links: [httpBatchLink({ url: "/api/trpc", transformer: superjson, fetch(input, init) { return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }); } })],
+  links: [httpBatchLink({
+      url: "/api/trpc",
+      transformer: superjson,
+      headers() {
+        const csrfToken = getCsrfToken();
+        return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
+      },
+      fetch(input, init) {
+        return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+      },
+    })],
 });
 const trpc2Client = trpc2.createClient({
-  links: [httpBatchLink({ url: "/api/trpc2", transformer: superjson, fetch(input, init) { return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }); } })],
+  links: [httpBatchLink({
+      url: "/api/trpc2",
+      transformer: superjson,
+      headers() {
+        const csrfToken = getCsrfToken();
+        return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
+      },
+      fetch(input, init) {
+        return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+      },
+    })],
 });
 const trpc3Client = trpc3.createClient({
-  links: [httpBatchLink({ url: "/api/trpc3", transformer: superjson, fetch(input, init) { return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }); } })],
+  links: [httpBatchLink({
+      url: "/api/trpc3",
+      transformer: superjson,
+      headers() {
+        const csrfToken = getCsrfToken();
+        return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
+      },
+      fetch(input, init) {
+        return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+      },
+    })],
 });
 const trpc4Client = trpc4.createClient({
-  links: [httpBatchLink({ url: "/api/trpc4", transformer: superjson, fetch(input, init) { return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }); } })],
+  links: [httpBatchLink({
+      url: "/api/trpc4",
+      transformer: superjson,
+      headers() {
+        const csrfToken = getCsrfToken();
+        return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
+      },
+      fetch(input, init) {
+        return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+      },
+    })],
 });
 const trpc5Client = trpc5.createClient({
-  links: [httpBatchLink({ url: "/api/trpc5", transformer: superjson, fetch(input, init) { return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" }); } })],
+  links: [httpBatchLink({
+      url: "/api/trpc5",
+      transformer: superjson,
+      headers() {
+        const csrfToken = getCsrfToken();
+        return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
+      },
+      fetch(input, init) {
+        return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+      },
+    })],
 });
 
 // ─── Service Worker Registration ─────────────────────────────────────────────

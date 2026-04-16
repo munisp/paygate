@@ -2527,6 +2527,112 @@ const complianceKycRouter = router({
       logger.info(`[kyc.overrideLiveness] reviewer=${ctx.user.openId} sub=${input.submissionId} override=${input.override} note="${input.note}"`);
       return { overridden: true, submissionId: input.submissionId };
     }),
+
+  // ─── KYC Audit Log Export ────────────────────────────────────────────────────
+  exportAuditLog: protectedProcedure
+    .input(z.object({
+      from: z.date().optional(),
+      to: z.date().optional(),
+      format: z.enum(["csv", "json"]).default("csv"),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const subs = await listKycSubmissions(merchant.id, { limit: 10000, offset: 0 });
+      const filtered = subs.filter(s => {
+        const ts = new Date(s.createdAt).getTime();
+        if (input.from && ts < input.from.getTime()) return false;
+        if (input.to && ts > input.to.getTime()) return false;
+        return true;
+      });
+      const rows = filtered.map(s => ({
+        submission_id: s.id,
+        merchant_id: merchant.id,
+        doc_type: s.docType,
+        status: s.status,
+        liveness_score: s.livenessScore ?? "",
+        liveness_passed: s.livenessPassed ?? "",
+        liveness_override: s.livenessOverride ?? "",
+        override_note: s.livenessOverrideNote ?? "",
+        override_by: s.livenessOverrideBy ?? "",
+        override_at: s.livenessOverrideAt ? new Date(s.livenessOverrideAt).toISOString() : "",
+        ocr_confidence: s.ocrConfidence ?? "",
+        reviewer_id: s.reviewerId ?? "",
+        reviewed_at: s.reviewedAt ? new Date(s.reviewedAt).toISOString() : "",
+        rejection_reason: s.rejectionReason ?? "",
+        created_at: new Date(s.createdAt).toISOString(),
+      }));
+      if (input.format === "json") return { format: "json", data: rows, count: rows.length };
+      // CSV
+      const headers = Object.keys(rows[0] ?? {});
+      const csvLines = [
+        headers.join(","),
+        ...rows.map(r => headers.map(h => JSON.stringify((r as any)[h] ?? "")).join(","))
+      ];
+      return { format: "csv", csv: csvLines.join("\n"), count: rows.length };
+    }),
+
+  // ─── Compliance Settings ─────────────────────────────────────────────────────
+  getComplianceSettings: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return {
+        minLivenessScore: merchant.minLivenessScore ?? 0.7,
+        kybRequired: merchant.kybRequired ?? true,
+        kycAutoApproveThreshold: merchant.kycAutoApproveThreshold ?? 0.95,
+        amlScreeningEnabled: merchant.amlScreeningEnabled ?? true,
+        sanctionsCheckEnabled: merchant.sanctionsCheckEnabled ?? true,
+        pepCheckEnabled: merchant.pepCheckEnabled ?? true,
+      };
+    }),
+
+  updateComplianceSettings: protectedProcedure
+    .input(z.object({
+      minLivenessScore: z.number().min(0).max(1).optional(),
+      kybRequired: z.boolean().optional(),
+      kycAutoApproveThreshold: z.number().min(0).max(1).optional(),
+      amlScreeningEnabled: z.boolean().optional(),
+      sanctionsCheckEnabled: z.boolean().optional(),
+      pepCheckEnabled: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      await updateMerchant(merchant.id, {
+        ...(input.minLivenessScore !== undefined && { minLivenessScore: input.minLivenessScore }),
+        ...(input.kybRequired !== undefined && { kybRequired: input.kybRequired }),
+        ...(input.kycAutoApproveThreshold !== undefined && { kycAutoApproveThreshold: input.kycAutoApproveThreshold }),
+        ...(input.amlScreeningEnabled !== undefined && { amlScreeningEnabled: input.amlScreeningEnabled }),
+        ...(input.sanctionsCheckEnabled !== undefined && { sanctionsCheckEnabled: input.sanctionsCheckEnabled }),
+        ...(input.pepCheckEnabled !== undefined && { pepCheckEnabled: input.pepCheckEnabled }),
+      });
+      logger.info(`[kyc.updateComplianceSettings] merchant=${merchant.id} updated compliance settings`);
+      return { updated: true };
+    }),
+
+  // ─── Liveness Histogram Drill-Down ───────────────────────────────────────────
+  listByScoreBucket: protectedProcedure
+    .input(z.object({
+      minScore: z.number().min(0).max(1),
+      maxScore: z.number().min(0).max(1),
+      limit: z.number().min(1).max(100).default(20),
+      offset: z.number().default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const all = await listKycSubmissions(merchant.id, { limit: 10000, offset: 0 });
+      const filtered = all.filter(s =>
+        s.livenessScore !== null &&
+        s.livenessScore !== undefined &&
+        s.livenessScore >= input.minScore &&
+        s.livenessScore <= input.maxScore
+      );
+      const total = filtered.length;
+      const page = filtered.slice(input.offset, input.offset + input.limit);
+      return { submissions: page, total, minScore: input.minScore, maxScore: input.maxScore };
+    }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
 const bnplRouter = router({

@@ -29,6 +29,7 @@ import FXDashboard from "./pages/FXDashboard";
 import TeamRoles from "./pages/TeamRoles";
 import MobileMoneyRecon from "./pages/MobileMoneyRecon";
 import ComplianceKYC from "./pages/ComplianceKYC";
+import ComplianceSettings from "./pages/ComplianceSettings";
 import DisputeWorkflow from "./pages/DisputeWorkflow";
 import QRPayments from "./pages/QRPayments";
 
@@ -278,6 +279,7 @@ function Router() {
         <Route path="/team" component={TeamRoles} />
         <Route path="/mobile-money" component={MobileMoneyRecon} />
         <Route path="/compliance" component={ComplianceKYC} />
+        <Route path="/compliance/settings" component={ComplianceSettings} />
         <Route path="/api-keys" component={APIKeys} />
         <Route path="/webhooks" component={Webhooks} />
         <Route path="/settings" component={Settings} />

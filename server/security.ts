@@ -151,6 +151,22 @@ export function validateEnvironment(): void {
   if (jwtSecret && jwtSecret.length < 32) {
     missing.push("  ✗ JWT_SECRET: Must be at least 32 characters long");
   }
+  // Validate INTERNAL_API_KEY length (must be at least 32 chars for HMAC security)
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+  if (internalApiKey && internalApiKey.length < 32) {
+    missing.push("  ✗ INTERNAL_API_KEY: Must be at least 32 characters long");
+  }
+  // Validate NIBSS_SECRET_KEY length
+  const nibssSecret = process.env.NIBSS_SECRET_KEY;
+  if (nibssSecret && nibssSecret.length < 16) {
+    missing.push("  ✗ NIBSS_SECRET_KEY: Must be at least 16 characters long");
+  }
+  // Validate STRIPE_WEBHOOK_SECRET format (must start with whsec_)
+  const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (stripeWebhookSecret && !stripeWebhookSecret.startsWith('whsec_')) {
+    missing.push("  ✗ STRIPE_WEBHOOK_SECRET: Must start with 'whsec_'");
+  }
+
 
   if (missing.length > 0) {
     console.error("\n╔══════════════════════════════════════════════════════════╗");

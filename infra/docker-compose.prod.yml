@@ -26,7 +26,15 @@ version: "3.9"
 
 x-portal-base: &portal-base
   image: paygate/portal:${PORTAL_VERSION:-latest}
-  restart: unless-stopped
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'
+        reservations:
+          memory: 512m
+          cpus: '0.5'
   environment:
     NODE_ENV: production
     DATABASE_URL: ${PG_DATABASE_URL}
@@ -104,7 +112,15 @@ x-portal-base: &portal-base
 
 x-bridge-base: &bridge-base
   image: paygate/bridge:${BRIDGE_VERSION:-latest}
-  restart: unless-stopped
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
   environment:
     BRIDGE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
     TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}

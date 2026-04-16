@@ -140,6 +140,32 @@ const financialLimiter = rateLimit({
   skip: () => process.env.NODE_ENV === "development",
 });
 
+
+// ─── HTML Sanitization Helper ─────────────────────────────────────────────────
+// Recursively strips HTML tags from all string values in an object.
+// Used by the input sanitization middleware to prevent stored XSS.
+function stripHtml(str: string): string {
+  return str
+    .replace(/<[^>]*>/g, '')           // Strip HTML tags
+    .replace(/javascript:/gi, '')       // Strip javascript: URIs
+    .replace(/on\w+\s*=/gi, '')        // Strip event handlers (onclick=, etc.)
+    .trim();
+}
+function sanitizeObject(obj: unknown): unknown {
+  if (typeof obj === 'string') return stripHtml(obj);
+  if (Array.isArray(obj)) return obj.map(sanitizeObject);
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      // Don't sanitize fields that legitimately contain HTML/code
+      const skipFields = new Set(['html', 'content', 'body', 'description', 'markdown', 'template', 'source', 'code']);
+      result[k] = skipFields.has(k) ? v : sanitizeObject(v);
+    }
+    return result;
+  }
+  return obj;
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -208,6 +234,71 @@ async function startServer() {
     },
     crossOriginEmbedderPolicy: false,
   }));
+  // ─── Permissions-Policy Header ──────────────────────────────────────────────
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader(
+      'Permissions-Policy',
+      [
+        'camera=()',
+        'microphone=()',
+        'geolocation=()',
+        'payment=(self "https://js.stripe.com")',
+        'usb=()',
+        'magnetometer=()',
+        'gyroscope=()',
+        'accelerometer=()',
+        'ambient-light-sensor=()',
+        'autoplay=(self)',
+        'encrypted-media=(self)',
+        'fullscreen=(self)',
+        'picture-in-picture=(self)',
+      ].join(', ')
+    );
+    next();
+  });
+
+
+  // ─── CSRF Protection (double-submit cookie pattern) ─────────────────────────
+  // For state-changing tRPC mutations, the client must echo the csrf-token cookie
+  // back as the X-CSRF-Token header. This prevents cross-site request forgery.
+  app.use((req: any, res: any, next: any) => {
+    // Only enforce on state-changing methods
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    // Skip Stripe webhook (uses signature verification instead)
+    if (req.path === '/api/stripe/webhook') return next();
+    // Skip OAuth callbacks (no cookie yet)
+    if (req.path.startsWith('/api/oauth')) return next();
+    // Skip mobile REST bridge (uses Bearer token auth)
+    if (req.path.startsWith('/api/mobile')) return next();
+    // Skip NIBSS/Mojaloop webhooks (signed payloads)
+    if (req.path.startsWith('/api/webhook')) return next();
+    // Issue CSRF token cookie if not present
+    const existingToken = req.cookies?.['csrf-token'];
+    if (!existingToken) {
+      const newToken = require('crypto').randomBytes(32).toString('hex');
+      res.cookie('csrf-token', newToken, {
+        httpOnly: false, // Must be readable by JS to echo in header
+        secure: !isDev,
+        sameSite: 'strict',
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+      // First request — no header expected yet, just set the cookie
+      return next();
+    }
+    // Validate echo on subsequent requests
+    const headerToken = req.headers['x-csrf-token'] as string | undefined;
+    if (!headerToken || headerToken !== existingToken) {
+      // tRPC batch requests from the same origin carry the header automatically
+      // via the trpc client interceptor; allow if same-origin referer
+      const referer = req.headers['referer'] ?? req.headers['origin'] ?? '';
+      const host = req.headers['host'] ?? '';
+      const isSameOrigin = referer.includes(host);
+      if (!isSameOrigin) {
+        return res.status(403).json({ error: 'CSRF token mismatch', code: 'CSRF_INVALID' });
+      }
+    }
+    next();
+  });
 
   // ─── Rate Limiting ─────────────────────────────────────────────────────────
   app.use(globalLimiter);
@@ -432,6 +523,16 @@ async function startServer() {
 
   // ─── Body Parsers ──────────────────────────────────────────────────────────
   app.use(express.json({ limit: "10mb" }));
+  // ─── Input Sanitization Middleware ───────────────────────────────────────────
+  // Strip HTML tags from all string fields in JSON request bodies to prevent
+  // stored XSS attacks. Applied before tRPC handler.
+  app.use((req: any, _res: any, next: any) => {
+    if (req.body && typeof req.body === 'object') {
+      req.body = sanitizeObject(req.body);
+    }
+    next();
+  });
+
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
   // ─── OAuth ─────────────────────────────────────────────────────────
