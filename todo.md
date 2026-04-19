@@ -3057,3 +3057,18 @@
 - [x] Register /merchant-analytics route in App.tsx
 - [x] Add "Merchant Analytics" nav link in Layout.tsx sidebar
 - [x] Write 12 vitest tests for analytics DB helpers and KPI logic (all passing)
+
+## Session v22 Features (Apr 19 2026)
+- [x] TeamRoles page rewrite — permissions matrix modal, role change dropdown, role summary cards, invite form with permission preview
+- [x] team.updateRole tRPC procedure — change member role with audit
+- [x] team.acceptInvite tRPC procedure — accept invite by token
+- [x] AcceptInvite page (/invite/accept) — token-based invitation acceptance UI
+- [x] Live Chat Support Widget — floating chat bubble, AI-powered replies via LLM, quick replies, minimize/maximize, unread count
+- [x] supportRouter — sendMessage (LLM-powered), getHistory, listSessions procedures
+- [x] support_messages DB table — session-based chat history with indexes
+- [x] CSV Export for Payouts — payouts.export procedure + Export CSV button in UI
+- [x] CSV Export for Settlements — settlements.export procedure + Export CSV button in UI
+- [x] CSV Export for Transactions — already existed via export.transactions procedure
+- [x] 9 new vitest tests for support router (2408 total, 68 files)
+- [x] 0 production vulnerabilities (pnpm audit --prod)
+- [x] 14/14 smoke tests passing

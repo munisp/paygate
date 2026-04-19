@@ -3602,3 +3602,22 @@ export const settlementSlaEvents = pgTable("settlement_sla_events", {
   index("sla_breached_idx").on(t.slaBreached),
 ]);
 export type SettlementSlaEvent = typeof settlementSlaEvents.$inferSelect;
+
+// ── Live Chat Support Messages ────────────────────────────────────────────────
+export const supportMessages = pgTable("support_messages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: text("session_id").notNull(),
+  merchantId: text("merchant_id"),
+  userId: text("user_id"),
+  role: text("role").notNull().default("user"), // "user" | "agent" | "system"
+  content: text("content").notNull(),
+  status: text("status").notNull().default("sent"), // "sent" | "delivered" | "read"
+  metadata: text("metadata"), // JSON: { quickReply, attachment, etc. }
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("support_session_idx").on(t.sessionId),
+  index("support_merchant_idx").on(t.merchantId),
+  index("support_user_idx").on(t.userId),
+  index("support_created_idx").on(t.createdAt),
+]);
+export type SupportMessage = typeof supportMessages.$inferSelect;

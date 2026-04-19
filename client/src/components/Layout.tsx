@@ -25,6 +25,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import NotificationPanel, { useNotificationCount } from "./NotificationPanel";
+import LiveChatWidget from "./LiveChatWidget";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePWA } from "@/hooks/usePWA";
@@ -842,6 +843,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Notification Panel */}
       <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <LiveChatWidget />
 
       {/* Reconciliation Alert Drawer */}
       <Sheet open={reconDrawerOpen} onOpenChange={setReconDrawerOpen}>

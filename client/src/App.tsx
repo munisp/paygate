@@ -8,6 +8,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
+import AcceptInvite from "./pages/AcceptInvite";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Customers from "./pages/Customers";
@@ -280,6 +281,7 @@ function Router() {
         <Route path="/" component={Login} />
         <Route path="/login" component={Login} />
         <Route path="/onboarding" component={Onboarding} />
+        <Route path="/invite/accept" component={AcceptInvite} />
       </Switch>
     );
   }

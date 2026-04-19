@@ -152,6 +152,15 @@ function SlaCountdown({ slaDeadlineAt, slaBreachedAt, status }: {
 
 const PAGE_SIZE = 20;
 
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
 export default function Settlements() {
   const { isAuthenticated } = useAuth();
   const [page, setPage] = useState(0);
@@ -159,6 +168,13 @@ export default function Settlements() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Settlement | null>(null);
 
+  const exportQuery = trpc.settlements.export.useQuery(undefined, { enabled: false });
+  const handleExport = async () => {
+    const result = await exportQuery.refetch();
+    if (result.data) {
+      downloadCsv(result.data.csv, result.data.filename);
+    }
+  };
   const { data, isLoading, refetch } = trpc.settlements.list.useQuery(
     {
       limit: PAGE_SIZE,
@@ -197,10 +213,14 @@ export default function Settlements() {
             CBN NIP settlement batches — 2-hour SLA monitored
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exportQuery.isFetching} className="gap-1.5">
+            <Download className="h-3.5 w-3.5" />{exportQuery.isFetching ? 'Exporting...' : 'Export CSV'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" />Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Search + Filter */}

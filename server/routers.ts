@@ -33,6 +33,7 @@ import { wave28Router } from './wave28Router';
 import { wave29Router } from './wave29Router';
 import { wave30Router } from './wave30Router';
 import { wave31Router } from './wave31Router';
+import { supportRouter } from './supportRouter';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -1016,6 +1017,29 @@ const payoutsRouter = router({
       };
       return { payouts, summary };
     }),
+  export: protectedProcedure
+    .input(z.object({
+      from: z.date().optional(),
+      to: z.date().optional(),
+      status: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const allPayouts = await listPayouts(merchant.id, { limit: 10000, offset: 0, status: input.status });
+      const filtered = allPayouts.filter((p: any) => {
+        if (input.from && new Date(p.createdAt) < input.from) return false;
+        if (input.to && new Date(p.createdAt) > input.to) return false;
+        return true;
+      });
+      const header = 'id,reference,amount_ngn,currency,status,bank_code,account_number,account_name,narration,created_at\n';
+      const csv = header + filtered.map((p: any) =>
+        [p.id, p.reference ?? '', ((p.amount ?? 0) / 100).toFixed(2), p.currency ?? 'NGN',
+         p.status, p.bankCode ?? '', p.accountNumber ?? '', p.accountName ?? '',
+         (p.narration ?? '').replace(/,/g, ' '), new Date(p.createdAt).toISOString()].join(',')
+      ).join('\n');
+      return { csv, count: filtered.length, filename: 'payouts-' + new Date().toISOString().split('T')[0] + '.csv' };
+    }),
 });
 
 // ─── USSD Sessions Router ─────────────────────────────────────────────────────
@@ -1751,12 +1775,59 @@ const teamRouter = router({
         resourceId: String(input.id),
         metadata: {},
       })).catch(() => {});
-      return { success: true };
+          return { success: true };
+    }),
+  updateRole: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      role: z.enum(["admin", "developer", "viewer"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { teamMembers: tm } = await import('./db').then(m => m.schema);
+      const [updated] = await db.update(tm)
+        .set({ role: input.role as any, updatedAt: new Date() })
+        .where(and(eq(tm.id, input.id), eq(tm.merchantId, merchant.id)))
+        .returning();
+      if (!updated) throw new TRPCError({ code: 'NOT_FOUND', message: 'Team member not found' });
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id,
+        actorId: String(user.id),
+        actorName: user.name ?? user.email ?? 'unknown',
+        action: 'team.role_updated',
+        resource: 'team_member',
+        resourceId: String(input.id),
+        metadata: { newRole: input.role },
+      })).catch(() => {});
+      return updated;
+    }),
+  acceptInvite: publicProcedure
+    .input(z.object({
+      token: z.string(),
+      email: z.string().email(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { teamMembers: tm } = await import('./db').then(m => m.schema);
+      const [member] = await db.select().from(tm)
+        .where(and(eq(tm.inviteToken, input.token), eq(tm.email, input.email)))
+        .limit(1);
+      if (!member) throw new TRPCError({ code: 'NOT_FOUND', message: 'Invalid or expired invite' });
+      if (member.inviteExpiresAt && member.inviteExpiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invite has expired' });
+      }
+      const [updated] = await db.update(tm)
+        .set({ status: 'active' as any, joinedAt: new Date(), inviteToken: null, updatedAt: new Date() })
+        .where(eq(tm.id, member.id))
+        .returning();
+      return { success: true, member: updated };
     }),
 });
-
-// ─── Settings Router ──────────────────────────────────────────────────────────
-
+// ─── Settings Router ────────────────────────────────────────────
 const settingsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
@@ -4113,6 +4184,31 @@ const settlementsRouter = router({
     const slaBreachCount = Number(breachRows[0]?.count ?? 0);
     return { totalSettledToday, pendingCount, slaBreachCount, currency: 'NGN' };
   }),
+
+  export: protectedProcedure
+    .input(z.object({
+      from: z.date().optional(),
+      to: z.date().optional(),
+      status: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      if (!db) return { csv: '', count: 0, filename: 'settlements.csv' };
+      const conditions: any[] = [_eq(settlementsTable.merchantId, merchant.id)];
+      if (input.status) conditions.push(_eq(settlementsTable.status, input.status as any));
+      if (input.from) conditions.push(_gte(settlementsTable.createdAt, input.from));
+      if (input.to) conditions.push(_lte(settlementsTable.createdAt, input.to));
+      const rows = await db.select().from(settlementsTable).where(_and(...conditions)).orderBy(_desc(settlementsTable.createdAt)).limit(10000);
+      const header = "id,reference,amount_ngn,currency,status,bank_code,account_number,account_name,settlement_date,created_at\n";
+      const csv = header + rows.map((r: any) =>
+        [r.id, r.reference ?? '', ((r.amount ?? 0) / 100).toFixed(2), r.currency ?? 'NGN',
+         r.status, r.bankCode ?? '', r.accountNumber ?? '', r.accountName ?? '',
+         r.settlementDate ? new Date(r.settlementDate).toISOString().split('T')[0] : '',
+         r.createdAt ? new Date(r.createdAt).toISOString() : ''].join(',')
+      ).join('\n');
+      return { csv, count: rows.length, filename: `settlements-${new Date().toISOString().split('T')[0]}.csv` };
+    }),
 });
 // ─── Notifications Routerr ──────────────────────────────────────────────────────────
 
@@ -7052,6 +7148,7 @@ export const appRouter = router({
   wave29: wave29Router,
   wave30: wave30Router,
   wave31: wave31Router,
+  support: supportRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

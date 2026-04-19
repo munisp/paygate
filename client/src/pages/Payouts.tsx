@@ -54,6 +54,15 @@ function downloadTemplate() {
   a.click(); URL.revokeObjectURL(url);
 }
 
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
 export default function Payouts() {
   const [showForm, setShowForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
@@ -87,6 +96,16 @@ export default function Payouts() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const PAGE_SIZE = 20;
+  const exportQuery = trpc.payouts.export.useQuery(undefined, { enabled: false });
+
+  const handleExport = async () => {
+    const result = await exportQuery.refetch();
+    if (result.data) {
+      downloadCsv(result.data.csv, result.data.filename);
+      toast.success('Exported ' + result.data.count + ' payouts');
+    }
+  };
+
   const { data, isLoading, refetch } = trpc.payouts.list.useQuery({ limit: PAGE_SIZE, offset: page * PAGE_SIZE }, { staleTime: 30_000 });
 
   const createPayout = trpc.payouts.create.useMutation({
@@ -187,6 +206,9 @@ export default function Payouts() {
           <p className="text-sm text-muted-foreground mt-0.5">{total} total payouts</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exportQuery.isFetching}>
+            <Download className="w-4 h-4 mr-1.5" />{exportQuery.isFetching ? 'Exporting...' : 'Export CSV'}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-1.5" />Refresh</Button>
           <Button variant="outline" size="sm" onClick={() => { setShowApprovalSettings(s => !s); setShowForm(false); setShowBulk(false); }}>
             <Settings2 className="w-4 h-4 mr-1.5" />Approval
