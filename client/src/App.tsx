@@ -204,6 +204,13 @@ import ComplianceReports from "./pages/ComplianceReports";
 import SDKTokens from "./pages/SDKTokens";
 import MerchantGuide from "./pages/docs/MerchantGuide";
 import ConsumerGuide from "./pages/docs/ConsumerGuide";
+import AdminFeatureFlags from "./pages/admin/AdminFeatureFlags";
+import AdminMerchantRisk from "./pages/admin/AdminMerchantRisk";
+import AdminChargebacks from "./pages/admin/AdminChargebacks";
+import AdminHelpAnalytics from "./pages/admin/AdminHelpAnalytics";
+import ConsumerBudgets from "./pages/consumer/ConsumerBudgets";
+import ConsumerSavingsGoals from "./pages/consumer/ConsumerSavingsGoals";
+import ConsumerReferrals from "./pages/consumer/ConsumerReferrals";
 
 function Router() {
   const [location] = useLocation();
@@ -262,6 +269,9 @@ function Router() {
           <Route path="/consumer/notification-centre" component={NotificationCentre} />
           <Route path="/consumer/statement" component={WalletStatement} />
           <Route path="/consumer/help" component={ConsumerGuide} />
+          <Route path="/consumer/budgets" component={ConsumerBudgets} />
+          <Route path="/consumer/savings" component={ConsumerSavingsGoals} />
+          <Route path="/consumer/referrals" component={ConsumerReferrals} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -334,6 +344,10 @@ function Router() {
       <Route path="/admin/notifications/preferences" component={AdminNotificationPreferences} />
       <Route path="/admin/webhook-alerts" component={AdminWebhookAlerts} />
       <Route path="/admin/config" component={AdminConfig} />
+      <Route path="/admin/feature-flags" component={AdminFeatureFlags} />
+      <Route path="/admin/merchant-risk" component={AdminMerchantRisk} />
+      <Route path="/admin/chargebacks" component={AdminChargebacks} />
+      <Route path="/admin/help-analytics" component={AdminHelpAnalytics} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
       <Route path="/go-live-checklist" component={GoLiveChecklist} />

@@ -25,6 +25,7 @@ import { tier6to8Router } from "./tier6to8Router";
 import { wave80Router } from "./wave80Router";
 import { newFeaturesRouter } from "./newFeaturesRouter";
 import { adminRouter } from './adminRouter';
+import { wave24Router } from './wave24Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -6939,10 +6940,15 @@ export const appRouter = router({
   //               reports, aiInsightsV2, nodalAccounts, smartRetailPOS, internationalRemittance, subscriptionBillingV2
   newFeatures: newFeaturesRouter,
   orphaned: orphanedTablesRouter,
+  // Wave 24 — Help analytics, feature flags, merchant risk, budgets, savings, referrals, chargebacks, SLA, webhook simulator, merchant actions, receipts
+  wave24: wave24Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
 export { tier6to8Router };
+
+// Wave 24 — re-export
+export { wave24Router } from "./wave24Router";
 
 
 

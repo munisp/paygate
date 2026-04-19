@@ -3340,3 +3340,263 @@ export const adminNotificationPrefs = pgTable("admin_notification_prefs", {
 }, (t) => [index("admin_notif_pref_user_idx").on(t.userId)]);
 export type AdminNotificationPrefs = typeof adminNotificationPrefs.$inferSelect;
 export type InsertAdminNotificationPrefs = typeof adminNotificationPrefs.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave 24 — Production Feature Tables
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Help Search Analytics ────────────────────────────────────────────────────
+export const helpSearchAnalytics = pgTable("help_search_analytics", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  query: text("query").notNull(),
+  userType: text("user_type").notNull().default("merchant"),
+  userId: text("user_id"),
+  resultCount: integer("result_count").notNull().default(0),
+  clickedSection: text("clicked_section"),
+  sessionId: text("session_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("help_search_query_idx").on(t.query),
+  index("help_search_user_type_idx").on(t.userType),
+  index("help_search_created_idx").on(t.createdAt),
+]);
+export type HelpSearchAnalytics = typeof helpSearchAnalytics.$inferSelect;
+
+// ── Feature Flags ─────────────────────────────────────────────────────────────
+export const featureFlags = pgTable("feature_flags", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  enabled: boolean("enabled").notNull().default(false),
+  rolloutPercentage: integer("rollout_percentage").notNull().default(0),
+  targetMerchantIds: text("target_merchant_ids"),
+  targetUserIds: text("target_user_ids"),
+  environment: text("environment").notNull().default("production"),
+  category: text("category").notNull().default("feature"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+}, (t) => [
+  index("feature_flags_key_idx").on(t.key),
+  index("feature_flags_enabled_idx").on(t.enabled),
+]);
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+
+// ── Merchant Risk Scores ──────────────────────────────────────────────────────
+export const merchantRiskScores = pgTable("merchant_risk_scores", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  overallScore: integer("overall_score").notNull().default(0),
+  fraudScore: integer("fraud_score").notNull().default(0),
+  chargebackScore: integer("chargeback_score").notNull().default(0),
+  kycScore: integer("kyc_score").notNull().default(0),
+  transactionScore: integer("transaction_score").notNull().default(0),
+  velocityScore: integer("velocity_score").notNull().default(0),
+  riskLevel: text("risk_level").notNull().default("low"),
+  factors: text("factors"),
+  recommendation: text("recommendation"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  calculatedAt: timestamp("calculated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("merchant_risk_merchant_idx").on(t.merchantId),
+  index("merchant_risk_level_idx").on(t.riskLevel),
+]);
+export type MerchantRiskScore = typeof merchantRiskScores.$inferSelect;
+
+// ── Consumer Spending Budgets ─────────────────────────────────────────────────
+export const consumerBudgets = pgTable("consumer_budgets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  category: text("category").notNull(),
+  limitKobo: integer("limit_kobo").notNull(),
+  spentKobo: integer("spent_kobo").notNull().default(0),
+  period: text("period").notNull().default("monthly"),
+  alertAt: integer("alert_at").notNull().default(80),
+  alertSent: boolean("alert_sent").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  resetAt: timestamp("reset_at"),
+}, (t) => [
+  index("consumer_budgets_user_idx").on(t.userId),
+  index("consumer_budgets_category_idx").on(t.category),
+]);
+export type ConsumerBudget = typeof consumerBudgets.$inferSelect;
+
+// ── Consumer Savings Goals ────────────────────────────────────────────────────
+export const consumerSavingsGoals = pgTable("consumer_savings_goals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  targetKobo: integer("target_kobo").notNull(),
+  savedKobo: integer("saved_kobo").notNull().default(0),
+  autoSaveEnabled: boolean("auto_save_enabled").notNull().default(false),
+  autoSaveAmountKobo: integer("auto_save_amount_kobo").notNull().default(0),
+  autoSaveFrequency: text("auto_save_frequency").notNull().default("monthly"),
+  targetDate: timestamp("target_date"),
+  status: text("status").notNull().default("active"),
+  emoji: text("emoji").default("🎯"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("savings_goals_user_idx").on(t.userId),
+  index("savings_goals_status_idx").on(t.status),
+]);
+export type ConsumerSavingsGoal = typeof consumerSavingsGoals.$inferSelect;
+
+// ── Referral Program ──────────────────────────────────────────────────────────
+export const referrals = pgTable("referrals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  referrerId: integer("referrer_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  refereeId: integer("referee_id").references(() => users.id, { onDelete: "set null" }),
+  referralCode: text("referral_code").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  referrerRewardKobo: integer("referrer_reward_kobo").notNull().default(50000),
+  refereeRewardKobo: integer("referee_reward_kobo").notNull().default(25000),
+  referrerPaid: boolean("referrer_paid").notNull().default(false),
+  refereePaid: boolean("referee_paid").notNull().default(false),
+  qualificationTxnId: text("qualification_txn_id"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("referrals_referrer_idx").on(t.referrerId),
+  index("referrals_code_idx").on(t.referralCode),
+  index("referrals_status_idx").on(t.status),
+]);
+export type Referral = typeof referrals.$inferSelect;
+
+// ── Chargeback Management ─────────────────────────────────────────────────────
+export const chargebacks = pgTable("chargebacks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id"),
+  stripeChargeId: text("stripe_charge_id"),
+  amountKobo: integer("amount_kobo").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("open"),
+  dueDate: timestamp("due_date"),
+  evidenceSubmitted: boolean("evidence_submitted").notNull().default(false),
+  evidenceDeadline: timestamp("evidence_deadline"),
+  evidence: text("evidence"),
+  notes: text("notes"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("chargebacks_merchant_idx").on(t.merchantId),
+  index("chargebacks_status_idx").on(t.status),
+  index("chargebacks_due_date_idx").on(t.dueDate),
+]);
+export type Chargeback = typeof chargebacks.$inferSelect;
+
+// ── Rate Limit Events ─────────────────────────────────────────────────────────
+export const rateLimitEvents = pgTable("rate_limit_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  identifier: text("identifier").notNull(),
+  identifierType: text("identifier_type").notNull().default("user"),
+  procedure: text("procedure"),
+  endpoint: text("endpoint"),
+  windowMs: integer("window_ms").notNull(),
+  limitVal: integer("limit_val").notNull(),
+  count: integer("count").notNull(),
+  blocked: boolean("blocked").notNull().default(false),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("rate_limit_identifier_idx").on(t.identifier),
+  index("rate_limit_blocked_idx").on(t.blocked),
+  index("rate_limit_created_idx").on(t.createdAt),
+]);
+export type RateLimitEvent = typeof rateLimitEvents.$inferSelect;
+
+// ── Webhook Event Simulator Log ───────────────────────────────────────────────
+export const webhookSimulatorLogs = pgTable("webhook_simulator_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  webhookId: text("webhook_id"),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(),
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  durationMs: integer("duration_ms"),
+  success: boolean("success").notNull().default(false),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("webhook_sim_merchant_idx").on(t.merchantId),
+  index("webhook_sim_event_type_idx").on(t.eventType),
+  index("webhook_sim_created_idx").on(t.createdAt),
+]);
+export type WebhookSimulatorLog = typeof webhookSimulatorLogs.$inferSelect;
+
+// ── Merchant Status Log ───────────────────────────────────────────────────────
+export const merchantStatusLog = pgTable("merchant_status_log", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  action: text("action").notNull(),
+  reason: text("reason").notNull(),
+  notes: text("notes"),
+  performedBy: text("performed_by").notNull(),
+  previousStatus: text("previous_status"),
+  newStatus: text("new_status"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("merchant_status_log_merchant_idx").on(t.merchantId),
+  index("merchant_status_log_action_idx").on(t.action),
+  index("merchant_status_log_created_idx").on(t.createdAt),
+]);
+export type MerchantStatusLog = typeof merchantStatusLog.$inferSelect;
+
+// ── Transaction Receipts ──────────────────────────────────────────────────────
+export const transactionReceipts = pgTable("transaction_receipts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transactionId: text("transaction_id").notNull().unique(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  merchantId: text("merchant_id"),
+  receiptNumber: text("receipt_number").notNull().unique(),
+  pdfUrl: text("pdf_url"),
+  emailSentAt: timestamp("email_sent_at"),
+  emailAddress: text("email_address"),
+  viewCount: integer("view_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("receipts_txn_idx").on(t.transactionId),
+  index("receipts_user_idx").on(t.userId),
+  index("receipts_number_idx").on(t.receiptNumber),
+]);
+export type TransactionReceipt = typeof transactionReceipts.$inferSelect;
+
+// ── Settlement SLA Tracking ───────────────────────────────────────────────────
+export const settlementSlaEvents = pgTable("settlement_sla_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  settlementId: text("settlement_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  amountKobo: integer("amount_kobo").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  expectedBy: timestamp("expected_by").notNull(),
+  completedAt: timestamp("completed_at"),
+  status: text("status").notNull().default("pending"),
+  slaBreached: boolean("sla_breached").notNull().default(false),
+  breachMinutes: integer("breach_minutes"),
+  escalatedAt: timestamp("escalated_at"),
+  escalationLevel: integer("escalation_level").notNull().default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("sla_settlement_idx").on(t.settlementId),
+  index("sla_merchant_idx").on(t.merchantId),
+  index("sla_status_idx").on(t.status),
+  index("sla_breached_idx").on(t.slaBreached),
+]);
+export type SettlementSlaEvent = typeof settlementSlaEvents.$inferSelect;

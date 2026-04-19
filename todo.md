@@ -2757,3 +2757,26 @@
 - [x] Help Guide nav link added to merchant Layout.tsx sidebar
 - [x] Help Guide nav link added to ConsumerLayout.tsx More drawer
 - [x] Wave 23 complete — all items done
+
+## Wave 24 — Production Hardening (Full End-to-End, 20+ Features)
+- [x] Deep audit — inventoried all gaps, missing features, security issues
+- [x] Security audit — 0 npm vulnerabilities, 14 VULN fixes confirmed, all headers/CORS/rate-limiting in place
+- [x] Wave 24 DB schema — feature_flags, merchant_risk_scores, consumer_budgets, consumer_savings_goals, referrals, chargebacks, settlement_sla_events, webhook_simulator_logs, help_search_analytics, transaction_receipts, merchant_status_log tables pushed (migration 0043)
+- [x] wave24Router.ts — tRPC procedures for all Wave 24 features (feature flags, risk scores, chargebacks, SLA, budgets, savings, referrals, help analytics, webhook simulator)
+- [x] AdminFeatureFlags page (/admin/feature-flags) — full CRUD for feature flags with rollout percentage
+- [x] AdminMerchantRisk page (/admin/merchant-risk) — merchant risk scoring dashboard with composite scores
+- [x] AdminChargebacks page (/admin/chargebacks) — chargeback management with status transitions and evidence upload
+- [x] AdminHelpAnalytics page (/admin/help-analytics) — help search analytics with CTR and zero-result queries
+- [x] ConsumerBudgets page (/consumer/budgets) — spending budget CRUD with utilization tracking and alerts
+- [x] ConsumerSavingsGoals page (/consumer/savings) — savings goal management with progress tracking and daily savings calculator
+- [x] ConsumerReferrals page (/consumer/referrals) — referral program with code generation, reward tiers, and leaderboard
+- [x] AdminLayout nav — Feature Flags, Merchant Risk, Chargebacks, Help Analytics links added
+- [x] App.tsx — all Wave 24 routes registered
+- [x] Seed data — 10 feature flags, 70 help analytics rows, 15 chargebacks, 20 SLA events, 5 merchant risk scores (seed-wave24.mjs)
+- [x] vitest — 28 new Wave 24 tests (2044 total across 59 test files, all passing)
+- [x] Smoke tests — 15/15 passing (health, frontend, security headers, API, rate limiting, webhooks)
+- [x] Dockerfile — multi-stage production build with non-root user and health check
+- [x] docker-compose.yml — full stack (app, postgres, redis, nginx, migrate, seed profiles)
+- [x] nginx/nginx.conf — production reverse proxy with SSL, rate limiting, security headers, gzip
+- [x] docs/env-reference.md — comprehensive environment variables reference (all 70+ vars documented)
+- [x] Wave 24 complete — all items done

@@ -302,6 +302,13 @@
       "when": 1776374113077,
       "tag": "0042_mushy_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1776564109230,
+      "tag": "0043_steady_silver_sable",
+      "breakpoints": true
     }
   ]
 }
