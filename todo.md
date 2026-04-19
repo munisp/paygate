@@ -2872,3 +2872,37 @@
 - [x] esbuild: clean compile (0 errors)
 - [x] Server health: ok (database: ok, circuitBreakers: all_closed)
 - [x] Wave 27 complete — all items done
+
+## Wave 28 — Webhook Retry, Loyalty Cron, BNPL Amortisation, White-Label Multi-Tenant (Apr 19, 2026)
+- [ ] Webhook retry bulk replay — "Replay All Failed" bulk action in AdminWebhookRetry.tsx
+- [ ] Loyalty tier auto-promotion cron — nightly job evaluating points, upgrading/downgrading tiers, push notification on change
+- [ ] BNPL repayment schedule — amortisation table (instalments, interest, outstanding balance), bnpl_repayment_schedules table
+- [ ] DB schema: invite_codes table (code, type, uses_remaining, expires_at, created_by, tenant_id)
+- [ ] DB schema: partner_onboarding_sessions table (session state for multi-step wizard)
+- [ ] DB schema: tenant_corridors table (source/dest currency pairs, enabled, fee_pct)
+- [ ] DB schema: tenant_fee_overrides table (per-tenant fee overrides by transaction type)
+- [ ] Invite-code tRPC procedures: generate, validate, list, revoke
+- [ ] Admin invite code management UI (AdminInviteCodes.tsx)
+- [ ] Partner onboarding page (/partner/onboard) — 5-step wizard: invite code → company → branding → fee structure → review
+- [ ] Tenant admin dashboard (/admin/tenant) — sub-users, branding, corridors, fee overrides
+- [ ] Tenant isolation middleware — tenantId scoping on all data queries
+- [ ] White-label live preview — branded iframe with real-time CSS variable injection
+- [ ] wave28Router.ts with all sub-routers
+- [ ] Seed data for all Wave 28 tables
+- [ ] Vitest tests for Wave 28 (target 30+ new tests)
+- [ ] Full test suite passing
+
+## Wave 28 Completion — 2026-04-19
+
+- [x] Webhook retry bulk replay — retryAll + bulkReplayDeadLetter procedures in wave28Router
+- [x] Loyalty tier auto-promotion — tier eligibility logic, cashback computation, nightly cron
+- [x] BNPL repayment schedule — amortisation table, instalment schema, UI in AdminBnplUnderwriting
+- [x] Invite code system — generate, validate, revoke, reactivate; AdminInviteCodes.tsx
+- [x] Partner onboarding wizard — 5-step /partner/onboard page with invite code validation
+- [x] Tenant admin dashboard — /admin/tenant panel with users, corridors, fee overrides, branding
+- [x] Tenant isolation middleware — tenantMiddleware.ts, TenantGuard, per-plan rate limits
+- [x] White-label live preview — WhiteLabelPreview.tsx with real-time CSS variable injection
+- [x] Wave 28 DB schema — invite_codes, partner_tenants, tenant_users, tenant_corridors, tenant_fee_overrides, bnpl_repayment_schedules, partner_onboarding_sessions, tenant_audit_logs
+- [x] Wave 28 seed data — 3 partner tenants, 6 tenant users, 10 corridors, 8 fee overrides, 5 invite codes
+- [x] wave81.multitenant.test.ts — 37/37 tests passing
+- [x] Full vitest suite — 2182/2182 tests passing across 63 test files

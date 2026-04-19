@@ -29,6 +29,7 @@ import { wave24Router } from './wave24Router';
 import { wave25Router } from './wave25Router';
 import { wave26Router } from './wave26Router';
 import { wave27Router } from './wave27Router';
+import { wave28Router } from './wave28Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -6957,6 +6958,7 @@ export const appRouter = router({
   //            referral rewards, FX hedging, budget alerts, per-tenant rate limits,
   //            audit log CSV export, settlement SLA, payout approval, webhook retry, security score
   wave27: wave27Router,
+  wave28: wave28Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

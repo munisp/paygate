@@ -230,6 +230,10 @@ import AdminWebhookRetry from "./pages/admin/AdminWebhookRetry";
 import AdminBnplUnderwriting from "./pages/admin/AdminBnplUnderwriting";
 import AdminLoyaltyTierEngine from "./pages/admin/AdminLoyaltyTierEngine";
 import ConsumerDisputeFiling from "./pages/consumer/ConsumerDisputeFiling";
+import AdminInviteCodes from "./pages/admin/AdminInviteCodes";
+import PartnerOnboard from "./pages/PartnerOnboard";
+import TenantAdminDashboard from "./pages/TenantAdminDashboard";
+import WhiteLabelPreview from "./pages/WhiteLabelPreview";
 
 function Router() {
   const [location] = useLocation();
@@ -383,6 +387,10 @@ function Router() {
       <Route path="/admin/webhook-retry" component={AdminWebhookRetry} />
       <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
       <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
+      <Route path="/admin/invite-codes" component={AdminInviteCodes} />
+      <Route path="/partner/onboard" component={PartnerOnboard} />
+      <Route path="/admin/tenant" component={TenantAdminDashboard} />
+      <Route path="/partner/preview" component={WhiteLabelPreview} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
       <Route path="/go-live-checklist" component={GoLiveChecklist} />
