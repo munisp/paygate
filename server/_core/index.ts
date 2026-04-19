@@ -573,6 +573,39 @@ async function startServer() {
     }
   });
 
+  // ─── Chargeback Evidence Upload ──────────────────────────────────────────────
+  app.post("/api/chargebacks/upload-evidence", uploadLimiter, upload.single("file"), async (req: any, res: any) => {
+    if (!req.file) return res.status(400).json({ error: "No file provided" });
+    const { chargebackId } = req.body ?? {};
+    if (!chargebackId) return res.status(400).json({ error: "chargebackId required" });
+    // Validate session via cookie
+    const { verifySession } = await import("./cookies");
+    const sessionUser = await verifySession(req).catch(() => null);
+    if (!sessionUser) return res.status(401).json({ error: "Unauthorized" });
+    // Validate file type
+    const allowedMimes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+    if (!allowedMimes.includes(req.file.mimetype)) {
+      return res.status(400).json({ error: "Only PDF, JPEG, PNG, or WebP files are accepted" });
+    }
+    try {
+      const ext = req.file.originalname.split(".").pop()?.replace(/[^a-z0-9]/gi, "") ?? "bin";
+      const key = `chargebacks/${chargebackId}/evidence-${Date.now()}-${Math.random().toString(36).slice(2,6)}.${ext}`;
+      const { url } = await storagePut(key, req.file.buffer, req.file.mimetype);
+      // Update chargeback record
+      const { getDb } = await import("../db");
+      const { chargebacks } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      await db.update(chargebacks)
+        .set({ evidenceUrl: url, evidenceFileName: req.file.originalname, evidenceSubmitted: true, updatedAt: new Date() })
+        .where(eq(chargebacks.id, chargebackId));
+      res.json({ url, key, name: req.file.originalname, size: req.file.size });
+    } catch (e: any) {
+      const msg = process.env.NODE_ENV === "development" ? (e.message ?? "Upload failed") : "Upload failed";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // ─── SSE: Live Transaction Stream ──────────────────────────────────────────
   const sseClients = new Map<string, Set<any>>();
 

@@ -68,10 +68,10 @@ const featureFlagSdkRouter = router({
       const rows = await db.select({
         key: featureFlags.key,
         enabled: featureFlags.enabled,
-        rolloutPct: featureFlags.rolloutPct,
+        rolloutPercentage: featureFlags.rolloutPercentage,
         description: featureFlags.description,
       }).from(featureFlags).where(eq(featureFlags.key, input.key)).limit(1);
-      if (!rows[0]) return { key: input.key, enabled: false, rolloutPct: 0 };
+      if (!rows[0]) return { key: input.key, enabled: false, rolloutPercentage: 0 };
       return rows[0];
     }),
 
@@ -80,7 +80,7 @@ const featureFlagSdkRouter = router({
     return db.select({
       key: featureFlags.key,
       enabled: featureFlags.enabled,
-      rolloutPct: featureFlags.rolloutPct,
+      rolloutPercentage: featureFlags.rolloutPercentage,
       environment: featureFlags.environment,
     }).from(featureFlags).where(eq(featureFlags.enabled, true));
   }),
@@ -91,10 +91,10 @@ const featureFlagSdkRouter = router({
       const db = await getDb();
       const rows = await db.select({
         enabled: featureFlags.enabled,
-        rolloutPct: featureFlags.rolloutPct,
+        rolloutPercentage: featureFlags.rolloutPercentage,
       }).from(featureFlags).where(eq(featureFlags.key, input.key)).limit(1);
       if (!rows[0] || !rows[0].enabled) return { enabled: false };
-      const pct = rows[0].rolloutPct ?? 100;
+      const pct = rows[0].rolloutPercentage ?? 100;
       if (pct >= 100) return { enabled: true };
       // Deterministic rollout based on userId hash
       if (input.userId) {

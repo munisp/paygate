@@ -28,6 +28,8 @@ import {
   Terminal,
   RotateCcw,
   Layers,
+  Building,
+  Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +81,8 @@ const adminNavItems = [
       { label: "API Playground", href: "/admin/api-playground", icon: Terminal },
       { label: "Rate Limits", href: "/admin/rate-limits", icon: Gauge },
       { label: "SDK Tokens", href: "/admin/sdk-tokens", icon: Key },
+      { label: "Tenant Management", href: "/admin/tenants", icon: Building },
+      { label: "White Label", href: "/admin/white-label", icon: Palette },
       { label: "Configuration", href: "/admin/config", icon: Settings2 },
     ],
   },

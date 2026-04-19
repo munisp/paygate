@@ -2788,3 +2788,60 @@
 - [x] useDebounce.ts hook, k8s/ manifests (7 files), seed-wave25.mjs, smoke-test-wave25.mjs
 - [x] 2094 vitest tests passing, 18/18 smoke tests passing, 0 vulnerabilities
 - [x] Wave 25 Complete
+
+## Wave 26 — Feature Flags, Multitenancy, White-Label (Full Production)
+
+### Feature Flags
+- [ ] Fix rolloutPct vs rolloutPercentage column mismatch in wave25Router SDK endpoint
+- [ ] Add targeting_rules JSONB column to feature_flags table (segments, tiers, countries)
+- [ ] Add tenant_id FK to feature_flags for per-tenant scoping
+- [ ] wave26Router: featureFlags.listForTenant, featureFlags.evaluateForUser, featureFlags.bulkEvaluate
+- [ ] useFeatureFlag() React hook for frontend gate-keeping
+- [ ] Upgrade AdminFeatureFlags UI with targeting rules builder (segments, rollout %, tenant assignment)
+- [ ] Integrate feature flags into Onboarding wizard (step 6: feature selection for new tenants)
+- [ ] Feature flag evaluation middleware for tRPC procedures (gate BNPL, virtual cards, cross-border)
+
+### Multitenancy
+- [ ] AdminTenantManagement page — full CRUD: create, edit, suspend, activate, view details
+- [ ] wave26Router: tenants.list, tenants.create, tenants.update, tenants.suspend, tenants.activate, tenants.getConfig
+- [ ] useTenant() React hook — reads current user's tenant from ctx
+- [ ] TenantGuard component — blocks access if tenant feature is disabled
+- [ ] Tenant plan enforcement middleware in tRPC (starter/growth/enterprise limits)
+
+### White-Label
+- [ ] Extend tenants table: customDomain, faviconUrl, secondaryColor, fontFamily, footerText, supportEmail
+- [ ] AdminWhiteLabelManager page — branding editor with live preview
+- [ ] TenantBrandingProvider React context — applies per-tenant CSS variables at runtime
+- [ ] White-label preview iframe component
+- [ ] Custom domain management UI
+
+### Suggested Next Steps
+- [ ] Chargeback evidence PDF viewer (inline iframe/PDF.js in AdminChargebacks)
+- [ ] Revenue analytics CSV/Excel export endpoint and download button
+
+### Infrastructure
+- [ ] Seed data for Wave 26 tables
+- [ ] vitest tests for Wave 26 features
+- [ ] Smoke tests for Wave 26 endpoints
+
+## Wave 26 — Feature Flags, Multitenancy, White-Label, Suggested Next Steps
+- [x] Audit Feature Flags, multitenancy, white-label — identified all gaps
+- [x] Add targeting_rules JSONB column to feature_flags table
+- [x] Add tenant_id column to feature_flags table for tenant-scoped flags
+- [x] Fix rolloutPct → rolloutPercentage column name mismatch in wave25Router SDK endpoint
+- [x] Create wave26Router.ts with featureFlagsTargeting, tenantManagement, whiteLabelBranding, chargebackPdf, revenueExport procedures
+- [x] Register wave26Router in routers.ts
+- [x] Create useFeatureFlag.ts React hook for frontend feature gating with rollout + targeting evaluation
+- [x] Create TenantBrandingContext.tsx — per-tenant runtime theming (colors, logo, font, border-radius)
+- [x] Create AdminTenantManagement.tsx — full CRUD, search, filter, suspend/activate, feature provisioning (500+ lines)
+- [x] Create AdminWhiteLabel.tsx — branding manager with live preview, color picker, font selector, per-tenant override
+- [x] Rewrite AdminFeatureFlags.tsx — targeting rules UI, rollout slider, tenant scoping, environment filter
+- [x] Add Tenant Management and White Label nav items to AdminLayout
+- [x] Register AdminTenantManagement, AdminWhiteLabel routes in App.tsx
+- [x] Chargeback evidence PDF viewer — inline iframe viewer, upload button, download/open links in AdminChargebacks.tsx
+- [x] Add /api/upload/chargeback-evidence endpoint to server/_core/index.ts (S3 upload)
+- [x] Revenue analytics CSV export — Export CSV button in AdminRevenue.tsx with summary + fee tiers + merchant breakdown
+- [x] Wave 26 vitest tests — 21 tests covering feature flags targeting, tenant management, white-label, evidence upload, CSV export
+- [x] Full test suite: 2,115/2,115 tests passing (61 test files)
+- [x] All smoke tests: 18/18 passing
+- [x] Wave 26 complete — all items done

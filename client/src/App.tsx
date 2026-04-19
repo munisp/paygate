@@ -215,6 +215,8 @@ import AdminAuditLog from "./pages/admin/AdminAuditLog";
 import AdminApiPlayground from "./pages/admin/AdminApiPlayground";
 import AdminRateLimitDashboard from "./pages/admin/AdminRateLimitDashboard";
 import AdminSdkTokens from "./pages/admin/AdminSdkTokens";
+import AdminTenantManagement from "./pages/admin/AdminTenantManagement";
+import AdminWhiteLabel from "./pages/admin/AdminWhiteLabel";
 import TransactionReceipt from "./pages/TransactionReceipt";
 import RefundWorkflow from "./pages/RefundWorkflow";
 import PayoutBatching from "./pages/PayoutBatching";
@@ -361,6 +363,8 @@ function Router() {
       <Route path="/admin/api-playground" component={AdminApiPlayground} />
       <Route path="/admin/rate-limits" component={AdminRateLimitDashboard} />
       <Route path="/admin/sdk-tokens" component={AdminSdkTokens} />
+      <Route path="/admin/tenants" component={AdminTenantManagement} />
+      <Route path="/admin/white-label" component={AdminWhiteLabel} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
       <Route path="/go-live-checklist" component={GoLiveChecklist} />

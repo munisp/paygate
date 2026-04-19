@@ -27,6 +27,7 @@ import { newFeaturesRouter } from "./newFeaturesRouter";
 import { adminRouter } from './adminRouter';
 import { wave24Router } from './wave24Router';
 import { wave25Router } from './wave25Router';
+import { wave26Router } from './wave26Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -6947,6 +6948,9 @@ export const appRouter = router({
   //            rate limit dashboard, receipts, settlement SLA, revenue analytics, system health, SDK tokens,
   //            webhook simulator, help search consumer, tooltips, onboarding wizard
   wave25: wave25Router,
+  // Wave 26 — Feature Flags targeting rules, Tenant Management, White-Label branding,
+  //            Chargeback evidence PDF viewer, Revenue analytics CSV export
+  wave26: wave26Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
