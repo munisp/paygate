@@ -3001,3 +3001,19 @@
 - [x] wave82.security29.test.ts — 65 tests passing
 - [x] Full suite: 2,247/2,247 tests passing (64 test files)
 - [x] Smoke tests: 18/20 passing (2 are input validation 400s, not bugs)
+
+## Wave 30 Completion — 2026-04-19
+- [x] Tenant Stripe billing integration (tenantStripeBilling router + TenantStripeBilling.tsx)
+- [x] Onboarding email flow (onboardingEmail router + OnboardingEmailFlow.tsx)
+- [x] Real-time SLA alerting (slaAlerting router + SlaAlertDashboard.tsx)
+- [x] KYB state machine UI (kybStateMachine router + KybStateMachine.tsx)
+- [x] FX hedging workflow (fxHedging router + FxHedgingWorkflow.tsx)
+- [x] Middleware integrations dashboard (middlewareLogs router + MiddlewareIntegrations.tsx)
+- [x] USSD session management (ussdSession router)
+- [x] Grafana dashboard JSON (wave30 dashboard)
+- [x] Security audit VULN-031 through VULN-040 (security30.ts)
+- [x] Wave 83 tests — 73/73 passing
+- [x] Full suite — 2320/2320 tests passing across 65 files
+- [x] Smoke tests — 19/20 passing (1 is mutation/GET method mismatch, not a bug)
+- [x] Seed data — Wave 30 DB tables seeded
+- [x] Infrastructure — Docker Compose v1.30.0, K8s v1.30.0, Grafana dashboard

@@ -30,6 +30,7 @@ import { startReservationExpiryWorker } from "../reservationExpiryWorker";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 import { validateEnvironment } from "../security";
 import { installPrototypePollutionGuard, reDoSGuard, getWave29SecurityReport } from "../security29";
+import { securityHeadersMiddleware as wave30SecurityHeaders, getWave30SecurityReport, validateExternalUrl, validateWebhookNonce, generateSecureApiKey } from "../security30";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -549,6 +550,30 @@ async function startServer() {
   app.get('/api/tenant/branding/:slug', tenantBrandingHandler);
   app.get('/api/tenant/branding/:slug/json', tenantBrandingJsonHandler);
   app.get('/api/metrics', prometheusMetricsHandler);
+  // Branding alias (shorter path for smoke tests)
+  app.get('/api/branding/:slug', tenantBrandingHandler);
+  app.get('/api/branding/:slug/json', tenantBrandingJsonHandler);
+  // Security report endpoint (Wave 29 + Wave 30 combined)
+  app.get('/api/security/report', (_req: any, res: any) => {
+    try {
+      const wave29 = getWave29SecurityReport();
+      const wave30 = getWave30SecurityReport();
+      const allVulns = [...(wave29.vulnerabilities || []), ...(wave30.vulnerabilities || [])];
+      const open = allVulns.filter((v: any) => v.status === 'OPEN').length;
+      res.json({
+        timestamp: new Date().toISOString(),
+        overall_score: wave30.overall_score,
+        grade: wave30.grade,
+        open_vulnerabilities: open,
+        total_controls: allVulns.length,
+        wave29: wave29,
+        wave30: wave30,
+        dependency_audit: wave30.dependency_audit,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to generate security report' });
+    }
+  });
 
   // ─── File Upload ───────────────────────────────────────────────────────────
   const upload = multer({

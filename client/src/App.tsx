@@ -246,6 +246,13 @@ import DisputeEscalation from "./pages/DisputeEscalation";
 import AdminRevenueAnalytics from "./pages/admin/AdminRevenueAnalytics";
 import AdminSlaMonitoring from "./pages/admin/AdminSlaMonitoring";
 import AdminChargebackManagement from "./pages/admin/AdminChargebackManagement";
+// Wave 30 imports
+import TenantStripeBilling from "./pages/TenantStripeBilling";
+import OnboardingEmailFlow from "./pages/OnboardingEmailFlow";
+import SlaAlertDashboard from "./pages/SlaAlertDashboard";
+import KybStateMachine from "./pages/admin/KybStateMachine";
+import MiddlewareIntegrations from "./pages/admin/MiddlewareIntegrations";
+import FxHedgingWorkflow from "./pages/FxHedgingWorkflow";
 
 function Router() {
   const [location] = useLocation();
@@ -529,6 +536,13 @@ function Router() {
         <Route path="/admin/revenue-analytics" component={AdminRevenueAnalytics} />
         <Route path="/admin/sla-monitoring" component={AdminSlaMonitoring} />
         <Route path="/admin/chargeback-management" component={AdminChargebackManagement} />
+        {/* Wave 30 routes */}
+        <Route path="/tenant/stripe-billing" component={TenantStripeBilling} />
+        <Route path="/admin/onboarding-emails" component={OnboardingEmailFlow} />
+        <Route path="/admin/sla-alerts" component={SlaAlertDashboard} />
+        <Route path="/admin/kyb-state-machine" component={KybStateMachine} />
+        <Route path="/admin/middleware-integrations" component={MiddlewareIntegrations} />
+        <Route path="/fx/hedging" component={FxHedgingWorkflow} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>
