@@ -1,24 +1,29 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, ComposedChart,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight,
   Users, CreditCard, Activity, RefreshCw, Download, Calendar,
   ShieldAlert, CheckCircle2, XCircle, Clock, Zap, BarChart2,
-  ArrowRight, Filter, ChevronDown,
+  ArrowRight, Mail, X, ExternalLink, Copy, ChevronDown, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
+import { format, subDays, startOfDay, endOfDay } from "date-fns";
+import type { DateRange } from "react-day-picker";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -31,19 +36,21 @@ function fmtNGN(kobo: number | string | null | undefined): string {
 }
 
 function fmtDate(d: string | Date): string {
+  try { return new Date(d).toLocaleDateString("en-NG", { month: "short", day: "numeric" }); }
+  catch { return String(d); }
+}
+
+function fmtDateTime(d: string | Date): string {
   try {
-    return new Date(d).toLocaleDateString("en-NG", { month: "short", day: "numeric" });
-  } catch {
-    return String(d);
-  }
+    return new Date(d).toLocaleString("en-NG", {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  } catch { return String(d); }
 }
 
 function fmtTime(d: string | Date): string {
-  try {
-    return new Date(d).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
+  try { return new Date(d).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" }); }
+  catch { return ""; }
 }
 
 function pctChange(current: number, previous: number): number {
@@ -53,7 +60,7 @@ function pctChange(current: number, previous: number): number {
 
 // ─── Period Presets ───────────────────────────────────────────────────────────
 
-type PeriodKey = "7d" | "30d" | "90d" | "1y";
+type PeriodKey = "7d" | "30d" | "90d" | "1y" | "custom";
 
 const PERIODS: { key: PeriodKey; label: string; days: number }[] = [
   { key: "7d", label: "7 Days", days: 7 },
@@ -101,27 +108,21 @@ function KpiCard({ title, value, change, icon: Icon, loading, subtitle, accent =
           </div>
         ) : (
           <>
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{title}</p>
-                <p className="text-2xl font-bold text-foreground">{value}</p>
-                {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-              </div>
-              <div className="p-2 rounded-lg" style={{ background: `${accent}18` }}>
-                <Icon className="w-5 h-5" style={{ color: accent }} />
-              </div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</span>
+              <Icon className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className="flex items-center gap-1 mt-3">
-              {isUp ? (
-                <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />
-              ) : (
-                <ArrowDownRight className="w-3.5 h-3.5 text-red-500" />
-              )}
+            <p className="text-2xl font-bold text-foreground leading-none mb-1.5">{value}</p>
+            <div className="flex items-center gap-1">
+              {isUp
+                ? <ArrowUpRight className="w-3 h-3 text-emerald-500" />
+                : <ArrowDownRight className="w-3 h-3 text-red-500" />}
               <span className={`text-xs font-semibold ${isUp ? "text-emerald-500" : "text-red-500"}`}>
                 {Math.abs(change).toFixed(1)}%
               </span>
               <span className="text-xs text-muted-foreground">vs prev period</span>
             </div>
+            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
           </>
         )}
       </CardContent>
@@ -132,24 +133,26 @@ function KpiCard({ title, value, change, icon: Icon, loading, subtitle, accent =
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    completed: { label: "Completed", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
-    failed: { label: "Failed", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-    pending: { label: "Pending", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-    processing: { label: "Processing", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  const map: Record<string, string> = {
+    completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    reversed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   };
-  const s = map[status] ?? { label: status, className: "bg-muted text-muted-foreground" };
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.className}`}>{s.label}</span>;
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${map[status] ?? "bg-muted text-muted-foreground"}`}>
+      {status}
+    </span>
+  );
 }
 
-// ─── Channel icon ─────────────────────────────────────────────────────────────
-
 function channelLabel(ch: string): string {
-  const m: Record<string, string> = {
+  const map: Record<string, string> = {
     card: "Card", bank_transfer: "Bank Transfer", ussd: "USSD",
-    qr: "QR Code", mobile_money: "Mobile Money", wallet: "Wallet",
+    qr: "QR Code", mobile_money: "Mobile Money", crypto: "Crypto",
+    nfc: "NFC", pos: "POS", wallet: "Wallet",
   };
-  return m[ch] ?? ch;
+  return map[ch] ?? ch.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // ─── Heatmap Cell ─────────────────────────────────────────────────────────────
@@ -160,35 +163,194 @@ function HeatmapCell({ value, max }: { value: number; max: number }) {
     ? "bg-muted/30"
     : intensity < 0.25 ? "bg-indigo-100 dark:bg-indigo-900/30"
     : intensity < 0.5 ? "bg-indigo-300 dark:bg-indigo-700/50"
-    : intensity < 0.75 ? "bg-indigo-500 dark:bg-indigo-500/70"
+    : intensity < 0.75 ? "bg-indigo-500 dark:bg-indigo-500"
     : "bg-indigo-700 dark:bg-indigo-400";
   return (
     <div
-      className={`w-full aspect-square rounded-sm ${bg} transition-colors`}
-      title={`${value} transactions`}
+      className={`w-4 h-4 rounded-sm ${bg} transition-colors`}
+      title={`${value} tx`}
     />
   );
 }
 
-// ─── Custom Tooltip ───────────────────────────────────────────────────────────
+// ─── Chart Tooltip ────────────────────────────────────────────────────────────
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-popover border border-border rounded-lg shadow-lg p-3 text-sm">
-      <p className="font-semibold text-foreground mb-1">{label}</p>
+    <div className="bg-card border border-border rounded-lg shadow-lg p-3 text-xs">
+      <p className="font-semibold text-foreground mb-1.5">{label}</p>
       {payload.map((p: any, i: number) => (
-        <div key={i} className="flex items-center gap-2 text-muted-foreground">
+        <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span>{p.name}:</span>
-          <span className="font-medium text-foreground">
-            {p.name?.toLowerCase().includes("volume") || p.name?.toLowerCase().includes("amount") || p.name?.toLowerCase().includes("revenue")
-              ? fmtNGN(p.value)
-              : p.value?.toLocaleString()}
+          <span className="text-muted-foreground">{p.name}:</span>
+          <span className="font-semibold text-foreground">
+            {p.name === "Revenue" || p.name === "Fees" ? fmtNGN(p.value) : p.value.toLocaleString()}
           </span>
         </div>
       ))}
     </div>
+  );
+}
+
+// ─── Transaction Detail Modal ─────────────────────────────────────────────────
+
+function TransactionDetailModal({ txId, open, onClose }: { txId: string | null; open: boolean; onClose: () => void }) {
+  const { data: tx, isLoading } = trpc.transactions.get.useQuery(
+    { id: txId ?? "" },
+    { enabled: !!txId && open },
+  );
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => toast.success(`${label} copied`));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-indigo-500" />
+            Transaction Detail
+          </DialogTitle>
+          <DialogDescription>Full details for this payment</DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-3 py-4">
+            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
+          </div>
+        ) : !tx ? (
+          <div className="py-8 text-center text-muted-foreground">Transaction not found</div>
+        ) : (
+          <div className="space-y-4">
+            {/* Amount + Status */}
+            <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+              <div>
+                <p className="text-2xl font-bold text-foreground">{fmtNGN(tx.amount)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{tx.currency ?? "NGN"}</p>
+              </div>
+              <StatusBadge status={tx.status ?? "pending"} />
+            </div>
+            {/* Details grid */}
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {[
+                { label: "Transaction ID", value: tx.id, copy: true },
+                { label: "Reference", value: tx.reference ?? "—", copy: !!tx.reference },
+                { label: "Channel", value: channelLabel(tx.channel ?? "") },
+                { label: "Customer", value: tx.customerEmail ?? tx.customerId ?? "—" },
+                { label: "Description", value: tx.description ?? "—" },
+                { label: "Fee", value: fmtNGN(tx.feeAmount) },
+                { label: "Created", value: fmtDateTime(tx.createdAt) },
+                { label: "Updated", value: tx.updatedAt ? fmtDateTime(tx.updatedAt) : "—" },
+              ].map(({ label, value, copy }) => (
+                <div key={label} className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs font-medium text-foreground truncate">{value}</p>
+                    {copy && value !== "—" && (
+                      <button
+                        onClick={() => copyToClipboard(value, label)}
+                        className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Separator />
+            {/* Actions */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => { onClose(); window.location.href = `/transactions`; }}
+              >
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                View in Transactions
+              </Button>
+              {tx.status === "completed" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-amber-600 border-amber-200 hover:bg-amber-50"
+                  onClick={() => {
+                    onClose();
+                    toast.info("Navigate to Transactions page to initiate a refund");
+                  }}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  Refund
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Date Range Picker ────────────────────────────────────────────────────────
+
+function DateRangePicker({
+  dateRange,
+  onSelect,
+}: {
+  dateRange: DateRange | undefined;
+  onSelect: (range: DateRange | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const label = useMemo(() => {
+    if (!dateRange?.from) return "Custom Range";
+    if (!dateRange.to) return format(dateRange.from, "MMM d, yyyy");
+    return `${format(dateRange.from, "MMM d")} – ${format(dateRange.to, "MMM d, yyyy")}`;
+  }, [dateRange]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+          <Calendar className="w-3.5 h-3.5" />
+          {label}
+          <ChevronDown className="w-3 h-3 ml-0.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="end">
+        <CalendarPicker
+          mode="range"
+          selected={dateRange}
+          onSelect={onSelect}
+          numberOfMonths={2}
+          disabled={{ after: new Date() }}
+          className="rounded-md border-0"
+        />
+        <div className="flex items-center justify-between p-3 border-t border-border">
+          <div className="flex gap-1">
+            {[7, 14, 30, 90].map(days => (
+              <Button
+                key={days}
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs px-2"
+                onClick={() => {
+                  onSelect({ from: subDays(new Date(), days), to: new Date() });
+                  setOpen(false);
+                }}
+              >
+                {days}d
+              </Button>
+            ))}
+          </div>
+          <Button size="sm" className="h-7 text-xs" onClick={() => setOpen(false)}>
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -197,18 +359,33 @@ function ChartTooltip({ active, payload, label }: any) {
 export default function MerchantAnalyticsDashboard() {
   const [, setLocation] = useLocation();
   const [period, setPeriod] = useState<PeriodKey>("30d");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [chartView, setChartView] = useState<"revenue" | "volume">("revenue");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
+  const [txModalOpen, setTxModalOpen] = useState(false);
 
+  // ── Date range computation ─────────────────────────────────────────────────
   const range = useMemo(() => {
+    if (period === "custom" && customRange?.from) {
+      return {
+        from: startOfDay(customRange.from),
+        to: endOfDay(customRange.to ?? customRange.from),
+      };
+    }
     const days = PERIODS.find(p => p.key === period)?.days ?? 30;
     return {
       from: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
       to: new Date(),
     };
-  }, [period, refreshKey]);
+  }, [period, customRange, refreshKey]);
 
   const handleRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
+
+  const handleCustomRange = useCallback((r: DateRange | undefined) => {
+    setCustomRange(r);
+    if (r?.from) setPeriod("custom");
+  }, []);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const { data: bundle, isLoading } = trpc.merchantAnalytics.bundle.useQuery(range, {
@@ -221,6 +398,12 @@ export default function MerchantAnalyticsDashboard() {
     { staleTime: 30_000, refetchInterval: 60_000 },
   );
 
+  // ── Digest trigger ─────────────────────────────────────────────────────────
+  const sendDigestMutation = trpc.merchantAnalytics.sendDigest.useMutation({
+    onSuccess: () => toast.success("Weekly analytics digest sent to your email"),
+    onError: (e) => toast.error(`Failed to send digest: ${e.message}`),
+  });
+
   // ── Derived metrics ────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
     const cur = bundle?.comparison?.current;
@@ -231,10 +414,8 @@ export default function MerchantAnalyticsDashboard() {
     const curCount = Number(cur.totalCount ?? 0);
     const prevCount = Number(prev?.totalCount ?? 0);
     const curCompleted = Number(cur.completedCount ?? 0);
-    const curFailed = Number(cur.failedCount ?? 0);
     const successRate = curCount > 0 ? (curCompleted / curCount) * 100 : 0;
     const prevCompleted = Number(prev?.completedCount ?? 0);
-    const prevFailed = Number(prev?.failedCount ?? 0);
     const prevTotal = Number(prev?.totalCount ?? 0);
     const prevSuccessRate = prevTotal > 0 ? (prevCompleted / prevTotal) * 100 : 0;
     const curFees = Number(cur.totalFees ?? 0);
@@ -284,7 +465,6 @@ export default function MerchantAnalyticsDashboard() {
 
   // ── Heatmap data ───────────────────────────────────────────────────────────
   const heatmapGrid = useMemo(() => {
-    // Build 7×24 grid [dow][hour]
     const grid: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
     for (const cell of bundle?.heatmap ?? []) {
       const dow = Number(cell.dow ?? 0);
@@ -309,11 +489,42 @@ export default function MerchantAnalyticsDashboard() {
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = `analytics-${period}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
+    toast.success("CSV exported");
   }, [timeSeriesData, period]);
+
+  // ── Open transaction detail ────────────────────────────────────────────────
+  const openTxDetail = useCallback((id: string) => {
+    setSelectedTxId(id);
+    setTxModalOpen(true);
+  }, []);
+
+  // ── Fraud alert banner ─────────────────────────────────────────────────────
+  const fraudStats = bundle?.fraudStats;
+  const hasFraudAlerts = fraudStats && Number(fraudStats.open ?? 0) > 0;
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background">
+      {/* ── Fraud Alert Banner ── */}
+      {hasFraudAlerts && (
+        <div className="bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-800 px-4 py-2.5">
+          <div className="max-w-screen-2xl mx-auto flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span className="font-medium">
+              {fraudStats.open} open fraud alert{Number(fraudStats.open) > 1 ? "s" : ""} require attention.
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-red-700 hover:text-red-900 ml-1 px-2"
+              onClick={() => setLocation("/fraud-risk")}
+            >
+              Review <ArrowRight className="w-3 h-3 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -327,30 +538,51 @@ export default function MerchantAnalyticsDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Period selector */}
-            <Tabs value={period} onValueChange={v => setPeriod(v as PeriodKey)}>
+            {/* Period preset tabs */}
+            <Tabs value={period === "custom" ? "custom" : period} onValueChange={v => {
+              if (v !== "custom") { setPeriod(v as PeriodKey); setCustomRange(undefined); }
+            }}>
               <TabsList className="h-8">
                 {PERIODS.map(p => (
                   <TabsTrigger key={p.key} value={p.key} className="text-xs px-3 h-7">
                     {p.label}
                   </TabsTrigger>
                 ))}
+                {period === "custom" && (
+                  <TabsTrigger value="custom" className="text-xs px-3 h-7">Custom</TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
+
+            {/* Custom date range picker */}
+            <DateRangePicker
+              dateRange={customRange}
+              onSelect={handleCustomRange}
+            />
+
             <Button variant="outline" size="sm" onClick={handleRefresh} className="h-8 gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport} className="h-8 gap-1.5">
               <Download className="w-3.5 h-3.5" />
-              Export CSV
+              Export
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => sendDigestMutation.mutate()}
+              disabled={sendDigestMutation.isPending}
+            >
+              <Mail className="w-3.5 h-3.5" />
+              {sendDigestMutation.isPending ? "Sending…" : "Email Digest"}
             </Button>
           </div>
         </div>
       </div>
 
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-
         {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           <KpiCard
@@ -399,26 +631,31 @@ export default function MerchantAnalyticsDashboard() {
             change={kpis?.avgTx.change ?? 0}
             icon={CreditCard}
             loading={isLoading}
-            accent="#ef4444"
+            accent="#ec4899"
           />
         </div>
 
-        {/* ── Revenue / Volume Chart + Channel Pie ── */}
+        {/* ── Revenue Chart + Channel Donut ── */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Main trend chart */}
+          {/* Revenue / Volume area chart */}
           <Card className="xl:col-span-2 border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Revenue Trend</CardTitle>
-                  <CardDescription className="text-xs">Daily completed transaction volume</CardDescription>
-                </div>
-                <Tabs value={chartView} onValueChange={v => setChartView(v as any)}>
-                  <TabsList className="h-7">
-                    <TabsTrigger value="revenue" className="text-xs px-2 h-6">Revenue</TabsTrigger>
-                    <TabsTrigger value="volume" className="text-xs px-2 h-6">Count</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Revenue Trend</CardTitle>
+                <CardDescription className="text-xs">Daily payment volume over selected period</CardDescription>
+              </div>
+              <div className="flex gap-1">
+                {(["revenue", "volume"] as const).map(v => (
+                  <Button
+                    key={v}
+                    variant={chartView === v ? "default" : "ghost"}
+                    size="sm"
+                    className="h-7 text-xs px-2"
+                    onClick={() => setChartView(v)}
+                  >
+                    {v === "revenue" ? "Revenue" : "Count"}
+                  </Button>
+                ))}
               </div>
             </CardHeader>
             <CardContent>
@@ -432,40 +669,22 @@ export default function MerchantAnalyticsDashboard() {
                 <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={timeSeriesData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
                         <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={v => chartView === "revenue" ? fmtNGN(v) : v.toLocaleString()}
-                    />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))"
+                      tickFormatter={v => chartView === "revenue" ? fmtNGN(v) : v.toLocaleString()} />
                     <Tooltip content={<ChartTooltip />} />
                     {chartView === "revenue" ? (
-                      <Area
-                        type="monotone"
-                        dataKey="revenue"
-                        name="Revenue"
-                        stroke={COLORS.primary}
-                        strokeWidth={2}
-                        fill="url(#revGrad)"
-                        dot={false}
-                      />
+                      <Area type="monotone" dataKey="revenue" name="Revenue" stroke={COLORS.primary}
+                        fill="url(#colorRevenue)" strokeWidth={2} dot={false} />
                     ) : (
-                      <Area
-                        type="monotone"
-                        dataKey="count"
-                        name="Transactions"
-                        stroke={COLORS.success}
-                        strokeWidth={2}
-                        fill="url(#revGrad)"
-                        dot={false}
-                      />
+                      <Area type="monotone" dataKey="count" name="Transactions" stroke={COLORS.success}
+                        fill="url(#colorRevenue)" strokeWidth={2} dot={false} />
                     )}
                   </AreaChart>
                 </ResponsiveContainer>
@@ -473,51 +692,36 @@ export default function MerchantAnalyticsDashboard() {
             </CardContent>
           </Card>
 
-          {/* Channel breakdown donut */}
+          {/* Channel donut */}
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Payment Channels</CardTitle>
-              <CardDescription className="text-xs">Volume by payment method</CardDescription>
+              <CardDescription className="text-xs">Volume distribution by channel</CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading ? (
-                <Skeleton className="h-56 w-full" />
+                <Skeleton className="h-48 w-full" />
               ) : channelData.length === 0 ? (
-                <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">No data</div>
+                <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No data</div>
               ) : (
                 <>
                   <ResponsiveContainer width="100%" height={160}>
                     <PieChart>
-                      <Pie
-                        data={channelData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={45}
-                        outerRadius={72}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {channelData.map((entry, i) => (
-                          <Cell key={i} fill={entry.fill} />
-                        ))}
+                      <Pie data={channelData} cx="50%" cy="50%" innerRadius={45} outerRadius={70}
+                        paddingAngle={2} dataKey="value">
+                        {channelData.map((c, i) => <Cell key={i} fill={c.fill} />)}
                       </Pie>
-                      <Tooltip
-                        formatter={(v: any, name: string) => [fmtNGN(v), name]}
-                        contentStyle={{ fontSize: 12 }}
-                      />
+                      <Tooltip formatter={(v: any) => fmtNGN(v)} />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="mt-2 space-y-1.5">
-                    {channelData.slice(0, 5).map((c, i) => (
+                  <div className="space-y-1.5 mt-2">
+                    {channelData.slice(0, 4).map((c, i) => (
                       <div key={i} className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c.fill }} />
-                          <span className="text-muted-foreground truncate max-w-[90px]">{c.name}</span>
+                          <span className="text-muted-foreground truncate max-w-[100px]">{c.name}</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">{c.successRate.toFixed(0)}%</span>
-                          <span className="font-medium text-foreground">{fmtNGN(c.value)}</span>
-                        </div>
+                        <span className="font-semibold text-foreground">{fmtNGN(c.value)}</span>
                       </div>
                     ))}
                   </div>
@@ -527,143 +731,73 @@ export default function MerchantAnalyticsDashboard() {
           </Card>
         </div>
 
-        {/* ── Transaction Status Breakdown + Fraud Stats ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Stacked bar: status breakdown */}
-          <Card className="xl:col-span-2 border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Daily Transaction Status</CardTitle>
-              <CardDescription className="text-xs">Completed, failed, and pending by day</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-52 w-full" />
-              ) : dailyData.length === 0 ? (
-                <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">No data</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={dailyData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }} barSize={8}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="completed" name="Completed" stackId="a" fill={COLORS.success} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="pending" name="Pending" stackId="a" fill={COLORS.warning} />
-                    <Bar dataKey="failed" name="Failed" stackId="a" fill={COLORS.danger} radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Fraud & dispute summary */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-amber-500" />
-                Risk Summary
-              </CardTitle>
-              <CardDescription className="text-xs">Fraud alerts and open disputes</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {isLoading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-10 w-full" />)}
-                </div>
-              ) : (
-                <>
-                  {[
-                    {
-                      label: "Total Fraud Alerts",
-                      value: bundle?.fraudStats?.total ?? 0,
-                      icon: ShieldAlert,
-                      color: "text-amber-500",
-                      bg: "bg-amber-50 dark:bg-amber-900/20",
-                    },
-                    {
-                      label: "Open Alerts",
-                      value: bundle?.fraudStats?.open ?? 0,
-                      icon: XCircle,
-                      color: "text-red-500",
-                      bg: "bg-red-50 dark:bg-red-900/20",
-                    },
-                    {
-                      label: "Under Investigation",
-                      value: bundle?.fraudStats?.investigating ?? 0,
-                      icon: Clock,
-                      color: "text-blue-500",
-                      bg: "bg-blue-50 dark:bg-blue-900/20",
-                    },
-                    {
-                      label: "Avg Risk Score",
-                      value: `${((bundle?.fraudStats?.avgRiskScore ?? 0) * 100).toFixed(0)}%`,
-                      icon: Activity,
-                      color: "text-indigo-500",
-                      bg: "bg-indigo-50 dark:bg-indigo-900/20",
-                    },
-                  ].map((item, i) => (
-                    <div key={i} className={`flex items-center gap-3 p-3 rounded-lg ${item.bg}`}>
-                      <item.icon className={`w-4 h-4 flex-shrink-0 ${item.color}`} />
-                      <span className="text-sm text-muted-foreground flex-1">{item.label}</span>
-                      <span className="text-sm font-bold text-foreground">{item.value}</span>
-                    </div>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full mt-2 text-xs gap-1"
-                    onClick={() => setLocation("/fraud-risk")}
-                  >
-                    View Fraud Risk <ArrowRight className="w-3 h-3" />
-                  </Button>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        {/* ── Daily Status Breakdown ── */}
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Daily Transaction Status</CardTitle>
+            <CardDescription className="text-xs">Completed, failed, and pending transactions by day</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-48 w-full" />
+            ) : dailyData.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No data for this period</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={dailyData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="completed" name="Completed" stackId="a" fill={COLORS.success} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="failed" name="Failed" stackId="a" fill={COLORS.danger} />
+                  <Bar dataKey="pending" name="Pending" stackId="a" fill={COLORS.warning} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
 
         {/* ── Hourly Heatmap ── */}
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="w-4 h-4 text-indigo-500" />
-              Activity Heatmap
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Transaction frequency by hour of day and day of week (darker = more activity)
-            </CardDescription>
+            <CardTitle className="text-base">Activity Heatmap</CardTitle>
+            <CardDescription className="text-xs">Transaction frequency by hour of day and day of week</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <Skeleton className="h-36 w-full" />
+              <Skeleton className="h-32 w-full" />
             ) : (
               <div className="overflow-x-auto">
-                <div className="min-w-[600px]">
+                <div className="inline-block min-w-full">
                   {/* Hour labels */}
-                  <div className="flex items-center mb-1 pl-10">
+                  <div className="flex gap-0.5 mb-1 ml-10">
                     {Array.from({ length: 24 }, (_, h) => (
-                      <div key={h} className="flex-1 text-center text-[10px] text-muted-foreground">
-                        {h % 3 === 0 ? `${h}h` : ""}
+                      <div key={h} className="w-4 text-center text-[9px] text-muted-foreground">
+                        {h % 4 === 0 ? `${h}h` : ""}
                       </div>
                     ))}
                   </div>
-                  {/* Grid rows */}
-                  {DOW_LABELS.map((day, dow) => (
-                    <div key={dow} className="flex items-center gap-1 mb-1">
-                      <span className="w-9 text-[11px] text-muted-foreground text-right pr-2 flex-shrink-0">{day}</span>
-                      {Array.from({ length: 24 }, (_, h) => (
-                        <div key={h} className="flex-1">
-                          <HeatmapCell value={heatmapGrid[dow][h]} max={heatmapMax} />
-                        </div>
+                  {DOW_LABELS.map((dow, d) => (
+                    <div key={d} className="flex items-center gap-0.5 mb-0.5">
+                      <span className="w-9 text-[10px] text-muted-foreground text-right pr-1 flex-shrink-0">{dow}</span>
+                      {heatmapGrid[d].map((val, h) => (
+                        <HeatmapCell key={h} value={val} max={heatmapMax} />
                       ))}
                     </div>
                   ))}
                   {/* Legend */}
-                  <div className="flex items-center gap-2 mt-2 justify-end">
+                  <div className="flex items-center gap-1 mt-2 ml-10">
                     <span className="text-[10px] text-muted-foreground">Less</span>
-                    {["bg-muted/30", "bg-indigo-100", "bg-indigo-300", "bg-indigo-500", "bg-indigo-700"].map((c, i) => (
-                      <div key={i} className={`w-3 h-3 rounded-sm ${c}`} />
+                    {[0, 0.25, 0.5, 0.75, 1].map((v, i) => (
+                      <div key={i} className={`w-3 h-3 rounded-sm ${
+                        v === 0 ? "bg-muted/30"
+                        : v < 0.3 ? "bg-indigo-100 dark:bg-indigo-900/30"
+                        : v < 0.6 ? "bg-indigo-300 dark:bg-indigo-700/50"
+                        : v < 0.8 ? "bg-indigo-500"
+                        : "bg-indigo-700 dark:bg-indigo-400"
+                      }`} />
                     ))}
                     <span className="text-[10px] text-muted-foreground">More</span>
                   </div>
@@ -677,57 +811,52 @@ export default function MerchantAnalyticsDashboard() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {/* Top customers */}
           <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Top Customers</CardTitle>
-                  <CardDescription className="text-xs">By total spend this period</CardDescription>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs gap-1 h-7"
-                  onClick={() => setLocation("/customers")}
-                >
-                  All Customers <ArrowRight className="w-3 h-3" />
-                </Button>
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Top Customers</CardTitle>
+                <CardDescription className="text-xs">By total spend this period</CardDescription>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => setLocation("/customers")}
+              >
+                All Customers <ArrowRight className="w-3 h-3" />
+              </Button>
             </CardHeader>
             <CardContent>
               {isLoading ? (
                 <div className="space-y-3">
-                  {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+                  {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                 </div>
               ) : (bundle?.topCustomers ?? []).length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">No customer data for this period</div>
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-2">
                   {(bundle?.topCustomers ?? []).slice(0, 8).map((c: any, i: number) => {
-                    const spend = Number(c.totalSpend ?? 0);
                     const maxSpend = Number((bundle?.topCustomers ?? [])[0]?.totalSpend ?? 1);
-                    const pct = maxSpend > 0 ? (spend / maxSpend) * 100 : 0;
+                    const pct = maxSpend > 0 ? (Number(c.totalSpend ?? 0) / maxSpend) * 100 : 0;
                     return (
-                      <div key={i} className="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-muted/50 transition-colors group">
-                        <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-[11px] font-bold text-indigo-600 dark:text-indigo-400 flex-shrink-0">
-                          {i + 1}
-                        </div>
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-muted-foreground w-4 flex-shrink-0">{i + 1}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {c.customerEmail ?? c.customerId ?? "Anonymous"}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-indigo-500 rounded-full transition-all"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                              {Number(c.txCount ?? 0)} txns
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-xs font-medium text-foreground truncate">
+                              {c.customerEmail ?? c.customerId ?? "Anonymous"}
+                            </span>
+                            <span className="text-xs font-bold text-foreground ml-2 flex-shrink-0">{fmtNGN(c.totalSpend)}</span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                          <div className="flex justify-between mt-0.5">
+                            <span className="text-[10px] text-muted-foreground">{c.txCount} transactions</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              Last: {c.lastTxAt ? fmtDate(c.lastTxAt) : "—"}
                             </span>
                           </div>
                         </div>
-                        <span className="text-sm font-bold text-foreground flex-shrink-0">{fmtNGN(spend)}</span>
                       </div>
                     );
                   })}
@@ -738,48 +867,44 @@ export default function MerchantAnalyticsDashboard() {
 
           {/* Recent transaction feed */}
           <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Live Transaction Feed
-                  </CardTitle>
-                  <CardDescription className="text-xs">Most recent 20 transactions</CardDescription>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs gap-1 h-7"
-                  onClick={() => setLocation("/transactions")}
-                >
-                  All Transactions <ArrowRight className="w-3 h-3" />
-                </Button>
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Live Transaction Feed</CardTitle>
+                <CardDescription className="text-xs">Latest 20 transactions — click for details</CardDescription>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => setLocation("/transactions")}
+              >
+                All <ArrowRight className="w-3 h-3" />
+              </Button>
             </CardHeader>
             <CardContent>
               {feedLoading ? (
                 <div className="space-y-2">
-                  {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+                  {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
                 </div>
               ) : (recentFeed ?? []).length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">No recent transactions</div>
               ) : (
-                <div className="space-y-1 max-h-[380px] overflow-y-auto pr-1">
-                  {(recentFeed ?? []).map((tx: any, i: number) => (
-                    <div
-                      key={tx.id ?? i}
-                      className="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-muted/50 transition-colors"
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                  {(recentFeed ?? []).map((tx: any) => (
+                    <button
+                      key={tx.id}
+                      className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors text-left group"
+                      onClick={() => openTxDetail(tx.id)}
                     >
                       {/* Status icon */}
-                      <div className="flex-shrink-0">
-                        {tx.status === "completed" ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        ) : tx.status === "failed" ? (
-                          <XCircle className="w-4 h-4 text-red-500" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-amber-500" />
-                        )}
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        tx.status === "completed" ? "bg-emerald-100 dark:bg-emerald-900/30"
+                        : tx.status === "failed" ? "bg-red-100 dark:bg-red-900/30"
+                        : "bg-amber-100 dark:bg-amber-900/30"
+                      }`}>
+                        {tx.status === "completed" ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          : tx.status === "failed" ? <XCircle className="w-3.5 h-3.5 text-red-500" />
+                          : <Clock className="w-3.5 h-3.5 text-amber-500" />}
                       </div>
                       {/* Details */}
                       <div className="flex-1 min-w-0">
@@ -797,7 +922,7 @@ export default function MerchantAnalyticsDashboard() {
                         </p>
                         <StatusBadge status={tx.status ?? "pending"} />
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -850,10 +975,7 @@ export default function MerchantAnalyticsDashboard() {
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all"
-                                  style={{ width: `${share}%`, background: c.fill }}
-                                />
+                                <div className="h-full rounded-full transition-all" style={{ width: `${share}%`, background: c.fill }} />
                               </div>
                               <span className="text-xs text-muted-foreground w-10 text-right">{share.toFixed(1)}%</span>
                             </div>
@@ -868,7 +990,52 @@ export default function MerchantAnalyticsDashboard() {
           </CardContent>
         </Card>
 
+        {/* ── Fraud Summary ── */}
+        {fraudStats && (
+          <Card className="border-0 shadow-sm border-l-4 border-l-red-400">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-red-500" />
+                Fraud & Risk Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground">{Number(fraudStats.total ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">Total Alerts</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-red-500">{Number(fraudStats.open ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">Open</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-amber-500">{Number(fraudStats.investigating ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">Investigating</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground">
+                    {(Number(fraudStats.avgRiskScore ?? 0) * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">Avg Risk Score</p>
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => setLocation("/fraud-risk")}>
+                  Manage Fraud Alerts <ArrowRight className="w-3 h-3 ml-1" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      {/* ── Transaction Detail Modal ── */}
+      <TransactionDetailModal
+        txId={selectedTxId}
+        open={txModalOpen}
+        onClose={() => { setTxModalOpen(false); setSelectedTxId(null); }}
+      />
     </div>
   );
 }

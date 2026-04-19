@@ -156,6 +156,7 @@ export default function Settlements() {
   const { isAuthenticated } = useAuth();
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Settlement | null>(null);
 
   const { data, isLoading, refetch } = trpc.settlements.list.useQuery(
@@ -202,8 +203,18 @@ export default function Settlements() {
         </Button>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-3">
+      {/* Search + Filter */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input
+            type="text"
+            placeholder="Search by reference…"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
+            className="pl-9 pr-3 py-2 h-9 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring w-56"
+          />
+        </div>
         <Select value={statusFilter} onValueChange={(v: any) => { setStatusFilter(v); setPage(0); }}>
           <SelectTrigger className="h-9 w-44 text-sm">
             <SelectValue placeholder="All statuses" />
@@ -247,7 +258,7 @@ export default function Settlements() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((s: any) => (
+                {rows.filter((s: any) => !search || s.reference?.toLowerCase().includes(search.toLowerCase()) || s.accountName?.toLowerCase().includes(search.toLowerCase()) || s.accountNumber?.includes(search)).map((s: any) => (
                   <TableRow
                     key={s.id}
                     className="cursor-pointer hover:bg-muted/40"

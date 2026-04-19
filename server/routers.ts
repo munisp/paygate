@@ -2006,6 +2006,15 @@ const merchantAnalyticsRouter = router({
         ]);
       return { merchant, comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats };
     }),
+  /** Manually trigger analytics digest email for the current merchant */
+  sendDigest: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { sendMerchantDailyDigest } = await import('./digestEmail');
+      await sendMerchantDailyDigest(merchant.id);
+      return { sent: true };
+    }),
 });
 
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────

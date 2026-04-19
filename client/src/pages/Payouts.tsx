@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo } from "react";
-import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2, UserCheck, AlertCircle, ChevronsUpDown, Check } from "lucide-react";
+import { ArrowUpRight, Plus, RefreshCw, Upload, Download, CheckCircle, XCircle, FileText, Clock, ShieldAlert, Settings2, UserCheck, AlertCircle, ChevronsUpDown, Check, Search, ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -82,7 +83,11 @@ export default function Payouts() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const utils = trpc.useUtils();
 
-  const { data, isLoading, refetch } = trpc.payouts.list.useQuery({ limit: 20, offset: 0 }, { staleTime: 30_000 });
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const PAGE_SIZE = 20;
+  const { data, isLoading, refetch } = trpc.payouts.list.useQuery({ limit: PAGE_SIZE, offset: page * PAGE_SIZE }, { staleTime: 30_000 });
 
   const createPayout = trpc.payouts.create.useMutation({
     onSuccess: () => {
@@ -518,6 +523,30 @@ export default function Payouts() {
         </div>
       )}
 
+      {/* Search + Filter */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by ID, account, or narration…"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
+            className="pl-9 h-9 text-sm"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Filter className="w-4 h-4 text-muted-foreground" />
+          {["all", "completed", "pending", "pending_approval", "processing", "failed", "rejected"].map(s => (
+            <button key={s} onClick={() => { setStatusFilter(s); setPage(0); }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                statusFilter === s ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:text-foreground"
+              }`}>
+              {s === "all" ? "All" : s.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Payouts Table */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <table className="w-full text-sm">
@@ -531,9 +560,16 @@ export default function Payouts() {
           <tbody className="divide-y divide-border">
             {isLoading ? Array(6).fill(0).map((_, i) => (
               <tr key={i}><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td></tr>
-            )) : rows.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No payouts yet</td></tr>
-            ) : rows.map((p: any) => (
+            )) : (() => {
+              const filtered = rows.filter((p: any) => {
+                const ms = !search || p.id?.toLowerCase().includes(search.toLowerCase()) || p.accountNumber?.includes(search) || p.narration?.toLowerCase().includes(search.toLowerCase());
+                const mf = statusFilter === "all" || p.status === statusFilter;
+                return ms && mf;
+              });
+              if (filtered.length === 0) return (
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No payouts found</td></tr>
+              );
+              return filtered.map((p: any) => (
               <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}...</td>
                 <td className="px-4 py-3">{p.bankCode} · {p.accountNumber}</td>
@@ -542,10 +578,29 @@ export default function Payouts() {
                 <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">{p.narration ?? "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
               </tr>
-            ))}
+            )));
+            })()}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-xs text-muted-foreground">
+            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="h-8 px-2">
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-xs font-medium px-2 tabular-nums">{page + 1} / {Math.ceil(total / PAGE_SIZE)}</span>
+            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total} className="h-8 px-2">
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -529,3 +529,69 @@ export function registerDigestCronJobs(): void {
 
   console.info("[digestEmail] Digest cron jobs registered (merchant daily, consumer weekly, admin weekly)");
 }
+
+// ─── Single-merchant digest (for manual trigger from analytics dashboard) ────
+
+export async function sendMerchantDailyDigest(merchantId: string): Promise<void> {
+  try {
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    const drizzle = await getDb();
+    if (!drizzle) return;
+    const { sql } = await import("drizzle-orm");
+
+    const merchantResult = await drizzle.execute(sql`
+      SELECT m.id, m.email, m.business_name, m.currency
+      FROM merchants m WHERE m.id = ${merchantId} LIMIT 1
+    `);
+    const merchant = extractRows(merchantResult)[0];
+    if (!merchant?.email) return;
+
+    const statsResult = await drizzle.execute(sql`
+      SELECT
+        COUNT(*) as tx_count,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as tx_volume,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_tx
+      FROM transactions
+      WHERE merchant_id = ${merchantId}
+        AND created_at >= ${yesterday.toISOString().split("T")[0]}::timestamptz
+    `);
+    const stat = extractRows(statsResult)[0] ?? { tx_count: 0, tx_volume: 0, failed_tx: 0 };
+
+    const newCustResult = await drizzle.execute(sql`
+      SELECT COUNT(*) as cnt FROM customers WHERE merchant_id = ${merchantId}
+        AND created_at >= ${yesterday.toISOString().split("T")[0]}::timestamptz
+    `);
+    const newCustomers = Number(extractRows(newCustResult)[0]?.cnt ?? 0);
+
+    const pendingPayoutsResult = await drizzle.execute(sql`
+      SELECT COUNT(*) as cnt FROM payouts WHERE merchant_id = ${merchantId} AND status = 'pending'
+    `);
+    const pendingPayouts = Number(extractRows(pendingPayoutsResult)[0]?.cnt ?? 0);
+
+    const currency = merchant.currency ?? "NGN";
+    const volume = (Number(stat.tx_volume) / 100).toFixed(2);
+
+    await sendEmail({
+      to: merchant.email as string,
+      subject: `PayGate Daily Digest — ${dateStr}`,
+      html: merchantDailyDigestHtml({
+        merchantName: (merchant.business_name as string) ?? "Merchant",
+        date: dateStr,
+        txCount: Number(stat.tx_count),
+        txVolume: volume,
+        currency,
+        failedTx: Number(stat.failed_tx),
+        pendingPayouts,
+        newCustomers,
+        alerts: [],
+        portalUrl: PORTAL_URL,
+      }),
+    });
+  } catch (err) {
+    console.error("[digestEmail] Single merchant digest error:", err);
+    throw err;
+  }
+}
