@@ -211,6 +211,14 @@ import AdminHelpAnalytics from "./pages/admin/AdminHelpAnalytics";
 import ConsumerBudgets from "./pages/consumer/ConsumerBudgets";
 import ConsumerSavingsGoals from "./pages/consumer/ConsumerSavingsGoals";
 import ConsumerReferrals from "./pages/consumer/ConsumerReferrals";
+import AdminAuditLog from "./pages/admin/AdminAuditLog";
+import AdminApiPlayground from "./pages/admin/AdminApiPlayground";
+import AdminRateLimitDashboard from "./pages/admin/AdminRateLimitDashboard";
+import AdminSdkTokens from "./pages/admin/AdminSdkTokens";
+import TransactionReceipt from "./pages/TransactionReceipt";
+import RefundWorkflow from "./pages/RefundWorkflow";
+import PayoutBatching from "./pages/PayoutBatching";
+import ConsumerHelpSearch from "./pages/consumer/ConsumerHelpSearch";
 
 function Router() {
   const [location] = useLocation();
@@ -272,6 +280,7 @@ function Router() {
           <Route path="/consumer/budgets" component={ConsumerBudgets} />
           <Route path="/consumer/savings" component={ConsumerSavingsGoals} />
           <Route path="/consumer/referrals" component={ConsumerReferrals} />
+          <Route path="/consumer/help-search" component={ConsumerHelpSearch} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -348,6 +357,10 @@ function Router() {
       <Route path="/admin/merchant-risk" component={AdminMerchantRisk} />
       <Route path="/admin/chargebacks" component={AdminChargebacks} />
       <Route path="/admin/help-analytics" component={AdminHelpAnalytics} />
+      <Route path="/admin/audit-log" component={AdminAuditLog} />
+      <Route path="/admin/api-playground" component={AdminApiPlayground} />
+      <Route path="/admin/rate-limits" component={AdminRateLimitDashboard} />
+      <Route path="/admin/sdk-tokens" component={AdminSdkTokens} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
       <Route path="/go-live-checklist" component={GoLiveChecklist} />
@@ -357,6 +370,9 @@ function Router() {
         <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />
         <Route path="/audit-log" component={AuditLog} />
         <Route path="/purchase-orders" component={PurchaseOrders} />
+        <Route path="/refunds" component={RefundWorkflow} />
+        <Route path="/payout-batching" component={PayoutBatching} />
+        <Route path="/receipt/:txId" component={TransactionReceipt} />
         <Route path="/vendors" component={Vendors} />
         <Route path="/settlements" component={Settlements} />
         {/* Tier 1-5 New Features */}

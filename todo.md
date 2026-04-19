@@ -2780,3 +2780,11 @@
 - [x] nginx/nginx.conf — production reverse proxy with SSL, rate limiting, security headers, gzip
 - [x] docs/env-reference.md — comprehensive environment variables reference (all 70+ vars documented)
 - [x] Wave 24 complete — all items done
+## Wave 25 — Full Production Finalization (Apr 19, 2026)
+- [x] Security: 0 production CVEs confirmed
+- [x] wave25Router.ts — 16 sub-routers: chargebackEvidence, featureFlagSdk, consumerBudgetAlerts, merchantStatus, auditLog, apiPlayground, rateLimitDashboard, transactionReceipt, settlementSla, revenueAnalytics, systemHealth, sdkToken, webhookSimulator, helpSearchConsumer, tooltips, onboardingWizard
+- [x] AdminAuditLog.tsx, AdminApiPlayground.tsx, AdminRateLimitDashboard.tsx, AdminSystemHealth.tsx, AdminSdkTokens.tsx
+- [x] TransactionReceipt.tsx, RefundWorkflow.tsx, PayoutBatching.tsx, ConsumerHelpSearch.tsx
+- [x] useDebounce.ts hook, k8s/ manifests (7 files), seed-wave25.mjs, smoke-test-wave25.mjs
+- [x] 2094 vitest tests passing, 18/18 smoke tests passing, 0 vulnerabilities
+- [x] Wave 25 Complete

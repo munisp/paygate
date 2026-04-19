@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-merchant-portal
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+    version: "1.0.0"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: paygate-merchant-portal
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: paygate-merchant-portal
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/api/metrics"
+    spec:
+      serviceAccountName: paygate-portal
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: paygate-merchant-portal
+          image: paygate/merchant-portal:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: JWT_SECRET
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: STRIPE_SECRET_KEY
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: STRIPE_WEBHOOK_SECRET
+            - name: SMTP_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: SMTP_PORT
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: SMTP_USER
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: SMTP_PASS
+            - name: NIBSS_GATEWAY_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: NIBSS_GATEWAY_URL
+            - name: NIBSS_INSTITUTION_CODE
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: NIBSS_INSTITUTION_CODE
+            - name: NIBSS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: NIBSS_SECRET_KEY
+            - name: MOJALOOP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: MOJALOOP_URL
+            - name: MOJALOOP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MOJALOOP_API_KEY
+            - name: PAYMENT_LINK_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: PAYMENT_LINK_BASE_URL
+            - name: MERCHANT_PORTAL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: MERCHANT_PORTAL_URL
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - paygate-merchant-portal
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30

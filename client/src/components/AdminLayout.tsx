@@ -22,6 +22,12 @@ import {
   CreditCard,
   BarChart2,
   Flag,
+  BookOpen,
+  Key,
+  Gauge,
+  Terminal,
+  RotateCcw,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +75,10 @@ const adminNavItems = [
       { label: "Merchant Risk", href: "/admin/merchant-risk", icon: Shield },
       { label: "Chargebacks", href: "/admin/chargebacks", icon: CreditCard },
       { label: "Help Analytics", href: "/admin/help-analytics", icon: BarChart2 },
+      { label: "Audit Log", href: "/admin/audit-log", icon: BookOpen },
+      { label: "API Playground", href: "/admin/api-playground", icon: Terminal },
+      { label: "Rate Limits", href: "/admin/rate-limits", icon: Gauge },
+      { label: "SDK Tokens", href: "/admin/sdk-tokens", icon: Key },
       { label: "Configuration", href: "/admin/config", icon: Settings2 },
     ],
   },

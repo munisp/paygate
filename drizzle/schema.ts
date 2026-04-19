@@ -3486,6 +3486,8 @@ export const chargebacks = pgTable("chargebacks", {
   evidenceSubmitted: boolean("evidence_submitted").notNull().default(false),
   evidenceDeadline: timestamp("evidence_deadline"),
   evidence: text("evidence"),
+  evidenceUrl: text("evidence_url"),
+  evidenceFileName: text("evidence_file_name"),
   notes: text("notes"),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

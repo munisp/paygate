@@ -309,6 +309,13 @@
       "when": 1776564109230,
       "tag": "0043_steady_silver_sable",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1776585990193,
+      "tag": "0044_ambitious_masque",
+      "breakpoints": true
     }
   ]
 }

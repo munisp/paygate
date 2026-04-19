@@ -116,6 +116,8 @@ const navGroups: NavGroup[] = [
     icon: Wallet,
     items: [
       { icon: Wallet, label: "Payouts", path: "/payouts" },
+      { icon: Layers, label: "Payout Batching", path: "/payout-batching" },
+      { icon: RefreshCw, label: "Refunds", path: "/refunds" },
       { icon: Banknote, label: "Settlements", path: "/settlements" },
       { icon: TrendingUp, label: "Settlement Forecast", path: "/settlement-forecast" },
       { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement" },
