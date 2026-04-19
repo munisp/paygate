@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import net from "net";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomBytes } from "crypto";
 import path from "path";
 import { logger, logRequest } from "../logger";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -278,7 +278,7 @@ async function startServer() {
     // Issue CSRF token cookie if not present
     const existingToken = req.cookies?.['csrf-token'];
     if (!existingToken) {
-      const newToken = require('crypto').randomBytes(32).toString('hex');
+      const newToken = randomBytes(32).toString('hex');
       res.cookie('csrf-token', newToken, {
         httpOnly: false, // Must be readable by JS to echo in header
         secure: !isDev,
@@ -1576,7 +1576,7 @@ async function startServer() {
     },
   }));
   app.get("/consumer", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
-  app.get("/consumer/*", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
+  app.get("/consumer/{*path}", (_req, res) => res.sendFile(path.join(publicDir, "consumer", "index.html")));
 
   app.use("/admin-portal", express.static(path.join(publicDir, "admin-portal"), {
     setHeaders: (res, filePath) => {
@@ -1585,7 +1585,7 @@ async function startServer() {
     },
   }));
   app.get("/admin-portal", (_req, res) => res.sendFile(path.join(publicDir, "admin-portal", "index.html")));
-  app.get("/admin-portal/*", (_req, res) => res.sendFile(path.join(publicDir, "admin-portal", "index.html")));
+  app.get("/admin-portal/{*path}", (_req, res) => res.sendFile(path.join(publicDir, "admin-portal", "index.html")));
 
   // ─── Static / Vite ─────────────────────────────────────────────────────────
   if (process.env.NODE_ENV === "development") {
