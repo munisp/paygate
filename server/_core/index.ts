@@ -29,6 +29,7 @@ import { notifyOwner } from "./notification";
 import { startReservationExpiryWorker } from "../reservationExpiryWorker";
 import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 import { validateEnvironment } from "../security";
+import { installPrototypePollutionGuard, reDoSGuard, getWave29SecurityReport } from "../security29";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -300,6 +301,9 @@ async function startServer() {
     next();
   });
 
+  // ─── Security Guards ─────────────────────────────────────────────────────────
+  app.use(reDoSGuard); // VULN-022: Block suspiciously long URL paths (ReDoS mitigation)
+
   // ─── Rate Limiting ─────────────────────────────────────────────────────────
   app.use(globalLimiter);
   app.use("/api/oauth", authLimiter);
@@ -538,6 +542,13 @@ async function startServer() {
   // ─── OAuth ─────────────────────────────────────────────────────────
   registerOAuthRoutes(app);
   registerKeycloakRoutes(app);
+
+  // ─── Wave 29: Subdomain Middleware & Branding Routes ──────────────────────
+  const { subdomainMiddleware, tenantBrandingHandler, tenantBrandingJsonHandler, prometheusMetricsHandler } = await import('../subdomainMiddleware');
+  app.use(subdomainMiddleware);
+  app.get('/api/tenant/branding/:slug', tenantBrandingHandler);
+  app.get('/api/tenant/branding/:slug/json', tenantBrandingJsonHandler);
+  app.get('/api/metrics', prometheusMetricsHandler);
 
   // ─── File Upload ───────────────────────────────────────────────────────────
   const upload = multer({
@@ -1626,6 +1637,7 @@ function validateEnv() {
 // ─── Background Schedulers ───────────────────────────────────────────────────────────────
 validateEnv();
 validateEnvironment(); // VULN-012: Extended env validation from security.ts
+installPrototypePollutionGuard(); // VULN-021: Freeze Object.prototype against lodash prototype pollution
 startSlaEscalationScheduler();
 startWebhookRetryWorker();         // Exponential backoff retry (7 attempts, 30s poll)
 startIdempotencyCleanupWorker();   // Purge expired idempotency keys every 6 hours

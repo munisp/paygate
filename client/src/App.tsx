@@ -234,6 +234,18 @@ import AdminInviteCodes from "./pages/admin/AdminInviteCodes";
 import PartnerOnboard from "./pages/PartnerOnboard";
 import TenantAdminDashboard from "./pages/TenantAdminDashboard";
 import WhiteLabelPreview from "./pages/WhiteLabelPreview";
+// Wave 29 imports
+import TenantBillingDashboard from "./pages/TenantBillingDashboard";
+import CorridorManagement from "./pages/CorridorManagement";
+import TenantSsoConfig from "./pages/TenantSsoConfig";
+import TenantApiKeys from "./pages/TenantApiKeys";
+import RateLimitDashboard from "./pages/RateLimitDashboard";
+import LoyaltyAutoPromotion from "./pages/LoyaltyAutoPromotion";
+import BnplRepaymentTracker from "./pages/BnplRepaymentTracker";
+import DisputeEscalation from "./pages/DisputeEscalation";
+import AdminRevenueAnalytics from "./pages/admin/AdminRevenueAnalytics";
+import AdminSlaMonitoring from "./pages/admin/AdminSlaMonitoring";
+import AdminChargebackManagement from "./pages/admin/AdminChargebackManagement";
 
 function Router() {
   const [location] = useLocation();
@@ -505,6 +517,18 @@ function Router() {
         <Route path="/kyb-verification" component={KYBVerification} />
         <Route path="/compliance-reports" component={ComplianceReports} />
         <Route path="/sdk-tokens" component={SDKTokens} />
+        {/* Wave 29 routes */}
+        <Route path="/tenant/billing" component={TenantBillingDashboard} />
+        <Route path="/tenant/corridors" component={CorridorManagement} />
+        <Route path="/tenant/sso" component={TenantSsoConfig} />
+        <Route path="/tenant/api-keys" component={TenantApiKeys} />
+        <Route path="/admin/rate-limit-dashboard" component={RateLimitDashboard} />
+        <Route path="/loyalty/auto-promotion" component={LoyaltyAutoPromotion} />
+        <Route path="/bnpl/repayment-tracker" component={BnplRepaymentTracker} />
+        <Route path="/disputes/escalation" component={DisputeEscalation} />
+        <Route path="/admin/revenue-analytics" component={AdminRevenueAnalytics} />
+        <Route path="/admin/sla-monitoring" component={AdminSlaMonitoring} />
+        <Route path="/admin/chargeback-management" component={AdminChargebackManagement} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

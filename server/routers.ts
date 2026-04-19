@@ -30,6 +30,7 @@ import { wave25Router } from './wave25Router';
 import { wave26Router } from './wave26Router';
 import { wave27Router } from './wave27Router';
 import { wave28Router } from './wave28Router';
+import { wave29Router } from './wave29Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -6959,6 +6960,7 @@ export const appRouter = router({
   //            audit log CSV export, settlement SLA, payout approval, webhook retry, security score
   wave27: wave27Router,
   wave28: wave28Router,
+  wave29: wave29Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
