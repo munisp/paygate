@@ -43,6 +43,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
       { icon: BarChart3, label: "Analytics", path: "/analytics" },
+      { icon: BarChart2, label: "Merchant Analytics", path: "/merchant-analytics", badge: "New" },
       { icon: FileText, label: "Reports Center", path: "/reports" },
       { icon: Brain, label: "AI Insights", path: "/ai-insights", badge: "AI" },
       { icon: Bell, label: "Notifications", path: "/notifications" },

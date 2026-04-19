@@ -2486,3 +2486,111 @@ export async function getSettlementSLABreaches(merchantId: string, opts: { limit
     and(eq(settlements.merchantId, merchantId), eq(settlements.status, "sla_breached"))
   ).orderBy(desc(settlements.createdAt)).limit(opts.limit ?? 50);
 }
+
+// ─── Extended Analytics Helpers (Merchant Analytics Dashboard) ───────────────
+
+/** Top customers by total spend in a date range */
+export async function getTopCustomers(merchantId: string, from: Date, to: Date, limit = 10) {
+  const db = await getDb(); if (!db) return [];
+  return db.select({
+    customerId: transactions.customerId,
+    customerEmail: transactions.customerEmail,
+    totalSpend: sum(transactions.amount),
+    txCount: count(),
+    lastTxAt: sql<string>`MAX(created_at)`,
+  }).from(transactions)
+    .where(and(
+      eq(transactions.merchantId, merchantId),
+      eq(transactions.status, "completed"),
+      gte(transactions.createdAt, from),
+      lte(transactions.createdAt, to),
+    ))
+    .groupBy(transactions.customerId, transactions.customerEmail)
+    .orderBy(desc(sum(transactions.amount)))
+    .limit(limit);
+}
+
+/** Hourly transaction volume heatmap (0-23 hours x days-of-week 0-6) */
+export async function getHourlyHeatmap(merchantId: string, from: Date, to: Date) {
+  const db = await getDb(); if (!db) return [];
+  return db.select({
+    hour: sql<number>`EXTRACT(HOUR FROM created_at)::int`,
+    dow: sql<number>`EXTRACT(DOW FROM created_at)::int`,
+    txCount: count(),
+    volume: sum(transactions.amount),
+  }).from(transactions)
+    .where(and(
+      eq(transactions.merchantId, merchantId),
+      eq(transactions.status, "completed"),
+      gte(transactions.createdAt, from),
+      lte(transactions.createdAt, to),
+    ))
+    .groupBy(sql`EXTRACT(HOUR FROM created_at)`, sql`EXTRACT(DOW FROM created_at)`)
+    .orderBy(sql`EXTRACT(DOW FROM created_at)`, sql`EXTRACT(HOUR FROM created_at)`);
+}
+
+/** Period-over-period comparison for KPIs */
+export async function getPeriodComparison(merchantId: string, from: Date, to: Date) {
+  const db = await getDb(); if (!db) return null;
+  const periodMs = to.getTime() - from.getTime();
+  const prevFrom = new Date(from.getTime() - periodMs);
+  const prevTo = new Date(from.getTime());
+
+  const query = (f: Date, t: Date) => db.select({
+    totalVolume: sum(transactions.amount),
+    totalFees: sum(transactions.feeAmount),
+    totalCount: count(),
+    completedCount: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+    failedCount: sql<number>`SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)`,
+    avgTxAmount: sql<number>`AVG(CASE WHEN status = 'completed' THEN amount END)`,
+  }).from(transactions)
+    .where(and(eq(transactions.merchantId, merchantId), gte(transactions.createdAt, f), lte(transactions.createdAt, t)));
+
+  const [current, previous, custCurrent, custPrevious] = await Promise.all([
+    query(from, to),
+    query(prevFrom, prevTo),
+    db.select({ count: count() }).from(customers)
+      .where(and(eq(customers.merchantId, merchantId), gte(customers.createdAt, from), lte(customers.createdAt, to))),
+    db.select({ count: count() }).from(customers)
+      .where(and(eq(customers.merchantId, merchantId), gte(customers.createdAt, prevFrom), lte(customers.createdAt, prevTo))),
+  ]);
+
+  return {
+    current: { ...current[0], newCustomers: custCurrent[0]?.count ?? 0 },
+    previous: { ...previous[0], newCustomers: custPrevious[0]?.count ?? 0 },
+  };
+}
+
+/** Daily transaction counts grouped by status for stacked bar chart */
+export async function getDailyStatusBreakdown(merchantId: string, from: Date, to: Date) {
+  const db = await getDb(); if (!db) return [];
+  return db.select({
+    date: sql<string>`DATE(created_at)`,
+    completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+    failed: sql<number>`SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)`,
+    pending: sql<number>`SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)`,
+    totalAmount: sum(transactions.amount),
+  }).from(transactions)
+    .where(and(eq(transactions.merchantId, merchantId), gte(transactions.createdAt, from), lte(transactions.createdAt, to)))
+    .groupBy(sql`DATE(created_at)`)
+    .orderBy(sql`DATE(created_at)`);
+}
+
+/** Recent transactions with full details for the live feed */
+export async function getRecentTransactionsFeed(merchantId: string, limit = 20) {
+  const db = await getDb(); if (!db) return [];
+  return db.select({
+    id: transactions.id,
+    amount: transactions.amount,
+    currency: transactions.currency,
+    status: transactions.status,
+    channel: transactions.channel,
+    customerEmail: transactions.customerEmail,
+    description: transactions.description,
+    createdAt: transactions.createdAt,
+    feeAmount: transactions.feeAmount,
+  }).from(transactions)
+    .where(eq(transactions.merchantId, merchantId))
+    .orderBy(desc(transactions.createdAt))
+    .limit(limit);
+}

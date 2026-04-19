@@ -13,6 +13,7 @@ import Transactions from "./pages/Transactions";
 import Customers from "./pages/Customers";
 import VirtualCards from "./pages/VirtualCards";
 import Analytics from "./pages/Analytics";
+import MerchantAnalyticsDashboard from "./pages/MerchantAnalyticsDashboard";
 import Checkout from "./pages/Checkout";
 import APIKeys from "./pages/APIKeys";
 import Webhooks from "./pages/Webhooks";
@@ -338,6 +339,7 @@ function Router() {
         <Route path="/customers" component={Customers} />
         <Route path="/virtual-cards" component={VirtualCards} />
         <Route path="/analytics" component={Analytics} />
+        <Route path="/merchant-analytics" component={MerchantAnalyticsDashboard} />
         <Route path="/checkout" component={Checkout} />
         <Route path="/payouts" component={Payouts} />
         <Route path="/usdc-payouts" component={USDCPayouts} />

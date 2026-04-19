@@ -1930,8 +1930,85 @@ const analyticsRouter = router({
       return { buckets, totalSubmissions, passRate, avgScore };
     }),
 });
-// ─── Middleware Bridge Router ─────────────────────────────────────────────────
+// ─── Merchant Analytics Dashboard Router ────────────────────────────────────
+const merchantAnalyticsRouter = router({
+  /** KPI comparison: current vs previous period */
+  periodComparison: protectedProcedure
+    .input(z.object({ from: z.date(), to: z.date() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getPeriodComparison } = await import('./db');
+      return getPeriodComparison(merchant.id, input.from, input.to);
+    }),
 
+  /** Daily status breakdown for stacked bar chart */
+  dailyStatusBreakdown: protectedProcedure
+    .input(z.object({ from: z.date(), to: z.date() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDailyStatusBreakdown } = await import('./db');
+      return getDailyStatusBreakdown(merchant.id, input.from, input.to);
+    }),
+
+  /** Top customers by spend */
+  topCustomers: protectedProcedure
+    .input(z.object({ from: z.date(), to: z.date(), limit: z.number().int().min(1).max(50).default(10) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getTopCustomers } = await import('./db');
+      return getTopCustomers(merchant.id, input.from, input.to, input.limit);
+    }),
+
+  /** Hourly activity heatmap */
+  hourlyHeatmap: protectedProcedure
+    .input(z.object({ from: z.date(), to: z.date() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getHourlyHeatmap } = await import('./db');
+      return getHourlyHeatmap(merchant.id, input.from, input.to);
+    }),
+
+  /** Recent transaction feed */
+  recentFeed: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getRecentTransactionsFeed } = await import('./db');
+      return getRecentTransactionsFeed(merchant.id, input.limit);
+    }),
+
+  /** Full dashboard bundle — single round-trip for the analytics page */
+  bundle: protectedProcedure
+    .input(z.object({ from: z.date(), to: z.date() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const {
+        getPeriodComparison, getDailyStatusBreakdown, getTopCustomers,
+        getHourlyHeatmap, getRecentTransactionsFeed, getChannelBreakdown,
+        getRevenueTimeSeries, getFraudStats,
+      } = await import('./db');
+      const [comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats] =
+        await Promise.all([
+          getPeriodComparison(merchant.id, input.from, input.to),
+          getDailyStatusBreakdown(merchant.id, input.from, input.to),
+          getTopCustomers(merchant.id, input.from, input.to, 10),
+          getHourlyHeatmap(merchant.id, input.from, input.to),
+          getRecentTransactionsFeed(merchant.id, 20),
+          getChannelBreakdown(merchant.id, input.from, input.to),
+          getRevenueTimeSeries(merchant.id, input.from, input.to),
+          getFraudStats(merchant.id),
+        ]);
+      return { merchant, comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats };
+    }),
+});
+
+// ─── Middleware Bridge Router ─────────────────────────────────────────────────
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
 
@@ -6864,6 +6941,7 @@ export const appRouter = router({
   auditLog: auditLogRouter,
   purchaseOrders: purchaseOrdersRouter,
   analytics: analyticsRouter,
+  merchantAnalytics: merchantAnalyticsRouter,
   middleware: middlewareRouter,
   fx: fxRouter,
   export: exportRouter,

@@ -3049,3 +3049,11 @@
 - [x] Full test suite — 2,387/2,387 passing across 66 test files
 - [x] Smoke tests — 19/20 passing (1 mutation called as GET = expected 405)
 - [x] Security score: 99/100 Grade A+ — 0 open vulnerabilities
+
+## Analytics Dashboard (April 2026)
+
+- [x] Add merchantAnalytics tRPC router with bundle, periodComparison, dailyStatusBreakdown, topCustomers, hourlyHeatmap, recentFeed procedures
+- [x] Add MerchantAnalyticsDashboard page with KPI cards, revenue trend chart, channel donut chart, stacked bar chart, hourly heatmap, top customers table, live transaction feed, channel performance table
+- [x] Register /merchant-analytics route in App.tsx
+- [x] Add "Merchant Analytics" nav link in Layout.tsx sidebar
+- [x] Write 12 vitest tests for analytics DB helpers and KPI logic (all passing)
