@@ -221,6 +221,15 @@ import TransactionReceipt from "./pages/TransactionReceipt";
 import RefundWorkflow from "./pages/RefundWorkflow";
 import PayoutBatching from "./pages/PayoutBatching";
 import ConsumerHelpSearch from "./pages/consumer/ConsumerHelpSearch";
+import AdminKybReview from "./pages/admin/AdminKybReview";
+import AdminFxHedging from "./pages/admin/AdminFxHedging";
+import AdminPayoutApproval from "./pages/admin/AdminPayoutApproval";
+import AdminComplianceReports from "./pages/admin/AdminComplianceReports";
+import AdminSecurityScore from "./pages/admin/AdminSecurityScore";
+import AdminWebhookRetry from "./pages/admin/AdminWebhookRetry";
+import AdminBnplUnderwriting from "./pages/admin/AdminBnplUnderwriting";
+import AdminLoyaltyTierEngine from "./pages/admin/AdminLoyaltyTierEngine";
+import ConsumerDisputeFiling from "./pages/consumer/ConsumerDisputeFiling";
 
 function Router() {
   const [location] = useLocation();
@@ -283,6 +292,7 @@ function Router() {
           <Route path="/consumer/savings" component={ConsumerSavingsGoals} />
           <Route path="/consumer/referrals" component={ConsumerReferrals} />
           <Route path="/consumer/help-search" component={ConsumerHelpSearch} />
+          <Route path="/consumer/dispute-filing" component={ConsumerDisputeFiling} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>
@@ -365,6 +375,14 @@ function Router() {
       <Route path="/admin/sdk-tokens" component={AdminSdkTokens} />
       <Route path="/admin/tenants" component={AdminTenantManagement} />
       <Route path="/admin/white-label" component={AdminWhiteLabel} />
+      <Route path="/admin/kyb-review" component={AdminKybReview} />
+      <Route path="/admin/fx-hedging" component={AdminFxHedging} />
+      <Route path="/admin/payout-approval" component={AdminPayoutApproval} />
+      <Route path="/admin/compliance-reports" component={AdminComplianceReports} />
+      <Route path="/admin/security-score" component={AdminSecurityScore} />
+      <Route path="/admin/webhook-retry" component={AdminWebhookRetry} />
+      <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
+      <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
       <Route path="/ollama-chat" component={OllamaChat} />
       <Route path="/go-live" component={GoLiveChecklist} />
       <Route path="/go-live-checklist" component={GoLiveChecklist} />

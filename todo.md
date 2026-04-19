@@ -2845,3 +2845,30 @@
 - [x] Full test suite: 2,115/2,115 tests passing (61 test files)
 - [x] All smoke tests: 18/18 passing
 - [x] Wave 26 complete — all items done
+
+## Wave 27 — Production Finalization (Apr 19, 2026)
+- [x] Security Wave 27: security27.ts with VULN-015 through VULN-020 (JWT rotation, SSRF protection, mass assignment, path traversal, timing attacks, prototype pollution)
+- [x] wave27Router.ts — 20 sub-routers: tenantOnboarding, flagExposure, domainSsl, kybLifecycle, complianceReport, consumerDispute, bnplUnderwriting, loyaltyTier, loyaltyTiers (alias), kybReview (alias), complianceReports (alias), referralRewards, fxHedging, budgetAlerts, tenantRateLimits, auditLogExport, settlementSla, payoutApproval, webhookRetry, securityScore
+- [x] Register wave27Router in routers.ts
+- [x] AdminKybReview.tsx — KYB/KYC lifecycle management with approve/reject/request-info workflow
+- [x] AdminFxHedging.tsx — FX hedging dashboard with live rates, hedge positions, P&L tracking
+- [x] AdminPayoutApproval.tsx — Payout batch approval workflow with multi-batch review
+- [x] AdminComplianceReports.tsx — Compliance report generator (AML, SAR, PCI-DSS, GDPR, CBN)
+- [x] AdminSecurityScore.tsx — Security posture dashboard with VULN tracking and score visualization
+- [x] AdminWebhookRetry.tsx — Webhook retry scheduler with dead-letter queue management
+- [x] AdminBnplUnderwriting.tsx — BNPL underwriting workflow with credit scoring and approval
+- [x] AdminLoyaltyTierEngine.tsx — Loyalty tier management (bronze/silver/gold/platinum) with cashback rates
+- [x] ConsumerDisputeFiling.tsx — Consumer dispute filing and management with evidence upload
+- [x] All Wave 27 nav links added to AdminLayout.tsx
+- [x] All Wave 27 routes registered in App.tsx
+- [x] loyalty_tier_configs table created and seeded (4 tiers: bronze, silver, gold, platinum)
+- [x] bnpl_applications seeded (15 records)
+- [x] payout_batches seeded (10 records)
+- [x] flag_exposure_events seeded (100 records)
+- [x] K8s deployment.yaml version updated to 1.27.0
+- [x] Wave 27 vitest tests: 30/30 passing
+- [x] Full test suite: 2,145/2,145 tests passing (62 test files)
+- [x] All smoke tests: 18/18 passing
+- [x] esbuild: clean compile (0 errors)
+- [x] Server health: ok (database: ok, circuitBreakers: all_closed)
+- [x] Wave 27 complete — all items done

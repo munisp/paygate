@@ -5,7 +5,7 @@ metadata:
   namespace: paygate
   labels:
     app: paygate-merchant-portal
-    version: "1.0.0"
+    version: "1.27.0"
 spec:
   replicas: 3
   selector:
@@ -20,7 +20,7 @@ spec:
     metadata:
       labels:
         app: paygate-merchant-portal
-        version: "1.0.0"
+        version: "1.27.0"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

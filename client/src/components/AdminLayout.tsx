@@ -30,6 +30,13 @@ import {
   Layers,
   Building,
   Palette,
+  FileCheck,
+  Stethoscope,
+  RefreshCcw,
+  Star,
+  TrendingDown,
+  ClipboardCheck,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -83,6 +90,14 @@ const adminNavItems = [
       { label: "SDK Tokens", href: "/admin/sdk-tokens", icon: Key },
       { label: "Tenant Management", href: "/admin/tenants", icon: Building },
       { label: "White Label", href: "/admin/white-label", icon: Palette },
+      { label: "KYB Review", href: "/admin/kyb-review", icon: FileCheck },
+      { label: "BNPL Underwriting", href: "/admin/bnpl-underwriting", icon: CreditCard },
+      { label: "Loyalty Tiers", href: "/admin/loyalty-tiers", icon: Star },
+      { label: "FX Hedging", href: "/admin/fx-hedging", icon: TrendingDown },
+      { label: "Payout Approval", href: "/admin/payout-approval", icon: ClipboardCheck },
+      { label: "Compliance Reports", href: "/admin/compliance-reports", icon: Stethoscope },
+      { label: "Security Score", href: "/admin/security-score", icon: Lock },
+      { label: "Webhook Retry", href: "/admin/webhook-retry", icon: RefreshCcw },
       { label: "Configuration", href: "/admin/config", icon: Settings2 },
     ],
   },

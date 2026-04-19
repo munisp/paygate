@@ -28,6 +28,7 @@ import { adminRouter } from './adminRouter';
 import { wave24Router } from './wave24Router';
 import { wave25Router } from './wave25Router';
 import { wave26Router } from './wave26Router';
+import { wave27Router } from './wave27Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -6951,6 +6952,11 @@ export const appRouter = router({
   // Wave 26 — Feature Flags targeting rules, Tenant Management, White-Label branding,
   //            Chargeback evidence PDF viewer, Revenue analytics CSV export
   wave26: wave26Router,
+  // Wave 27 — Tenant onboarding wizard, A/B flag exposure, domain SSL, KYB lifecycle,
+  //            compliance reports, consumer disputes, BNPL underwriting, loyalty tier engine,
+  //            referral rewards, FX hedging, budget alerts, per-tenant rate limits,
+  //            audit log CSV export, settlement SLA, payout approval, webhook retry, security score
+  wave27: wave27Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
