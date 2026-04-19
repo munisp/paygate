@@ -32,6 +32,7 @@ import { wave27Router } from './wave27Router';
 import { wave28Router } from './wave28Router';
 import { wave29Router } from './wave29Router';
 import { wave30Router } from './wave30Router';
+import { wave31Router } from './wave31Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -6963,6 +6964,7 @@ export const appRouter = router({
   wave28: wave28Router,
   wave29: wave29Router,
   wave30: wave30Router,
+  wave31: wave31Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

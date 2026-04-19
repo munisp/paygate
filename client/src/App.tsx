@@ -253,6 +253,13 @@ import SlaAlertDashboard from "./pages/SlaAlertDashboard";
 import KybStateMachine from "./pages/admin/KybStateMachine";
 import MiddlewareIntegrations from "./pages/admin/MiddlewareIntegrations";
 import FxHedgingWorkflow from "./pages/FxHedgingWorkflow";
+// Wave 31 imports
+import TenantBillingCron from "./pages/TenantBillingCron";
+import UssdMenuBuilder from "./pages/UssdMenuBuilder";
+import MiddlewareHealthAlerts from "./pages/admin/MiddlewareHealthAlerts";
+import PayoutApprovalWorkflow from "./pages/admin/PayoutApprovalWorkflow";
+import BnplDelinquencyManagement from "./pages/admin/BnplDelinquencyManagement";
+import DisputeSlaTracking from "./pages/admin/DisputeSlaTracking";
 
 function Router() {
   const [location] = useLocation();
@@ -543,6 +550,13 @@ function Router() {
         <Route path="/admin/kyb-state-machine" component={KybStateMachine} />
         <Route path="/admin/middleware-integrations" component={MiddlewareIntegrations} />
         <Route path="/fx/hedging" component={FxHedgingWorkflow} />
+        {/* Wave 31 Routes */}
+        <Route path="/admin/billing-cron" component={TenantBillingCron} />
+        <Route path="/admin/ussd-menu-builder" component={UssdMenuBuilder} />
+        <Route path="/admin/middleware-health-alerts" component={MiddlewareHealthAlerts} />
+        <Route path="/admin/payout-approval-workflow" component={PayoutApprovalWorkflow} />
+        <Route path="/admin/bnpl-delinquency" component={BnplDelinquencyManagement} />
+        <Route path="/admin/dispute-sla" component={DisputeSlaTracking} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

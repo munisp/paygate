@@ -31,6 +31,7 @@ import { constructWebhookEvent, isStripeConfigured } from "../stripe";
 import { validateEnvironment } from "../security";
 import { installPrototypePollutionGuard, reDoSGuard, getWave29SecurityReport } from "../security29";
 import { securityHeadersMiddleware as wave30SecurityHeaders, getWave30SecurityReport, validateExternalUrl, validateWebhookNonce, generateSecureApiKey } from "../security30";
+import { getWave31SecurityReport } from "../security31";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -553,21 +554,33 @@ async function startServer() {
   // Branding alias (shorter path for smoke tests)
   app.get('/api/branding/:slug', tenantBrandingHandler);
   app.get('/api/branding/:slug/json', tenantBrandingJsonHandler);
-  // Security report endpoint (Wave 29 + Wave 30 combined)
+  // Security report endpoint (Wave 29 + Wave 30 + Wave 31 combined)
   app.get('/api/security/report', (_req: any, res: any) => {
     try {
       const wave29 = getWave29SecurityReport();
       const wave30 = getWave30SecurityReport();
-      const allVulns = [...(wave29.vulnerabilities || []), ...(wave30.vulnerabilities || [])];
+      const wave31 = getWave31SecurityReport();
+      const allVulns = [
+        ...(wave29.vulnerabilities || []),
+        ...(wave30.vulnerabilities || []),
+        ...(wave31.vulnerabilities || []),
+      ];
       const open = allVulns.filter((v: any) => v.status === 'OPEN').length;
+      const fixed = allVulns.filter((v: any) => v.status === 'FIXED').length;
+      const mitigated = allVulns.filter((v: any) => v.status === 'MITIGATED').length;
+      const overallScore = Math.round(((fixed + mitigated * 0.7) / allVulns.length) * 100);
+      const grade = overallScore >= 95 ? 'A+' : overallScore >= 90 ? 'A' : overallScore >= 80 ? 'B' : 'C';
       res.json({
         timestamp: new Date().toISOString(),
-        overall_score: wave30.overall_score,
-        grade: wave30.grade,
+        overall_score: overallScore,
+        grade,
         open_vulnerabilities: open,
+        fixed_vulnerabilities: fixed,
+        mitigated_vulnerabilities: mitigated,
         total_controls: allVulns.length,
-        wave29: wave29,
-        wave30: wave30,
+        wave29,
+        wave30,
+        wave31,
         dependency_audit: wave30.dependency_audit,
       });
     } catch (err) {
