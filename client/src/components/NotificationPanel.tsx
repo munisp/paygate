@@ -1,8 +1,8 @@
 import { trpc } from "@/lib/trpc";
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import {
   AlertTriangle, Bell, CheckCheck, ChevronRight,
-  DollarSign, RefreshCw, Shield, Webhook, X, Zap, CheckCircle2,
+  DollarSign, RefreshCw, Shield, Webhook, X, Zap, CheckCircle2, Wifi, WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -59,9 +59,12 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
 
+  const [sseConnected, setSseConnected] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
+
   const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 50, unreadOnly: false },
-    { enabled: open, refetchInterval: open ? 15000 : false }
+    { enabled: open, refetchInterval: false } // SSE handles real-time updates
   );
   const notifs = listData?.notifications ?? [];
 
@@ -81,6 +84,35 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
   });
 
   const unreadCount = listData?.unreadCount ?? notifs.filter((n: any) => !n.isRead).length;
+
+  // ── SSE real-time connection ─────────────────────────────────────────────────
+  const connectSSE = useCallback(() => {
+    if (esRef.current) esRef.current.close();
+    const es = new EventSource("/api/events/notifications", { withCredentials: true });
+    esRef.current = es;
+    es.onopen = () => setSseConnected(true);
+    es.addEventListener("notification", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        utils.notifications.list.invalidate();
+        utils.notifications.unreadCount.invalidate();
+        if (["fraud", "fraud_alert", "dispute_escalated", "payout_approved"].includes(data.type ?? "")) {
+          toast.warning(data.title ?? "New notification", { description: data.message ?? "", duration: 6000 });
+        }
+      } catch { /* ignore */ }
+    });
+    es.addEventListener("ping", () => setSseConnected(true));
+    es.onerror = () => {
+      setSseConnected(false);
+      es.close();
+      setTimeout(() => { if (esRef.current === es) connectSSE(); }, 5000);
+    };
+  }, [utils]);
+
+  useEffect(() => {
+    connectSSE();
+    return () => { esRef.current?.close(); esRef.current = null; setSseConnected(false); };
+  }, [connectSSE]);
 
   useEffect(() => {
     if (open) refetch();
@@ -103,7 +135,13 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            <span title={sseConnected ? "Live updates active" : "Reconnecting..."} className="flex items-center">
+              {sseConnected
+                ? <Wifi className="w-3.5 h-3.5 text-emerald-500" />
+                : <WifiOff className="w-3.5 h-3.5 text-muted-foreground animate-pulse" />
+              }
+            </span>
             <button
               onClick={() => refetch()}
               className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
@@ -221,11 +259,31 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
 
 /**
  * Hook to get the live unread notification count for the sidebar badge.
- * Polls every 30 seconds when the user is authenticated.
+ * Uses SSE for real-time updates + 60s polling fallback.
  */
 export function useNotificationCount(): number {
+  const utils = trpc.useUtils();
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    const es = new EventSource("/api/events/notifications", { withCredentials: true });
+    esRef.current = es;
+    es.addEventListener("notification", () => {
+      utils.notifications.unreadCount.invalidate();
+    });
+    es.onerror = () => {
+      es.close();
+      setTimeout(() => {
+        const es2 = new EventSource("/api/events/notifications", { withCredentials: true });
+        esRef.current = es2;
+        es2.addEventListener("notification", () => utils.notifications.unreadCount.invalidate());
+      }, 5000);
+    };
+    return () => { esRef.current?.close(); };
+  }, [utils]);
+
   const { data } = trpc.notifications.unreadCount.useQuery(undefined, {
-    refetchInterval: 30000,
+    refetchInterval: 60000,
     retry: false,
   });
   return data?.count ?? 0;

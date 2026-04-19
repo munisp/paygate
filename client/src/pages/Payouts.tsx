@@ -578,7 +578,7 @@ export default function Payouts() {
                 <td className="px-4 py-3 text-muted-foreground truncate max-w-[200px]">{p.narration ?? "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
               </tr>
-            )));
+            ));
             })()}
           </tbody>
         </table>

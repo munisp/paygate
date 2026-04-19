@@ -1,0 +1,105 @@
+# NetworkPolicy — restricts ingress/egress for the paygate namespace
+# Apply with: kubectl apply -f k8s/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paygate-network-policy
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+spec:
+  podSelector:
+    matchLabels:
+      app: paygate-merchant-portal
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from the ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow traffic from Prometheus scraper
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow inter-pod communication within paygate namespace
+    - from:
+        - podSelector: {}
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS outbound (Stripe, Manus OAuth, external APIs)
+    - ports:
+        - protocol: TCP
+          port: 443
+    # Allow HTTP outbound (internal services)
+    - ports:
+        - protocol: TCP
+          port: 80
+    # Allow PostgreSQL/TiDB
+    - ports:
+        - protocol: TCP
+          port: 4000   # TiDB
+        - protocol: TCP
+          port: 5432   # PostgreSQL
+    # Allow Redis
+    - ports:
+        - protocol: TCP
+          port: 6379
+    # Allow internal microservices (8100-8200 range)
+    - ports:
+        - protocol: TCP
+          port: 8100
+        - protocol: TCP
+          port: 8101
+        - protocol: TCP
+          port: 8102
+        - protocol: TCP
+          port: 8103
+        - protocol: TCP
+          port: 8104
+        - protocol: TCP
+          port: 8105
+        - protocol: TCP
+          port: 8106
+        - protocol: TCP
+          port: 8107
+        - protocol: TCP
+          port: 8108
+        - protocol: TCP
+          port: 8109
+        - protocol: TCP
+          port: 8110
+        - protocol: TCP
+          port: 8111
+        - protocol: TCP
+          port: 8112
+        - protocol: TCP
+          port: 8113
+        - protocol: TCP
+          port: 8114
+        - protocol: TCP
+          port: 8115
+    # Allow SMTP
+    - ports:
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 465
+    # Allow Temporal
+    - ports:
+        - protocol: TCP
+          port: 7233
