@@ -3072,3 +3072,14 @@
 - [x] 9 new vitest tests for support router (2408 total, 68 files)
 - [x] 0 production vulnerabilities (pnpm audit --prod)
 - [x] 14/14 smoke tests passing
+
+## Session v23 — AI/ML Deep Integration (Apr 20 2026)
+- [x] Support Admin Panel (/admin/support) — listSessions, replyAsAdmin, resolveSession, reopenSession
+- [x] AcceptInvite page (/invite/accept) for team member onboarding
+- [x] SupportAdmin route registered in App.tsx
+- [x] Qdrant vector store service (python-services/vector-store/main.py) — transaction embeddings, fraud similarity search, compliance doc search, semantic support routing
+- [x] CocoIndex ETL pipeline (python-services/cocoindex/main.py) — Kafka→Qdrant, DB→Qdrant, S3→Qdrant, incremental indexing
+- [x] FalkorDB Knowledge Graph (python-services/knowledge-graph/main.py) — Merchant/Customer/Transaction graph, fraud ring detection, EPR-KGQA NLQ
+- [x] ART Reasoning Engine (python-services/art-reasoning/main.py) — ReAct loop, fraud investigation, merchant assessment, dispute resolution
+- [x] Lakehouse AI Orchestrator (python-services/lakehouse-ai/main.py) — Feature store, model registry, audit trail (Parquet/S3/Kafka), full fraud inference pipeline
+- [x] Vitest tests for all AI/ML components (support.admin.test.ts) — 2443 tests passing

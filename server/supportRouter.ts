@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { supportMessages } from "../drizzle/schema";
@@ -30,7 +31,7 @@ Guidelines:
 - Use plain text, avoid markdown formatting in responses`;
 
 export const supportRouter = router({
-  // Send a message and get an AI reply
+  // ── Merchant-facing: Send a message and get an AI reply ───────────────────
   sendMessage: publicProcedure
     .input(z.object({
       sessionId: z.string().min(1).max(100),
@@ -72,7 +73,7 @@ export const supportRouter = router({
       for (const msg of history) {
         if (msg.role === "user") {
           llmMessages.push({ role: "user", content: msg.content });
-        } else if (msg.role === "agent") {
+        } else if (msg.role === "agent" || msg.role === "admin") {
           llmMessages.push({ role: "assistant", content: msg.content });
         }
       }
@@ -83,7 +84,7 @@ export const supportRouter = router({
       try {
         const response = await invokeLLM({ messages: llmMessages });
         agentReply = response?.choices?.[0]?.message?.content ?? agentReply;
-      } catch (err) {
+      } catch (_err) {
         // Fallback to canned response if LLM fails
         agentReply = getCanonicalResponse(input.content);
       }
@@ -103,7 +104,7 @@ export const supportRouter = router({
       return { agentReply, messageId: agentMsgId };
     }),
 
-  // Get conversation history for a session
+  // ── Merchant-facing: Get conversation history for a session ───────────────
   getHistory: publicProcedure
     .input(z.object({
       sessionId: z.string().min(1).max(100),
@@ -123,35 +124,242 @@ export const supportRouter = router({
       return messages;
     }),
 
-  // Admin: list all support sessions (protected)
+  // ── Admin: List all support sessions with stats ───────────────────────────
   listSessions: protectedProcedure
     .input(z.object({
       limit: z.number().min(1).max(100).default(20),
       offset: z.number().min(0).default(0),
+      status: z.enum(["open", "resolved", "all"]).default("all"),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return { sessions: [], total: 0 };
 
-      // Get unique sessions with last message
+      // Get all messages ordered by session activity
       const messages = await db
         .select()
         .from(supportMessages)
         .orderBy(desc(supportMessages.createdAt))
-        .limit(input.limit * 5); // over-fetch to deduplicate
+        .limit(2000);
 
-      // Group by sessionId
-      const sessionMap = new Map<string, typeof messages[0]>();
+      // Group by sessionId, compute stats per session
+      const sessionMap = new Map<string, {
+        sessionId: string;
+        merchantId: string | null;
+        userId: string | null;
+        lastMessage: string;
+        lastMessageAt: Date;
+        messageCount: number;
+        userMessageCount: number;
+        status: "open" | "resolved";
+        firstMessageAt: Date;
+      }>();
+
       for (const msg of messages) {
         if (!sessionMap.has(msg.sessionId)) {
-          sessionMap.set(msg.sessionId, msg);
+          sessionMap.set(msg.sessionId, {
+            sessionId: msg.sessionId,
+            merchantId: msg.merchantId,
+            userId: msg.userId,
+            lastMessage: msg.content.slice(0, 120),
+            lastMessageAt: msg.createdAt,
+            messageCount: 0,
+            userMessageCount: 0,
+            status: "open",
+            firstMessageAt: msg.createdAt,
+          });
         }
+        const s = sessionMap.get(msg.sessionId)!;
+        s.messageCount++;
+        if (msg.role === "user") s.userMessageCount++;
+        // Check if resolved via metadata
+        if (msg.role === "system" && msg.content.includes("RESOLVED")) {
+          s.status = "resolved";
+        }
+        // Track earliest message
+        if (msg.createdAt < s.firstMessageAt) s.firstMessageAt = msg.createdAt;
       }
 
-      const sessions = Array.from(sessionMap.values())
-        .slice(input.offset, input.offset + input.limit);
+      let allSessions = Array.from(sessionMap.values());
 
-      return { sessions, total: sessionMap.size };
+      // Filter by status
+      if (input.status !== "all") {
+        allSessions = allSessions.filter(s => s.status === input.status);
+      }
+
+      const total = allSessions.length;
+      const sessions = allSessions.slice(input.offset, input.offset + input.limit);
+
+      return { sessions, total };
+    }),
+
+  // ── Admin: Get full session thread ───────────────────────────────────────
+  getSession: protectedProcedure
+    .input(z.object({
+      sessionId: z.string().min(1).max(100),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      const messages = await db
+        .select()
+        .from(supportMessages)
+        .where(eq(supportMessages.sessionId, input.sessionId))
+        .orderBy(asc(supportMessages.createdAt));
+
+      if (messages.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+      }
+
+      return {
+        sessionId: input.sessionId,
+        merchantId: messages[0].merchantId,
+        userId: messages[0].userId,
+        messages,
+        messageCount: messages.length,
+        firstMessageAt: messages[0].createdAt,
+        lastMessageAt: messages[messages.length - 1].createdAt,
+        isResolved: messages.some(m => m.role === "system" && m.content.includes("RESOLVED")),
+      };
+    }),
+
+  // ── Admin: Reply to a session as a human agent ───────────────────────────
+  adminReply: protectedProcedure
+    .input(z.object({
+      sessionId: z.string().min(1).max(100),
+      content: z.string().min(1).max(4000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      // Get session info for merchantId
+      const existing = await db
+        .select({ merchantId: supportMessages.merchantId, userId: supportMessages.userId })
+        .from(supportMessages)
+        .where(eq(supportMessages.sessionId, input.sessionId))
+        .limit(1);
+
+      if (existing.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+      }
+
+      const msgId = crypto.randomUUID();
+      await db.insert(supportMessages).values({
+        id: msgId,
+        sessionId: input.sessionId,
+        merchantId: existing[0].merchantId,
+        userId: existing[0].userId,
+        role: "admin",
+        content: input.content,
+        status: "delivered",
+        metadata: JSON.stringify({ adminId: ctx.user?.id, adminName: ctx.user?.name }),
+      });
+
+      return { messageId: msgId, sent: true };
+    }),
+
+  // ── Admin: Mark session as resolved ──────────────────────────────────────
+  resolveSession: protectedProcedure
+    .input(z.object({
+      sessionId: z.string().min(1).max(100),
+      note: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      const existing = await db
+        .select({ merchantId: supportMessages.merchantId, userId: supportMessages.userId })
+        .from(supportMessages)
+        .where(eq(supportMessages.sessionId, input.sessionId))
+        .limit(1);
+
+      if (existing.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+      }
+
+      await db.insert(supportMessages).values({
+        id: crypto.randomUUID(),
+        sessionId: input.sessionId,
+        merchantId: existing[0].merchantId,
+        userId: existing[0].userId,
+        role: "system",
+        content: `RESOLVED by ${ctx.user?.name ?? "admin"}. ${input.note ?? ""}`.trim(),
+        status: "delivered",
+        metadata: JSON.stringify({ resolvedBy: ctx.user?.id, resolvedAt: new Date().toISOString() }),
+      });
+
+      return { resolved: true };
+    }),
+
+  // ── Admin: Reopen a resolved session ─────────────────────────────────────
+  reopenSession: protectedProcedure
+    .input(z.object({
+      sessionId: z.string().min(1).max(100),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      const existing = await db
+        .select({ merchantId: supportMessages.merchantId, userId: supportMessages.userId })
+        .from(supportMessages)
+        .where(eq(supportMessages.sessionId, input.sessionId))
+        .limit(1);
+
+      if (existing.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+      }
+
+      await db.insert(supportMessages).values({
+        id: crypto.randomUUID(),
+        sessionId: input.sessionId,
+        merchantId: existing[0].merchantId,
+        userId: existing[0].userId,
+        role: "system",
+        content: `REOPENED by ${ctx.user?.name ?? "admin"}.`,
+        status: "delivered",
+        metadata: JSON.stringify({ reopenedBy: ctx.user?.id, reopenedAt: new Date().toISOString() }),
+      });
+
+      return { reopened: true };
+    }),
+
+  // ── Admin: Get support stats ──────────────────────────────────────────────
+  getStats: protectedProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return { totalSessions: 0, openSessions: 0, resolvedSessions: 0, totalMessages: 0, avgMessagesPerSession: 0 };
+
+      const messages = await db
+        .select()
+        .from(supportMessages)
+        .orderBy(desc(supportMessages.createdAt))
+        .limit(5000);
+
+      const sessionMap = new Map<string, { resolved: boolean; count: number }>();
+      for (const msg of messages) {
+        if (!sessionMap.has(msg.sessionId)) {
+          sessionMap.set(msg.sessionId, { resolved: false, count: 0 });
+        }
+        const s = sessionMap.get(msg.sessionId)!;
+        s.count++;
+        if (msg.role === "system" && msg.content.includes("RESOLVED")) s.resolved = true;
+      }
+
+      const sessions = Array.from(sessionMap.values());
+      const resolved = sessions.filter(s => s.resolved).length;
+      const totalMessages = sessions.reduce((sum, s) => sum + s.count, 0);
+
+      return {
+        totalSessions: sessions.length,
+        openSessions: sessions.length - resolved,
+        resolvedSessions: resolved,
+        totalMessages,
+        avgMessagesPerSession: sessions.length > 0 ? Math.round(totalMessages / sessions.length) : 0,
+      };
     }),
 });
 
