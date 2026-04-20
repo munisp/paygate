@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/IBM/sarama"
 	_ "github.com/lib/pq"
 )
 
@@ -63,9 +64,7 @@ type MessageHandler func(ctx context.Context, key string, value []byte) error
 
 // ─── Consumer ─────────────────────────────────────────────────────────────────
 
-// Consumer is a Kafka consumer group client.
-// In production, replace the polling stub with a real Kafka consumer library
-// (e.g. confluent-kafka-go or sarama).
+// Consumer is a Kafka consumer group client backed by IBM/sarama.
 type Consumer struct {
 	groupID  string
 	brokers  []string
@@ -122,27 +121,63 @@ func (c *Consumer) Start(ctx context.Context) {
 		"topics", topics,
 	)
 
-	// Production implementation note:
-	// Replace this polling stub with a real Kafka consumer:
-	//
-	//   cfg := sarama.NewConfig()
-	//   cfg.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
-	//   cfg.Consumer.Offsets.Initial = sarama.OffsetNewest
-	//   client, err := sarama.NewConsumerGroup(c.brokers, c.groupID, cfg)
-	//   ...
-	//
-	// For now, we simulate message receipt with a ticker to demonstrate
-	// the handler dispatch pattern.
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	cfg := sarama.NewConfig()
+	cfg.Version = sarama.V2_6_0_0
+	cfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{
+		sarama.NewBalanceStrategyRoundRobin(),
+	}
+	cfg.Consumer.Offsets.Initial = sarama.OffsetNewest
+	cfg.Consumer.Return.Errors = true
+	cfg.Net.DialTimeout = 10 * time.Second
+	cfg.Net.ReadTimeout = 30 * time.Second
+	cfg.Net.WriteTimeout = 30 * time.Second
 
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("[kafka-consumer] stopping", "group", c.groupID)
 			return
-		case <-ticker.C:
-			slog.Debug("[kafka-consumer] poll heartbeat", "group", c.groupID, "topics", topics)
+		default:
+		}
+
+		client, err := sarama.NewConsumerGroup(c.brokers, c.groupID, cfg)
+		if err != nil {
+			slog.Error("[kafka-consumer] failed to create consumer group, retrying in 5s",
+				"error", err, "group", c.groupID)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		go func() {
+			for err := range client.Errors() {
+				slog.Error("[kafka-consumer] consumer group error", "error", err, "group", c.groupID)
+			}
+		}()
+
+		handler := &consumerGroupHandler{consumer: c}
+		for {
+			if err := client.Consume(ctx, topics, handler); err != nil {
+				if ctx.Err() != nil {
+					_ = client.Close()
+					return
+				}
+				slog.Error("[kafka-consumer] consume error, retrying in 2s",
+					"error", err, "group", c.groupID)
+				select {
+				case <-ctx.Done():
+					_ = client.Close()
+					return
+				case <-time.After(2 * time.Second):
+				}
+			}
+			if ctx.Err() != nil {
+				_ = client.Close()
+				return
+			}
 		}
 	}
 }
@@ -258,17 +293,16 @@ func HandleFraudAlert(ctx context.Context, key string, value []byte) error {
 	// Insert fraud alert into DB and trigger notification if action == "block"
 	if db := getKafkaDB(); db != nil {
 		_, err := db.ExecContext(ctx, `
-			INSERT INTO fraud_alerts (id, merchant_id, transaction_id, alert_type, risk_score, status, metadata, created_at)
-			VALUES ($1, $2, $3, $4, $5, 'open', $6, NOW())
+			INSERT INTO fraud_alerts (id, merchant_id, transaction_id, alert_type, risk_score, status, created_at)
+			VALUES ($1, $2, $3, $4, $5, 'open', NOW())
 			ON CONFLICT (id) DO NOTHING`,
 			event.AlertID, event.MerchantID, event.TxID, event.AlertType, event.RiskScore,
-			fmt.Sprintf(`{"action":"%s","model":"%s"}`, event.Action, event.Model),
 		)
 		if err != nil {
 			slog.Warn("[kafka-consumer] fraud alert: DB insert error", "err", err)
 		}
-		// If action is "block", also flag the transaction
-		if event.Action == "block" && event.TxID != "" {
+		// If risk score is high (>=80), flag the transaction
+		if event.RiskScore >= 80 && event.TxID != "" {
 			_, _ = db.ExecContext(ctx,
 				`UPDATE transactions SET status = 'flagged', updated_at = NOW() WHERE id = $1`,
 				event.TxID,
@@ -321,4 +355,54 @@ func NewDefaultConsumer() *Consumer {
 	c.RegisterHandler("paygate.fraud.alert", HandleFraudAlert)
 	c.RegisterHandler("paygate.settlement.confirmed", HandleSettlementConfirmed)
 	return c
+}
+
+// ─── Sarama ConsumerGroupHandler ─────────────────────────────────────────────
+
+type consumerGroupHandler struct {
+	consumer *Consumer
+}
+
+func (h *consumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
+	slog.Info("[kafka-consumer] session setup", "group", h.consumer.groupID)
+	return nil
+}
+
+func (h *consumerGroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
+	slog.Info("[kafka-consumer] session cleanup", "group", h.consumer.groupID)
+	return nil
+}
+
+func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for {
+		select {
+		case msg, ok := <-claim.Messages():
+			if !ok {
+				return nil
+			}
+			h.consumer.mu.RLock()
+			handler, exists := h.consumer.handlers[msg.Topic]
+			h.consumer.mu.RUnlock()
+
+			if !exists {
+				session.MarkMessage(msg, "")
+				continue
+			}
+
+			ctx := session.Context()
+			if err := handler(ctx, string(msg.Key), msg.Value); err != nil {
+				slog.Error("[kafka-consumer] handler error",
+					"topic", msg.Topic,
+					"partition", msg.Partition,
+					"offset", msg.Offset,
+					"error", err,
+				)
+				// Mark anyway to avoid infinite retry on poison pills
+			}
+			session.MarkMessage(msg, "")
+
+		case <-session.Context().Done():
+			return nil
+		}
+	}
 }

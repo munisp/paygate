@@ -28,7 +28,7 @@
 #   --from-literal=NIBSS_GATEWAY_URL='https://nibss-nip.paygate.ng' \
 #   --from-literal=NIBSS_SECRET_KEY='...' \
 #   --from-literal=NIBSS_INSTITUTION_CODE='999999' \
-#   --from-literal=SMTP_HOST='smtp.paygate.ng' \
+#   --from-literal=SMTP_HOST='smtp.gmail.com' \
 #   --from-literal=SMTP_PORT='587' \
 #   --from-literal=SMTP_USER='noreply@paygate.ng' \
 #   --from-literal=SMTP_PASS='...' \

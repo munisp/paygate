@@ -10,6 +10,8 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import AcceptInvite from "./pages/AcceptInvite";
 import SupportAdmin from "./pages/SupportAdmin";
+import LakehouseAIDashboard from "./pages/LakehouseAIDashboard";
+import { AdminGuard } from "./components/RoleGuard";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Customers from "./pages/Customers";
@@ -283,7 +285,8 @@ function Router() {
         <Route path="/login" component={Login} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/invite/accept" component={AcceptInvite} />
-        <Route path="/admin/support" component={SupportAdmin} />
+        <Route path="/admin/support"><AdminGuard><SupportAdmin /></AdminGuard></Route>
+        <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
       </Switch>
     );
   }

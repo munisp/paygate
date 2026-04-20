@@ -78,7 +78,7 @@ x-portal-base: &portal-base
     FRAUD_SCORING_URL: http://fraud-scoring:8083
     SYNC_RELAY_URL: http://sync-relay:8097
     SYNC_RELAY_KEY: ${INTERNAL_API_KEY}
-    SMTP_HOST: ${SMTP_HOST:-smtp.paygate.ng}
+    SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
     SMTP_PORT: ${SMTP_PORT:-587}
     SMTP_USER: ${SMTP_USER:-noreply@paygate.ng}
     SMTP_PASS: ${SMTP_PASS}

@@ -19,6 +19,35 @@ x-python-defaults: &python-defaults
     retries: 3
     start_period: 20s
 
+  credit-scoring:
+    build:
+      context: ./python-services/credit-scoring
+      dockerfile: Dockerfile
+    container_name: paygate-credit-scoring-py
+    restart: unless-stopped
+    environment:
+      - PORT=8115
+      - PG_DATABASE_URL=${PG_DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-paygate-internal-dev-key-2026}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+    ports:
+      - "8115:8115"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - paygate
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8115/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   paygate:
     driver: bridge
