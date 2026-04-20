@@ -855,3 +855,139 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  # ─── Apache NiFi ──────────────────────────────────────────────────
+  nifi:
+    image: apache/nifi:1.28.1
+    container_name: paygate_nifi
+    restart: unless-stopped
+    ports:
+      - "${NIFI_PORT:-8443}:8443"
+    environment:
+      NIFI_WEB_HTTPS_PORT: 8443
+      SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_USERNAME:-admin}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD:-paygate_nifi_admin_2026}
+      NIFI_SENSITIVE_PROPS_KEY: ${NIFI_SENSITIVE_KEY:-paygate_nifi_sensitive_key_32chars}
+    volumes:
+      - nifi_data:/opt/nifi/nifi-current/data
+      - nifi_logs:/opt/nifi/nifi-current/logs
+      - ./infra/nifi/templates:/opt/nifi/nifi-current/conf/templates
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/nifi/"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 120s
+
+  # ─── Apache Airflow Webserver ─────────────────────────────────────
+  airflow-webserver:
+    image: apache/airflow:2.10.4
+    container_name: paygate_airflow_webserver
+    restart: unless-stopped
+    depends_on: [postgres, redis]
+    ports:
+      - "${AIRFLOW_PORT:-8090}:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-paygate_airflow_secret_2026}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-paygate_airflow_2026}
+    volumes:
+      - ./infra/airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: webserver
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ─── Apache Airflow Scheduler ─────────────────────────────────────
+  airflow-scheduler:
+    image: apache/airflow:2.10.4
+    container_name: paygate_airflow_scheduler
+    restart: unless-stopped
+    depends_on: [airflow-webserver]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./infra/airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: scheduler
+    networks: [paygate]
+
+  # ─── Apache Airflow Celery Worker ─────────────────────────────────
+  airflow-worker:
+    image: apache/airflow:2.10.4
+    container_name: paygate_airflow_worker
+    restart: unless-stopped
+    depends_on: [airflow-scheduler]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+    volumes:
+      - ./infra/airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: celery worker
+    networks: [paygate]
+
+  # ─── dbt Runner (run-once transformation job) ─────────────────────
+  dbt-runner:
+    image: ghcr.io/dbt-labs/dbt-postgres:1.9.4
+    container_name: paygate_dbt_runner
+    restart: "no"
+    depends_on: [postgres]
+    environment:
+      DBT_PROFILES_DIR: /usr/app/dbt
+      DBT_PROJECT_DIR: /usr/app/dbt
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-paygate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-paygate_prod}
+    volumes:
+      - ./infra/dbt:/usr/app/dbt
+      - dbt_logs:/usr/app/dbt/logs
+    command: ["run", "--profiles-dir", "/usr/app/dbt", "--project-dir", "/usr/app/dbt"]
+    networks: [paygate]
+
+  # ─── Trino (SQL query engine over Lakehouse) ──────────────────────
+  trino:
+    image: trinodb/trino:457
+    container_name: paygate_trino
+    restart: unless-stopped
+    ports:
+      - "${TRINO_PORT:-8091}:8080"
+    volumes:
+      - ./infra/trino:/etc/trino
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  nifi_data:
+  nifi_logs:
+  airflow_logs:
+  dbt_logs:

@@ -7,7 +7,7 @@
  *  - Suggested Next Steps: chargeback evidence PDF viewer, revenue analytics CSV export
  */
 import { z } from "zod";
-import { and, desc, eq, ilike, sql, count, sum, asc } from "drizzle-orm";
+import { and, desc, eq, ilike, sql, count, sum, asc, inArray } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import {
@@ -233,7 +233,7 @@ const featureFlagsEnhancedRouter = router({
         targetUserIds: featureFlags.targetUserIds,
         expiresAt: featureFlags.expiresAt,
       }).from(featureFlags)
-        .where(sql`${featureFlags.key} = ANY(${sql.raw(`ARRAY[${input.keys.map(k => `'${k.replace(/'/g, "''")}'`).join(",")}]`)})`);
+        .where(inArray(featureFlags.key, input.keys))
 
       const result: Record<string, boolean> = {};
       for (const key of input.keys) {
@@ -608,8 +608,7 @@ const whiteLabelRouter = router({
       }
       if (setClauses.length === 1) return { success: true }; // nothing to update
       values.push(tenantId);
-      await sql.raw(`UPDATE tenants SET ${setClauses.join(", ")} WHERE id = $${paramIdx}`);
-      // Use postgres directly
+      // Use postgres directly (parameterized query below)
       const { Pool } = await import("pg");
       const pool = new Pool({ connectionString: process.env.PG_DATABASE_URL ?? process.env.DATABASE_URL });
       try {

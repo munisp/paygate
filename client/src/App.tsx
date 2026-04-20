@@ -232,6 +232,12 @@ import AdminPayoutApproval from "./pages/admin/AdminPayoutApproval";
 import AdminComplianceReports from "./pages/admin/AdminComplianceReports";
 import AdminSecurityScore from "./pages/admin/AdminSecurityScore";
 import AdminWebhookRetry from "./pages/admin/AdminWebhookRetry";
+import AdminGNNTraining from "./pages/admin/AdminGNNTraining";
+import AdminKeycloak from "./pages/admin/AdminKeycloak";
+import AdminSettlementSLA from "./pages/admin/AdminSettlementSLA";
+import AdminDisputeLifecycle from "./pages/admin/AdminDisputeLifecycle";
+import AdminDataPipeline from "./pages/admin/AdminDataPipeline";
+import AdminDataPipeline from "./pages/admin/AdminDataPipeline";
 import AdminBnplUnderwriting from "./pages/admin/AdminBnplUnderwriting";
 import AdminLoyaltyTierEngine from "./pages/admin/AdminLoyaltyTierEngine";
 import ConsumerDisputeFiling from "./pages/consumer/ConsumerDisputeFiling";
@@ -286,6 +292,11 @@ function Router() {
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/invite/accept" component={AcceptInvite} />
         <Route path="/admin/support"><AdminGuard><SupportAdmin /></AdminGuard></Route>
+      <Route path="/admin/gnn-training" component={AdminGNNTraining} />
+      <Route path="/admin/keycloak" component={AdminKeycloak} />
+      <Route path="/admin/settlement-sla" component={AdminSettlementSLA} />
+      <Route path="/admin/dispute-lifecycle" component={AdminDisputeLifecycle} />
+      <Route path="/admin/data-pipeline" component={AdminDataPipeline} />
         <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
       </Switch>
     );
@@ -420,6 +431,7 @@ function Router() {
       <Route path="/admin/compliance-reports" component={AdminComplianceReports} />
       <Route path="/admin/security-score" component={AdminSecurityScore} />
       <Route path="/admin/webhook-retry" component={AdminWebhookRetry} />
+        <Route path="/admin/data-pipeline"><AdminGuard><AdminDataPipeline /></AdminGuard></Route>
       <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
       <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
       <Route path="/admin/invite-codes" component={AdminInviteCodes} />

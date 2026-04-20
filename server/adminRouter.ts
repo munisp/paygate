@@ -797,12 +797,15 @@ const auditAdminRouter = router({
       if (input.merchantId) { conditions.push(`merchant_id = $${params.length + 1}`); params.push(input.merchantId); }
       if (input.startDate) { conditions.push(`created_at >= $${params.length + 1}`); params.push(new Date(input.startDate)); }
       if (input.endDate) { conditions.push(`created_at <= $${params.length + 1}`); params.push(new Date(input.endDate)); }
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      // Build parameterized query using drizzle sql template to prevent injection
+      const whereClause = conditions.length > 0
+        ? sql.raw(`WHERE ${conditions.join(" AND ")}`)
+        : sql.raw("");
       const rows = await db.execute(
-        sql.raw(`SELECT * FROM audit_events ${where} ORDER BY created_at DESC LIMIT ${input.limit} OFFSET ${offset}`)
+        sql`SELECT * FROM audit_events ${whereClause} ORDER BY created_at DESC LIMIT ${sql.raw(String(input.limit))} OFFSET ${sql.raw(String(offset))}`
       );
       const [{ cnt }] = await db.execute(
-        sql.raw(`SELECT COUNT(*) as cnt FROM audit_events ${where}`)
+        sql`SELECT COUNT(*) as cnt FROM audit_events ${whereClause}`
       ) as any;
       return { events: Array.from((rows as any)), total: Number(cnt?.cnt ?? 0) };
     }),

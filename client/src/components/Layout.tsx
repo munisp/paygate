@@ -285,6 +285,11 @@ const navGroups: NavGroup[] = [
       { icon: Settings, label: "Config", path: "/admin/config", badge: "Admin" },
       { icon: Crown, label: "Admin Setup", path: "/admin-setup" },
       { icon: MessageSquare, label: "Support Inbox", path: "/admin/support", badge: "Admin" },
+            { icon: Brain, label: "GNN Training", path: "/admin/gnn-training", badge: "Admin" },
+      { icon: Shield, label: "Keycloak SSO", path: "/admin/keycloak", badge: "Admin" },
+      { icon: Clock, label: "Settlement SLA", path: "/admin/settlement-sla", badge: "Admin" },
+      { icon: AlertTriangle, label: "Dispute Lifecycle", path: "/admin/dispute-lifecycle", badge: "Admin" },
+{ icon: Layers3, label: "Data Pipeline", path: "/admin/data-pipeline", badge: "Admin" },
     ],
   },
 ];

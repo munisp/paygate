@@ -1,0 +1,211 @@
+version: "3.9"
+
+# ─── PayGate Airflow Stack ────────────────────────────────────────────────────
+# Apache Airflow 2.9 with PostgreSQL metadata DB and Redis Celery broker
+# Mounts the paygate dbt project and DAGs into the scheduler and workers
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3-python3.11
+  environment:
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@airflow-postgres:5432/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow_password@airflow-postgres:5432/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:@airflow-redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nfdstY="
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "paygate-airflow-secret-key-change-in-prod"
+    # PayGate connections (injected as Airflow Variables)
+    AIRFLOW_VAR_PG_HOST: "${PG_HOST:-postgres}"
+    AIRFLOW_VAR_PG_USER: "${PG_USER:-paygate}"
+    AIRFLOW_VAR_PG_PASSWORD: "${PG_PASSWORD:-paygate_dev_password}"
+    AIRFLOW_VAR_PG_DATABASE: "${PG_DATABASE:-paygate}"
+    AIRFLOW_VAR_MIDDLEWARE_INTERNAL_KEY: "${MIDDLEWARE_INTERNAL_KEY:-dev-internal-key-change-in-prod}"
+    AIRFLOW_VAR_INTERNAL_API_KEY: "${INTERNAL_API_KEY:-dev-api-key-change-in-prod}"
+    # Airflow Connections
+    AIRFLOW_CONN_PAYGATE_API: "http://paygate-app:3000"
+    AIRFLOW_CONN_FRAUD_SCORING_SERVICE: "http://fraud-scoring:8001"
+    AIRFLOW_CONN_LAKEHOUSE_AI_SERVICE: "http://lakehouse-ai:8020"
+    AIRFLOW_CONN_AML_MONITOR_SERVICE: "http://aml-monitor:8003"
+    AIRFLOW_CONN_ART_REASONING_SERVICE: "http://art-reasoning:8018"
+    AIRFLOW_CONN_GO_BRIDGE: "http://go-bridge:4000"
+    AIRFLOW_CONN_PAYGATE_POSTGRES: "postgresql://paygate:${PG_PASSWORD:-paygate_dev_password}@postgres:5432/paygate"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./plugins:/opt/airflow/plugins
+    - ../dbt:/opt/airflow/dbt/paygate
+    - airflow-logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    airflow-postgres:
+      condition: service_healthy
+    airflow-redis:
+      condition: service_healthy
+  networks:
+    - paygate-network
+
+services:
+  airflow-postgres:
+    image: postgres:15-alpine
+    container_name: paygate-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow_password
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    networks:
+      - paygate-network
+
+  airflow-redis:
+    image: redis:7-alpine
+    container_name: paygate-airflow-redis
+    expose:
+      - 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
+    networks:
+      - paygate-network
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: paygate-airflow-webserver
+    command: webserver
+    ports:
+      - "8085:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: paygate-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-worker:
+    <<: *airflow-common
+    container_name: paygate-airflow-worker
+    command: celery worker
+    environment:
+      DUMB_INIT_SETSID: "0"
+    restart: always
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  airflow-triggerer:
+    <<: *airflow-common
+    container_name: paygate-airflow-triggerer
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: paygate-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --firstname PayGate \
+          --lastname Admin \
+          --role Admin \
+          --email admin@paygate.ng \
+          --password "PayGate@Admin2024!"
+        echo "Airflow initialized"
+    restart: on-failure
+
+  # ─── Apache NiFi ─────────────────────────────────────────────────────────
+  nifi:
+    image: apache/nifi:1.27.0
+    container_name: paygate-nifi
+    ports:
+      - "8443:8443"
+    environment:
+      NIFI_WEB_HTTPS_PORT: "8443"
+      SINGLE_USER_CREDENTIALS_USERNAME: "admin"
+      SINGLE_USER_CREDENTIALS_PASSWORD: "PayGate@NiFi2024!"
+      NIFI_SENSITIVE_PROPS_KEY: "paygate-nifi-sensitive-key-change-in-prod"
+      NIFI_JVM_HEAP_INIT: "512m"
+      NIFI_JVM_HEAP_MAX: "2g"
+    volumes:
+      - nifi-conf:/opt/nifi/nifi-current/conf
+      - nifi-data:/opt/nifi/nifi-current/data
+      - nifi-logs:/opt/nifi/nifi-current/logs
+      - ./nifi/templates:/opt/nifi/nifi-current/conf/templates
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/nifi-api/system-diagnostics"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 120s
+    networks:
+      - paygate-network
+    restart: unless-stopped
+
+  # ─── dbt Docs Server ─────────────────────────────────────────────────────
+  dbt-docs:
+    image: python:3.11-slim
+    container_name: paygate-dbt-docs
+    working_dir: /dbt
+    volumes:
+      - ../dbt:/dbt
+    command: >
+      sh -c "pip install dbt-postgres==1.8.0 && dbt docs generate --target prod && dbt docs serve --port 8082 --no-browser"
+    ports:
+      - "8082:8082"
+    environment:
+      DBT_HOST: "${PG_HOST:-postgres}"
+      DBT_USER: "${PG_USER:-paygate}"
+      DBT_PASSWORD: "${PG_PASSWORD:-paygate_dev_password}"
+      DBT_DATABASE: "${PG_DATABASE:-paygate}"
+    networks:
+      - paygate-network
+    restart: unless-stopped
+
+volumes:
+  airflow-postgres-data:
+  airflow-logs:
+  nifi-conf:
+  nifi-data:
+  nifi-logs:
+
+networks:
+  paygate-network:
+    external: true
+    name: paygate_default

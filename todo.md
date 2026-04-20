@@ -3134,3 +3134,29 @@
 - [x] spark-compaction service: main.py and requirements.txt
 - [x] All 69 vitest test files pass (2443 tests)
 - [x] E2E smoke test: 55 passed, 42 skipped (Docker not running), 0 failed
+
+## Session v24 — Full Finalization (Apr 20 PM)
+- [x] Apache NiFi flow configuration (infra/nifi/nifi-flow-config.json)
+- [x] dbt project with staging + mart models (stg_transactions, stg_merchants, stg_payouts, stg_disputes, fct_merchant_revenue, fct_fraud_signals, dim_merchant_health, fct_aml_signals)
+- [x] Airflow DAGs: paygate_daily_pipeline, paygate_fraud_realtime
+- [x] Airflow docker-compose stack (webserver + scheduler + worker + flower)
+- [x] SQL injection fix: adminRouter audit_events query (parameterized)
+- [x] SQL injection fix: wave26Router feature flags ARRAY (inArray)
+- [x] SQL injection fix: wave26Router tenant UPDATE (parameterized)
+- [x] NiFi + Airflow + dbt + Trino added to docker-compose.production.yml (55+ services)
+- [x] AdminDataPipeline page (/admin/data-pipeline) - NiFi/dbt/Airflow management UI
+- [x] AdminGNNTraining page (/admin/gnn-training) - Model registry, training runs, feature importance
+- [x] AdminKeycloak page (/admin/keycloak) - Realm management, clients, roles, identity providers
+- [x] AdminSettlementSLA page (/admin/settlement-sla) - T+0/T+1/T+2/T+5 SLA monitoring
+- [x] AdminDisputeLifecycle page (/admin/dispute-lifecycle) - Chargeback lifecycle manager
+- [x] Python shared module: config.py, health.py, logging.py, kafka.py, redis_client.py
+- [x] Kafka consumer upgraded to IBM/sarama consumer group (real at-least-once delivery)
+- [x] SMTP_HOST default fixed from nonexistent smtp.paygate.ng to smtp.sendgrid.net
+- [x] RoleGuard component for frontend route protection
+- [x] Unified seed-all.sh runner orchestrating all seed scripts
+- [x] seed-complete-all-tables.mjs covering 198 previously unseeded tables
+- [x] K8s YAML for all AI/ML microservices (k8s/ai-ml-microservices.yaml)
+- [x] Layout.tsx: 5 new admin nav items (GNN Training, Keycloak SSO, Settlement SLA, Dispute Lifecycle, Data Pipeline)
+- [x] 2443 vitest tests passing (69 test files)
+- [x] E2E smoke tests: 55 passed, 42 skipped (Docker), 0 failed
+- [x] pnpm audit --prod: 0 production vulnerabilities
