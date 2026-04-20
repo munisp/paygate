@@ -1077,7 +1077,9 @@ export async function confirmPtspBatch(
 export async function listGeofenceRules(merchantId: string) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await (db as any).execute(`SELECT * FROM geofence_rules WHERE merchant_id = '${merchantId}' ORDER BY created_at DESC`);
+  const pool2 = new Pool({ connectionString: resolveDbUrl(), max: 1 });
+  const rows = await pool2.query(`SELECT * FROM geofence_rules WHERE merchant_id = $1 ORDER BY created_at DESC`, [merchantId]);
+  await pool2.end();
   return (rows.rows ?? rows) as any[];
 }
 
