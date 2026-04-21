@@ -1560,6 +1560,121 @@ const disputesRouter = router({
       })).catch(() => {});
       return { success: true };
     }),
+
+  // ── Dispute Timeline / Notes ──────────────────────────────────────────────
+  addNote: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      note: z.string().min(1).max(2000),
+      visibility: z.enum(['internal', 'customer']).default('internal'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const dispute = await getDisputeById(input.id);
+      if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      const db = await getDb();
+      const noteId = nanoid('dnote_');
+      await db.execute(
+        sql`INSERT INTO dispute_notes (id, dispute_id, merchant_id, author_id, author_name, note, visibility, created_at)
+            VALUES (${noteId}, ${input.id}, ${merchant.id}, ${String(user.id)}, ${user.name ?? user.email ?? 'unknown'}, ${input.note}, ${input.visibility}, NOW())
+            ON CONFLICT DO NOTHING`
+      );
+      await db.execute(sql`UPDATE disputes SET updated_at = NOW() WHERE id = ${input.id}`);
+      import('./db').then(({ logAuditEvent }) => logAuditEvent({
+        merchantId: merchant.id, actorId: String(user.id), actorName: user.name ?? user.email ?? 'unknown',
+        action: 'dispute.note_added', resource: 'dispute', resourceId: input.id, metadata: { visibility: input.visibility },
+      })).catch(() => {});
+      return { success: true, noteId };
+    }),
+
+  getTimeline: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const dispute = await getDisputeById(input.id);
+      if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
+      const db = await getDb();
+      const notesRes = await db.execute(
+        sql`SELECT id, author_name, note, visibility, created_at FROM dispute_notes WHERE dispute_id = ${input.id} ORDER BY created_at ASC`
+      );
+      const timeline: Array<{ type: string; actor: string; message: string; at: Date; visibility?: string }> = [
+        { type: 'created', actor: 'System', message: `Dispute ${dispute.reference} opened`, at: dispute.createdAt },
+      ];
+      if (dispute.status === 'under_review') {
+        timeline.push({ type: 'status_change', actor: 'System', message: 'Dispute moved to Under Review', at: dispute.updatedAt });
+      }
+      if (dispute.merchantResponse) {
+        timeline.push({ type: 'merchant_response', actor: merchant.businessName ?? 'Merchant', message: dispute.merchantResponse, at: dispute.updatedAt });
+      }
+      for (const note of (notesRes.rows as any[])) {
+        timeline.push({ type: 'note', actor: note.author_name, message: note.note, at: new Date(note.created_at), visibility: note.visibility });
+      }
+      if (dispute.resolvedAt) {
+        timeline.push({ type: 'resolved', actor: 'System', message: `Dispute resolved with status: ${dispute.status}`, at: dispute.resolvedAt });
+      }
+      timeline.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+      return { timeline, dispute };
+    }),
+
+  // ── Dispute Stats ─────────────────────────────────────────────────────────
+  stats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      const res = await db.execute(
+        sql`SELECT
+              COUNT(*) FILTER (WHERE status = 'open') as open_count,
+              COUNT(*) FILTER (WHERE status = 'under_review') as review_count,
+              COUNT(*) FILTER (WHERE status = 'resolved_merchant') as won_count,
+              COUNT(*) FILTER (WHERE status = 'resolved_customer') as lost_count,
+              COUNT(*) FILTER (WHERE status = 'closed') as closed_count,
+              COUNT(*) as total_count,
+              COALESCE(SUM(amount) FILTER (WHERE status = 'open'), 0) as open_amount,
+              COALESCE(SUM(amount) FILTER (WHERE status = 'resolved_customer'), 0) as lost_amount,
+              COALESCE(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/86400) FILTER (WHERE resolved_at IS NOT NULL), 0) as avg_resolution_days
+            FROM disputes WHERE merchant_id = ${merchant.id}`
+      );
+      const row = (res.rows as any[])[0] ?? {};
+      return {
+        openCount: Number(row.open_count ?? 0),
+        reviewCount: Number(row.review_count ?? 0),
+        wonCount: Number(row.won_count ?? 0),
+        lostCount: Number(row.lost_count ?? 0),
+        closedCount: Number(row.closed_count ?? 0),
+        totalCount: Number(row.total_count ?? 0),
+        openAmount: Number(row.open_amount ?? 0),
+        lostAmount: Number(row.lost_amount ?? 0),
+        avgResolutionDays: Number(row.avg_resolution_days ?? 0).toFixed(1),
+        winRate: Number(row.total_count) > 0 ? ((Number(row.won_count ?? 0) / Number(row.total_count)) * 100).toFixed(1) : '0.0',
+      };
+    }),
+
+  // ── Dispute Export ────────────────────────────────────────────────────────
+  exportCSV: protectedProcedure
+    .input(z.object({
+      status: z.enum(['open', 'under_review', 'resolved_merchant', 'resolved_customer', 'closed', 'all']).default('all'),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rows = await listDisputes(merchant.id, { page: 1, limit: 5000 });
+      let filtered = rows;
+      if (input.status !== 'all') filtered = filtered.filter((d: any) => d.status === input.status);
+      if (input.from) filtered = filtered.filter((d: any) => new Date(d.createdAt) >= new Date(input.from!));
+      if (input.to) filtered = filtered.filter((d: any) => new Date(d.createdAt) <= new Date(input.to!));
+      const header = 'ID,Reference,Transaction ID,Amount,Currency,Status,Reason,Due Date,Created At,Resolved At';
+      const csvRows = filtered.map((d: any) =>
+        [d.id, d.reference, d.transactionId ?? '', (d.amount / 100).toFixed(2), d.currency, d.status,
+         (d.reason ?? '').replace(/,/g, ';'), d.dueDate ? new Date(d.dueDate).toISOString() : '',
+         new Date(d.createdAt).toISOString(), d.resolvedAt ? new Date(d.resolvedAt).toISOString() : ''].join(',')
+      );
+      return { csv: [header, ...csvRows].join('\n'), count: filtered.length };
+    }),
 });
 
 // ─── Virtual Cards Router ─────────────────────────────────────────────────────

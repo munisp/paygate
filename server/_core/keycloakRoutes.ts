@@ -42,7 +42,11 @@ export function registerKeycloakRoutes(app: Express): void {
   // ─── GET /api/oauth/keycloak/login ──────────────────────────────────────────
   app.get("/api/oauth/keycloak/login", (req: any, res: any) => {
     try {
-      const returnPath = (req.query.returnPath as string) ?? "/dashboard";
+      const rawReturnPath = (req.query.returnPath as string) ?? "/dashboard";
+      // SECURITY: only allow relative paths to prevent open redirect
+      const returnPath = (typeof rawReturnPath === "string" && /^\/[^/]/.test(rawReturnPath) && !rawReturnPath.includes(":"))
+        ? rawReturnPath
+        : "/dashboard";
       // Encode returnPath in state so we can redirect after callback
       const state = Buffer.from(JSON.stringify({ returnPath, ts: Date.now() })).toString("base64url");
       const redirectUri = getRedirectUri(req);
@@ -109,12 +113,16 @@ export function registerKeycloakRoutes(app: Express): void {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS / 1000 });
 
-      // Decode returnPath from state
+      // Decode returnPath from state — SECURITY: only allow relative paths (prevent open redirect)
       let returnPath = "/dashboard";
       try {
         if (state) {
           const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
-          if (typeof decoded.returnPath === "string") returnPath = decoded.returnPath;
+          const raw = decoded.returnPath;
+          // Only accept paths starting with / but not // (protocol-relative) and no colon (no absolute URLs)
+          if (typeof raw === "string" && /^\/[^/]/.test(raw) && !raw.includes(":")) {
+            returnPath = raw;
+          }
         }
       } catch { /* ignore malformed state */ }
 

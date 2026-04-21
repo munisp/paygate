@@ -1,4 +1,4 @@
-import { Toaster } from "@/components/ui/sonner";
+import { lazy, Suspense } from "react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import { PWAUpdateToast } from "@/components/PWAUpdateToast";
@@ -6,628 +6,656 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch, useLocation } from "wouter";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import ErrorBoundary from "./components/ErrorBoundary";
-import Layout from "./components/Layout";
-import Login from "./pages/Login";
-import AcceptInvite from "./pages/AcceptInvite";
-import SupportAdmin from "./pages/SupportAdmin";
-import LakehouseAIDashboard from "./pages/LakehouseAIDashboard";
-import { AdminGuard } from "./components/RoleGuard";
-import Dashboard from "./pages/Dashboard";
-import Transactions from "./pages/Transactions";
-import Customers from "./pages/Customers";
-import VirtualCards from "./pages/VirtualCards";
-import Analytics from "./pages/Analytics";
-import MerchantAnalyticsDashboard from "./pages/MerchantAnalyticsDashboard";
-import Checkout from "./pages/Checkout";
-import APIKeys from "./pages/APIKeys";
-import Webhooks from "./pages/Webhooks";
-import WebhookDeliveries from "./pages/WebhookDeliveries";
-import Settings from "./pages/Settings";
-import Payouts from "./pages/Payouts";
-import USDCPayouts from "./pages/USDCPayouts";
-import Disputes from "./pages/Disputes";
-import Onboarding from "./pages/Onboarding";
-import PaymentLinks from "./pages/PaymentLinks";
-import FraudRisk from "./pages/FraudRisk";
-import ReconciliationAlerts from "./pages/ReconciliationAlerts";
-import BNPL from "./pages/BNPL";
-import FXDashboard from "./pages/FXDashboard";
-import TeamRoles from "./pages/TeamRoles";
-import MobileMoneyRecon from "./pages/MobileMoneyRecon";
-import ComplianceKYC from "./pages/ComplianceKYC";
-import ComplianceSettings from "./pages/ComplianceSettings";
-import DisputeWorkflow from "./pages/DisputeWorkflow";
-import QRPayments from "./pages/QRPayments";
+import { Toaster } from "@/components/ui/sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Consumer PWA pages
+// ── Core layout (eager — always needed) ──────────────────────────────────────
+import Layout from "./components/Layout";
+import { AdminGuard } from "./components/RoleGuard";
+
+// ── Auth pages (eager — first render) ────────────────────────────────────────
+import Login from "./pages/Login";
+import Onboarding from "./pages/Onboarding";
+import AcceptInvite from "./pages/AcceptInvite";
+
+// ── Consumer layout (eager — consumer shell) ─────────────────────────────────
 import ConsumerLayout from "./pages/consumer/ConsumerLayout";
-import ConsumerWallet from "./pages/consumer/ConsumerWallet";
-import MakePayment from "./pages/consumer/MakePayment";
-import BillPay from "./pages/consumer/BillPay";
-import ConsumerProfile from "./pages/consumer/ConsumerProfile";
-import ConsumerHistory from "./pages/consumer/History";
-import ConsumerQuickPay from "./pages/consumer/ConsumerQuickPay";
-import ConsumerNotifications from "./pages/consumer/ConsumerNotifications";
-import ConsumerNotificationSettings from "./pages/consumer/ConsumerNotificationSettings";
-import ConsumerOnboarding from "./pages/consumer/ConsumerOnboarding";
-import RedEnvelope from "./pages/consumer/RedEnvelope";
-// Wave 68 Consumer Pages
-import QRScanPay from "./pages/consumer/QRScanPay";
-import RequestMoney from "./pages/consumer/RequestMoney";
-import Contacts from "./pages/consumer/Contacts";
-import Loyalty from "./pages/consumer/Loyalty";
-import Coupons from "./pages/consumer/Coupons";
-import ConsumerCard from "./pages/consumer/ConsumerCard";
-import RecurringPayments from "./pages/consumer/RecurringPayments";
-import SplitBill from "./pages/consumer/SplitBill";
-import PINSetup from "./pages/consumer/PINSetup";
-import ConsumerKYC from "./pages/consumer/ConsumerKYC";
-import Discover from "./pages/consumer/Discover";
-import ConsumerCrossBorder from "./pages/consumer/ConsumerCrossBorder";
-import ConsumerAnalytics from "./pages/ConsumerAnalytics";
-import ConsumerDisputes from "./pages/ConsumerDisputes";
-import CrossBorder from "./pages/CrossBorder";
-import DeveloperPortal from "./pages/DeveloperPortal";
-import WorkflowObservability from "./pages/WorkflowObservability";
-import KeycloakRoleSync from "./pages/KeycloakRoleSync";
-import NIPBanks from "./pages/NIPBanks";
-import Subscriptions from "./pages/Subscriptions";
-import POSTerminals from "./pages/POSTerminals";
-import TerminalMap from "./pages/TerminalMap";
-import POSReconciliation from "./pages/POSReconciliation";
-import PTSPSettlement from "./pages/PTSPSettlement";
-import PtspBatches from "./pages/PtspBatches";
-import AgentBanking from "./pages/AgentBanking";
-import KioskHealth from "./pages/KioskHealth";
-import RestaurantFloorPlan from "./pages/RestaurantFloorPlan";
-import RestaurantOrders from "./pages/RestaurantOrders";
-import RestaurantMenu from "./pages/RestaurantMenu";
-import RestaurantLoyalty from "./pages/RestaurantLoyalty";
-import RestaurantOnlineOrdering, { PublicOrderPage } from "./pages/RestaurantOnlineOrdering";
-import KitchenDisplay from "./pages/KitchenDisplay";
-import Inventory from "./pages/Inventory";
-import Payroll from "./pages/Payroll";
-import GeofenceAlerts from "./pages/GeofenceAlerts";
-import MicroserviceHealth from "./pages/MicroserviceHealth";
-import AdminSetup from "./pages/AdminSetup";
-import AdminPlatformOverview from "./pages/admin/AdminPlatformOverview";
-import AdminMerchantManagement from "./pages/admin/AdminMerchantManagement";
-import AdminKYCReview from "./pages/admin/AdminKYCReview";
-import AdminDisputeManagement from "./pages/admin/AdminDisputeManagement";
-import AdminFraudOversight from "./pages/admin/AdminFraudOversight";
-import AdminRevenue from "./pages/admin/AdminRevenue";
-import AdminSettlements from "./pages/admin/AdminSettlements";
-import AdminCompliance from "./pages/admin/AdminCompliance";
-import AdminSystemHealth from "./pages/admin/AdminSystemHealth";
-import AdminAuditTrail from "./pages/admin/AdminAuditTrail";
-import AdminNotifications from "./pages/admin/AdminNotifications";
-import AdminNotificationPreferences from "./pages/admin/AdminNotificationPreferences";
-import AdminWebhookAlerts from "./pages/admin/AdminWebhookAlerts";
-import AdminConfig from "./pages/admin/AdminConfig";
-import OllamaChat from "./pages/OllamaChat";
-import GoLiveChecklist from "./pages/GoLiveChecklist";
-import SettingsPayments from "./pages/SettingsPayments";
-import QuickPay from "./pages/QuickPay";
-import NotificationsCenter from "./pages/NotificationsCenter";
-import MerchantNotificationPreferences from "./pages/MerchantNotificationPreferences";
-import AuditLog from "./pages/AuditLog";
-import PurchaseOrders from "./pages/PurchaseOrders";
-import Vendors from "./pages/Vendors";
-import Settlements from "./pages/Settlements";
-import MerchantLending from "./pages/MerchantLending";
-import SplitPayments from "./pages/SplitPayments";
-import RecurringBilling from "./pages/tier1to5/RecurringBilling";
-import DCCDashboard from "./pages/tier1to5/DCCDashboard";
-import ReconciliationEngine from "./pages/tier1to5/ReconciliationEngine";
-import InvoiceBuilder from "./pages/tier1to5/InvoiceBuilder";
-import ChargebackAutomation from "./pages/tier1to5/ChargebackAutomation";
-import AMLMonitor from "./pages/tier1to5/AMLMonitor";
-import KYBWorkflow from "./pages/tier1to5/KYBWorkflow";
-import SessionRisk from "./pages/tier1to5/SessionRisk";
-import OpenBanking from "./pages/tier1to5/OpenBanking";
-import LoyaltyEngine from "./pages/tier1to5/LoyaltyEngine";
-import EmbeddedFinance from "./pages/tier1to5/EmbeddedFinance";
-import AIInsights from "./pages/tier1to5/AIInsights";
-import FraudHeatmap from "./pages/tier1to5/FraudHeatmap";
-import InsurancePremium from "./pages/tier6to8/InsurancePremium";
-import CarbonCredit from "./pages/tier6to8/CarbonCredit";
-import NFTBadges from "./pages/tier6to8/NFTBadges";
-import BNPLv2 from "./pages/tier6to8/BNPLv2";
-import CryptoRamp from "./pages/tier6to8/CryptoRamp";
-import EscrowService from "./pages/tier6to8/EscrowService";
-import BulkScheduler from "./pages/tier6to8/BulkScheduler";
-import TaxWithholding from "./pages/tier6to8/TaxWithholding";
-import RegulatorySandbox from "./pages/tier6to8/RegulatorySandbox";
-import MultiCurrencyWallet from "./pages/tier6to8/MultiCurrencyWallet";
-import RTGSDashboard from "./pages/tier6to8/RTGSDashboard";
-import ISO20022 from "./pages/tier6to8/ISO20022";
-import OpenFinanceHub from "./pages/tier6to8/OpenFinanceHub";
-import WhiteLabelSDK from "./pages/tier6to8/WhiteLabelSDK";
-import SuperApp from "./pages/tier6to8/SuperApp";
-import LakehouseV2 from "./pages/tier6to8/LakehouseV2";
-import PayrollV2 from "./pages/tier6to8/PayrollV2";
-import SettlementForecast from "./pages/SettlementForecast";
-import TaxEngine from "./pages/TaxEngine";
-import AgentNetwork from "./pages/tier6to8/AgentNetwork";
-import SDKPortal from "./pages/tier6to8/SDKPortal";
-import CohortAnalytics from "./pages/tier1to5/CohortAnalytics";
-import POSv2 from "./pages/tier6to8/POSv2";
-import RemittanceV2 from "./pages/tier6to8/RemittanceV2";
-import DisputeAutomation from "./pages/tier1to5/DisputeAutomation";
-import OpenBankingPortal from "./pages/tier1to5/OpenBankingPortal";
-import MerchantLendingV2 from "./pages/tier1to5/MerchantLending";
-import MobilePOS from "./pages/MobilePOS";
-// New Feature Pages (20)
-import DigitalGold from "./pages/GatedDigitalGold";
-import MutualFunds from "./pages/MutualFunds";
-import ConsumerInsurance from "./pages/ConsumerInsurance";
-import PensionNPS from "./pages/PensionNPS";
-import CashbackRewards from "./pages/CashbackRewards";
-import VoicePayments from "./pages/VoicePayments";
-import WealthManagement from "./pages/GatedWealthManagement";
-import EMICheckout from "./pages/EMICheckout";
-import BulkCollections from "./pages/BulkCollections";
-import APIDocsPortal from "./pages/APIDocsPortal";
-import SalaryAccounts from "./pages/GatedSalaryAccounts";
-import PrivacyPayments from "./pages/PrivacyPayments";
-import ReportsCenter from "./pages/GatedReportsCenter";
-import AIInsightsV2 from "./pages/GatedAIInsightsV2";
-import NodalAccounts from "./pages/GatedNodalAccounts";
-import SmartRetailPOS from "./pages/SmartRetailPOS";
-import InternationalRemittance from "./pages/GatedInternationalRemittance";
-import SubscriptionBillingV2 from "./pages/GatedSubscriptionBillingV2";
-import Billing from "./pages/Billing";
-// Wave 80 Pages
-import OpenBankingV2 from "./pages/wave80/OpenBankingV2";
-import CarbonCreditsV2 from "./pages/wave80/CarbonCreditsV2";
-import AgentBankingV4 from "./pages/wave80/AgentBankingV4";
-import SuperAgentV2 from "./pages/wave80/SuperAgentV2";
-import EscrowV2 from "./pages/wave80/EscrowV2";
-import MarketplacePay from "./pages/wave80/MarketplacePay";
-import LoyaltyV3 from "./pages/wave80/LoyaltyV3";
-import CryptoOfframpV2 from "./pages/wave80/CryptoOfframpV2";
-import NfcPay from "./pages/wave80/NfcPay";
-import QrMerchantAnalytics from "./pages/wave80/QrMerchantAnalytics";
-import InvoiceFinancingV2 from "./pages/wave80/InvoiceFinancingV2";
-import PayrollV3 from "./pages/wave80/PayrollV3";
-import TaxFiling from "./pages/wave80/TaxFiling";
-import RegulatoryReporting from "./pages/wave80/RegulatoryReporting";
-import UsdcV2 from "./pages/wave80/UsdcV2";
-import MultiCurrencyLedger from "./pages/wave80/MultiCurrencyLedger";
-import TemporalWorkflowMgmt from "./pages/wave80/TemporalWorkflowMgmt";
-import GrpcHealthCheck from "./pages/wave80/GrpcHealthCheck";
-import UssdSessionV2 from "./pages/wave80/UssdSessionV2";
-import RealtimeNotifications from "./pages/wave80/RealtimeNotifications";
-// Wave 84 Pages
-import QRGenerator from "./pages/QRGenerator";
-import USSDSessions from "./pages/USSDSessions";
-import DeveloperSandbox from "./pages/DeveloperSandbox";
-import NotificationCentre from "./pages/consumer/NotificationCentre";
-import WalletStatement from "./pages/consumer/WalletStatement";
-import KYBVerification from "./pages/KYBVerification";
-import ComplianceReports from "./pages/ComplianceReports";
-import SDKTokens from "./pages/SDKTokens";
-import MerchantGuide from "./pages/docs/MerchantGuide";
-import ConsumerGuide from "./pages/docs/ConsumerGuide";
-import AdminFeatureFlags from "./pages/admin/AdminFeatureFlags";
-import AdminMerchantRisk from "./pages/admin/AdminMerchantRisk";
-import AdminChargebacks from "./pages/admin/AdminChargebacks";
-import AdminHelpAnalytics from "./pages/admin/AdminHelpAnalytics";
-import ConsumerBudgets from "./pages/consumer/ConsumerBudgets";
-import ConsumerSavingsGoals from "./pages/consumer/ConsumerSavingsGoals";
-import ConsumerReferrals from "./pages/consumer/ConsumerReferrals";
-import AdminAuditLog from "./pages/admin/AdminAuditLog";
-import AdminApiPlayground from "./pages/admin/AdminApiPlayground";
-import AdminRateLimitDashboard from "./pages/admin/AdminRateLimitDashboard";
-import AdminSdkTokens from "./pages/admin/AdminSdkTokens";
-import AdminTenantManagement from "./pages/admin/AdminTenantManagement";
-import AdminWhiteLabel from "./pages/admin/AdminWhiteLabel";
-import TransactionReceipt from "./pages/TransactionReceipt";
-import RefundWorkflow from "./pages/RefundWorkflow";
-import PayoutBatching from "./pages/PayoutBatching";
-import ConsumerHelpSearch from "./pages/consumer/ConsumerHelpSearch";
-import AdminKybReview from "./pages/admin/AdminKybReview";
-import AdminFxHedging from "./pages/admin/AdminFxHedging";
-import AdminPayoutApproval from "./pages/admin/AdminPayoutApproval";
-import AdminComplianceReports from "./pages/admin/AdminComplianceReports";
-import AdminSecurityScore from "./pages/admin/AdminSecurityScore";
-import AdminWebhookRetry from "./pages/admin/AdminWebhookRetry";
-import AdminGNNTraining from "./pages/admin/AdminGNNTraining";
-import AdminKeycloak from "./pages/admin/AdminKeycloak";
-import AdminSettlementSLA from "./pages/admin/AdminSettlementSLA";
-import AdminDisputeLifecycle from "./pages/admin/AdminDisputeLifecycle";
-import AdminDataPipeline from "./pages/admin/AdminDataPipeline";
-import AdminBnplUnderwriting from "./pages/admin/AdminBnplUnderwriting";
-import AdminLoyaltyTierEngine from "./pages/admin/AdminLoyaltyTierEngine";
-import ConsumerDisputeFiling from "./pages/consumer/ConsumerDisputeFiling";
-import AdminInviteCodes from "./pages/admin/AdminInviteCodes";
-import PartnerOnboard from "./pages/PartnerOnboard";
-import TenantAdminDashboard from "./pages/TenantAdminDashboard";
-import WhiteLabelPreview from "./pages/WhiteLabelPreview";
-// Wave 29 imports
-import TenantBillingDashboard from "./pages/TenantBillingDashboard";
-import CorridorManagement from "./pages/CorridorManagement";
-import TenantSsoConfig from "./pages/TenantSsoConfig";
-import TenantApiKeys from "./pages/TenantApiKeys";
-import RateLimitDashboard from "./pages/RateLimitDashboard";
-import LoyaltyAutoPromotion from "./pages/LoyaltyAutoPromotion";
-import BnplRepaymentTracker from "./pages/BnplRepaymentTracker";
-import DisputeEscalation from "./pages/DisputeEscalation";
-import AdminRevenueAnalytics from "./pages/admin/AdminRevenueAnalytics";
-import AdminSlaMonitoring from "./pages/admin/AdminSlaMonitoring";
-import AdminChargebackManagement from "./pages/admin/AdminChargebackManagement";
-// Wave 30 imports
-import TenantStripeBilling from "./pages/TenantStripeBilling";
-import OnboardingEmailFlow from "./pages/OnboardingEmailFlow";
-import SlaAlertDashboard from "./pages/SlaAlertDashboard";
-import KybStateMachine from "./pages/admin/KybStateMachine";
-import MiddlewareIntegrations from "./pages/admin/MiddlewareIntegrations";
-import FxHedgingWorkflow from "./pages/FxHedgingWorkflow";
-// Wave 31 imports
-import TenantBillingCron from "./pages/TenantBillingCron";
-import UssdMenuBuilder from "./pages/UssdMenuBuilder";
-import MiddlewareHealthAlerts from "./pages/admin/MiddlewareHealthAlerts";
-import PayoutApprovalWorkflow from "./pages/admin/PayoutApprovalWorkflow";
-import BnplDelinquencyManagement from "./pages/admin/BnplDelinquencyManagement";
-import DisputeSlaTracking from "./pages/admin/DisputeSlaTracking";
-// Wave 32 imports
-import AdminInviteCodesPage from "./pages/admin/AdminInviteCodesPage";
-import PartnerOnboardingPage from "./pages/admin/PartnerOnboardingPage";
-import TenantCorridorsPage from "./pages/admin/TenantCorridorsPage";
-import PlanLimitsPage from "./pages/admin/PlanLimitsPage";
-import BillingInvoicesPage from "./pages/admin/BillingInvoicesPage";
-import SSOConfigPage from "./pages/admin/SSOConfigPage";
-import BNPLRepaymentPage from "./pages/BNPLRepaymentPage";
-import SubscriptionsPage from "./pages/SubscriptionsPage";
-import FraudRingDashboard from "./pages/admin/FraudRingDashboard";
-import GNNThresholdPage from "./pages/admin/GNNThresholdPage";
-import PricingPage from "./pages/PricingPage";
-import WebhookEventsPage from "./pages/WebhookEventsPage";
-import EMILoansPage from "./pages/EMILoansPage";
-import InsurancePage from "./pages/InsurancePage";
-// Wave 35 consumer financial pages
-import ConsumerGold from "./pages/consumer/ConsumerGold";
-import ConsumerMutualFunds from "./pages/consumer/ConsumerMutualFunds";
-import ConsumerPension from "./pages/consumer/ConsumerPension";
-import ConsumerEMI from "./pages/consumer/ConsumerEMI";
-import ConsumerRemittance from "./pages/consumer/ConsumerRemittance";
-import ConsumerInsuranceV2 from "./pages/consumer/ConsumerInsuranceV2";
-import ConsumerSubscriptions from "./pages/consumer/ConsumerSubscriptions";
-import ConsumerFinancialHub from "./pages/consumer/ConsumerFinancialHub";
-import ConsumerSIPScheduler from "./pages/consumer/ConsumerSIPScheduler";
+
+// ── Lazy page loader helper ───────────────────────────────────────────────────
+const lz = (fn: () => Promise<any>) => lazy(fn);
+
+// ── Merchant pages ────────────────────────────────────────────────────────────
+const Dashboard = lz(() => import("./pages/Dashboard"));
+const Transactions = lz(() => import("./pages/Transactions"));
+const Customers = lz(() => import("./pages/Customers"));
+const VirtualCards = lz(() => import("./pages/VirtualCards"));
+const Analytics = lz(() => import("./pages/Analytics"));
+const MerchantAnalyticsDashboard = lz(() => import("./pages/MerchantAnalyticsDashboard"));
+const Checkout = lz(() => import("./pages/Checkout"));
+const APIKeys = lz(() => import("./pages/APIKeys"));
+const Webhooks = lz(() => import("./pages/Webhooks"));
+const WebhookDeliveries = lz(() => import("./pages/WebhookDeliveries"));
+const Settings = lz(() => import("./pages/Settings"));
+const Payouts = lz(() => import("./pages/Payouts"));
+const USDCPayouts = lz(() => import("./pages/USDCPayouts"));
+const Disputes = lz(() => import("./pages/Disputes"));
+const DisputeWorkflow = lz(() => import("./pages/DisputeWorkflow"));
+const PaymentLinks = lz(() => import("./pages/PaymentLinks"));
+const FraudRisk = lz(() => import("./pages/FraudRisk"));
+const ReconciliationAlerts = lz(() => import("./pages/ReconciliationAlerts"));
+const BNPL = lz(() => import("./pages/BNPL"));
+const FXDashboard = lz(() => import("./pages/FXDashboard"));
+const TeamRoles = lz(() => import("./pages/TeamRoles"));
+const MobileMoneyRecon = lz(() => import("./pages/MobileMoneyRecon"));
+const ComplianceKYC = lz(() => import("./pages/ComplianceKYC"));
+const ComplianceSettings = lz(() => import("./pages/ComplianceSettings"));
+const QRPayments = lz(() => import("./pages/QRPayments"));
+const CrossBorder = lz(() => import("./pages/CrossBorder"));
+const DeveloperPortal = lz(() => import("./pages/DeveloperPortal"));
+const WorkflowObservability = lz(() => import("./pages/WorkflowObservability"));
+const KeycloakRoleSync = lz(() => import("./pages/KeycloakRoleSync"));
+const NIPBanks = lz(() => import("./pages/NIPBanks"));
+const Subscriptions = lz(() => import("./pages/Subscriptions"));
+const POSTerminals = lz(() => import("./pages/POSTerminals"));
+const TerminalMap = lz(() => import("./pages/TerminalMap"));
+const POSReconciliation = lz(() => import("./pages/POSReconciliation"));
+const PTSPSettlement = lz(() => import("./pages/PTSPSettlement"));
+const PtspBatches = lz(() => import("./pages/PtspBatches"));
+const AgentBanking = lz(() => import("./pages/AgentBanking"));
+const KioskHealth = lz(() => import("./pages/KioskHealth"));
+const RestaurantFloorPlan = lz(() => import("./pages/RestaurantFloorPlan"));
+const RestaurantOrders = lz(() => import("./pages/RestaurantOrders"));
+const RestaurantMenu = lz(() => import("./pages/RestaurantMenu"));
+const RestaurantLoyalty = lz(() => import("./pages/RestaurantLoyalty"));
+const RestaurantOnlineOrdering = lz(() => import("./pages/RestaurantOnlineOrdering").then(m => ({ default: m.default })));
+const PublicOrderPageLazy = lz(() => import("./pages/RestaurantOnlineOrdering").then(m => ({ default: m.PublicOrderPage })));
+const KitchenDisplay = lz(() => import("./pages/KitchenDisplay"));
+const Inventory = lz(() => import("./pages/Inventory"));
+const Payroll = lz(() => import("./pages/Payroll"));
+const GeofenceAlerts = lz(() => import("./pages/GeofenceAlerts"));
+const MicroserviceHealth = lz(() => import("./pages/MicroserviceHealth"));
+const AdminSetup = lz(() => import("./pages/AdminSetup"));
+const OllamaChat = lz(() => import("./pages/OllamaChat"));
+const GoLiveChecklist = lz(() => import("./pages/GoLiveChecklist"));
+const SettingsPayments = lz(() => import("./pages/SettingsPayments"));
+const QuickPay = lz(() => import("./pages/QuickPay"));
+const NotificationsCenter = lz(() => import("./pages/NotificationsCenter"));
+const MerchantNotificationPreferences = lz(() => import("./pages/MerchantNotificationPreferences"));
+const AuditLog = lz(() => import("./pages/AuditLog"));
+const PurchaseOrders = lz(() => import("./pages/PurchaseOrders"));
+const Vendors = lz(() => import("./pages/Vendors"));
+const Settlements = lz(() => import("./pages/Settlements"));
+const MerchantLending = lz(() => import("./pages/MerchantLending"));
+const SplitPayments = lz(() => import("./pages/SplitPayments"));
+const RefundWorkflow = lz(() => import("./pages/RefundWorkflow"));
+const PayoutBatching = lz(() => import("./pages/PayoutBatching"));
+const TransactionReceipt = lz(() => import("./pages/TransactionReceipt"));
+const SettlementForecast = lz(() => import("./pages/SettlementForecast"));
+const TaxEngine = lz(() => import("./pages/TaxEngine"));
+const MobilePOS = lz(() => import("./pages/MobilePOS"));
+const Billing = lz(() => import("./pages/Billing"));
+const ConsumerAnalytics = lz(() => import("./pages/ConsumerAnalytics"));
+const ConsumerDisputes = lz(() => import("./pages/ConsumerDisputes"));
+
+// ── Tier 1-5 pages ────────────────────────────────────────────────────────────
+const RecurringBilling = lz(() => import("./pages/tier1to5/RecurringBilling"));
+const DCCDashboard = lz(() => import("./pages/tier1to5/DCCDashboard"));
+const ReconciliationEngine = lz(() => import("./pages/tier1to5/ReconciliationEngine"));
+const InvoiceBuilder = lz(() => import("./pages/tier1to5/InvoiceBuilder"));
+const ChargebackAutomation = lz(() => import("./pages/tier1to5/ChargebackAutomation"));
+const AMLMonitor = lz(() => import("./pages/tier1to5/AMLMonitor"));
+const KYBWorkflow = lz(() => import("./pages/tier1to5/KYBWorkflow"));
+const SessionRisk = lz(() => import("./pages/tier1to5/SessionRisk"));
+const OpenBanking = lz(() => import("./pages/tier1to5/OpenBanking"));
+const LoyaltyEngine = lz(() => import("./pages/tier1to5/LoyaltyEngine"));
+const EmbeddedFinance = lz(() => import("./pages/tier1to5/EmbeddedFinance"));
+const AIInsights = lz(() => import("./pages/tier1to5/AIInsights"));
+const FraudHeatmap = lz(() => import("./pages/tier1to5/FraudHeatmap"));
+const CohortAnalytics = lz(() => import("./pages/tier1to5/CohortAnalytics"));
+const DisputeAutomation = lz(() => import("./pages/tier1to5/DisputeAutomation"));
+const OpenBankingPortal = lz(() => import("./pages/tier1to5/OpenBankingPortal"));
+const MerchantLendingV2 = lz(() => import("./pages/tier1to5/MerchantLending"));
+
+// ── Tier 6-8 pages ────────────────────────────────────────────────────────────
+const InsurancePremium = lz(() => import("./pages/tier6to8/InsurancePremium"));
+const CarbonCredit = lz(() => import("./pages/tier6to8/CarbonCredit"));
+const NFTBadges = lz(() => import("./pages/tier6to8/NFTBadges"));
+const BNPLv2 = lz(() => import("./pages/tier6to8/BNPLv2"));
+const CryptoRamp = lz(() => import("./pages/tier6to8/CryptoRamp"));
+const EscrowService = lz(() => import("./pages/tier6to8/EscrowService"));
+const BulkScheduler = lz(() => import("./pages/tier6to8/BulkScheduler"));
+const TaxWithholding = lz(() => import("./pages/tier6to8/TaxWithholding"));
+const RegulatorySandbox = lz(() => import("./pages/tier6to8/RegulatorySandbox"));
+const MultiCurrencyWallet = lz(() => import("./pages/tier6to8/MultiCurrencyWallet"));
+const RTGSDashboard = lz(() => import("./pages/tier6to8/RTGSDashboard"));
+const ISO20022 = lz(() => import("./pages/tier6to8/ISO20022"));
+const OpenFinanceHub = lz(() => import("./pages/tier6to8/OpenFinanceHub"));
+const WhiteLabelSDK = lz(() => import("./pages/tier6to8/WhiteLabelSDK"));
+const SuperApp = lz(() => import("./pages/tier6to8/SuperApp"));
+const LakehouseV2 = lz(() => import("./pages/tier6to8/LakehouseV2"));
+const PayrollV2 = lz(() => import("./pages/tier6to8/PayrollV2"));
+const AgentNetwork = lz(() => import("./pages/tier6to8/AgentNetwork"));
+const SDKPortal = lz(() => import("./pages/tier6to8/SDKPortal"));
+const POSv2 = lz(() => import("./pages/tier6to8/POSv2"));
+const RemittanceV2 = lz(() => import("./pages/tier6to8/RemittanceV2"));
+
+// ── New Feature pages ─────────────────────────────────────────────────────────
+const DigitalGold = lz(() => import("./pages/GatedDigitalGold"));
+const MutualFunds = lz(() => import("./pages/MutualFunds"));
+const ConsumerInsurance = lz(() => import("./pages/ConsumerInsurance"));
+const PensionNPS = lz(() => import("./pages/PensionNPS"));
+const CashbackRewards = lz(() => import("./pages/CashbackRewards"));
+const VoicePayments = lz(() => import("./pages/VoicePayments"));
+const WealthManagement = lz(() => import("./pages/GatedWealthManagement"));
+const EMICheckout = lz(() => import("./pages/EMICheckout"));
+const BulkCollections = lz(() => import("./pages/BulkCollections"));
+const APIDocsPortal = lz(() => import("./pages/APIDocsPortal"));
+const SalaryAccounts = lz(() => import("./pages/GatedSalaryAccounts"));
+const PrivacyPayments = lz(() => import("./pages/PrivacyPayments"));
+const ReportsCenter = lz(() => import("./pages/GatedReportsCenter"));
+const AIInsightsV2 = lz(() => import("./pages/GatedAIInsightsV2"));
+const NodalAccounts = lz(() => import("./pages/GatedNodalAccounts"));
+const SmartRetailPOS = lz(() => import("./pages/SmartRetailPOS"));
+const InternationalRemittance = lz(() => import("./pages/GatedInternationalRemittance"));
+const SubscriptionBillingV2 = lz(() => import("./pages/GatedSubscriptionBillingV2"));
+
+// ── Wave 80 pages ─────────────────────────────────────────────────────────────
+const OpenBankingV2 = lz(() => import("./pages/wave80/OpenBankingV2"));
+const CarbonCreditsV2 = lz(() => import("./pages/wave80/CarbonCreditsV2"));
+const AgentBankingV4 = lz(() => import("./pages/wave80/AgentBankingV4"));
+const SuperAgentV2 = lz(() => import("./pages/wave80/SuperAgentV2"));
+const EscrowV2 = lz(() => import("./pages/wave80/EscrowV2"));
+const MarketplacePay = lz(() => import("./pages/wave80/MarketplacePay"));
+const LoyaltyV3 = lz(() => import("./pages/wave80/LoyaltyV3"));
+const CryptoOfframpV2 = lz(() => import("./pages/wave80/CryptoOfframpV2"));
+const NfcPay = lz(() => import("./pages/wave80/NfcPay"));
+const QrMerchantAnalytics = lz(() => import("./pages/wave80/QrMerchantAnalytics"));
+const InvoiceFinancingV2 = lz(() => import("./pages/wave80/InvoiceFinancingV2"));
+const PayrollV3 = lz(() => import("./pages/wave80/PayrollV3"));
+const TaxFiling = lz(() => import("./pages/wave80/TaxFiling"));
+const RegulatoryReporting = lz(() => import("./pages/wave80/RegulatoryReporting"));
+const UsdcV2 = lz(() => import("./pages/wave80/UsdcV2"));
+const MultiCurrencyLedger = lz(() => import("./pages/wave80/MultiCurrencyLedger"));
+const TemporalWorkflowMgmt = lz(() => import("./pages/wave80/TemporalWorkflowMgmt"));
+const GrpcHealthCheck = lz(() => import("./pages/wave80/GrpcHealthCheck"));
+const UssdSessionV2 = lz(() => import("./pages/wave80/UssdSessionV2"));
+const RealtimeNotifications = lz(() => import("./pages/wave80/RealtimeNotifications"));
+
+// ── Wave 84 pages ─────────────────────────────────────────────────────────────
+const QRGenerator = lz(() => import("./pages/QRGenerator"));
+const USSDSessions = lz(() => import("./pages/USSDSessions"));
+const DeveloperSandbox = lz(() => import("./pages/DeveloperSandbox"));
+const KYBVerification = lz(() => import("./pages/KYBVerification"));
+const ComplianceReports = lz(() => import("./pages/ComplianceReports"));
+const SDKTokens = lz(() => import("./pages/SDKTokens"));
+const MerchantGuide = lz(() => import("./pages/docs/MerchantGuide"));
+const ConsumerGuide = lz(() => import("./pages/docs/ConsumerGuide"));
+
+// ── Admin pages ───────────────────────────────────────────────────────────────
+const SupportAdmin = lz(() => import("./pages/SupportAdmin"));
+const LakehouseAIDashboard = lz(() => import("./pages/LakehouseAIDashboard"));
+const AdminPlatformOverview = lz(() => import("./pages/admin/AdminPlatformOverview"));
+const AdminMerchantManagement = lz(() => import("./pages/admin/AdminMerchantManagement"));
+const AdminKYCReview = lz(() => import("./pages/admin/AdminKYCReview"));
+const AdminDisputeManagement = lz(() => import("./pages/admin/AdminDisputeManagement"));
+const AdminFraudOversight = lz(() => import("./pages/admin/AdminFraudOversight"));
+const AdminRevenue = lz(() => import("./pages/admin/AdminRevenue"));
+const AdminSettlements = lz(() => import("./pages/admin/AdminSettlements"));
+const AdminCompliance = lz(() => import("./pages/admin/AdminCompliance"));
+const AdminSystemHealth = lz(() => import("./pages/admin/AdminSystemHealth"));
+const AdminAuditTrail = lz(() => import("./pages/admin/AdminAuditTrail"));
+const AdminNotifications = lz(() => import("./pages/admin/AdminNotifications"));
+const AdminNotificationPreferences = lz(() => import("./pages/admin/AdminNotificationPreferences"));
+const AdminWebhookAlerts = lz(() => import("./pages/admin/AdminWebhookAlerts"));
+const AdminConfig = lz(() => import("./pages/admin/AdminConfig"));
+const AdminFeatureFlags = lz(() => import("./pages/admin/AdminFeatureFlags"));
+const AdminMerchantRisk = lz(() => import("./pages/admin/AdminMerchantRisk"));
+const AdminChargebacks = lz(() => import("./pages/admin/AdminChargebacks"));
+const AdminHelpAnalytics = lz(() => import("./pages/admin/AdminHelpAnalytics"));
+const AdminAuditLog = lz(() => import("./pages/admin/AdminAuditLog"));
+const AdminApiPlayground = lz(() => import("./pages/admin/AdminApiPlayground"));
+const AdminRateLimitDashboard = lz(() => import("./pages/admin/AdminRateLimitDashboard"));
+const AdminSdkTokens = lz(() => import("./pages/admin/AdminSdkTokens"));
+const AdminTenantManagement = lz(() => import("./pages/admin/AdminTenantManagement"));
+const AdminWhiteLabel = lz(() => import("./pages/admin/AdminWhiteLabel"));
+const AdminKybReview = lz(() => import("./pages/admin/AdminKybReview"));
+const AdminFxHedging = lz(() => import("./pages/admin/AdminFxHedging"));
+const AdminPayoutApproval = lz(() => import("./pages/admin/AdminPayoutApproval"));
+const AdminComplianceReports = lz(() => import("./pages/admin/AdminComplianceReports"));
+const AdminSecurityScore = lz(() => import("./pages/admin/AdminSecurityScore"));
+const AdminWebhookRetry = lz(() => import("./pages/admin/AdminWebhookRetry"));
+const AdminGNNTraining = lz(() => import("./pages/admin/AdminGNNTraining"));
+const AdminKeycloak = lz(() => import("./pages/admin/AdminKeycloak"));
+const AdminSettlementSLA = lz(() => import("./pages/admin/AdminSettlementSLA"));
+const AdminDisputeLifecycle = lz(() => import("./pages/admin/AdminDisputeLifecycle"));
+const AdminDataPipeline = lz(() => import("./pages/admin/AdminDataPipeline"));
+const AdminBnplUnderwriting = lz(() => import("./pages/admin/AdminBnplUnderwriting"));
+const AdminLoyaltyTierEngine = lz(() => import("./pages/admin/AdminLoyaltyTierEngine"));
+const AdminInviteCodes = lz(() => import("./pages/admin/AdminInviteCodes"));
+const AdminRevenueAnalytics = lz(() => import("./pages/admin/AdminRevenueAnalytics"));
+const AdminSlaMonitoring = lz(() => import("./pages/admin/AdminSlaMonitoring"));
+const AdminChargebackManagement = lz(() => import("./pages/admin/AdminChargebackManagement"));
+const AdminInviteCodesPage = lz(() => import("./pages/admin/AdminInviteCodesPage"));
+const PartnerOnboardingPage = lz(() => import("./pages/admin/PartnerOnboardingPage"));
+const TenantCorridorsPage = lz(() => import("./pages/admin/TenantCorridorsPage"));
+const PlanLimitsPage = lz(() => import("./pages/admin/PlanLimitsPage"));
+const BillingInvoicesPage = lz(() => import("./pages/admin/BillingInvoicesPage"));
+const SSOConfigPage = lz(() => import("./pages/admin/SSOConfigPage"));
+const FraudRingDashboard = lz(() => import("./pages/admin/FraudRingDashboard"));
+const GNNThresholdPage = lz(() => import("./pages/admin/GNNThresholdPage"));
+const KybStateMachine = lz(() => import("./pages/admin/KybStateMachine"));
+const MiddlewareIntegrations = lz(() => import("./pages/admin/MiddlewareIntegrations"));
+const MiddlewareHealthAlerts = lz(() => import("./pages/admin/MiddlewareHealthAlerts"));
+const PayoutApprovalWorkflow = lz(() => import("./pages/admin/PayoutApprovalWorkflow"));
+const BnplDelinquencyManagement = lz(() => import("./pages/admin/BnplDelinquencyManagement"));
+const DisputeSlaTracking = lz(() => import("./pages/admin/DisputeSlaTracking"));
+
+// ── Misc pages ────────────────────────────────────────────────────────────────
+const PartnerOnboard = lz(() => import("./pages/PartnerOnboard"));
+const TenantAdminDashboard = lz(() => import("./pages/TenantAdminDashboard"));
+const WhiteLabelPreview = lz(() => import("./pages/WhiteLabelPreview"));
+const TenantBillingDashboard = lz(() => import("./pages/TenantBillingDashboard"));
+const CorridorManagement = lz(() => import("./pages/CorridorManagement"));
+const TenantSsoConfig = lz(() => import("./pages/TenantSsoConfig"));
+const TenantApiKeys = lz(() => import("./pages/TenantApiKeys"));
+const RateLimitDashboard = lz(() => import("./pages/RateLimitDashboard"));
+const LoyaltyAutoPromotion = lz(() => import("./pages/LoyaltyAutoPromotion"));
+const BnplRepaymentTracker = lz(() => import("./pages/BnplRepaymentTracker"));
+const DisputeEscalation = lz(() => import("./pages/DisputeEscalation"));
+const TenantStripeBilling = lz(() => import("./pages/TenantStripeBilling"));
+const OnboardingEmailFlow = lz(() => import("./pages/OnboardingEmailFlow"));
+const SlaAlertDashboard = lz(() => import("./pages/SlaAlertDashboard"));
+const FxHedgingWorkflow = lz(() => import("./pages/FxHedgingWorkflow"));
+const TenantBillingCron = lz(() => import("./pages/TenantBillingCron"));
+const UssdMenuBuilder = lz(() => import("./pages/UssdMenuBuilder"));
+const BNPLRepaymentPage = lz(() => import("./pages/BNPLRepaymentPage"));
+const SubscriptionsPage = lz(() => import("./pages/SubscriptionsPage"));
+const PricingPage = lz(() => import("./pages/PricingPage"));
+const WebhookEventsPage = lz(() => import("./pages/WebhookEventsPage"));
+const EMILoansPage = lz(() => import("./pages/EMILoansPage"));
+const InsurancePage = lz(() => import("./pages/InsurancePage"));
+
+// ── Consumer pages ────────────────────────────────────────────────────────────
+const ConsumerWallet = lz(() => import("./pages/consumer/ConsumerWallet"));
+const MakePayment = lz(() => import("./pages/consumer/MakePayment"));
+const BillPay = lz(() => import("./pages/consumer/BillPay"));
+const ConsumerProfile = lz(() => import("./pages/consumer/ConsumerProfile"));
+const ConsumerHistory = lz(() => import("./pages/consumer/History"));
+const ConsumerQuickPay = lz(() => import("./pages/consumer/ConsumerQuickPay"));
+const ConsumerNotifications = lz(() => import("./pages/consumer/ConsumerNotifications"));
+const ConsumerNotificationSettings = lz(() => import("./pages/consumer/ConsumerNotificationSettings"));
+const ConsumerOnboarding = lz(() => import("./pages/consumer/ConsumerOnboarding"));
+const RedEnvelope = lz(() => import("./pages/consumer/RedEnvelope"));
+const QRScanPay = lz(() => import("./pages/consumer/QRScanPay"));
+const RequestMoney = lz(() => import("./pages/consumer/RequestMoney"));
+const Contacts = lz(() => import("./pages/consumer/Contacts"));
+const Loyalty = lz(() => import("./pages/consumer/Loyalty"));
+const Coupons = lz(() => import("./pages/consumer/Coupons"));
+const ConsumerCard = lz(() => import("./pages/consumer/ConsumerCard"));
+const RecurringPayments = lz(() => import("./pages/consumer/RecurringPayments"));
+const SplitBill = lz(() => import("./pages/consumer/SplitBill"));
+const PINSetup = lz(() => import("./pages/consumer/PINSetup"));
+const ConsumerKYC = lz(() => import("./pages/consumer/ConsumerKYC"));
+const Discover = lz(() => import("./pages/consumer/Discover"));
+const ConsumerCrossBorder = lz(() => import("./pages/consumer/ConsumerCrossBorder"));
+const NotificationCentre = lz(() => import("./pages/consumer/NotificationCentre"));
+const WalletStatement = lz(() => import("./pages/consumer/WalletStatement"));
+const ConsumerBudgets = lz(() => import("./pages/consumer/ConsumerBudgets"));
+const ConsumerSavingsGoals = lz(() => import("./pages/consumer/ConsumerSavingsGoals"));
+const ConsumerReferrals = lz(() => import("./pages/consumer/ConsumerReferrals"));
+const ConsumerHelpSearch = lz(() => import("./pages/consumer/ConsumerHelpSearch"));
+const ConsumerDisputeFiling = lz(() => import("./pages/consumer/ConsumerDisputeFiling"));
+const ConsumerFinancialHub = lz(() => import("./pages/consumer/ConsumerFinancialHub"));
+const ConsumerGold = lz(() => import("./pages/consumer/ConsumerGold"));
+const ConsumerMutualFunds = lz(() => import("./pages/consumer/ConsumerMutualFunds"));
+const ConsumerPension = lz(() => import("./pages/consumer/ConsumerPension"));
+const ConsumerEMI = lz(() => import("./pages/consumer/ConsumerEMI"));
+const ConsumerRemittance = lz(() => import("./pages/consumer/ConsumerRemittance"));
+const ConsumerInsuranceV2 = lz(() => import("./pages/consumer/ConsumerInsuranceV2"));
+const ConsumerSubscriptions = lz(() => import("./pages/consumer/ConsumerSubscriptions"));
+const ConsumerSIPScheduler = lz(() => import("./pages/consumer/ConsumerSIPScheduler"));
+
+// ── Page loading fallback ─────────────────────────────────────────────────────
+function PageLoader() {
+  return (
+    <div className="p-6 space-y-4">
+      <Skeleton className="h-8 w-64" />
+      <Skeleton className="h-4 w-96" />
+      <div className="grid grid-cols-3 gap-4 mt-6">
+        {Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)}
+      </div>
+    </div>
+  );
+}
 
 function Router() {
   const [location] = useLocation();
   const isAuthPage = location === "/" || location === "/login" || location === "/onboarding";
   const isConsumerPage = location.startsWith("/consumer");
-
-  // Public ordering page — no auth required
   const isOrderPage = location.startsWith("/order/");
+
   if (isOrderPage) {
     const slug = location.replace("/order/", "");
-    return <PublicOrderPage slug={slug} />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicOrderPageLazy slug={slug} />
+      </Suspense>
+    );
   }
 
   if (isAuthPage) {
     return (
-      <Switch>
-        <Route path="/" component={Login} />
-        <Route path="/login" component={Login} />
-        <Route path="/onboarding" component={Onboarding} />
-        <Route path="/invite/accept" component={AcceptInvite} />
-        <Route path="/admin/support"><AdminGuard><SupportAdmin /></AdminGuard></Route>
-      <Route path="/admin/gnn-training" component={AdminGNNTraining} />
-      <Route path="/admin/keycloak" component={AdminKeycloak} />
-      <Route path="/admin/settlement-sla" component={AdminSettlementSLA} />
-      <Route path="/admin/dispute-lifecycle" component={AdminDisputeLifecycle} />
-      <Route path="/admin/data-pipeline" component={AdminDataPipeline} />
-        <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
-      </Switch>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/" component={Login} />
+          <Route path="/login" component={Login} />
+          <Route path="/onboarding" component={Onboarding} />
+          <Route path="/invite/accept" component={AcceptInvite} />
+          <Route path="/admin/support"><AdminGuard><SupportAdmin /></AdminGuard></Route>
+          <Route path="/admin/gnn-training" component={AdminGNNTraining} />
+          <Route path="/admin/keycloak" component={AdminKeycloak} />
+          <Route path="/admin/settlement-sla" component={AdminSettlementSLA} />
+          <Route path="/admin/dispute-lifecycle" component={AdminDisputeLifecycle} />
+          <Route path="/admin/data-pipeline" component={AdminDataPipeline} />
+          <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
+        </Switch>
+      </Suspense>
     );
   }
 
   if (isConsumerPage) {
     return (
       <ConsumerLayout>
-        <Switch>
-          <Route path="/consumer" component={ConsumerWallet} />
-          <Route path="/consumer/send" component={MakePayment} />
-          <Route path="/consumer/qr" component={QRPayments} />
-          <Route path="/consumer/bills" component={BillPay} />
-          <Route path="/consumer/profile" component={ConsumerProfile} />
-          <Route path="/consumer/history" component={ConsumerHistory} />
-          <Route path="/consumer/quick-pay" component={ConsumerQuickPay} />
-          <Route path="/consumer/notifications" component={ConsumerNotifications} />
-          <Route path="/consumer/notifications/settings" component={ConsumerNotificationSettings} />
-          <Route path="/consumer/onboarding" component={ConsumerOnboarding} />
-          <Route path="/consumer/red-envelope/:id" component={RedEnvelope} />
-          <Route path="/consumer/red-envelope" component={RedEnvelope} />
-          {/* Wave 68 Consumer Routes */}
-          <Route path="/consumer/qr-scan" component={QRScanPay} />
-          <Route path="/consumer/request-money" component={RequestMoney} />
-          <Route path="/consumer/contacts" component={Contacts} />
-          <Route path="/consumer/loyalty" component={Loyalty} />
-          <Route path="/consumer/coupons" component={Coupons} />
-          <Route path="/consumer/card" component={ConsumerCard} />
-          <Route path="/consumer/recurring" component={RecurringPayments} />
-          <Route path="/consumer/split-bill" component={SplitBill} />
-          <Route path="/consumer/pin" component={PINSetup} />
-          <Route path="/consumer/kyc" component={ConsumerKYC} />
-          <Route path="/consumer/discover" component={Discover} />
-          <Route path="/consumer/cross-border" component={ConsumerCrossBorder} />
-          <Route path="/consumer/analytics" component={ConsumerAnalytics} />
-          <Route path="/consumer/disputes" component={ConsumerDisputes} />
-          {/* Wave 84 Consumer Routes */}
-          <Route path="/consumer/notification-centre" component={NotificationCentre} />
-          <Route path="/consumer/statement" component={WalletStatement} />
-          <Route path="/consumer/help" component={ConsumerGuide} />
-          <Route path="/consumer/budgets" component={ConsumerBudgets} />
-          <Route path="/consumer/savings" component={ConsumerSavingsGoals} />
-          <Route path="/consumer/referrals" component={ConsumerReferrals} />
-          <Route path="/consumer/help-search" component={ConsumerHelpSearch} />
-          <Route path="/consumer/dispute-filing" component={ConsumerDisputeFiling} />
-          <Route path="/consumer/financial" component={ConsumerFinancialHub} />
-          <Route path="/consumer/gold" component={ConsumerGold} />
-          <Route path="/consumer/mutual-funds" component={ConsumerMutualFunds} />
-          <Route path="/consumer/pension" component={ConsumerPension} />
-          <Route path="/consumer/emi" component={ConsumerEMI} />
-          <Route path="/consumer/remittance" component={ConsumerRemittance} />
-          <Route path="/consumer/insurance" component={ConsumerInsuranceV2} />
-          <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
-          <Route path="/consumer/sip" component={ConsumerSIPScheduler} />
-          <Route component={ConsumerWallet} />
-        </Switch>
+        <Suspense fallback={<PageLoader />}>
+          <Switch>
+            <Route path="/consumer" component={ConsumerWallet} />
+            <Route path="/consumer/send" component={MakePayment} />
+            <Route path="/consumer/qr" component={QRPayments} />
+            <Route path="/consumer/bills" component={BillPay} />
+            <Route path="/consumer/profile" component={ConsumerProfile} />
+            <Route path="/consumer/history" component={ConsumerHistory} />
+            <Route path="/consumer/quick-pay" component={ConsumerQuickPay} />
+            <Route path="/consumer/notifications" component={ConsumerNotifications} />
+            <Route path="/consumer/notifications/settings" component={ConsumerNotificationSettings} />
+            <Route path="/consumer/onboarding" component={ConsumerOnboarding} />
+            <Route path="/consumer/red-envelope/:id" component={RedEnvelope} />
+            <Route path="/consumer/red-envelope" component={RedEnvelope} />
+            <Route path="/consumer/qr-scan" component={QRScanPay} />
+            <Route path="/consumer/request-money" component={RequestMoney} />
+            <Route path="/consumer/contacts" component={Contacts} />
+            <Route path="/consumer/loyalty" component={Loyalty} />
+            <Route path="/consumer/coupons" component={Coupons} />
+            <Route path="/consumer/card" component={ConsumerCard} />
+            <Route path="/consumer/recurring" component={RecurringPayments} />
+            <Route path="/consumer/split-bill" component={SplitBill} />
+            <Route path="/consumer/pin" component={PINSetup} />
+            <Route path="/consumer/kyc" component={ConsumerKYC} />
+            <Route path="/consumer/discover" component={Discover} />
+            <Route path="/consumer/cross-border" component={ConsumerCrossBorder} />
+            <Route path="/consumer/analytics" component={ConsumerAnalytics} />
+            <Route path="/consumer/disputes" component={ConsumerDisputes} />
+            <Route path="/consumer/notification-centre" component={NotificationCentre} />
+            <Route path="/consumer/statement" component={WalletStatement} />
+            <Route path="/consumer/help" component={ConsumerGuide} />
+            <Route path="/consumer/budgets" component={ConsumerBudgets} />
+            <Route path="/consumer/savings" component={ConsumerSavingsGoals} />
+            <Route path="/consumer/referrals" component={ConsumerReferrals} />
+            <Route path="/consumer/help-search" component={ConsumerHelpSearch} />
+            <Route path="/consumer/dispute-filing" component={ConsumerDisputeFiling} />
+            <Route path="/consumer/financial" component={ConsumerFinancialHub} />
+            <Route path="/consumer/gold" component={ConsumerGold} />
+            <Route path="/consumer/mutual-funds" component={ConsumerMutualFunds} />
+            <Route path="/consumer/pension" component={ConsumerPension} />
+            <Route path="/consumer/emi" component={ConsumerEMI} />
+            <Route path="/consumer/remittance" component={ConsumerRemittance} />
+            <Route path="/consumer/insurance" component={ConsumerInsuranceV2} />
+            <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
+            <Route path="/consumer/sip" component={ConsumerSIPScheduler} />
+            <Route component={ConsumerWallet} />
+          </Switch>
+        </Suspense>
       </ConsumerLayout>
     );
   }
 
   return (
     <Layout>
-      <Switch>
-        <Route path="/docs/merchant-guide" component={MerchantGuide} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/transactions" component={Transactions} />
-        <Route path="/customers" component={Customers} />
-        <Route path="/virtual-cards" component={VirtualCards} />
-        <Route path="/analytics" component={Analytics} />
-        <Route path="/merchant-analytics" component={MerchantAnalyticsDashboard} />
-        <Route path="/checkout" component={Checkout} />
-        <Route path="/payouts" component={Payouts} />
-        <Route path="/usdc-payouts" component={USDCPayouts} />
-        <Route path="/disputes" component={Disputes} />
-        <Route path="/disputes/:id" component={DisputeWorkflow} />
-        <Route path="/payment-links" component={PaymentLinks} />
-        <Route path="/fraud-risk" component={FraudRisk} />
-        <Route path="/reconciliation-alerts" component={ReconciliationAlerts} />
-        <Route path="/bnpl" component={BNPL} />
-        <Route path="/fx" component={FXDashboard} />
-        <Route path="/team" component={TeamRoles} />
-        <Route path="/mobile-money" component={MobileMoneyRecon} />
-        <Route path="/compliance" component={ComplianceKYC} />
-        <Route path="/compliance/settings" component={ComplianceSettings} />
-        <Route path="/api-keys" component={APIKeys} />
-        <Route path="/webhooks" component={Webhooks} />
-        <Route path="/webhooks/deliveries" component={WebhookDeliveries} />
-        <Route path="/settings" component={Settings} />
-        <Route path="/qr-payments" component={QRPayments} />
-        <Route path="/cross-border" component={CrossBorder} />
-        <Route path="/developer" component={DeveloperPortal} />
-        <Route path="/workflows" component={WorkflowObservability} />
-        <Route path="/role-sync" component={KeycloakRoleSync} />
-        <Route path="/nip-banks" component={NIPBanks} />
-        <Route path="/subscriptions" component={Subscriptions} />
-        <Route path="/pos-terminals" component={POSTerminals} />
-        <Route path="/terminal-map" component={TerminalMap} />
-        <Route path="/pos-reconciliation" component={POSReconciliation} />
-        <Route path="/ptsp-settlement" component={PTSPSettlement} />
-        <Route path="/ptsp-batches" component={PtspBatches} />
-        <Route path="/agent-banking" component={AgentBanking} />
-        <Route path="/kiosk-health" component={KioskHealth} />
-        <Route path="/restaurant/floor-plan" component={RestaurantFloorPlan} />
-        <Route path="/restaurant/orders" component={RestaurantOrders} />
-        <Route path="/restaurant/menu" component={RestaurantMenu} />
-        <Route path="/restaurant/loyalty" component={RestaurantLoyalty} />
-        <Route path="/restaurant/online-ordering" component={RestaurantOnlineOrdering} />
-        <Route path="/kitchen-display" component={KitchenDisplay} />
-        <Route path="/inventory" component={Inventory} />
-        <Route path="/payroll" component={Payroll} />
-        <Route path="/geofence-alerts" component={GeofenceAlerts} />
-      <Route path="/microservice-health" component={MicroserviceHealth} />
-      <Route path="/admin-setup" component={AdminSetup} />
-      <Route path="/admin" component={AdminPlatformOverview} />
-      <Route path="/admin/merchants" component={AdminMerchantManagement} />
-      <Route path="/admin/kyc" component={AdminKYCReview} />
-      <Route path="/admin/disputes" component={AdminDisputeManagement} />
-      <Route path="/admin/fraud" component={AdminFraudOversight} />
-      <Route path="/admin/revenue" component={AdminRevenue} />
-      <Route path="/admin/settlements" component={AdminSettlements} />
-      <Route path="/admin/compliance" component={AdminCompliance} />
-      <Route path="/admin/health" component={AdminSystemHealth} />
-      <Route path="/admin/audit" component={AdminAuditTrail} />
-      <Route path="/admin/notifications" component={AdminNotifications} />
-      <Route path="/admin/notifications/preferences" component={AdminNotificationPreferences} />
-      <Route path="/admin/webhook-alerts" component={AdminWebhookAlerts} />
-      <Route path="/admin/config" component={AdminConfig} />
-      <Route path="/admin/feature-flags" component={AdminFeatureFlags} />
-      <Route path="/admin/merchant-risk" component={AdminMerchantRisk} />
-      <Route path="/admin/chargebacks" component={AdminChargebacks} />
-      <Route path="/admin/help-analytics" component={AdminHelpAnalytics} />
-      <Route path="/admin/audit-log" component={AdminAuditLog} />
-      <Route path="/admin/api-playground" component={AdminApiPlayground} />
-      <Route path="/admin/rate-limits" component={AdminRateLimitDashboard} />
-      <Route path="/admin/sdk-tokens" component={AdminSdkTokens} />
-      <Route path="/admin/tenants" component={AdminTenantManagement} />
-      <Route path="/admin/white-label" component={AdminWhiteLabel} />
-      <Route path="/admin/kyb-review" component={AdminKybReview} />
-      <Route path="/admin/fx-hedging" component={AdminFxHedging} />
-      <Route path="/admin/payout-approval" component={AdminPayoutApproval} />
-      <Route path="/admin/compliance-reports" component={AdminComplianceReports} />
-      <Route path="/admin/security-score" component={AdminSecurityScore} />
-      <Route path="/admin/webhook-retry" component={AdminWebhookRetry} />
-        <Route path="/admin/data-pipeline"><AdminGuard><AdminDataPipeline /></AdminGuard></Route>
-      <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
-      <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
-      <Route path="/admin/invite-codes" component={AdminInviteCodes} />
-      <Route path="/partner/onboard" component={PartnerOnboard} />
-      <Route path="/admin/tenant" component={TenantAdminDashboard} />
-      <Route path="/partner/preview" component={WhiteLabelPreview} />
-      <Route path="/ollama-chat" component={OllamaChat} />
-      <Route path="/go-live" component={GoLiveChecklist} />
-      <Route path="/go-live-checklist" component={GoLiveChecklist} />
-      <Route path="/settings/payments" component={SettingsPayments} />
-        <Route path="/quick-pay" component={QuickPay} />
-        <Route path="/notifications" component={NotificationsCenter} />
-        <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />
-        <Route path="/audit-log" component={AuditLog} />
-        <Route path="/purchase-orders" component={PurchaseOrders} />
-        <Route path="/refunds" component={RefundWorkflow} />
-        <Route path="/payout-batching" component={PayoutBatching} />
-        <Route path="/receipt/:txId" component={TransactionReceipt} />
-        <Route path="/vendors" component={Vendors} />
-        <Route path="/settlements" component={Settlements} />
-        {/* Tier 1-5 New Features */}
-        <Route path="/lending" component={MerchantLending} />
-        <Route path="/merchant-lending" component={MerchantLending} />
-        <Route path="/split-payments" component={SplitPayments} />
-        <Route path="/recurring-billing" component={RecurringBilling} />
-        <Route path="/dcc" component={DCCDashboard} />
-        <Route path="/dcc-checkout" component={DCCDashboard} />
-        <Route path="/reconciliation" component={ReconciliationEngine} />
-        <Route path="/invoice-builder" component={InvoiceBuilder} />
-        <Route path="/chargeback-automation" component={ChargebackAutomation} />
-        <Route path="/aml-monitor" component={AMLMonitor} />
-        <Route path="/kyb-workflow" component={KYBWorkflow} />
-        <Route path="/session-risk" component={SessionRisk} />
-        <Route path="/open-banking" component={OpenBanking} />
-        <Route path="/loyalty-engine" component={LoyaltyEngine} />
-        <Route path="/embedded-finance" component={EmbeddedFinance} />
-        <Route path="/ai-insights" component={AIInsights} />
-        <Route path="/fraud-heatmap" component={FraudHeatmap} />
-        {/* Tier 6-8 New Features */}
-        <Route path="/insurance" component={InsurancePremium} />
-        <Route path="/carbon-credit" component={CarbonCredit} />
-        <Route path="/nft-badges" component={NFTBadges} />
-        <Route path="/bnpl-v2" component={BNPLv2} />
-        <Route path="/crypto-ramp" component={CryptoRamp} />
-        <Route path="/escrow" component={EscrowService} />
-        <Route path="/bulk-scheduler" component={BulkScheduler} />
-        <Route path="/tax-withholding" component={TaxWithholding} />
-        <Route path="/regulatory-sandbox" component={RegulatorySandbox} />
-        <Route path="/multi-currency-wallet" component={MultiCurrencyWallet} />
-        <Route path="/rtgs" component={RTGSDashboard} />
-        <Route path="/iso20022" component={ISO20022} />
-        <Route path="/open-finance" component={OpenFinanceHub} />
-        <Route path="/white-label-sdk" component={WhiteLabelSDK} />
-        <Route path="/super-app" component={SuperApp} />
-        <Route path="/lakehouse-v2" component={LakehouseV2} />
-        <Route path="/payroll-v2" component={PayrollV2} />
-        <Route path="/settlement-forecast" component={SettlementForecast} />
-        <Route path="/tax-engine" component={TaxEngine} />
-        {/* New Production Pages */}
-        <Route path="/agent-network" component={AgentNetwork} />
-        <Route path="/sdk-portal" component={SDKPortal} />
-        <Route path="/cohort-analytics" component={CohortAnalytics} />
-        <Route path="/pos-v2" component={POSv2} />
-        <Route path="/remittance-v2" component={RemittanceV2} />
-        <Route path="/remittance" component={RemittanceV2} />
-        <Route path="/dispute-automation" component={DisputeAutomation} />
-        <Route path="/open-banking-portal" component={OpenBankingPortal} />
-        <Route path="/merchant-lending-v2" component={MerchantLendingV2} />
-        <Route path="/mobile-pos" component={MobilePOS} />
-        {/* New Feature Routes */}
-        <Route path="/digital-gold" component={DigitalGold} />
-        <Route path="/mutual-funds" component={MutualFunds} />
-        <Route path="/consumer-insurance" component={ConsumerInsurance} />
-        <Route path="/pension-nps" component={PensionNPS} />
-        <Route path="/cashback-rewards" component={CashbackRewards} />
-        <Route path="/voice-payments" component={VoicePayments} />
-        <Route path="/wealth-management" component={WealthManagement} />
-        <Route path="/emi-checkout" component={EMICheckout} />
-        <Route path="/bulk-collections" component={BulkCollections} />
-        <Route path="/api-docs" component={APIDocsPortal} />
-        <Route path="/salary-accounts" component={SalaryAccounts} />
-        <Route path="/privacy-payments" component={PrivacyPayments} />
-        <Route path="/reports-center" component={ReportsCenter} />
-        <Route path="/reports" component={ReportsCenter} />
-        <Route path="/ai-insights-v2" component={AIInsightsV2} />
-        <Route path="/nodal-accounts" component={NodalAccounts} />
-        <Route path="/smart-pos" component={SmartRetailPOS} />
-        <Route path="/intl-remittance" component={InternationalRemittance} />
-        <Route path="/subscription-billing-v2" component={SubscriptionBillingV2} />
-        <Route path="/billing" component={Billing} />
-        {/* Wave 80 Routes */}
-        <Route path="/open-banking-v2" component={OpenBankingV2} />
-        <Route path="/carbon-credits-v2" component={CarbonCreditsV2} />
-        <Route path="/agent-banking-v4" component={AgentBankingV4} />
-        <Route path="/super-agent-v2" component={SuperAgentV2} />
-        <Route path="/escrow-v2" component={EscrowV2} />
-        <Route path="/marketplace-pay" component={MarketplacePay} />
-        <Route path="/loyalty-v3" component={LoyaltyV3} />
-        <Route path="/crypto-offramp-v2" component={CryptoOfframpV2} />
-        <Route path="/crypto-offramp" component={CryptoOfframpV2} />
-        <Route path="/nfc-pay" component={NfcPay} />
-        <Route path="/qr-analytics" component={QrMerchantAnalytics} />
-        <Route path="/invoice-financing-v2" component={InvoiceFinancingV2} />
-        <Route path="/payroll-v3" component={PayrollV3} />
-        <Route path="/tax-filing" component={TaxFiling} />
-        <Route path="/regulatory-reporting" component={RegulatoryReporting} />
-        <Route path="/usdc-v2" component={UsdcV2} />
-        <Route path="/multi-currency-ledger" component={MultiCurrencyLedger} />
-        <Route path="/temporal-workflows" component={TemporalWorkflowMgmt} />
-        <Route path="/grpc-health" component={GrpcHealthCheck} />
-        <Route path="/ussd-v2" component={UssdSessionV2} />
-        <Route path="/realtime-notifications" component={RealtimeNotifications} />
-        {/* Wave 84 Routes */}
-        <Route path="/qr-generator" component={QRGenerator} />
-        <Route path="/ussd-sessions" component={USSDSessions} />
-        <Route path="/developer-sandbox" component={DeveloperSandbox} />
-        {/* Wave 85 — Orphaned Table CRUD Pages */}
-        <Route path="/kyb-verification" component={KYBVerification} />
-        <Route path="/compliance-reports" component={ComplianceReports} />
-        <Route path="/sdk-tokens" component={SDKTokens} />
-        {/* Wave 29 routes */}
-        <Route path="/tenant/billing" component={TenantBillingDashboard} />
-        <Route path="/tenant/corridors" component={CorridorManagement} />
-        <Route path="/tenant/sso" component={TenantSsoConfig} />
-        <Route path="/tenant/api-keys" component={TenantApiKeys} />
-        <Route path="/admin/rate-limit-dashboard" component={RateLimitDashboard} />
-        <Route path="/loyalty/auto-promotion" component={LoyaltyAutoPromotion} />
-        <Route path="/bnpl/repayment-tracker" component={BnplRepaymentTracker} />
-        <Route path="/disputes/escalation" component={DisputeEscalation} />
-        <Route path="/admin/revenue-analytics" component={AdminRevenueAnalytics} />
-        <Route path="/admin/sla-monitoring" component={AdminSlaMonitoring} />
-        <Route path="/admin/chargeback-management" component={AdminChargebackManagement} />
-        {/* Wave 30 routes */}
-        <Route path="/tenant/stripe-billing" component={TenantStripeBilling} />
-        <Route path="/admin/onboarding-emails" component={OnboardingEmailFlow} />
-        <Route path="/admin/sla-alerts" component={SlaAlertDashboard} />
-        <Route path="/admin/kyb-state-machine" component={KybStateMachine} />
-        <Route path="/admin/middleware-integrations" component={MiddlewareIntegrations} />
-        <Route path="/fx/hedging" component={FxHedgingWorkflow} />
-        {/* Wave 31 Routes */}
-        <Route path="/admin/billing-cron" component={TenantBillingCron} />
-        <Route path="/admin/ussd-menu-builder" component={UssdMenuBuilder} />
-        <Route path="/admin/middleware-health-alerts" component={MiddlewareHealthAlerts} />
-        <Route path="/admin/payout-approval-workflow" component={PayoutApprovalWorkflow} />
-        <Route path="/admin/bnpl-delinquency" component={BnplDelinquencyManagement} />
-        <Route path="/admin/dispute-sla" component={DisputeSlaTracking} />
-        {/* Wave 32 Routes */}
-        <Route path="/admin/invite-codes-v2" component={AdminInviteCodesPage} />
-        <Route path="/admin/partner-onboarding" component={PartnerOnboardingPage} />
-        <Route path="/admin/corridors" component={TenantCorridorsPage} />
-        <Route path="/admin/plan-limits" component={PlanLimitsPage} />
-        <Route path="/admin/billing-invoices" component={BillingInvoicesPage} />
-        <Route path="/admin/sso-config" component={SSOConfigPage} />
-        <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
-        <Route path="/subscriptions-v2" component={SubscriptionsPage} />
-        <Route path="/admin/fraud-rings" component={FraudRingDashboard} />
-        <Route path="/admin/gnn-threshold" component={GNNThresholdPage} />
-        <Route path="/pricing" component={PricingPage} />
-        <Route path="/webhook-events" component={WebhookEventsPage} />
-        <Route path="/emi-loans" component={EMILoansPage} />
-        <Route path="/insurance" component={InsurancePage} />
-        <Route component={Dashboard} />
-      </Switch>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/docs/merchant-guide" component={MerchantGuide} />
+          <Route path="/dashboard" component={Dashboard} />
+          <Route path="/transactions" component={Transactions} />
+          <Route path="/customers" component={Customers} />
+          <Route path="/virtual-cards" component={VirtualCards} />
+          <Route path="/analytics" component={Analytics} />
+          <Route path="/merchant-analytics" component={MerchantAnalyticsDashboard} />
+          <Route path="/checkout" component={Checkout} />
+          <Route path="/payouts" component={Payouts} />
+          <Route path="/usdc-payouts" component={USDCPayouts} />
+          <Route path="/disputes" component={Disputes} />
+          <Route path="/disputes/:id" component={DisputeWorkflow} />
+          <Route path="/payment-links" component={PaymentLinks} />
+          <Route path="/fraud-risk" component={FraudRisk} />
+          <Route path="/reconciliation-alerts" component={ReconciliationAlerts} />
+          <Route path="/bnpl" component={BNPL} />
+          <Route path="/fx" component={FXDashboard} />
+          <Route path="/team" component={TeamRoles} />
+          <Route path="/mobile-money" component={MobileMoneyRecon} />
+          <Route path="/compliance" component={ComplianceKYC} />
+          <Route path="/compliance/settings" component={ComplianceSettings} />
+          <Route path="/api-keys" component={APIKeys} />
+          <Route path="/webhooks" component={Webhooks} />
+          <Route path="/webhooks/deliveries" component={WebhookDeliveries} />
+          <Route path="/settings" component={Settings} />
+          <Route path="/qr-payments" component={QRPayments} />
+          <Route path="/cross-border" component={CrossBorder} />
+          <Route path="/developer" component={DeveloperPortal} />
+          <Route path="/workflows" component={WorkflowObservability} />
+          <Route path="/role-sync" component={KeycloakRoleSync} />
+          <Route path="/nip-banks" component={NIPBanks} />
+          <Route path="/subscriptions" component={Subscriptions} />
+          <Route path="/pos-terminals" component={POSTerminals} />
+          <Route path="/terminal-map" component={TerminalMap} />
+          <Route path="/pos-reconciliation" component={POSReconciliation} />
+          <Route path="/ptsp-settlement" component={PTSPSettlement} />
+          <Route path="/ptsp-batches" component={PtspBatches} />
+          <Route path="/agent-banking" component={AgentBanking} />
+          <Route path="/kiosk-health" component={KioskHealth} />
+          <Route path="/restaurant/floor-plan" component={RestaurantFloorPlan} />
+          <Route path="/restaurant/orders" component={RestaurantOrders} />
+          <Route path="/restaurant/menu" component={RestaurantMenu} />
+          <Route path="/restaurant/loyalty" component={RestaurantLoyalty} />
+          <Route path="/restaurant/online-ordering" component={RestaurantOnlineOrdering} />
+          <Route path="/kitchen-display" component={KitchenDisplay} />
+          <Route path="/inventory" component={Inventory} />
+          <Route path="/payroll" component={Payroll} />
+          <Route path="/geofence-alerts" component={GeofenceAlerts} />
+          <Route path="/microservice-health" component={MicroserviceHealth} />
+          <Route path="/admin-setup" component={AdminSetup} />
+          <Route path="/admin" component={AdminPlatformOverview} />
+          <Route path="/admin/merchants" component={AdminMerchantManagement} />
+          <Route path="/admin/kyc" component={AdminKYCReview} />
+          <Route path="/admin/disputes" component={AdminDisputeManagement} />
+          <Route path="/admin/fraud" component={AdminFraudOversight} />
+          <Route path="/admin/revenue" component={AdminRevenue} />
+          <Route path="/admin/settlements" component={AdminSettlements} />
+          <Route path="/admin/compliance" component={AdminCompliance} />
+          <Route path="/admin/health" component={AdminSystemHealth} />
+          <Route path="/admin/audit" component={AdminAuditTrail} />
+          <Route path="/admin/notifications" component={AdminNotifications} />
+          <Route path="/admin/notifications/preferences" component={AdminNotificationPreferences} />
+          <Route path="/admin/webhook-alerts" component={AdminWebhookAlerts} />
+          <Route path="/admin/config" component={AdminConfig} />
+          <Route path="/admin/feature-flags" component={AdminFeatureFlags} />
+          <Route path="/admin/merchant-risk" component={AdminMerchantRisk} />
+          <Route path="/admin/chargebacks" component={AdminChargebacks} />
+          <Route path="/admin/help-analytics" component={AdminHelpAnalytics} />
+          <Route path="/admin/audit-log" component={AdminAuditLog} />
+          <Route path="/admin/api-playground" component={AdminApiPlayground} />
+          <Route path="/admin/rate-limits" component={AdminRateLimitDashboard} />
+          <Route path="/admin/sdk-tokens" component={AdminSdkTokens} />
+          <Route path="/admin/tenants" component={AdminTenantManagement} />
+          <Route path="/admin/white-label" component={AdminWhiteLabel} />
+          <Route path="/admin/kyb-review" component={AdminKybReview} />
+          <Route path="/admin/fx-hedging" component={AdminFxHedging} />
+          <Route path="/admin/payout-approval" component={AdminPayoutApproval} />
+          <Route path="/admin/compliance-reports" component={AdminComplianceReports} />
+          <Route path="/admin/security-score" component={AdminSecurityScore} />
+          <Route path="/admin/webhook-retry" component={AdminWebhookRetry} />
+          <Route path="/admin/data-pipeline"><AdminGuard><AdminDataPipeline /></AdminGuard></Route>
+          <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
+          <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
+          <Route path="/admin/invite-codes" component={AdminInviteCodes} />
+          <Route path="/partner/onboard" component={PartnerOnboard} />
+          <Route path="/admin/tenant" component={TenantAdminDashboard} />
+          <Route path="/partner/preview" component={WhiteLabelPreview} />
+          <Route path="/ollama-chat" component={OllamaChat} />
+          <Route path="/go-live" component={GoLiveChecklist} />
+          <Route path="/go-live-checklist" component={GoLiveChecklist} />
+          <Route path="/settings/payments" component={SettingsPayments} />
+          <Route path="/quick-pay" component={QuickPay} />
+          <Route path="/notifications" component={NotificationsCenter} />
+          <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />
+          <Route path="/audit-log" component={AuditLog} />
+          <Route path="/purchase-orders" component={PurchaseOrders} />
+          <Route path="/vendors" component={Vendors} />
+          <Route path="/refunds" component={RefundWorkflow} />
+          <Route path="/payout-batching" component={PayoutBatching} />
+          <Route path="/receipt/:txId" component={TransactionReceipt} />
+          <Route path="/settlements" component={Settlements} />
+          <Route path="/lending" component={MerchantLending} />
+          <Route path="/merchant-lending" component={MerchantLending} />
+          <Route path="/split-payments" component={SplitPayments} />
+          <Route path="/recurring-billing" component={RecurringBilling} />
+          <Route path="/dcc" component={DCCDashboard} />
+          <Route path="/dcc-checkout" component={DCCDashboard} />
+          <Route path="/reconciliation" component={ReconciliationEngine} />
+          <Route path="/invoice-builder" component={InvoiceBuilder} />
+          <Route path="/chargeback-automation" component={ChargebackAutomation} />
+          <Route path="/aml-monitor" component={AMLMonitor} />
+          <Route path="/kyb-workflow" component={KYBWorkflow} />
+          <Route path="/session-risk" component={SessionRisk} />
+          <Route path="/open-banking" component={OpenBanking} />
+          <Route path="/loyalty-engine" component={LoyaltyEngine} />
+          <Route path="/embedded-finance" component={EmbeddedFinance} />
+          <Route path="/ai-insights" component={AIInsights} />
+          <Route path="/fraud-heatmap" component={FraudHeatmap} />
+          <Route path="/insurance-premium" component={InsurancePremium} />
+          <Route path="/carbon-credit" component={CarbonCredit} />
+          <Route path="/nft-badges" component={NFTBadges} />
+          <Route path="/bnpl-v2" component={BNPLv2} />
+          <Route path="/crypto-ramp" component={CryptoRamp} />
+          <Route path="/escrow" component={EscrowService} />
+          <Route path="/bulk-scheduler" component={BulkScheduler} />
+          <Route path="/tax-withholding" component={TaxWithholding} />
+          <Route path="/regulatory-sandbox" component={RegulatorySandbox} />
+          <Route path="/multi-currency-wallet" component={MultiCurrencyWallet} />
+          <Route path="/rtgs" component={RTGSDashboard} />
+          <Route path="/iso20022" component={ISO20022} />
+          <Route path="/open-finance" component={OpenFinanceHub} />
+          <Route path="/white-label-sdk" component={WhiteLabelSDK} />
+          <Route path="/super-app" component={SuperApp} />
+          <Route path="/lakehouse-v2" component={LakehouseV2} />
+          <Route path="/payroll-v2" component={PayrollV2} />
+          <Route path="/settlement-forecast" component={SettlementForecast} />
+          <Route path="/tax-engine" component={TaxEngine} />
+          <Route path="/agent-network" component={AgentNetwork} />
+          <Route path="/sdk-portal" component={SDKPortal} />
+          <Route path="/cohort-analytics" component={CohortAnalytics} />
+          <Route path="/pos-v2" component={POSv2} />
+          <Route path="/remittance-v2" component={RemittanceV2} />
+          <Route path="/remittance" component={RemittanceV2} />
+          <Route path="/dispute-automation" component={DisputeAutomation} />
+          <Route path="/open-banking-portal" component={OpenBankingPortal} />
+          <Route path="/merchant-lending-v2" component={MerchantLendingV2} />
+          <Route path="/mobile-pos" component={MobilePOS} />
+          <Route path="/digital-gold" component={DigitalGold} />
+          <Route path="/mutual-funds" component={MutualFunds} />
+          <Route path="/consumer-insurance" component={ConsumerInsurance} />
+          <Route path="/pension-nps" component={PensionNPS} />
+          <Route path="/cashback-rewards" component={CashbackRewards} />
+          <Route path="/voice-payments" component={VoicePayments} />
+          <Route path="/wealth-management" component={WealthManagement} />
+          <Route path="/emi-checkout" component={EMICheckout} />
+          <Route path="/bulk-collections" component={BulkCollections} />
+          <Route path="/api-docs" component={APIDocsPortal} />
+          <Route path="/salary-accounts" component={SalaryAccounts} />
+          <Route path="/privacy-payments" component={PrivacyPayments} />
+          <Route path="/reports-center" component={ReportsCenter} />
+          <Route path="/reports" component={ReportsCenter} />
+          <Route path="/ai-insights-v2" component={AIInsightsV2} />
+          <Route path="/nodal-accounts" component={NodalAccounts} />
+          <Route path="/smart-pos" component={SmartRetailPOS} />
+          <Route path="/intl-remittance" component={InternationalRemittance} />
+          <Route path="/subscription-billing-v2" component={SubscriptionBillingV2} />
+          <Route path="/billing" component={Billing} />
+          <Route path="/open-banking-v2" component={OpenBankingV2} />
+          <Route path="/carbon-credits-v2" component={CarbonCreditsV2} />
+          <Route path="/agent-banking-v4" component={AgentBankingV4} />
+          <Route path="/super-agent-v2" component={SuperAgentV2} />
+          <Route path="/escrow-v2" component={EscrowV2} />
+          <Route path="/marketplace-pay" component={MarketplacePay} />
+          <Route path="/loyalty-v3" component={LoyaltyV3} />
+          <Route path="/crypto-offramp-v2" component={CryptoOfframpV2} />
+          <Route path="/crypto-offramp" component={CryptoOfframpV2} />
+          <Route path="/nfc-pay" component={NfcPay} />
+          <Route path="/qr-analytics" component={QrMerchantAnalytics} />
+          <Route path="/invoice-financing-v2" component={InvoiceFinancingV2} />
+          <Route path="/payroll-v3" component={PayrollV3} />
+          <Route path="/tax-filing" component={TaxFiling} />
+          <Route path="/regulatory-reporting" component={RegulatoryReporting} />
+          <Route path="/usdc-v2" component={UsdcV2} />
+          <Route path="/multi-currency-ledger" component={MultiCurrencyLedger} />
+          <Route path="/temporal-workflows" component={TemporalWorkflowMgmt} />
+          <Route path="/grpc-health" component={GrpcHealthCheck} />
+          <Route path="/ussd-v2" component={UssdSessionV2} />
+          <Route path="/realtime-notifications" component={RealtimeNotifications} />
+          <Route path="/qr-generator" component={QRGenerator} />
+          <Route path="/ussd-sessions" component={USSDSessions} />
+          <Route path="/developer-sandbox" component={DeveloperSandbox} />
+          <Route path="/kyb-verification" component={KYBVerification} />
+          <Route path="/compliance-reports" component={ComplianceReports} />
+          <Route path="/sdk-tokens" component={SDKTokens} />
+          <Route path="/tenant/billing" component={TenantBillingDashboard} />
+          <Route path="/tenant/corridors" component={CorridorManagement} />
+          <Route path="/tenant/sso" component={TenantSsoConfig} />
+          <Route path="/tenant/api-keys" component={TenantApiKeys} />
+          <Route path="/admin/rate-limit-dashboard" component={RateLimitDashboard} />
+          <Route path="/loyalty/auto-promotion" component={LoyaltyAutoPromotion} />
+          <Route path="/bnpl/repayment-tracker" component={BnplRepaymentTracker} />
+          <Route path="/disputes/escalation" component={DisputeEscalation} />
+          <Route path="/admin/revenue-analytics" component={AdminRevenueAnalytics} />
+          <Route path="/admin/sla-monitoring" component={AdminSlaMonitoring} />
+          <Route path="/admin/chargeback-management" component={AdminChargebackManagement} />
+          <Route path="/tenant/stripe-billing" component={TenantStripeBilling} />
+          <Route path="/admin/onboarding-emails" component={OnboardingEmailFlow} />
+          <Route path="/admin/sla-alerts" component={SlaAlertDashboard} />
+          <Route path="/admin/kyb-state-machine" component={KybStateMachine} />
+          <Route path="/admin/middleware-integrations" component={MiddlewareIntegrations} />
+          <Route path="/fx/hedging" component={FxHedgingWorkflow} />
+          <Route path="/admin/billing-cron" component={TenantBillingCron} />
+          <Route path="/admin/ussd-menu-builder" component={UssdMenuBuilder} />
+          <Route path="/admin/middleware-health-alerts" component={MiddlewareHealthAlerts} />
+          <Route path="/admin/payout-approval-workflow" component={PayoutApprovalWorkflow} />
+          <Route path="/admin/bnpl-delinquency" component={BnplDelinquencyManagement} />
+          <Route path="/admin/dispute-sla" component={DisputeSlaTracking} />
+          <Route path="/admin/invite-codes-v2" component={AdminInviteCodesPage} />
+          <Route path="/admin/partner-onboarding" component={PartnerOnboardingPage} />
+          <Route path="/admin/corridors" component={TenantCorridorsPage} />
+          <Route path="/admin/plan-limits" component={PlanLimitsPage} />
+          <Route path="/admin/billing-invoices" component={BillingInvoicesPage} />
+          <Route path="/admin/sso-config" component={SSOConfigPage} />
+          <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
+          <Route path="/subscriptions-v2" component={SubscriptionsPage} />
+          <Route path="/admin/fraud-rings" component={FraudRingDashboard} />
+          <Route path="/admin/gnn-threshold" component={GNNThresholdPage} />
+          <Route path="/pricing" component={PricingPage} />
+          <Route path="/webhook-events" component={WebhookEventsPage} />
+          <Route path="/emi-loans" component={EMILoansPage} />
+          <Route path="/insurance" component={InsurancePage} />
+          <Route component={Dashboard} />
+        </Switch>
+      </Suspense>
     </Layout>
   );
 }
