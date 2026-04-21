@@ -294,6 +294,7 @@ import ConsumerRemittance from "./pages/consumer/ConsumerRemittance";
 import ConsumerInsuranceV2 from "./pages/consumer/ConsumerInsuranceV2";
 import ConsumerSubscriptions from "./pages/consumer/ConsumerSubscriptions";
 import ConsumerFinancialHub from "./pages/consumer/ConsumerFinancialHub";
+import ConsumerSIPScheduler from "./pages/consumer/ConsumerSIPScheduler";
 
 function Router() {
   const [location] = useLocation();
@@ -373,6 +374,7 @@ function Router() {
           <Route path="/consumer/remittance" component={ConsumerRemittance} />
           <Route path="/consumer/insurance" component={ConsumerInsuranceV2} />
           <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
+          <Route path="/consumer/sip" component={ConsumerSIPScheduler} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>

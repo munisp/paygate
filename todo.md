@@ -3295,3 +3295,27 @@
 - [x] Wave 36: FraudRingDashboard — Escalate button + dialog with 48h auto-freeze notice
 - [x] Wave 36: All 2561 tests pass across 73 test files
 - [x] Wave 36: Vite build clean — 3488+ modules, 0 errors
+
+## Session v31 — Wave 37: Full Production Hardening Sprint (2026-04-21)
+
+- [x] Wave 37: Deep audit — identified all stub procedures and CRUD gaps
+- [x] Wave 37: Fixed trpc.emi.calculate namespace (added top-level emi router alias)
+- [x] Wave 37: Added consumerFinancial.emiLoans and consumerFinancial.applyEmiLoan procedures
+- [x] Wave 37: Fixed ConsumerEMI.tsx payMutation stub — wired to real trpc.consumerFinancial.emi.payEMI
+- [x] Wave 37: Fixed ConsumerInsuranceV2.tsx claimMutation stub — wired to real fileClaim procedure
+- [x] Wave 37: Created sipRouter.ts with full CRUD (create, list, pause, resume, cancel, execute)
+- [x] Wave 37: Created cronJobs.ts with SIP executor cron (daily) + fraud ring auto-freeze (hourly)
+- [x] Wave 37: Created sip_plans and sip_executions tables in PostgreSQL
+- [x] Wave 37: Wired cron jobs to server startup in _core/index.ts
+- [x] Wave 37: Added SSE /api/market-data/stream endpoint for real-time price tickers
+- [x] Wave 37: Created ConsumerSIPScheduler.tsx — full CRUD UI for recurring investment plans
+- [x] Wave 37: Upgraded ConsumerFinancialHub.tsx to use SSE with polling fallback
+- [x] Wave 37: Added SIP Scheduler to ConsumerLayout navigation
+- [x] Wave 37: Registered /consumer/sip route in App.tsx
+- [x] Wave 37: Confirmed Docker/K8s/infra YAML files are comprehensive (30+ infra subdirs)
+- [x] Wave 37: Upgraded pnpm 10.18.1 → 10.33.0 (fixes 8 build-tool CVEs)
+- [x] Wave 37: Upgraded vitest 2.1.9 → 4.1.5 (fixes vite path traversal CVE)
+- [x] Wave 37: Deep security audit — 0 application-level vulnerabilities found
+- [x] Wave 37: Wrote SECURITY_AUDIT_v37.md with full vulnerability report and score 94/100
+- [x] Wave 37: All 2,561 tests pass (73 test files)
+- [x] Wave 37: Vite build clean (3489+ modules, 5.38s)

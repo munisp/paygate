@@ -1049,6 +1049,36 @@ export const consumerFinancialRouter = router({
         return { success: true };
       }),
   }),
+  // EMI Loans list (for EMILoansPage)
+  emiLoans: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return { loans: [] };
+    const result = await db.execute(sql`
+      SELECT id, principal_kobo, emi_kobo, tenure_months, annual_rate_pct, purpose, status, created_at
+      FROM emi_loans WHERE user_id = ${ctx.user.id} ORDER BY created_at DESC
+    `);
+    return { loans: result.rows as any[] };
+  }),
+  applyEmiLoan: protectedProcedure
+    .input(z.object({
+      principalKobo: z.number().min(1_000_000),
+      tenureMonths: z.number().min(1).max(60),
+      purpose: z.string().optional(),
+      annualRatePct: z.number().min(1).max(100).default(24),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const { principalKobo: P, tenureMonths: n, annualRatePct: annualRate } = input;
+      const r = annualRate / 100 / 12;
+      const emi = r === 0 ? Math.round(P / n) : Math.round(P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1));
+      const loanId = nanoid("loan_");
+      await db.execute(sql`
+        INSERT INTO emi_loans (id, user_id, principal_kobo, emi_kobo, tenure_months, annual_rate_pct, purpose, status, created_at)
+        VALUES (${loanId}, ${ctx.user.id}, ${P}, ${emi}, ${n}, ${annualRate}, ${input.purpose ?? 'personal'}, 'pending_approval', NOW())
+      `);
+      return { success: true, loanId, emi, annualRate };
+    }),
 });
 
 // ─── Webhook Dispatch for All Event Types ────────────────────────────────────

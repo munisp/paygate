@@ -36,11 +36,17 @@ export default function ConsumerInsuranceV2() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // Claims not yet in wave34Router — placeholder
-  const claimMutation = { mutate: (_: any) => toast.info('Claim filing coming soon'), isPending: false };
+  const claimMutation = trpc.consumerFinancial.insurance.fileClaim.useMutation({
+    onSuccess: (d: any) => {
+      toast.success(`Claim ${d.claimId} filed successfully`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const { data: claimsData } = trpc.consumerFinancial.insurance.getClaims.useQuery();
 
   const policyList = (policyData as any)?.policies ?? [];
-  const claimList: any[] = [];
+  const claimList = (claimsData as any)?.claims ?? [];
 
   return (
     <div className="p-4 space-y-6 max-w-2xl mx-auto">

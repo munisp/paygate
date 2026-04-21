@@ -40,8 +40,13 @@ export default function ConsumerEMI() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // payEMI not yet in router — placeholder
-  const payMutation = { mutate: (_: any) => toast.info('EMI payment feature coming soon'), isPending: false };
+  const payMutation = trpc.consumerFinancial.emi.payEMI.useMutation({
+    onSuccess: (d: any) => {
+      toast.success(`EMI payment ${d.paymentId} recorded successfully`);
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const loanList = (loans as any[]) ?? [];
 

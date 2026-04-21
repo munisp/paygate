@@ -37,6 +37,7 @@ import { supportRouter } from './supportRouter';
 import { portalBillingRouter } from './portalBillingRouter';
 import { wave32Router } from './wave32Router';
 import { fraudRingRouter, gnnThresholdRouter, pricingRouter, consumerFinancialRouter, webhookEventRouter, adminCrudRouter } from './wave34Router';
+import { sipRouter } from './sipRouter';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -7362,6 +7363,8 @@ export const appRouter = router({
   gnnThreshold: gnnThresholdRouter,
   pricing: pricingRouter,
   consumerFinancial: consumerFinancialRouter,
+  emi: consumerFinancialRouter,
+  sip: sipRouter,
   webhookEvents: webhookEventRouter,
   adminCrud: adminCrudRouter,
 });

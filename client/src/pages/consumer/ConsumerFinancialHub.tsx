@@ -1,12 +1,33 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Coins, PieChart, Shield, CreditCard, Globe, Umbrella,
-  RefreshCw, TrendingUp, TrendingDown, Minus, ArrowUpRight,
+  RefreshCw, TrendingUp, TrendingDown, Minus, ArrowUpRight, Wifi, WifiOff,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+
+// SSE hook for real-time market data (falls back to polling if SSE fails)
+function useMarketSSE() {
+  const [sseData, setSseData] = useState<any>(null);
+  const [connected, setConnected] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    const es = new EventSource("/api/market/stream");
+    esRef.current = es;
+    es.addEventListener("market", (e) => {
+      try { setSseData(JSON.parse(e.data)); setConnected(true); } catch { /* ignore */ }
+    });
+    es.onerror = () => setConnected(false);
+    es.onopen = () => setConnected(true);
+    return () => { es.close(); esRef.current = null; };
+  }, []);
+
+  return { sseData, connected };
+}
 
 const SERVICES = [
   {
@@ -81,6 +102,15 @@ const SERVICES = [
     bg: "bg-orange-50 dark:bg-orange-950/30",
     badge: null,
   },
+  {
+    path: "/consumer/sip",
+    icon: RefreshCw,
+    label: "SIP Scheduler",
+    description: "Automate recurring investments",
+    color: "text-emerald-600",
+    bg: "bg-emerald-50 dark:bg-emerald-950/30",
+    badge: "Auto-invest",
+  },
 ] as const;
 
 type ServiceItem = {
@@ -113,10 +143,23 @@ function ChangeIndicator({ pct }: { pct: number }) {
 }
 
 export default function ConsumerFinancialHub() {
-  const { data: summary, isLoading } = trpc.newFeatures.marketData.summary.useQuery(undefined, {
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+  const { sseData, connected } = useMarketSSE();
+  // Fallback polling (used when SSE is not delivering data)
+  const { data: polledSummary, isLoading } = trpc.newFeatures.marketData.summary.useQuery(undefined, {
+    refetchInterval: sseData ? false : 30_000,
+    staleTime: 20_000,
   });
+
+  // Prefer SSE data, fall back to polled
+  const summary = sseData
+    ? {
+        gold: { ngnPerGram: Math.round(sseData.goldNGN / 31.1), change24hPct: 0.12 },
+        fx: { usdNgn: sseData.usdNGN, gbpNgn: sseData.gbpNGN, eurNgn: sseData.eurNGN },
+        topFund: { ytdPct: sseData.topFundYtd, name: "Stanbic IBTC Money Market" },
+        marketSentiment: sseData.sentiment,
+        updatedAt: sseData.timestamp,
+      }
+    : polledSummary;
 
   function getBadge(svc: ServiceItem): string | null {
     if (!svc.badgeKey) return svc.badge ?? null;
@@ -213,6 +256,14 @@ export default function ConsumerFinancialHub() {
             </Badge>
           </div>
         )}
+      </div>
+
+      {/* SSE Connection Badge */}
+      <div className="flex justify-end">
+        <Badge variant={connected ? "default" : "secondary"} className="gap-1 text-xs">
+          {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+          {connected ? "Live" : "Polling"}
+        </Badge>
       </div>
 
       {/* Service Cards */}

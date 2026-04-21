@@ -78,6 +78,7 @@ const MORE_SECTIONS = [
       { path: "/consumer/remittance", label: "Send Abroad", icon: Globe },
       { path: "/consumer/insurance", label: "Insurance", icon: Umbrella },
       { path: "/consumer/subscriptions", label: "Subscriptions", icon: RefreshCw },
+      { path: "/consumer/sip", label: "SIP Scheduler", icon: RefreshCw },
     ],
   },
   {

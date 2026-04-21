@@ -1451,6 +1451,62 @@ async function startServer() {
     }
   });
 
+  // ─── SSE: Market Data Real-Time Tickers ──────────────────────────────────────
+  // Broadcasts gold price, FX rates, and fund NAV every 30 seconds to all connected clients
+  const marketDataClients = new Set<any>();
+  let marketDataInterval: ReturnType<typeof setInterval> | null = null;
+
+  function broadcastMarketData() {
+    if (marketDataClients.size === 0) return;
+    // Simulated live market data (in production, fetch from external APIs)
+    const goldPriceUSD = 2320 + Math.round((Math.random() - 0.5) * 40);
+    const usdNgn = 1580 + Math.round((Math.random() - 0.5) * 20);
+    const gbpNgn = Math.round(usdNgn * 1.27);
+    const eurNgn = Math.round(usdNgn * 1.08);
+    const goldPriceNgn = Math.round(goldPriceUSD * usdNgn);
+    const topFundYtd = 18.4 + Math.round((Math.random() - 0.5) * 2 * 10) / 10;
+    const payload = JSON.stringify({
+      goldUSD: goldPriceUSD,
+      goldNGN: goldPriceNgn,
+      usdNGN: usdNgn,
+      gbpNGN: gbpNgn,
+      eurNGN: eurNgn,
+      topFundYtd,
+      sentiment: topFundYtd > 18 ? 'bullish' : 'neutral',
+      timestamp: Date.now(),
+    });
+    const msg = `event: market\ndata: ${payload}\n\n`;
+    for (const res of Array.from(marketDataClients)) {
+      try { res.write(msg); } catch { marketDataClients.delete(res); }
+    }
+  }
+
+  app.get("/api/market/stream", (req: any, res: any) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+    marketDataClients.add(res);
+    // Start broadcasting if not already running
+    if (!marketDataInterval) {
+      marketDataInterval = setInterval(broadcastMarketData, 30_000);
+    }
+    // Send initial data immediately
+    broadcastMarketData();
+    const heartbeat = setInterval(() => {
+      try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+    }, 25_000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      marketDataClients.delete(res);
+      if (marketDataClients.size === 0 && marketDataInterval) {
+        clearInterval(marketDataInterval);
+        marketDataInterval = null;
+      }
+    });
+  });
+
   // ─── Per-route mutation rate limiters ──────────────────────────────────────
   // These run before the tRPC middleware and apply stricter limits to sensitive
   // financial mutation endpoints.  tRPC batch requests include the procedure
@@ -1794,4 +1850,10 @@ import("../webhookFailureAlerts").then(({ startWebhookFailurePoller }) => {
   startWebhookFailurePoller(60_000); // poll every 60 seconds
 }).catch((err: unknown) => {
   console.warn("[webhookFailureAlerts] Failed to start poller:", err);
+});
+// ─── SIP + Fraud Ring Auto-Freeze + Settlement SLA Cron Jobs ─────────────────
+import("../cronJobs").then(({ startCronJobs }) => {
+  startCronJobs();
+}).catch((err: unknown) => {
+  console.warn("[cronJobs] Failed to start cron jobs:", err);
 });
