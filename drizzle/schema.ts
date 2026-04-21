@@ -3621,3 +3621,92 @@ export const supportMessages = pgTable("support_messages", {
   index("support_created_idx").on(t.createdAt),
 ]);
 export type SupportMessage = typeof supportMessages.$inferSelect;
+
+// ── AI Model Registry ─────────────────────────────────────────────────────────
+export const aiModelStatusEnum = pgEnum("ai_model_status", ["training", "active", "archived", "failed"]);
+export const aiModelTypeEnum = pgEnum("ai_model_type", ["gnn_fraud", "credit_scoring", "anomaly_detection", "churn_prediction", "aml_detection"]);
+
+export const aiModelRegistry = pgTable("ai_model_registry", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  modelType: aiModelTypeEnum("model_type").notNull(),
+  version: text("version").notNull(),
+  status: aiModelStatusEnum("status").notNull().default("training"),
+  accuracy: real("accuracy"),
+  precision: real("precision"),
+  recall: real("recall"),
+  f1Score: real("f1_score"),
+  aucRoc: real("auc_roc"),
+  featureCount: integer("feature_count"),
+  trainingRecords: integer("training_records"),
+  artifactPath: text("artifact_path"),
+  hyperparameters: text("hyperparameters"),
+  trainedBy: text("trained_by"),
+  trainedAt: timestamp("trained_at"),
+  deployedAt: timestamp("deployed_at"),
+  archivedAt: timestamp("archived_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("ai_model_type_idx").on(t.modelType),
+  index("ai_model_status_idx").on(t.status),
+]);
+export type AiModelRegistry = typeof aiModelRegistry.$inferSelect;
+
+// ── AI Decision Audit Trail ───────────────────────────────────────────────────
+export const aiDecisionTypeEnum = pgEnum("ai_decision_type", ["APPROVE", "REVIEW", "BLOCK", "FLAG"]);
+
+export const aiAuditTrail = pgTable("ai_audit_trail", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transactionId: text("transaction_id"),
+  merchantId: text("merchant_id"),
+  modelId: text("model_id"),
+  decision: aiDecisionTypeEnum("decision").notNull(),
+  confidence: real("confidence").notNull(),
+  riskScore: real("risk_score"),
+  features: text("features"),
+  explanation: text("explanation"),
+  latencyMs: integer("latency_ms"),
+  toolsUsed: text("tools_used"),
+  artSteps: integer("art_steps"),
+  overriddenBy: text("overridden_by"),
+  overrideReason: text("override_reason"),
+  overriddenAt: timestamp("overridden_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("ai_audit_txn_idx").on(t.transactionId),
+  index("ai_audit_merchant_idx").on(t.merchantId),
+  index("ai_audit_decision_idx").on(t.decision),
+  index("ai_audit_created_idx").on(t.createdAt),
+]);
+export type AiAuditTrail = typeof aiAuditTrail.$inferSelect;
+
+// ── GNN Training Jobs ─────────────────────────────────────────────────────────
+export const gnnJobStatusEnum = pgEnum("gnn_job_status", ["queued", "running", "completed", "failed", "cancelled"]);
+
+export const gnnTrainingJobs = pgTable("gnn_training_jobs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  modelType: aiModelTypeEnum("model_type").notNull().default("gnn_fraud"),
+  status: gnnJobStatusEnum("status").notNull().default("queued"),
+  epochs: integer("epochs").notNull().default(50),
+  hiddenDims: integer("hidden_dims").notNull().default(256),
+  learningRate: real("learning_rate").notNull().default(0.001),
+  batchSize: integer("batch_size").notNull().default(256),
+  currentEpoch: integer("current_epoch").notNull().default(0),
+  trainLoss: real("train_loss"),
+  valLoss: real("val_loss"),
+  bestAccuracy: real("best_accuracy"),
+  datasetSize: integer("dataset_size"),
+  artifactPath: text("artifact_path"),
+  errorMessage: text("error_message"),
+  triggeredBy: text("triggered_by"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("gnn_job_status_idx").on(t.status),
+  index("gnn_job_created_idx").on(t.createdAt),
+]);
+export type GnnTrainingJob = typeof gnnTrainingJobs.$inferSelect;

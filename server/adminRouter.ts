@@ -791,18 +791,19 @@ const auditAdminRouter = router({
       const db = await getDb();
       if (!db) return { events: [], total: 0 };
       const offset = (input.page - 1) * input.limit;
-      const conditions: string[] = [];
-      const params: any[] = [];
-      if (input.action) { conditions.push(`action LIKE $${params.length + 1}`); params.push(`%${input.action}%`); }
-      if (input.merchantId) { conditions.push(`merchant_id = $${params.length + 1}`); params.push(input.merchantId); }
-      if (input.startDate) { conditions.push(`created_at >= $${params.length + 1}`); params.push(new Date(input.startDate)); }
-      if (input.endDate) { conditions.push(`created_at <= $${params.length + 1}`); params.push(new Date(input.endDate)); }
-      // Build parameterized query using drizzle sql template to prevent injection
-      const whereClause = conditions.length > 0
-        ? sql.raw(`WHERE ${conditions.join(" AND ")}`)
-        : sql.raw("");
+      // Build fully parameterized conditions using Drizzle sql template literals
+      const whereParts: any[] = [];
+      if (input.action) whereParts.push(sql`action LIKE ${'%' + input.action + '%'}`);
+      if (input.merchantId) whereParts.push(sql`merchant_id = ${input.merchantId}`);
+      if (input.startDate) whereParts.push(sql`created_at >= ${new Date(input.startDate)}`);
+      if (input.endDate) whereParts.push(sql`created_at <= ${new Date(input.endDate)}`);
+      const safeLimit = Math.min(Math.max(1, input.limit), 500);
+      const safeOffset = Math.max(0, offset);
+      const whereClause = whereParts.length > 0
+        ? sql`WHERE ${sql.join(whereParts, sql` AND `)}`
+        : sql``;
       const rows = await db.execute(
-        sql`SELECT * FROM audit_events ${whereClause} ORDER BY created_at DESC LIMIT ${sql.raw(String(input.limit))} OFFSET ${sql.raw(String(offset))}`
+        sql`SELECT * FROM audit_events ${whereClause} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`
       );
       const [{ cnt }] = await db.execute(
         sql`SELECT COUNT(*) as cnt FROM audit_events ${whereClause}`
