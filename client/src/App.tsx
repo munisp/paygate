@@ -280,6 +280,12 @@ import BillingInvoicesPage from "./pages/admin/BillingInvoicesPage";
 import SSOConfigPage from "./pages/admin/SSOConfigPage";
 import BNPLRepaymentPage from "./pages/BNPLRepaymentPage";
 import SubscriptionsPage from "./pages/SubscriptionsPage";
+import FraudRingDashboard from "./pages/admin/FraudRingDashboard";
+import GNNThresholdPage from "./pages/admin/GNNThresholdPage";
+import PricingPage from "./pages/PricingPage";
+import WebhookEventsPage from "./pages/WebhookEventsPage";
+import EMILoansPage from "./pages/EMILoansPage";
+import InsurancePage from "./pages/InsurancePage";
 
 function Router() {
   const [location] = useLocation();
@@ -596,6 +602,12 @@ function Router() {
         <Route path="/admin/sso-config" component={SSOConfigPage} />
         <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
         <Route path="/subscriptions-v2" component={SubscriptionsPage} />
+        <Route path="/admin/fraud-rings" component={FraudRingDashboard} />
+        <Route path="/admin/gnn-threshold" component={GNNThresholdPage} />
+        <Route path="/pricing" component={PricingPage} />
+        <Route path="/webhook-events" component={WebhookEventsPage} />
+        <Route path="/emi-loans" component={EMILoansPage} />
+        <Route path="/insurance" component={InsurancePage} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

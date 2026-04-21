@@ -215,6 +215,7 @@ export const customers = pgTable("customers", {
   name: text("name"),
   phone: text("phone"),
   riskLevel: riskLevelEnum("risk_level").default("low").notNull(),
+  planId: text("plan_id").default("starter").notNull(),
   totalTransactions: integer("total_transactions").default(0).notNull(),
   totalSpend: bigint("total_spend", { mode: "number" }).default(0).notNull(),
   metadata: jsonb("metadata"),
@@ -453,6 +454,8 @@ export const fraudAlerts = pgTable("fraud_alerts", {
   metadata: jsonb("metadata"),
   resolvedAt: timestamp("resolved_at"),
   resolvedBy: text("resolved_by"),
+  notes: text("notes"),
+  fraudRingId: text("fraud_ring_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
