@@ -55,7 +55,7 @@ export const ENV = {
 
   // Python microservices
   payrollServiceUrl: process.env.PAYROLL_SERVICE_URL ?? "http://payroll-service:8093",
-  kioskHealthUrl: process.env.KIOSK_HEALTH_URL ?? "http://kiosk-health:8094",
+  kioskHealthUrl: process.env.KIOSK_HEALTH_URL ?? "http://kiosk-health:8096",
   fraudScoringUrl: process.env.FRAUD_SCORING_URL ?? "http://fraud-scoring:8083",
   ussdGatewayUrl: process.env.USSD_GATEWAY_URL ?? "http://ussd-gateway:8095",
 
@@ -64,11 +64,11 @@ export const ENV = {
 
   // ─── Tier 1-5 Service URLs ──────────────────────────────────────────────
   creditScoringUrl: process.env.CREDIT_SCORING_URL ?? "http://credit-scoring:8100",
-  fxRateFeedUrl: process.env.FX_RATE_FEED_URL ?? "http://fx-rate-feed:8101",
-  reconciliationEngineUrl: process.env.RECONCILIATION_ENGINE_URL ?? "http://reconciliation-engine:8102",
-  amlMonitorUrl: process.env.AML_MONITOR_URL ?? "http://aml-monitor:8103",
-  aiInsightsUrl: process.env.AI_INSIGHTS_URL ?? "http://ai-insights:8104",
-  fraudHeatmapUrl: process.env.FRAUD_HEATMAP_URL ?? "http://fraud-heatmap:8105",
+  fxRateFeedUrl: process.env.FX_RATE_FEED_URL ?? "http://fx-rate-feed:8095",
+  reconciliationEngineUrl: process.env.RECONCILIATION_ENGINE_URL ?? "http://reconciliation-engine:8096",
+  amlMonitorUrl: process.env.AML_MONITOR_URL ?? "http://aml-monitor:8097",
+  aiInsightsUrl: process.env.AI_INSIGHTS_URL ?? "http://ai-insights:8098",
+  fraudHeatmapUrl: process.env.FRAUD_HEATMAP_URL ?? "http://fraud-heatmap:8099",
 
   // ─── Tier 6-8 Service URLs ──────────────────────────────────────────────
   // Insurance premium collection
@@ -148,7 +148,7 @@ export const ENV = {
   // Tax Engine
   taxEngineUrl: process.env.TAX_ENGINE_URL ?? "http://tax-engine:9013",
   // ISO 20022 Parser
-  iso20022ParserUrl: process.env.ISO20022_PARSER_URL ?? "http://iso20022-parser:9014",
+  iso20022ParserUrl: process.env.ISO20022_PARSER_URL ?? "http://iso20022-parser:2002",
   // Cohort Analytics
   cohortAnalyticsUrl: process.env.COHORT_ANALYTICS_URL ?? "http://cohort-analytics:9015",
   // Agent Banking v3 (via Go bridge)
@@ -224,7 +224,7 @@ export const ENV = {
   digitalGoldApiKey: process.env.DIGITAL_GOLD_API_KEY ?? "dev-gold-key",
   goldTechBaseUrl: process.env.GOLDTECH_BASE_URL ?? "https://api.goldtech.ng/v1",
   goldTechApiKey: process.env.GOLDTECH_API_KEY ?? "",
-  mutualFundsUrl: process.env.MUTUAL_FUNDS_URL ?? "http://mutual-funds-service:9021",
+  mutualFundsUrl: process.env.MUTUAL_FUNDS_URL ?? "http://mutual-funds-service:9031",
   cowryWiseBaseUrl: process.env.COWRYWISE_BASE_URL ?? "https://api.cowrywise.com/v1",
   cowryWiseApiKey: process.env.COWRYWISE_API_KEY ?? "",
   consumerInsuranceUrl: process.env.CONSUMER_INSURANCE_URL ?? "http://go-bridge:8080",
@@ -236,8 +236,8 @@ export const ENV = {
   cashbackServiceUrl: process.env.CASHBACK_SERVICE_URL ?? "http://go-bridge:8080",
   soundboxServiceUrl: process.env.SOUNDBOX_SERVICE_URL ?? "http://go-bridge:8080",
   soundboxMqttBroker: process.env.SOUNDBOX_MQTT_BROKER ?? "mqtt://mqtt-broker:1883",
-  wealthAdvisorUrl: process.env.WEALTH_ADVISOR_URL ?? "http://wealth-advisor-service:9022",
-  emiEngineUrl: process.env.EMI_ENGINE_URL ?? "http://emi-engine-service:9023",
+  wealthAdvisorUrl: process.env.WEALTH_ADVISOR_URL ?? "http://wealth-advisor-service:9035",
+  emiEngineUrl: process.env.EMI_ENGINE_URL ?? "http://emi-engine-service:9029",
   bulkCollectionsUrl: process.env.BULK_COLLECTIONS_URL ?? "http://go-bridge:8080",
   apiDocsUrl: process.env.API_DOCS_URL ?? "http://go-bridge:8080",
   salaryServiceUrl: process.env.SALARY_SERVICE_URL ?? "http://go-bridge:8080",
@@ -246,7 +246,7 @@ export const ENV = {
   reportsBucketName: process.env.REPORTS_BUCKET_NAME ?? "paygate-reports",
   nodalServiceUrl: process.env.NODAL_SERVICE_URL ?? "http://go-bridge:8080",
   retailPosUrl: process.env.RETAIL_POS_URL ?? "http://go-bridge:8080",
-  remittanceServiceUrl: process.env.REMITTANCE_SERVICE_URL ?? "http://remittance-service:9024",
+  remittanceServiceUrl: process.env.REMITTANCE_SERVICE_URL ?? "http://remittance-service:9030",
   flutterwaveBaseUrl: process.env.FLUTTERWAVE_BASE_URL ?? "https://api.flutterwave.com/v3",
   flutterwaveSecretKey: process.env.FLUTTERWAVE_SECRET_KEY ?? "",
   worldRemitBaseUrl: process.env.WORLDREMIT_BASE_URL ?? "https://api.worldremit.com/v1",
@@ -294,7 +294,7 @@ export const ENV = {
   mobileMoneReconV2Url: process.env.MOBILE_MONEY_RECON_V2_URL ?? 'http://mobile-money-recon-v2:9058',
 
   // ─── Wave 32: GNN Fraud, Vector Store, Knowledge Graph, AI Orchestration ────
-  gnnFraudUrl: process.env.GNN_FRAUD_URL ?? 'http://gnn-fraud:8000',
+  gnnFraudUrl: process.env.GNN_FRAUD_URL ?? 'http://gnn-fraud:8141',
   vectorStoreUrl: process.env.VECTOR_STORE_URL ?? 'http://vector-store:8101',
   knowledgeGraphUrl: process.env.KNOWLEDGE_GRAPH_URL ?? 'http://knowledge-graph:8102',
   artReasoningUrl: process.env.ART_REASONING_URL ?? 'http://art-reasoning:8103',

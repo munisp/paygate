@@ -1128,6 +1128,51 @@ export async function rotateSDKKeyViaMiddleware(keyId: string): Promise<{ newKey
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// FRAUD RING ESCALATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface FraudRingEscalationRequest {
+  workflowId?: string;
+  ringId: string;
+  reason: string;
+  linkedAccountCount: number;
+  escalatedBy: string;
+  autoFreezeAfterHours?: number;
+}
+
+export interface FraudRingEscalationResponse {
+  workflowId: string;
+  runId: string;
+  status: string;
+  ringId: string;
+  autoFreezeAfterHours: number;
+}
+
+/** Start FraudRingEscalationWorkflow via Temporal → Go bridge */
+export async function escalateFraudRingViaMiddleware(
+  req: FraudRingEscalationRequest
+): Promise<FraudRingEscalationResponse | null> {
+  return safe<FraudRingEscalationResponse>('POST', '/v1/workflows/fraud-ring-escalation', {
+    workflow_id: req.workflowId,
+    ring_id: req.ringId,
+    reason: req.reason,
+    linked_account_count: req.linkedAccountCount,
+    escalated_by: req.escalatedBy,
+    auto_freeze_after_hours: req.autoFreezeAfterHours ?? 48,
+  });
+}
+
+/** Mark a fraud ring as resolved in Redis so the auto-freeze timer is cancelled */
+export async function resolveFraudRingViaMiddleware(
+  ringId: string,
+  resolution: 'cleared' | 'frozen'
+): Promise<{ success: boolean } | null> {
+  return safe<{ success: boolean }>('POST', `/v1/fraud/rings/${ringId}/resolve`, {
+    resolution,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SUPER APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getSuperAppConfigViaMiddleware(merchantId: string): Promise<{ modules: unknown[]; version: string } | null> {

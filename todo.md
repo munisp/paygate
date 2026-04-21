@@ -3333,3 +3333,43 @@
 - [x] Security audit: 97/100 score, 0 production vulnerabilities
 - [x] All 2561 tests pass (73 test files)
 - [x] Vite build clean (3489 modules)
+
+## Wave 39: Middleware Integration Audit & Fix
+
+- [ ] Wire wave34Router gold procedures to buyDigitalGoldViaMiddleware, sellDigitalGoldViaMiddleware, getDigitalGoldHoldingsViaMiddleware
+- [ ] Wire wave34Router remittance to getRemittanceCorridorsViaMiddleware, createRemittanceViaMiddleware, getRemittanceHistoryViaMiddleware
+- [ ] Wire wave34Router insurance to getConsumerInsuranceProductsViaMiddleware, purchaseConsumerInsuranceViaMiddleware, fileConsumerInsuranceClaimViaMiddleware
+- [ ] Wire wave34Router EMI to getEMIPlansViaMiddleware, createEMIApplicationViaMiddleware, getEMIScheduleViaMiddleware
+- [ ] Wire sipRouter to createGoldSIPViaMiddleware
+- [ ] Wire wave68Router loyalty to getCashbackBalanceViaMiddleware, redeemCashbackViaMiddleware
+- [ ] Wire wave68Router consumer cards to issueVirtualCardViaMiddleware
+- [ ] Wire wave68Router recurring to listSubscriptionPlansViaMiddleware, cancelSubscriptionViaMiddleware
+- [ ] Wire newFeaturesRouter soundbox to registerSoundboxViaMiddleware, getSoundboxDevicesViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter white-label to getWhiteLabelConfigViaMiddleware, updateWhiteLabelBrandingViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter multi-wallet to getMultiWalletBalancesViaMiddleware, createMultiWalletViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter RTGS to initiateRTGSViaMiddleware, getRTGSStatusViaMiddleware, getRTGSLimitsViaMiddleware
+- [ ] Wire newFeaturesRouter ISO20022 to sendISO20022MessageViaMiddleware, getISO20022MessagesViaMiddleware, acknowledgeISO20022ViaMiddleware
+- [ ] Wire newFeaturesRouter open-finance to getOpenFinanceProvidersViaMiddleware, connectOpenFinanceProviderViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter super-app to getSuperAppConfigViaMiddleware, getSuperAppStatsViaMiddleware, pushSuperAppUpdateViaMiddleware
+- [ ] Wire newFeaturesRouter SDK keys to createSDKTokenViaMiddleware, registerWebhookEndpointViaMiddleware, getSDKKeyAnalyticsViaMiddleware, rotateSDKKeyViaMiddleware
+- [ ] Wire newFeaturesRouter tax to calculateTaxViaMiddleware, getTaxSummaryViaMiddleware, remitTaxViaMiddleware, getTaxCertificateViaMiddleware
+- [ ] Wire newFeaturesRouter regulatory sandbox to getRegulatoryScenarioViaMiddleware, enableRegulatorySandboxViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter agent v2 to onboardAgentV2ViaMiddleware, getAgentNetworkV2ViaMiddleware, fundAgentFloatV2ViaMiddleware, getAgentPerformanceV2ViaMiddleware
+- [ ] Wire newFeaturesRouter consumer insurance to getConsumerInsuranceProductsViaMiddleware, purchaseConsumerInsuranceViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter bulk collections to createBulkCollectionViaMiddleware, listBulkCollectionsViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter salary accounts to createSalaryAccountViaMiddleware, listSalaryAccountsViaMiddleware, requestSalaryAdvanceViaMiddleware
+- [ ] Wire newFeaturesRouter reports to generateReportViaMiddleware, listReportsViaMiddleware, createScheduledReportViaMiddleware
+- [ ] Wire newFeaturesRouter nodal accounts to createNodalAccountViaMiddleware, listNodalAccountsViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter smart retail to getSmartRetailConfigViaMiddleware, processRetailSaleViaMiddleware, getRetailDailySummaryViaMiddleware
+- [ ] Wire newFeaturesRouter subscriptions v2 to listSubscriptionPlansViaMiddleware, createSubscriptionPlanViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter privacy payments to createPrivatePaymentViaMiddleware, getPrivacySettingsViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter cashback to getCashbackBalanceViaMiddleware, redeemCashbackViaMiddleware, getCashbackHistoryViaMiddleware
+- [ ] Wire newFeaturesRouter carbon to getCarbonListingsViaMiddleware, purchaseCarbonCreditsViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter NFT to createNFTCollectionViaMiddleware, mintNFTBadgeViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter BNPL v2 to checkBNPLv2EligibilityViaMiddleware, createBNPLv2LoanViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter crypto ramp to getCryptoRampQuoteViaMiddleware, executeCryptoRampViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter escrow to fundEscrowViaMiddleware, releaseEscrowViaMiddleware, disputeEscrowViaMiddleware, listEscrowsViaMiddleware
+- [ ] Wire newFeaturesRouter bulk schedule to createBulkScheduleViaMiddleware, listBulkSchedulesViaMiddleware, etc.
+- [ ] Wire newFeaturesRouter wealth to getWealthPortfolioViaMiddleware, getWealthRecommendationsViaMiddleware, etc.
+- [ ] Add Go handler: fraud ring escalation (POST /fraud-rings/escalate, POST /fraud-rings/{id}/auto-freeze)
+- [ ] Add Go Temporal workflow: FraudRingEscalationWorkflow worker

@@ -134,6 +134,7 @@ import {
   forceTerminateWorkflowViaMiddleware,
   sendPayoutApprovalEmailViaMiddleware,
   nipNameEnquiryViaMiddleware,
+  escalateFraudRingViaMiddleware,
 } from "./middlewareBridge";
 import { notificationPreferencesRouter } from './routers/notificationPreferences';
 import { consumerNotifPrefsRouter } from './routers/consumerNotifPrefs';
@@ -477,6 +478,16 @@ const transactionsRouter = router({
           if (gnnResult) {
             logger.info(`[fraud:gnn] High-value txn ${txnId} scored: ${gnnResult.gnn_risk_score}/100 (${gnnResult.gnn_risk_level})` +
               (gnnResult.fraud_ring_detected ? ` ⚠️ FRAUD RING: ${gnnResult.fraud_ring_id}` : ""));
+            // Auto-escalate fraud ring when GNN detects a ring with critical risk
+            if (gnnResult.fraud_ring_detected && gnnResult.fraud_ring_id && gnnResult.gnn_risk_level === 'critical') {
+              escalateFraudRingViaMiddleware({
+                ringId: gnnResult.fraud_ring_id,
+                reason: `Auto-escalated by GNN: risk score ${gnnResult.gnn_risk_score}/100 on transaction ${txnId}`,
+                linkedAccountCount: 1,
+                escalatedBy: 'gnn-auto',
+                autoFreezeAfterHours: 48,
+              }).catch((err: any) => logger.warn('[fraud:gnn] Auto-escalation failed:', err?.message));
+            }
           }
         } catch (e) {
           logger.warn("[fraud] GNN scoring service unavailable (fail-open):", (e as Error).message);

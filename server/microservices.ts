@@ -191,7 +191,7 @@ export async function pythonScoreTransaction(payload: {
   customer_id?: string; terminal_id?: string; ip_address?: string;
   card_last4?: string; channel?: string;
 }): Promise<FraudScoreResult | null> {
-  return svcFetch(`${ENV.fraudScoringUrl}/fraud/score`, {
+  return svcFetch(`${ENV.fraudScoringUrl}/v1/score`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

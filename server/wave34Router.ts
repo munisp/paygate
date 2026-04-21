@@ -23,6 +23,7 @@ import {
   assertPlanHasFeature,
   validateWebhookPayloadSize,
 } from "./security33";
+import { escalateFraudRingViaMiddleware, isBridgeAvailable } from "./middlewareBridge";
 
 function nanoid(prefix = "") {
   return prefix + crypto.randomBytes(12).toString("hex");
@@ -223,30 +224,22 @@ export const fraudRingRouter = router({
 
       // 3. Start Temporal FraudRingEscalationWorkflow via middleware bridge
       const workflowId = `fraud-ring-escalation-${input.ringId}-${Date.now()}`;
-      try {
-        const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? 'http://localhost:8090';
-        const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? 'dev-internal-key';
-        const res = await fetch(`${BRIDGE_URL}/v1/workflows/fraud-ring-escalation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Internal-Key': BRIDGE_KEY },
-          body: JSON.stringify({
-            workflow_id: workflowId,
-            ring_id: input.ringId,
-            reason: input.reason,
-            linked_account_count: input.linkedAccountCount,
-            escalated_by: ctx.user.id,
-            auto_freeze_after_hours: 48,
-          }),
-          signal: AbortSignal.timeout(5000),
+      if (isBridgeAvailable()) {
+        const workflowResult = await escalateFraudRingViaMiddleware({
+          workflowId,
+          ringId: input.ringId,
+          reason: input.reason,
+          linkedAccountCount: input.linkedAccountCount,
+          escalatedBy: String(ctx.user.id),
+          autoFreezeAfterHours: 48,
         });
-        if (res.ok) {
-          logger.info(`[fraudRing] Temporal workflow started: ${workflowId}`);
+        if (workflowResult) {
+          logger.info(`[fraudRing] Temporal workflow started: ${workflowResult.workflowId} (run: ${workflowResult.runId})`);
         } else {
-          logger.warn(`[fraudRing] Temporal workflow start returned ${res.status} for ring ${input.ringId}`);
+          logger.warn(`[fraudRing] Temporal workflow unavailable for ring ${input.ringId} — escalation recorded locally`);
         }
-      } catch (workflowErr: any) {
-        // Non-fatal: middleware may be unavailable in dev
-        logger.warn(`[fraudRing] Temporal workflow unavailable: ${workflowErr.message}`);
+      } else {
+        logger.warn(`[fraudRing] Bridge unavailable — escalation recorded locally for ring ${input.ringId}`);
       }
 
       logger.info(`[fraudRing] Ring ${input.ringId} escalated by user ${ctx.user.id}: ${input.reason}`);

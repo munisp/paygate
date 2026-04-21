@@ -134,6 +134,13 @@ func RegisterWorker(c client.Client) worker.Worker {
 	w.RegisterActivity(SendBillingDunningEmailActivity)
 	w.RegisterActivity(SendBillingDunningFinalNoticeActivity)
 
+	// ── Fraud Ring Escalation Workflow ────────────────────────────────────────
+	w.RegisterWorkflow(FraudRingEscalationWorkflow)
+	w.RegisterActivity(acts.NotifyFraudRingEscalation)
+	w.RegisterActivity(acts.CheckFraudRingResolved)
+	w.RegisterActivity(acts.AutoFreezeFraudRing)
+	w.RegisterActivity(acts.PublishFraudRingFrozenEvent)
+
 	return w
 }
 
@@ -526,3 +533,82 @@ type DisputeResolutionInput struct {
 
 // Activity implementations have been moved to activities.go (ActivitySet methods).
 // The ActivitySet is registered in RegisterWorker() above.
+
+// ─── Fraud Ring Escalation Workflow ──────────────────────────────────────────
+
+// FraudRingEscalationInput is the input to FraudRingEscalationWorkflow.
+type FraudRingEscalationInput struct {
+	RingID               string `json:"ring_id"`
+	Reason               string `json:"reason"`
+	LinkedAccountCount   int    `json:"linked_account_count"`
+	EscalatedBy          string `json:"escalated_by"`
+	AutoFreezeAfterHours int    `json:"auto_freeze_after_hours"`
+}
+
+// FraudRingEscalationWorkflow orchestrates the compliance escalation process
+// for a detected fraud ring. It waits for the configured auto-freeze window
+// (default 48 hours) and then auto-freezes the ring if no resolution has occurred.
+//
+// Steps:
+//  1. NotifyFraudRingEscalation — sends email/Slack/in-app alert to compliance
+//  2. Sleep auto_freeze_after_hours (default 48h)
+//  3. CheckFraudRingResolved — queries DB/Redis for resolution status
+//  4. If unresolved → AutoFreezeFraudRing — freezes all linked accounts
+//  5. PublishFraudRingFrozenEvent — Kafka paygate.fraud.ring.frozen
+func FraudRingEscalationWorkflow(ctx workflow.Context, input FraudRingEscalationInput) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("FraudRingEscalationWorkflow started",
+		"ring_id", input.RingID,
+		"escalated_by", input.EscalatedBy,
+		"auto_freeze_hours", input.AutoFreezeAfterHours,
+	)
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts:    3,
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	acts := NewActivitySet()
+
+	// Step 1: Notify compliance team
+	if err := workflow.ExecuteActivity(ctx, acts.NotifyFraudRingEscalation, input).Get(ctx, nil); err != nil {
+		logger.Error("FraudRingEscalationWorkflow: NotifyFraudRingEscalation failed", "err", err)
+		// Non-fatal — continue with auto-freeze timer
+	}
+
+	// Step 2: Wait for auto-freeze window
+	freezeHours := input.AutoFreezeAfterHours
+	if freezeHours <= 0 {
+		freezeHours = 48
+	}
+	_ = workflow.Sleep(ctx, time.Duration(freezeHours)*time.Hour)
+
+	// Step 3: Check if ring was already resolved
+	var resolved bool
+	if err := workflow.ExecuteActivity(ctx, acts.CheckFraudRingResolved, input.RingID).Get(ctx, &resolved); err != nil {
+		logger.Warn("FraudRingEscalationWorkflow: CheckFraudRingResolved failed — proceeding with auto-freeze", "err", err)
+	}
+
+	if resolved {
+		logger.Info("FraudRingEscalationWorkflow: ring already resolved, skipping auto-freeze", "ring_id", input.RingID)
+		return nil
+	}
+
+	// Step 4: Auto-freeze all linked accounts
+	if err := workflow.ExecuteActivity(ctx, acts.AutoFreezeFraudRing, input.RingID, input.EscalatedBy).Get(ctx, nil); err != nil {
+		return fmt.Errorf("FraudRingEscalationWorkflow: AutoFreezeFraudRing: %w", err)
+	}
+
+	// Step 5: Publish Kafka event
+	if err := workflow.ExecuteActivity(ctx, acts.PublishFraudRingFrozenEvent, input.RingID, input.LinkedAccountCount).Get(ctx, nil); err != nil {
+		logger.Warn("FraudRingEscalationWorkflow: PublishFraudRingFrozenEvent failed (non-fatal)", "err", err)
+	}
+
+	logger.Info("FraudRingEscalationWorkflow complete", "ring_id", input.RingID)
+	return nil
+}

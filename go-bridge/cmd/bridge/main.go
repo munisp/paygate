@@ -227,6 +227,8 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("GET /v1/workflows/active", authMiddleware(handlers.ListActiveWorkflows))
 	mux.HandleFunc("GET /v1/workflows/{id}/status", authMiddleware(handlers.GetWorkflowStatus))
 	mux.HandleFunc("POST /v1/workflows/{id}/terminate", authMiddleware(handlers.TerminateWorkflow))
+	// Fraud ring escalation workflow
+	mux.HandleFunc("POST /v1/workflows/fraud-ring-escalation", authMiddleware(handlers.StartFraudRingEscalationWorkflow))
 
 	// Notifications
 	mux.HandleFunc("POST /v1/notifications/payout-approval-email", authMiddleware(handlers.SendPayoutApprovalEmail))
@@ -517,6 +519,16 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("POST /subscriptions-v2/cancel", authMiddleware(handlers.CancelSubscription))
 	mux.HandleFunc("POST /subscriptions-v2/pause", authMiddleware(handlers.PauseSubscription))
 	mux.HandleFunc("GET /subscriptions-v2/churn", authMiddleware(handlers.GetChurnAnalytics))
+
+	// ── Tax Engine (Python: tax-engine:9013) ────────────────────────────────
+	mux.HandleFunc("GET /tax-engine/calculate", authMiddleware(handlers.ProxyTaxEngineCalculate))
+	mux.HandleFunc("GET /tax-engine/remittance", authMiddleware(handlers.ProxyTaxEngineRemittance))
+	mux.HandleFunc("GET /tax-engine/rates", handlers.ProxyTaxEngineRates)
+	// ── Carbon Oracle (Python: carbon-oracle:9011) ───────────────────────────
+	mux.HandleFunc("GET /carbon-oracle/projects", authMiddleware(handlers.ProxyCarbonOracleProjects))
+	mux.HandleFunc("GET /carbon-oracle/price", handlers.ProxyCarbonOraclePrice)
+	mux.HandleFunc("POST /carbon-oracle/calculate", authMiddleware(handlers.ProxyCarbonOracleCalculate))
+	mux.HandleFunc("POST /carbon-oracle/retire", authMiddleware(handlers.ProxyCarbonOracleRetire))
 
 	// ── Server───────────────────────────────────────────────────────────────
 	port := os.Getenv("BRIDGE_PORT")
