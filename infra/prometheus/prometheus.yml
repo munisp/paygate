@@ -159,3 +159,44 @@ scrape_configs:
       - targets: ["credit-scoring:8200"]
     metrics_path: /metrics
     scrape_interval: 30s
+
+  - job_name: paygate-gnn-fraud
+    static_configs:
+      - targets: ["gnn-fraud:8000"]
+    metrics_path: /metrics
+    scrape_interval: 15s
+  - job_name: paygate-vector-store
+    static_configs:
+      - targets: ["vector-store:8101"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-knowledge-graph
+    static_configs:
+      - targets: ["knowledge-graph:8102"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-art-reasoning
+    static_configs:
+      - targets: ["art-reasoning:8103"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-cocoindex
+    static_configs:
+      - targets: ["cocoindex:8104"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-lakehouse-ai
+    static_configs:
+      - targets: ["lakehouse-ai:8105"]
+    metrics_path: /metrics
+    scrape_interval: 30s
+  - job_name: paygate-fraud-heatmap
+    static_configs:
+      - targets: ["fraud-heatmap:8120"]
+    metrics_path: /metrics
+    scrape_interval: 15s
+  - job_name: paygate-lakehouse-v2
+    static_configs:
+      - targets: ["lakehouse-v2:8125"]
+    metrics_path: /metrics
+    scrape_interval: 30s

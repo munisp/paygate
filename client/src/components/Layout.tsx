@@ -290,6 +290,12 @@ const navGroups: NavGroup[] = [
       { icon: Clock, label: "Settlement SLA", path: "/admin/settlement-sla", badge: "Admin" },
       { icon: AlertTriangle, label: "Dispute Lifecycle", path: "/admin/dispute-lifecycle", badge: "Admin" },
 { icon: Layers3, label: "Data Pipeline", path: "/admin/data-pipeline", badge: "Admin" },
+      { icon: Building2, label: "Partner Onboarding", path: "/admin/partner-onboarding", badge: "Admin" },
+      { icon: Globe, label: "FX Corridors", path: "/admin/corridors", badge: "Admin" },
+      { icon: DollarSign, label: "Plan Limits", path: "/admin/plan-limits", badge: "Admin" },
+      { icon: FileText, label: "Billing Invoices", path: "/admin/billing-invoices", badge: "Admin" },
+      { icon: ShieldCheck, label: "SSO Config", path: "/admin/sso-config", badge: "Admin" },
+      { icon: Users2, label: "Invite Codes", path: "/admin/invite-codes-v2", badge: "Admin" },
     ],
   },
 ];

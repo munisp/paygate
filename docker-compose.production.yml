@@ -93,6 +93,7 @@ services:
       AI_INSIGHTS_URL: http://ai-insights:8000
       AML_MONITOR_URL: http://aml-monitor:8000
       SETTLEMENT_FORECAST_URL: http://settlement-forecast:8000
+      GNN_FRAUD_URL: http://gnn-fraud:8000
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-PayGate Merchant Portal}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
@@ -342,6 +343,31 @@ services:
       QDRANT_URL: http://qdrant:6333
       FALKORDB_URL: redis://falkordb:6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: GNN Fraud Detection (GraphSAGE) ──────────────────────
+  gnn-fraud:
+    <<: *python-defaults
+    build:
+      context: ./python-services/gnn-fraud
+      dockerfile: Dockerfile
+    container_name: paygate_gnn_fraud
+    ports:
+      - "${GNN_FRAUD_PORT:-8102}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FRAUD_SCORING_URL: http://fraud-scoring:8000
+      FALKORDB_URL: redis://falkordb:6379
+      GNN_MODEL_VERSION: ${GNN_MODEL_VERSION:-v1.0.0}
+      GNN_FRAUD_THRESHOLD: ${GNN_FRAUD_THRESHOLD:-0.7}
+      GNN_RING_THRESHOLD: ${GNN_RING_THRESHOLD:-0.85}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ─── Python: Vector Store (Qdrant) ───────────────────────────────
   vector-store:

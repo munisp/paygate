@@ -271,6 +271,15 @@ import MiddlewareHealthAlerts from "./pages/admin/MiddlewareHealthAlerts";
 import PayoutApprovalWorkflow from "./pages/admin/PayoutApprovalWorkflow";
 import BnplDelinquencyManagement from "./pages/admin/BnplDelinquencyManagement";
 import DisputeSlaTracking from "./pages/admin/DisputeSlaTracking";
+// Wave 32 imports
+import AdminInviteCodesPage from "./pages/admin/AdminInviteCodesPage";
+import PartnerOnboardingPage from "./pages/admin/PartnerOnboardingPage";
+import TenantCorridorsPage from "./pages/admin/TenantCorridorsPage";
+import PlanLimitsPage from "./pages/admin/PlanLimitsPage";
+import BillingInvoicesPage from "./pages/admin/BillingInvoicesPage";
+import SSOConfigPage from "./pages/admin/SSOConfigPage";
+import BNPLRepaymentPage from "./pages/BNPLRepaymentPage";
+import SubscriptionsPage from "./pages/SubscriptionsPage";
 
 function Router() {
   const [location] = useLocation();
@@ -578,6 +587,15 @@ function Router() {
         <Route path="/admin/payout-approval-workflow" component={PayoutApprovalWorkflow} />
         <Route path="/admin/bnpl-delinquency" component={BnplDelinquencyManagement} />
         <Route path="/admin/dispute-sla" component={DisputeSlaTracking} />
+        {/* Wave 32 Routes */}
+        <Route path="/admin/invite-codes-v2" component={AdminInviteCodesPage} />
+        <Route path="/admin/partner-onboarding" component={PartnerOnboardingPage} />
+        <Route path="/admin/corridors" component={TenantCorridorsPage} />
+        <Route path="/admin/plan-limits" component={PlanLimitsPage} />
+        <Route path="/admin/billing-invoices" component={BillingInvoicesPage} />
+        <Route path="/admin/sso-config" component={SSOConfigPage} />
+        <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
+        <Route path="/subscriptions-v2" component={SubscriptionsPage} />
         <Route component={Dashboard} />
       </Switch>
     </Layout>

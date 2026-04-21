@@ -35,6 +35,7 @@ import { wave30Router } from './wave30Router';
 import { wave31Router } from './wave31Router';
 import { supportRouter } from './supportRouter';
 import { portalBillingRouter } from './portalBillingRouter';
+import { wave32Router } from './wave32Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -7307,6 +7308,7 @@ export const appRouter = router({
   wave31: wave31Router,
   support: supportRouter,
   portalBilling: portalBillingRouter,
+  wave32: wave32Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

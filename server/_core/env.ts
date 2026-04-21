@@ -292,4 +292,22 @@ export const ENV = {
   ussdSessionV2Url: process.env.USSD_SESSION_V2_URL ?? 'http://ussd-session-v2:9056',
   realtimeNotificationsUrl: process.env.REALTIME_NOTIFICATIONS_URL ?? 'http://realtime-notifications:9057',
   mobileMoneReconV2Url: process.env.MOBILE_MONEY_RECON_V2_URL ?? 'http://mobile-money-recon-v2:9058',
+
+  // ─── Wave 32: GNN Fraud, Vector Store, Knowledge Graph, AI Orchestration ────
+  gnnFraudUrl: process.env.GNN_FRAUD_URL ?? 'http://gnn-fraud:8000',
+  vectorStoreUrl: process.env.VECTOR_STORE_URL ?? 'http://vector-store:8101',
+  knowledgeGraphUrl: process.env.KNOWLEDGE_GRAPH_URL ?? 'http://knowledge-graph:8102',
+  artReasoningUrl: process.env.ART_REASONING_URL ?? 'http://art-reasoning:8103',
+  cocoindexUrl: process.env.COCOINDEX_URL ?? 'http://cocoindex:8104',
+  lakehouseAiUrl: process.env.LAKEHOUSE_AI_URL ?? 'http://lakehouse-ai:8105',
+
+  // ─── Wave 32: Partner & Tenant ───────────────────────────────────────────────
+  partnerOnboardingWebhookUrl: process.env.PARTNER_ONBOARDING_WEBHOOK_URL ?? 'https://hooks.paygate.ng/partner-onboarding',
+  tenantCorridorApiUrl: process.env.TENANT_CORRIDOR_API_URL ?? 'http://corridor-service:9060',
+  ssoCallbackBaseUrl: process.env.SSO_CALLBACK_BASE_URL ?? 'https://portal.paygate.ng/auth/sso/callback',
+
+  // ─── Wave 32: Prometheus / Metrics ───────────────────────────────────────────
+  prometheusUrl: process.env.PROMETHEUS_URL ?? 'http://prometheus:9090',
+  grafanaUrl: process.env.GRAFANA_URL ?? 'http://grafana:3000',
+  alertmanagerUrl: process.env.ALERTMANAGER_URL ?? 'http://alertmanager:9093',
 };

@@ -1353,3 +1353,162 @@ spec:
                 limits:
                   memory: "4Gi"
                   cpu: "2000m"
+---
+# ─── GNN Fraud Detection (GraphSAGE) ─────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+  labels:
+    app: paygate-gnn-fraud
+    tier: ml
+    component: fraud-detection
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-gnn-fraud
+  template:
+    metadata:
+      labels:
+        app: paygate-gnn-fraud
+    spec:
+      containers:
+        - name: gnn-fraud
+          image: paygate/gnn-fraud:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: paygate-config
+            - secretRef:
+                name: paygate-secrets
+          env:
+            - name: GNN_MODEL_VERSION
+              value: "v1.0.0"
+            - name: GNN_FRAUD_THRESHOLD
+              value: "0.7"
+            - name: GNN_RING_THRESHOLD
+              value: "0.85"
+            - name: FRAUD_SCORING_URL
+              value: "http://paygate-fraud-scoring:8000"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-gnn-fraud
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-gnn-fraud-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-gnn-fraud
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# GNN Fraud Detection K8s Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+  labels:
+    app: paygate-gnn-fraud
+    tier: ml
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-gnn-fraud
+  template:
+    metadata:
+      labels:
+        app: paygate-gnn-fraud
+    spec:
+      containers:
+        - name: gnn-fraud
+          image: paygate/gnn-fraud:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: GNN_MODEL_VERSION
+              value: v1.0.0
+            - name: GNN_FRAUD_THRESHOLD
+              value: "0.7"
+            - name: GNN_RING_THRESHOLD
+              value: "0.85"
+            - name: FRAUD_SCORING_URL
+              value: http://paygate-fraud-scoring:8000
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 2Gi
+              cpu: 1000m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-gnn-fraud
+  ports:
+    - port: 8000
+      targetPort: 8000

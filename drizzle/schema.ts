@@ -3710,3 +3710,259 @@ export const gnnTrainingJobs = pgTable("gnn_training_jobs", {
   index("gnn_job_created_idx").on(t.createdAt),
 ]);
 export type GnnTrainingJob = typeof gnnTrainingJobs.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Wave 32 — Missing Tables: Stripe Subscriptions, Invite Codes, Partner Onboarding,
+//           Tenant Corridors, Fee Overrides, Usage Metrics, Billing Invoices,
+//           Plan Limits, Corridor Daily Stats, SSO Configs, BNPL Repayment Schedules
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Stripe Subscriptions (portal plan billing) ────────────────────────────────
+export const stripeSubscriptionStatusEnum = pgEnum("stripe_sub_status", [
+  "active", "past_due", "canceled", "trialing", "incomplete", "paused",
+]);
+export const stripeSubscriptions = pgTable("stripe_subscriptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull(),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id").unique(),
+  stripePriceId: text("stripe_price_id"),
+  plan: text("plan").notNull().default("free"),
+  status: stripeSubscriptionStatusEnum("status").notNull().default("active"),
+  currentPeriodStart: timestamp("current_period_start"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  trialEnd: timestamp("trial_end"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("stripe_sub_user_idx").on(t.userId),
+  index("stripe_sub_stripe_id_idx").on(t.stripeSubscriptionId),
+  index("stripe_sub_status_idx").on(t.status),
+]);
+export type StripeSubscription = typeof stripeSubscriptions.$inferSelect;
+
+// ── Invite Codes ──────────────────────────────────────────────────────────────
+export const inviteCodeTypeEnum = pgEnum("invite_code_type", [
+  "merchant", "partner", "admin", "consumer", "team_member",
+]);
+export const inviteCodes = pgTable("invite_codes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  code: text("code").notNull().unique(),
+  type: inviteCodeTypeEnum("type").notNull().default("merchant"),
+  usesRemaining: integer("uses_remaining").notNull().default(1),
+  usesTotal: integer("uses_total").notNull().default(1),
+  expiresAt: timestamp("expires_at"),
+  createdBy: text("created_by").notNull(),
+  tenantId: text("tenant_id"),
+  metadata: text("metadata"),
+  isRevoked: boolean("is_revoked").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("invite_code_code_idx").on(t.code),
+  index("invite_code_type_idx").on(t.type),
+  index("invite_code_tenant_idx").on(t.tenantId),
+]);
+export type InviteCode = typeof inviteCodes.$inferSelect;
+
+// ── Partner Onboarding Sessions ───────────────────────────────────────────────
+export const onboardingStepEnum = pgEnum("onboarding_step", [
+  "invite_code", "company_info", "branding", "fee_structure", "review", "completed",
+]);
+export const partnerOnboardingSessions = pgTable("partner_onboarding_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  inviteCode: text("invite_code"),
+  userId: text("user_id"),
+  currentStep: onboardingStepEnum("current_step").notNull().default("invite_code"),
+  companyName: text("company_name"),
+  companyEmail: text("company_email"),
+  companyPhone: text("company_phone"),
+  companyAddress: text("company_address"),
+  companyRcNumber: text("company_rc_number"),
+  brandingPrimaryColor: text("branding_primary_color").default("#1a56db"),
+  brandingSecondaryColor: text("branding_secondary_color").default("#7e3af2"),
+  brandingLogoUrl: text("branding_logo_url"),
+  brandingFaviconUrl: text("branding_favicon_url"),
+  brandingFontFamily: text("branding_font_family").default("Inter"),
+  feeStructure: text("fee_structure"),
+  isCompleted: boolean("is_completed").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("partner_onboard_user_idx").on(t.userId),
+  index("partner_onboard_step_idx").on(t.currentStep),
+]);
+export type PartnerOnboardingSession = typeof partnerOnboardingSessions.$inferSelect;
+
+// ── Tenant Corridors ──────────────────────────────────────────────────────────
+export const tenantCorridors = pgTable("tenant_corridors", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull(),
+  sourceCurrency: text("source_currency").notNull(),
+  destCurrency: text("dest_currency").notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  fxMarkupPct: real("fx_markup_pct").notNull().default(1.5),
+  dailyLimitUsd: real("daily_limit_usd").notNull().default(50000),
+  minAmountUsd: real("min_amount_usd").notNull().default(1),
+  maxAmountUsd: real("max_amount_usd").notNull().default(10000),
+  flatFeeUsd: real("flat_fee_usd").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_corridor_tenant_idx").on(t.tenantId),
+  index("tenant_corridor_currencies_idx").on(t.sourceCurrency, t.destCurrency),
+]);
+export type TenantCorridor = typeof tenantCorridors.$inferSelect;
+
+// ── Tenant Fee Overrides ──────────────────────────────────────────────────────
+export const tenantFeeOverrides = pgTable("tenant_fee_overrides", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull(),
+  transactionType: text("transaction_type").notNull(),
+  flatFeeNgn: real("flat_fee_ngn").notNull().default(0),
+  percentageFee: real("percentage_fee").notNull().default(1.5),
+  capNgn: real("cap_ngn"),
+  floorNgn: real("floor_ngn"),
+  isActive: boolean("is_active").notNull().default(true),
+  effectiveFrom: timestamp("effective_from").defaultNow().notNull(),
+  effectiveTo: timestamp("effective_to"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_fee_tenant_idx").on(t.tenantId),
+  index("tenant_fee_type_idx").on(t.transactionType),
+]);
+export type TenantFeeOverride = typeof tenantFeeOverrides.$inferSelect;
+
+// ── Tenant Usage Metrics ──────────────────────────────────────────────────────
+export const tenantUsageMetrics = pgTable("tenant_usage_metrics", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull(),
+  period: text("period").notNull(),
+  apiCalls: integer("api_calls").notNull().default(0),
+  txVolume: real("tx_volume").notNull().default(0),
+  txCount: integer("tx_count").notNull().default(0),
+  storageBytes: integer("storage_bytes").notNull().default(0),
+  activeUsers: integer("active_users").notNull().default(0),
+  webhookDeliveries: integer("webhook_deliveries").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_usage_tenant_period_idx").on(t.tenantId, t.period),
+]);
+export type TenantUsageMetric = typeof tenantUsageMetrics.$inferSelect;
+
+// ── Tenant Billing Invoices ───────────────────────────────────────────────────
+export const tenantInvoiceStatusEnum = pgEnum("tenant_invoice_status", [
+  "draft", "open", "paid", "void", "uncollectible",
+]);
+export const tenantBillingInvoices = pgTable("tenant_billing_invoices", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull(),
+  period: text("period").notNull(),
+  amountUsd: real("amount_usd").notNull().default(0),
+  status: tenantInvoiceStatusEnum("status").notNull().default("open"),
+  stripeInvoiceId: text("stripe_invoice_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  paidAt: timestamp("paid_at"),
+  dueDate: timestamp("due_date"),
+  lineItems: text("line_items"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_invoice_tenant_idx").on(t.tenantId),
+  index("tenant_invoice_status_idx").on(t.status),
+  index("tenant_invoice_period_idx").on(t.period),
+]);
+export type TenantBillingInvoice = typeof tenantBillingInvoices.$inferSelect;
+
+// ── Tenant Plan Limits ────────────────────────────────────────────────────────
+export const tenantPlanLimits = pgTable("tenant_plan_limits", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  plan: text("plan").notNull().unique(),
+  maxApiCallsPerMonth: integer("max_api_calls_per_month").notNull().default(10000),
+  maxTxVolumeUsdPerMonth: real("max_tx_volume_usd_per_month").notNull().default(100000),
+  maxUsers: integer("max_users").notNull().default(5),
+  maxCorridors: integer("max_corridors").notNull().default(3),
+  maxWebhooks: integer("max_webhooks").notNull().default(5),
+  maxApiKeys: integer("max_api_keys").notNull().default(3),
+  priceUsdPerMonth: real("price_usd_per_month").notNull().default(0),
+  stripePriceId: text("stripe_price_id"),
+  features: text("features"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_plan_limits_plan_idx").on(t.plan),
+]);
+export type TenantPlanLimit = typeof tenantPlanLimits.$inferSelect;
+
+// ── Tenant Corridor Daily Stats ───────────────────────────────────────────────
+export const tenantCorridorDailyStats = pgTable("tenant_corridor_daily_stats", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull(),
+  corridorId: text("corridor_id").notNull(),
+  date: text("date").notNull(),
+  txCount: integer("tx_count").notNull().default(0),
+  volumeUsd: real("volume_usd").notNull().default(0),
+  feesCollectedUsd: real("fees_collected_usd").notNull().default(0),
+  avgFxRate: real("avg_fx_rate"),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("corridor_daily_tenant_idx").on(t.tenantId),
+  index("corridor_daily_date_idx").on(t.date),
+  index("corridor_daily_corridor_idx").on(t.corridorId),
+]);
+export type TenantCorridorDailyStat = typeof tenantCorridorDailyStats.$inferSelect;
+
+// ── Tenant SSO Configs ────────────────────────────────────────────────────────
+export const ssoProtocolEnum = pgEnum("sso_protocol_enum", ["saml", "oidc", "oauth2"]);
+export const tenantSsoConfigs = pgTable("tenant_sso_configs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull().unique(),
+  protocol: ssoProtocolEnum("protocol").notNull().default("oidc"),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  entityId: text("entity_id"),
+  ssoUrl: text("sso_url"),
+  sloUrl: text("slo_url"),
+  certificate: text("certificate"),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  discoveryUrl: text("discovery_url"),
+  scopes: text("scopes").default("openid email profile"),
+  attributeMapping: text("attribute_mapping"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_sso_tenant_idx").on(t.tenantId),
+]);
+export type TenantSsoConfig = typeof tenantSsoConfigs.$inferSelect;
+
+// ── BNPL Repayment Schedules ──────────────────────────────────────────────────
+export const bnplRepaymentStatusEnum = pgEnum("bnpl_repayment_status", [
+  "pending", "paid", "overdue", "waived", "failed",
+]);
+export const bnplRepaymentSchedules = pgTable("bnpl_repayment_schedules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  bnplLoanId: text("bnpl_loan_id").notNull(),
+  userId: text("user_id").notNull(),
+  instalmentNumber: integer("instalment_number").notNull(),
+  totalInstalments: integer("total_instalments").notNull(),
+  principalAmountNgn: real("principal_amount_ngn").notNull(),
+  interestAmountNgn: real("interest_amount_ngn").notNull().default(0),
+  totalDueNgn: real("total_due_ngn").notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  paidAt: timestamp("paid_at"),
+  paidAmountNgn: real("paid_amount_ngn"),
+  status: bnplRepaymentStatusEnum("status").notNull().default("pending"),
+  lateFeeNgn: real("late_fee_ngn").notNull().default(0),
+  paymentReference: text("payment_reference"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bnpl_repay_loan_idx").on(t.bnplLoanId),
+  index("bnpl_repay_user_idx").on(t.userId),
+  index("bnpl_repay_due_idx").on(t.dueDate),
+  index("bnpl_repay_status_idx").on(t.status),
+]);
+export type BnplRepaymentSchedule = typeof bnplRepaymentSchedules.$inferSelect;

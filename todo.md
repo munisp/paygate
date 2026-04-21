@@ -3174,3 +3174,30 @@
 - [x] All 2443 vitest tests passing (69 test files) — zero failures
 - [x] Security score: 99/100 Grade A+ — 0 open vulnerabilities
 - [x] pnpm audit --prod: 0 production vulnerabilities
+
+## Session v26 - Wave 32 Full Completion (2026-04-21)
+
+- [x] Add all Wave 32 service URLs to env.ts with production defaults
+- [x] Add stripe_subscriptions, tenant_corridors, plan_limits, billing_invoices, sso_configs, invite_codes, partner_onboarding_sessions, bnpl_repayment_schedules, ai_model_registry, ai_audit_trail, gnn_training_jobs tables to schema and DB
+- [x] Create wave32Router.ts with 18 procedures: inviteCodes CRUD, partnerOnboarding wizard, tenantCorridors CRUD, planLimits CRUD, billingInvoices CRUD+pay, ssoConfigs CRUD, bnplRepayments CRUD, subscriptions CRUD, gnnTraining CRUD
+- [x] Create AdminInviteCodesPage.tsx with full CRUD and search
+- [x] Create PartnerOnboardingPage.tsx with multi-step wizard
+- [x] Create TenantCorridorsPage.tsx with full CRUD
+- [x] Create PlanLimitsPage.tsx with full CRUD
+- [x] Create BillingInvoicesPage.tsx with full CRUD and payment workflow
+- [x] Create SSOConfigPage.tsx for tenant SSO management
+- [x] Create BNPLRepaymentPage.tsx with full schedule management
+- [x] Create SubscriptionsPage.tsx for Stripe subscription management
+- [x] Register all Wave 32 pages in App.tsx routes
+- [x] Add Wave 32 admin nav items to Layout.tsx sidebar
+- [x] Seed all Wave 32 tables with realistic data
+- [x] Add gnn-fraud service to docker-compose.production.yml
+- [x] Add gnn-fraud K8s Deployment, Service, HPA to python-services.yaml
+- [x] Add Wave 32 Prometheus scrape targets for 8 new services
+- [x] Add Wave 32 alert rules (GNNFraudServiceDown, GNNFraudHighFraudRate, GNNFraudRingDetected, VectorStoreDown, LakehouseAIDown)
+- [x] Create paygate-wave32-dashboard.json Grafana dashboard with 12 panels
+- [x] Create security32.ts with VULN-051 through VULN-060
+- [x] Create wave85.security32.test.ts with 46 security tests
+- [x] SMTP host fixed to smtp.sendgrid.net
+- [x] pnpm audit --prod: 0 known vulnerabilities
+- [x] All 2492 tests passing across 71 test files

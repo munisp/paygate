@@ -330,6 +330,13 @@
       "when": 1776763411485,
       "tag": "0046_strange_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1776768695219,
+      "tag": "0047_green_firebird",
+      "breakpoints": true
     }
   ]
 }
