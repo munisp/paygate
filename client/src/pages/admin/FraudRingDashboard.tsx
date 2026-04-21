@@ -16,7 +16,7 @@ export default function FraudRingDashboard() {
   const [status, setStatus] = useState<"all" | "active" | "frozen" | "cleared">("all");
   const [search, setSearch] = useState("");
   const [selectedRing, setSelectedRing] = useState<string | null>(null);
-  const [actionRing, setActionRing] = useState<{ ringId: string; action: "freeze" | "clear" } | null>(null);
+  const [actionRing, setActionRing] = useState<{ ringId: string; action: "freeze" | "clear" | "escalate" } | null>(null);
   const [reason, setReason] = useState("");
   const [activeTab, setActiveTab] = useState("rings");
 
@@ -39,6 +39,10 @@ export default function FraudRingDashboard() {
 
   const clearRing = trpc.fraudRings.clearRing.useMutation({
     onSuccess: () => { toast.success("Fraud ring cleared as false positive"); refetch(); setActionRing(null); setReason(""); },
+    onError: (e) => toast.error(e.message),
+  });
+  const escalateRing = trpc.fraudRings.escalateRing.useMutation({
+    onSuccess: (res) => { toast.success(`Ring escalated — compliance notified. Auto-freeze in ${res.autoFreezeAfterHours}h`); refetch(); setActionRing(null); setReason(""); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -217,6 +221,14 @@ export default function FraudRingDashboard() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="flex-1 h-7 text-xs border-orange-400 text-orange-600 hover:bg-orange-50"
+                      onClick={e => { e.stopPropagation(); setActionRing({ ringId: ring.ringId, action: "escalate" }); }}
+                    >
+                      <AlertTriangle className="w-3 h-3 mr-1" /> Escalate
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       className="flex-1 h-7 text-xs"
                       onClick={e => { e.stopPropagation(); setActionRing({ ringId: ring.ringId, action: "clear" }); }}
                     >
@@ -365,13 +377,15 @@ export default function FraudRingDashboard() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {actionRing?.action === "freeze" ? "Freeze Fraud Ring" : "Clear Fraud Ring"}
+              {actionRing?.action === "freeze" ? "Freeze Fraud Ring" : actionRing?.action === "escalate" ? "Escalate to Compliance" : "Clear Fraud Ring"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {actionRing?.action === "freeze"
                 ? "This will suspend all accounts associated with this fraud ring. This action is logged and auditable."
+                : actionRing?.action === "escalate"
+                ? "This will notify the compliance team by email and start a Temporal escalation workflow. The ring will be auto-frozen after 48 hours if no action is taken."
                 : "This will mark the ring as a false positive and clear all associated alerts."}
             </p>
             <Textarea
@@ -385,17 +399,20 @@ export default function FraudRingDashboard() {
             <Button variant="outline" onClick={() => { setActionRing(null); setReason(""); }}>Cancel</Button>
             <Button
               variant={actionRing?.action === "freeze" ? "destructive" : "default"}
-              disabled={reason.length < 10 || freezeRing.isPending || clearRing.isPending}
+              className={actionRing?.action === "escalate" ? "bg-orange-600 hover:bg-orange-700 text-white" : undefined}
+              disabled={reason.length < 10 || freezeRing.isPending || clearRing.isPending || escalateRing.isPending}
               onClick={() => {
                 if (!actionRing) return;
                 if (actionRing.action === "freeze") {
                   freezeRing.mutate({ ringId: actionRing.ringId, reason });
+                } else if (actionRing.action === "escalate") {
+                  escalateRing.mutate({ ringId: actionRing.ringId, reason, linkedAccountCount: 1 });
                 } else {
                   clearRing.mutate({ ringId: actionRing.ringId, reason });
                 }
               }}
             >
-              {actionRing?.action === "freeze" ? "Freeze Ring" : "Clear Ring"}
+              {actionRing?.action === "freeze" ? "Freeze Ring" : actionRing?.action === "escalate" ? "Escalate to Compliance" : "Clear Ring"}
             </Button>
           </DialogFooter>
         </DialogContent>

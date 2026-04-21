@@ -344,6 +344,13 @@
       "when": 1776772535304,
       "tag": "0048_outgoing_doorman",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1776788108426,
+      "tag": "0049_remarkable_kate_bishop",
+      "breakpoints": true
     }
   ]
 }

@@ -174,6 +174,91 @@ export const fraudRingRouter = router({
       return { success: true, ringId: input.ringId, action: "cleared" };
     }),
 
+  // Escalate a fraud ring to compliance team + start Temporal workflow
+  escalateRing: protectedProcedure
+    .input(z.object({
+      ringId: z.string(),
+      reason: z.string().min(10),
+      linkedAccountCount: z.number().min(1).default(1),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // Only admins can escalate
+      assertAdminCanFreezeRing(ctx.user.role ?? 'user');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // 1. Update ring status to escalated
+      await db
+        .update(schema.fraudAlerts)
+        .set({
+          status: "open",
+          notes: `Ring escalated to compliance: ${input.reason}`,
+          resolvedBy: String(ctx.user.id),
+        })
+        .where(eq(schema.fraudAlerts.fraudRingId, input.ringId));
+
+      // 2. Send email notification to compliance team via emailService
+      try {
+        const { sendEmail } = await import('./emailService');
+        await sendEmail({
+          to: process.env.COMPLIANCE_EMAIL ?? process.env.PAYOUT_APPROVER_EMAIL ?? 'compliance@paygate.ng',
+          subject: `[URGENT] Fraud Ring Escalation: ${input.ringId}`,
+          html: `
+            <h2>Fraud Ring Escalated</h2>
+            <p><strong>Ring ID:</strong> ${input.ringId}</p>
+            <p><strong>Linked Accounts:</strong> ${input.linkedAccountCount}</p>
+            <p><strong>Reason:</strong> ${input.reason}</p>
+            <p><strong>Escalated By:</strong> User ${ctx.user.id} (${ctx.user.email ?? 'unknown'})</p>
+            <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+            <hr/>
+            <p>Please review this ring in the PayGate Admin Fraud Ring Dashboard and take appropriate action within 24 hours.</p>
+            <p>If no action is taken, the ring will be auto-frozen after 48 hours.</p>
+          `,
+        });
+        logger.info(`[fraudRing] Compliance email sent for ring ${input.ringId}`);
+      } catch (emailErr: any) {
+        logger.warn(`[fraudRing] Email notification failed for ring ${input.ringId}: ${emailErr.message}`);
+        // Non-fatal: continue with Temporal workflow
+      }
+
+      // 3. Start Temporal FraudRingEscalationWorkflow via middleware bridge
+      const workflowId = `fraud-ring-escalation-${input.ringId}-${Date.now()}`;
+      try {
+        const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? 'http://localhost:8090';
+        const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? 'dev-internal-key';
+        const res = await fetch(`${BRIDGE_URL}/v1/workflows/fraud-ring-escalation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Key': BRIDGE_KEY },
+          body: JSON.stringify({
+            workflow_id: workflowId,
+            ring_id: input.ringId,
+            reason: input.reason,
+            linked_account_count: input.linkedAccountCount,
+            escalated_by: ctx.user.id,
+            auto_freeze_after_hours: 48,
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          logger.info(`[fraudRing] Temporal workflow started: ${workflowId}`);
+        } else {
+          logger.warn(`[fraudRing] Temporal workflow start returned ${res.status} for ring ${input.ringId}`);
+        }
+      } catch (workflowErr: any) {
+        // Non-fatal: middleware may be unavailable in dev
+        logger.warn(`[fraudRing] Temporal workflow unavailable: ${workflowErr.message}`);
+      }
+
+      logger.info(`[fraudRing] Ring ${input.ringId} escalated by user ${ctx.user.id}: ${input.reason}`);
+      return {
+        success: true,
+        ringId: input.ringId,
+        action: 'escalated',
+        workflowId,
+        autoFreezeAfterHours: 48,
+      };
+    }),
+
   // Get ring topology stats for graph visualization
   getTopology: protectedProcedure
     .input(z.object({ ringId: z.string() }))
@@ -664,6 +749,46 @@ export const consumerFinancialRouter = router({
 
         return { success: true, policyId, expiresAt };
       }),
+
+    fileClaim: protectedProcedure
+      .input(z.object({
+        policyId: z.string(),
+        claimType: z.enum(["accident", "theft", "medical", "travel", "device", "other"]),
+        description: z.string().min(20),
+        claimAmountKobo: z.number().min(1),
+        incidentDate: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        // Verify policy belongs to user and is active
+        const policyResult = await db.execute(sql`
+          SELECT id, status, expires_at FROM insurance_policies
+          WHERE id = ${input.policyId} AND user_id = ${ctx.user.id}
+        `);
+        if (!policyResult.rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "Policy not found" });
+        const policy = policyResult.rows[0] as any;
+        if (policy.status !== 'active') throw new TRPCError({ code: "BAD_REQUEST", message: "Policy is not active" });
+        const claimId = nanoid("clm_");
+        await db.execute(sql`
+          INSERT INTO user_insurance_claims (id, policy_id, user_id, claim_type, description, claim_amount_kobo, incident_date, status, created_at)
+          VALUES (${claimId}, ${input.policyId}, ${ctx.user.id}, ${input.claimType}, ${input.description}, ${input.claimAmountKobo}, ${input.incidentDate}, 'submitted', NOW())
+        `);
+        logger.info(`[insurance] Claim ${claimId} filed by user ${ctx.user.id} for policy ${input.policyId}`);
+        return { success: true, claimId, status: 'submitted', estimatedProcessingDays: 5 };
+      }),
+
+    getClaims: protectedProcedure.query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return { claims: [] };
+      const claims = await db.execute(sql`
+        SELECT ic.*, ip.product_id FROM user_insurance_claims ic
+        JOIN insurance_policies ip ON ip.id = ic.policy_id
+        WHERE ic.user_id = ${ctx.user.id}
+        ORDER BY ic.created_at DESC
+      `);
+      return { claims: claims.rows };
+    }),
   }),
 
   // EMI (Equated Monthly Installments)
@@ -737,6 +862,42 @@ export const consumerFinancialRouter = router({
         `);
 
         return { success: true, loanId, emi, annualRate };
+      }),
+
+    payEMI: protectedProcedure
+      .input(z.object({
+        loanId: z.string(),
+        instalmentNumber: z.number().min(1),
+        amountKobo: z.number().min(1),
+        paymentReference: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        // Verify loan belongs to user
+        const loanResult = await db.execute(sql`
+          SELECT id, status, tenure_months, emi_kobo FROM emi_loans
+          WHERE id = ${input.loanId} AND user_id = ${ctx.user.id}
+        `);
+        if (!loanResult.rows.length) throw new TRPCError({ code: "NOT_FOUND", message: "Loan not found" });
+        const loanRow = loanResult.rows[0] as any;
+        if (loanRow.status === 'closed') throw new TRPCError({ code: "BAD_REQUEST", message: "Loan already closed" });
+        const paymentId = nanoid("epay_");
+        const ref = input.paymentReference ?? `EMI-${input.loanId}-${input.instalmentNumber}-${Date.now()}`;
+        await db.execute(sql`
+          INSERT INTO emi_repayments (id, loan_id, user_id, instalment_number, amount_kobo, payment_reference, status, paid_at)
+          VALUES (${paymentId}, ${input.loanId}, ${ctx.user.id}, ${input.instalmentNumber}, ${input.amountKobo}, ${ref}, 'completed', NOW())
+          ON CONFLICT DO NOTHING
+        `);
+        // Check if all instalments paid → close loan
+        const paidResult = await db.execute(sql`
+          SELECT COUNT(*) as cnt FROM emi_repayments WHERE loan_id = ${input.loanId} AND status = 'completed'
+        `);
+        const cnt = Number((paidResult.rows[0] as any)?.cnt ?? 0);
+        if (cnt >= Number(loanRow.tenure_months)) {
+          await db.execute(sql`UPDATE emi_loans SET status = 'closed' WHERE id = ${input.loanId}`);
+        }
+        return { success: true, paymentId, reference: ref, instalmentNumber: input.instalmentNumber };
       }),
   }),
 

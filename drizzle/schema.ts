@@ -3969,3 +3969,52 @@ export const bnplRepaymentSchedules = pgTable("bnpl_repayment_schedules", {
   index("bnpl_repay_status_idx").on(t.status),
 ]);
 export type BnplRepaymentSchedule = typeof bnplRepaymentSchedules.$inferSelect;
+
+// ─── Consumer EMI Loans (Wave 35) ─────────────────────────────────────────────
+export const emiLoans = pgTable("emi_loans", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  principalKobo: bigint("principal_kobo", { mode: "number" }).notNull(),
+  emiKobo: bigint("emi_kobo", { mode: "number" }).notNull(),
+  tenureMonths: integer("tenure_months").notNull(),
+  annualRatePct: integer("annual_rate_pct").notNull().default(24),
+  purpose: text("purpose").notNull(),
+  status: text("status").default("pending_approval"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("emi_loans_user_idx").on(t.userId),
+  index("emi_loans_status_idx").on(t.status),
+]);
+export type EmiLoan = typeof emiLoans.$inferSelect;
+
+export const emiRepayments = pgTable("emi_repayments", {
+  id: text("id").primaryKey(),
+  loanId: text("loan_id").notNull(),
+  userId: integer("user_id").notNull(),
+  instalmentNumber: integer("instalment_number").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  paymentReference: text("payment_reference").notNull(),
+  status: text("status").default("completed"),
+  paidAt: timestamp("paid_at").defaultNow(),
+}, (t) => [
+  index("emi_repay_loan_idx").on(t.loanId),
+  index("emi_repay_user_idx").on(t.userId),
+]);
+export type EmiRepayment = typeof emiRepayments.$inferSelect;
+
+// ─── Consumer Insurance Claims (Wave 35 — user-facing claims table) ───────────
+export const userInsuranceClaims = pgTable("user_insurance_claims", {
+  id: text("id").primaryKey(),
+  policyId: text("policy_id").notNull(),
+  userId: integer("user_id").notNull(),
+  claimType: text("claim_type").notNull(),
+  description: text("description").notNull(),
+  claimAmountKobo: bigint("claim_amount_kobo", { mode: "number" }).notNull(),
+  incidentDate: text("incident_date").notNull(),
+  status: text("status").default("submitted"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("uic_policy_idx").on(t.policyId),
+  index("uic_user_idx").on(t.userId),
+]);
+export type UserInsuranceClaim = typeof userInsuranceClaims.$inferSelect;

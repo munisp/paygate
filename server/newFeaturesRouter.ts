@@ -12,6 +12,7 @@ import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { logger } from "./logger";
 import { portalBillingRouter } from "./portalBillingRouter";
+import { marketDataRouter } from "./marketDataRouter";
 import {
   onGoldPurchased, onGoldSold, onMutualFundInvested, onMutualFundRedeemed,
   onInsurancePolicyCreated, onInsuranceClaimSubmitted, onPensionContributionPosted,
@@ -798,4 +799,5 @@ export const newFeaturesRouter = router({
   internationalRemittance: internationalRemittanceRouter,
   subscriptionBillingV2: subscriptionBillingV2Router,
   portalBilling: portalBillingRouter,
+  marketData: marketDataRouter,
 });
