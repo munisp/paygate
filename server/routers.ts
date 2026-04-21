@@ -142,7 +142,7 @@ import {
   rustReserveInventory, rustReleaseInventory,
   pythonRunPayroll, pythonGetPayrollHistory, pythonGetPayrollStub, pythonScoreTransaction,
   pythonGetKioskHealth, pythonGetKioskAnomaly, pythonHandleUSSD, pythonGetUSSDBalance,
-  checkAllMicroservices,
+  checkAllMicroservices, gnnScoreTransaction, mergeFraudScores,
 } from "./microservices";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -419,12 +419,18 @@ const transactionsRouter = router({
       }
 
       // ── Fraud Scoring Gate ──────────────────────────────────────────────────
-      // Call the Python fraud-scoring microservice. Non-fatal: if the service is
-      // unavailable we log and continue (fail-open). Only block on "critical".
+      // Stage 1: Rule-based fraud scoring (Python fraud-scoring service).
+      // Stage 2: GNN scoring (GraphSAGE) for high-value transactions >= ₦500,000.
+      // Both stages are fail-open: if a service is unavailable we log and continue.
+      // Final score is a weighted merge: 40% rule-based + 60% GNN for high-value.
       const txnId = nanoid("txn_");
-      let fraudResult: Awaited<ReturnType<typeof pythonScoreTransaction>> = null;
+      const HIGH_VALUE_KOBO = 50_000_000; // ₦500,000
+      let ruleBasedResult: Awaited<ReturnType<typeof pythonScoreTransaction>> = null;
+      let gnnResult: Awaited<ReturnType<typeof gnnScoreTransaction>> = null;
+
+      // Stage 1: Rule-based scoring (always)
       try {
-        fraudResult = await pythonScoreTransaction({
+        ruleBasedResult = await pythonScoreTransaction({
           transaction_id: txnId,
           merchant_id: merchant.id,
           amount_kobo: input.amount,
@@ -433,8 +439,31 @@ const transactionsRouter = router({
           ip_address: ctx.req.ip ?? undefined,
         });
       } catch (e) {
-        logger.warn("[fraud] scoring service unavailable (fail-open):", (e as Error).message);
+        logger.warn("[fraud] rule-based scoring service unavailable (fail-open):", (e as Error).message);
       }
+
+      // Stage 2: GNN scoring for high-value transactions
+      if (input.amount >= HIGH_VALUE_KOBO) {
+        try {
+          gnnResult = await gnnScoreTransaction({
+            transaction_id: txnId,
+            merchant_id: merchant.id,
+            amount_kobo: input.amount,
+            customer_id: input.customerEmail,
+            channel: input.channel,
+            ip_address: ctx.req.ip ?? undefined,
+          });
+          if (gnnResult) {
+            logger.info(`[fraud:gnn] High-value txn ${txnId} scored: ${gnnResult.gnn_risk_score}/100 (${gnnResult.gnn_risk_level})` +
+              (gnnResult.fraud_ring_detected ? ` ⚠️ FRAUD RING: ${gnnResult.fraud_ring_id}` : ""));
+          }
+        } catch (e) {
+          logger.warn("[fraud] GNN scoring service unavailable (fail-open):", (e as Error).message);
+        }
+      }
+
+      // Merge scores: weighted average for high-value, rule-based only otherwise
+      const fraudResult = mergeFraudScores(ruleBasedResult, gnnResult, input.amount);
 
       if (fraudResult?.recommendation === "decline" || fraudResult?.risk_level === "critical") {
         // Auto-create a fraud alert for audit trail

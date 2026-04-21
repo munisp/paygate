@@ -197,6 +197,105 @@ export async function pythonScoreTransaction(payload: {
   });
 }
 
+// ─── GNN Fraud Scoring (high-value transactions ≥ ₦500,000) ─────────────────
+/**
+ * GNN-based fraud scoring using GraphSAGE model.
+ * Called for high-value transactions (amount_kobo >= 50_000_000 = ₦500,000).
+ * Fail-open: returns null if the GNN service is unavailable.
+ */
+export interface GNNFraudScoreResult {
+  transaction_id: string;
+  gnn_risk_score: number;        // 0–100
+  gnn_risk_level: "low" | "medium" | "high" | "critical";
+  fraud_ring_detected: boolean;
+  fraud_ring_id: string | null;
+  graph_features: {
+    degree_centrality: number;
+    clustering_coefficient: number;
+    pagerank: number;
+    suspicious_neighbors: number;
+  };
+  recommendation: "approve" | "review" | "decline";
+  model_version: string;
+  inference_ms: number;
+}
+
+export async function gnnScoreTransaction(payload: {
+  transaction_id: string;
+  merchant_id: string;
+  amount_kobo: number;
+  customer_id?: string;
+  channel?: string;
+  ip_address?: string;
+  card_last4?: string;
+  historical_tx_count?: number;
+  historical_fraud_count?: number;
+}): Promise<GNNFraudScoreResult | null> {
+  return svcFetch<GNNFraudScoreResult>(`${ENV.gnnFraudUrl}/v1/score`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      timestamp: new Date().toISOString(),
+    }),
+  });
+}
+
+/**
+ * Merge rule-based and GNN fraud scores for high-value transactions.
+ * Weighting: 40% rule-based + 60% GNN for high-value (≥ ₦500,000).
+ * For normal transactions, only rule-based score is used.
+ */
+export function mergeFraudScores(
+  ruleScore: FraudScoreResult | null,
+  gnnScore: GNNFraudScoreResult | null,
+  amountKobo: number,
+): FraudScoreResult | null {
+  const HIGH_VALUE_THRESHOLD = 50_000_000; // ₦500,000 in kobo
+  const isHighValue = amountKobo >= HIGH_VALUE_THRESHOLD;
+
+  if (!ruleScore && !gnnScore) return null;
+  if (!gnnScore || !isHighValue) return ruleScore;
+  if (!ruleScore) {
+    // Only GNN available — map GNN result to FraudScoreResult shape
+    return {
+      transaction_id: gnnScore.transaction_id,
+      risk_score: gnnScore.gnn_risk_score,
+      risk_level: gnnScore.gnn_risk_level,
+      recommendation: gnnScore.recommendation,
+      signals: [
+        `gnn_risk_level:${gnnScore.gnn_risk_level}`,
+        ...(gnnScore.fraud_ring_detected ? [`fraud_ring:${gnnScore.fraud_ring_id ?? "unknown"}`] : []),
+        `pagerank:${gnnScore.graph_features.pagerank.toFixed(3)}`,
+        `suspicious_neighbors:${gnnScore.graph_features.suspicious_neighbors}`,
+      ],
+    };
+  }
+
+  // Weighted merge: 40% rule-based + 60% GNN for high-value transactions
+  const mergedScore = Math.round(ruleScore.risk_score * 0.4 + gnnScore.gnn_risk_score * 0.6);
+  const mergedLevel: FraudScoreResult["risk_level"] =
+    mergedScore >= 80 ? "critical" :
+    mergedScore >= 60 ? "high" :
+    mergedScore >= 40 ? "medium" : "low";
+  const mergedRecommendation: FraudScoreResult["recommendation"] =
+    mergedScore >= 80 ? "decline" :
+    mergedScore >= 40 ? "review" : "approve";
+
+  return {
+    ...ruleScore,
+    risk_score: mergedScore,
+    risk_level: mergedLevel,
+    recommendation: mergedRecommendation,
+    signals: [
+      ...ruleScore.signals,
+      `gnn_score:${gnnScore.gnn_risk_score}`,
+      ...(gnnScore.fraud_ring_detected ? [`fraud_ring:${gnnScore.fraud_ring_id ?? "unknown"}`] : []),
+      ...(gnnScore.graph_features.suspicious_neighbors > 0
+        ? [`suspicious_neighbors:${gnnScore.graph_features.suspicious_neighbors}`] : []),
+    ],
+  };
+}
+
 // ─── Python: USSD Gateway ────────────────────────────────────────────────────
 export interface USSDSession {
   session_id: string;

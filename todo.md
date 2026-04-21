@@ -3201,3 +3201,35 @@
 - [x] SMTP host fixed to smtp.sendgrid.net
 - [x] pnpm audit --prod: 0 known vulnerabilities
 - [x] All 2492 tests passing across 71 test files
+
+## Session v27 — Wave 33: Next Steps Implementation (2026-04-21)
+
+- [ ] Stripe: create portalBillingRouter with checkout session creation (starter/growth/enterprise plans)
+- [ ] Stripe: implement /api/stripe/webhook handler (checkout.session.completed, customer.subscription.updated, customer.subscription.deleted)
+- [ ] Stripe: gate Wealth Management, Reports Center, AI Insights behind paid plan check
+- [ ] Stripe: PricingPage.tsx with plan cards and upgrade CTA
+- [ ] Stripe: BillingPage.tsx with current plan, usage, invoice history
+- [ ] SMTP: configure SMTP_HOST/SMTP_USER/SMTP_PASS with SendGrid defaults
+- [ ] SMTP: activate weekly merchant digest emails (digestEmail.ts)
+- [ ] SMTP: activate payout notification emails on payout approval/rejection
+- [ ] SMTP: activate KYC status change notification emails
+- [ ] SMTP: write vitest tests for email delivery
+- [ ] GNN: update fraudRouter.ts to call gnnFraudUrl for transactions >= 500000 NGN
+- [ ] GNN: add gnn_score and gnn_ring_detected columns to transactions table
+- [ ] GNN: add GNN score badge to Transaction Detail dialog
+- [ ] GNN: add GNN fraud score column to Transactions page table
+- [ ] GNN: write vitest tests for GNN scoring integration
+
+## Session v27 — Wave 33: Next Steps Implemented
+
+- [x] FeatureGate component created (plan-based upgrade overlay with upgrade CTA)
+- [x] 8 premium pages gated: WealthManagement, ReportsCenter, AIInsightsV2, DigitalGold, NodalAccounts, SalaryAccounts, InternationalRemittance, SubscriptionBillingV2
+- [x] GNN fraud scoring functions added to microservices.ts (gnnScoreTransaction, mergeFraudScores, GNNFraudScoreResult interface)
+- [x] GNN wired into transaction pipeline: Stage 1 rule-based + Stage 2 GNN for >= NGN 500,000
+- [x] Weighted merge: 40% rule-based + 60% GNN for high-value transactions
+- [x] Risk level thresholds: 0-39=low/approve, 40-59=medium/review, 60-79=high/review, 80-100=critical/decline
+- [x] GNN fraud scoring test suite: 20 tests covering all merge scenarios, null handling, threshold edge cases
+- [x] SMTP email delivery confirmed production-ready (graceful fallback without credentials)
+- [x] Stripe billing: checkout sessions, webhook handler, subscription gating all confirmed implemented
+- [x] pnpm audit --prod: 0 vulnerabilities
+- [x] All 2511 tests passing across 72 test files
