@@ -139,6 +139,9 @@ importers:
       '@types/cors':
         specifier: ^2.8.19
         version: 2.8.19
+      '@types/d3':
+        specifier: ^7.4.3
+        version: 7.4.3
       '@types/multer':
         specifier: ^2.1.0
         version: 2.1.0
@@ -175,6 +178,9 @@ importers:
       cors:
         specifier: ^2.8.6
         version: 2.8.6
+      d3:
+        specifier: ^7.9.0
+        version: 7.9.0
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0

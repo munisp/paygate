@@ -3253,3 +3253,31 @@
 - [x] FeatureGate component wrapping 8 premium pages
 - [x] GNN fraud scoring wired into transaction pipeline
 - [x] Security score: 99/100 Grade A+
+
+## Session v29 — Wave 35: Consumer Financial Pages + Python Microservice Tests (2026-04-21)
+
+### Implemented
+- [x] FraudRingDashboard.tsx: D3 FraudRingGraph integration with correct trpc.fraudRings.* namespace
+- [x] use-toast hook created (wraps sonner for compatibility)
+- [x] Duplicate AdminDataPipeline import removed from App.tsx
+- [x] ConsumerGold.tsx: Digital gold buy/sell/portfolio page (trpc.consumerFinancial.gold.*)
+- [x] ConsumerMutualFunds.tsx: Mutual fund invest/redeem/SIP page (trpc.consumerFinancial.funds.*)
+- [x] ConsumerPension.tsx: NPS contribution and balance page (trpc.consumerFinancial.pension.*)
+- [x] ConsumerEMI.tsx: EMI calculator and loan application page (trpc.consumerFinancial.emi.*)
+- [x] ConsumerRemittance.tsx: International money transfer page (trpc.consumerFinancial.remittance.*)
+- [x] ConsumerInsuranceV2.tsx: Consumer insurance policies page (trpc.consumerFinancial.insurance.*)
+- [x] ConsumerSubscriptions.tsx: Subscription management page (trpc.consumerFinancial.subscriptions.*)
+- [x] ConsumerFinancialHub.tsx: Landing page for all financial services
+- [x] wave34Router: listSubscriptions, pauseSubscription, resumeSubscription procedures added
+- [x] ConsumerLayout.tsx: Financial Services section added to navigation
+- [x] All 8 new consumer pages registered in App.tsx routes
+- [x] Python smoke tests for emi-service: 9 tests passing
+- [x] Python smoke tests for intl-remittance: 8 tests passing
+- [x] Python smoke tests for mutual-funds: 8 tests passing (f-string syntax fix)
+- [x] Python smoke tests for pension-nps: 10 tests passing
+- [x] Python smoke tests for digital-gold: 8 tests passing
+- [x] Python smoke tests for insurance-pricing: 5 tests passing (Flask)
+- [x] Vite build: 3488+ modules, 0 errors
+- [x] 2561 Node.js tests passing across 73 test files
+- [x] 0 production vulnerabilities (pnpm audit --prod)
+- [x] Security score: 99/100 Grade A+

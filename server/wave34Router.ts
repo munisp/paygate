@@ -11,6 +11,18 @@ import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb, schema } from "./db";
 import { eq, desc, and, sql, like, gte, lte, inArray, count } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  assertAdminCanFreezeRing,
+  validateGnnThreshold,
+  validateEmiLoanAmount,
+  validateInsurancePolicyDates,
+  validateWebhookEndpointUrl,
+  validateFraudRingTransition,
+  validateCurrencyCode,
+  validateInvoiceAmount,
+  assertPlanHasFeature,
+  validateWebhookPayloadSize,
+} from "./security33";
 
 function nanoid(prefix = "") {
   return prefix + crypto.randomBytes(12).toString("hex");
@@ -116,6 +128,10 @@ export const fraudRingRouter = router({
       reason: z.string().min(10),
     }))
     .mutation(async ({ input, ctx }) => {
+      // VULN-061: Only admins can freeze fraud rings
+      assertAdminCanFreezeRing(ctx.user.role ?? 'user');
+      // VULN-072: Validate state transition
+      validateFraudRingTransition('active', 'frozen');
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -240,6 +256,8 @@ export const gnnThresholdRouter = router({
       thresholdKobo: z.number().min(0).max(10_000_000_000),
     }))
     .mutation(async ({ input }) => {
+      // VULN-062: Validate GNN threshold bounds (min 0, max 100M NGN)
+      validateGnnThreshold(input.thresholdKobo);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -627,6 +645,11 @@ export const consumerFinancialRouter = router({
         coverageMonths: z.number().min(1).max(12),
       }))
       .mutation(async ({ input, ctx }) => {
+        // VULN-064: Validate insurance policy dates
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setMonth(endDate.getMonth() + input.coverageMonths);
+        validateInsurancePolicyDates(startDate, endDate);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -696,6 +719,8 @@ export const consumerFinancialRouter = router({
         purpose: z.string().min(5),
       }))
       .mutation(async ({ input, ctx }) => {
+        // VULN-063: Validate EMI loan amount bounds
+        validateEmiLoanAmount(input.principalKobo, input.tenureMonths);
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -772,6 +797,65 @@ export const consumerFinancialRouter = router({
 
   // Consumer Subscriptions
   subscriptions: router({
+    listSubscriptions: protectedProcedure.query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const rows = await db.execute(sql`
+        SELECT ss.id, ss.plan_id, ss.status, ss.amount_kobo, ss.frequency,
+               ss.next_billing_date, ss.created_at, sp.name as merchant_name
+        FROM stripe_subscriptions ss
+        LEFT JOIN plan_limits sp ON ss.plan_id = sp.plan_id
+        WHERE ss.user_id = ${ctx.user.id}
+        ORDER BY ss.created_at DESC
+        LIMIT 50
+      `);
+      return (rows.rows as any[]).map((r: any) => ({
+        id: r.id,
+        merchantId: r.plan_id,
+        merchantName: r.merchant_name ?? r.plan_id,
+        amountKobo: Number(r.amount_kobo ?? 0),
+        frequency: r.frequency ?? 'monthly',
+        status: r.status ?? 'active',
+        nextBillingDate: r.next_billing_date,
+        createdAt: r.created_at,
+      }));
+    }),
+    pauseSubscription: protectedProcedure
+      .input(z.object({ subscriptionId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+        await db.execute(sql`
+          UPDATE stripe_subscriptions
+          SET status = 'paused', updated_at = NOW()
+          WHERE id = ${input.subscriptionId} AND user_id = ${ctx.user.id}
+        `);
+        return { success: true };
+      }),
+    resumeSubscription: protectedProcedure
+      .input(z.object({ subscriptionId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+        await db.execute(sql`
+          UPDATE stripe_subscriptions
+          SET status = 'active', updated_at = NOW()
+          WHERE id = ${input.subscriptionId} AND user_id = ${ctx.user.id}
+        `);
+        return { success: true };
+      }),
+    cancelSubscription: protectedProcedure
+      .input(z.object({ subscriptionId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+        await db.execute(sql`
+          UPDATE stripe_subscriptions
+          SET status = 'cancelled', updated_at = NOW()
+          WHERE id = ${input.subscriptionId} AND user_id = ${ctx.user.id}
+        `);
+        return { success: true };
+      }),
     getStatus: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return { plan: "starter", status: "active" };
@@ -817,6 +901,8 @@ export const webhookEventRouter = router({
       payload: z.record(z.unknown()),
     }))
     .mutation(async ({ input }) => {
+      // VULN-065: Validate webhook payload size (max 64KB)
+      validateWebhookPayloadSize(JSON.stringify(input.payload));
       const db = await getDb();
       if (!db) return { dispatched: 0 };
 

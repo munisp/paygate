@@ -10,7 +10,8 @@ import {
   CreditCard, FileText, Users, Gift, Tag, QrCode,
   ArrowDownLeft, RefreshCw, Shield, BarChart2,
   AlertTriangle, Umbrella, MoreHorizontal, X,
-  ChevronRight, Repeat, Lock, Fingerprint, Send, Settings, BookOpen
+  ChevronRight, Repeat, Lock, Fingerprint, Send, Settings, BookOpen,
+  Coins, PieChart, TrendingUp
 } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
@@ -67,9 +68,16 @@ const MORE_SECTIONS = [
     ],
   },
   {
-    title: "Insurance & Protection",
+    title: "Financial Services",
     items: [
-      { path: "/consumer-insurance", label: "Insurance", icon: Umbrella },
+      { path: "/consumer/financial", label: "Financial Hub", icon: TrendingUp },
+      { path: "/consumer/gold", label: "Digital Gold", icon: Coins },
+      { path: "/consumer/mutual-funds", label: "Mutual Funds", icon: PieChart },
+      { path: "/consumer/pension", label: "Pension", icon: Shield },
+      { path: "/consumer/emi", label: "EMI Loans", icon: CreditCard },
+      { path: "/consumer/remittance", label: "Send Abroad", icon: Globe },
+      { path: "/consumer/insurance", label: "Insurance", icon: Umbrella },
+      { path: "/consumer/subscriptions", label: "Subscriptions", icon: RefreshCw },
     ],
   },
   {

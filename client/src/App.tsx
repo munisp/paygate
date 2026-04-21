@@ -237,7 +237,6 @@ import AdminKeycloak from "./pages/admin/AdminKeycloak";
 import AdminSettlementSLA from "./pages/admin/AdminSettlementSLA";
 import AdminDisputeLifecycle from "./pages/admin/AdminDisputeLifecycle";
 import AdminDataPipeline from "./pages/admin/AdminDataPipeline";
-import AdminDataPipeline from "./pages/admin/AdminDataPipeline";
 import AdminBnplUnderwriting from "./pages/admin/AdminBnplUnderwriting";
 import AdminLoyaltyTierEngine from "./pages/admin/AdminLoyaltyTierEngine";
 import ConsumerDisputeFiling from "./pages/consumer/ConsumerDisputeFiling";
@@ -286,6 +285,15 @@ import PricingPage from "./pages/PricingPage";
 import WebhookEventsPage from "./pages/WebhookEventsPage";
 import EMILoansPage from "./pages/EMILoansPage";
 import InsurancePage from "./pages/InsurancePage";
+// Wave 35 consumer financial pages
+import ConsumerGold from "./pages/consumer/ConsumerGold";
+import ConsumerMutualFunds from "./pages/consumer/ConsumerMutualFunds";
+import ConsumerPension from "./pages/consumer/ConsumerPension";
+import ConsumerEMI from "./pages/consumer/ConsumerEMI";
+import ConsumerRemittance from "./pages/consumer/ConsumerRemittance";
+import ConsumerInsuranceV2 from "./pages/consumer/ConsumerInsuranceV2";
+import ConsumerSubscriptions from "./pages/consumer/ConsumerSubscriptions";
+import ConsumerFinancialHub from "./pages/consumer/ConsumerFinancialHub";
 
 function Router() {
   const [location] = useLocation();
@@ -357,6 +365,14 @@ function Router() {
           <Route path="/consumer/referrals" component={ConsumerReferrals} />
           <Route path="/consumer/help-search" component={ConsumerHelpSearch} />
           <Route path="/consumer/dispute-filing" component={ConsumerDisputeFiling} />
+          <Route path="/consumer/financial" component={ConsumerFinancialHub} />
+          <Route path="/consumer/gold" component={ConsumerGold} />
+          <Route path="/consumer/mutual-funds" component={ConsumerMutualFunds} />
+          <Route path="/consumer/pension" component={ConsumerPension} />
+          <Route path="/consumer/emi" component={ConsumerEMI} />
+          <Route path="/consumer/remittance" component={ConsumerRemittance} />
+          <Route path="/consumer/insurance" component={ConsumerInsuranceV2} />
+          <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
           <Route component={ConsumerWallet} />
         </Switch>
       </ConsumerLayout>

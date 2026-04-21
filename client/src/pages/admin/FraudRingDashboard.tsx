@@ -7,8 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Shield, AlertTriangle, Network, Eye, Lock, CheckCircle, Search, RefreshCw } from "lucide-react";
+import { Shield, AlertTriangle, Network, Eye, Lock, CheckCircle, Search, RefreshCw, ShieldAlert } from "lucide-react";
+import FraudRingGraph from "@/components/FraudRingGraph";
 
 export default function FraudRingDashboard() {
   const [status, setStatus] = useState<"all" | "active" | "frozen" | "cleared">("all");
@@ -16,16 +18,19 @@ export default function FraudRingDashboard() {
   const [selectedRing, setSelectedRing] = useState<string | null>(null);
   const [actionRing, setActionRing] = useState<{ ringId: string; action: "freeze" | "clear" } | null>(null);
   const [reason, setReason] = useState("");
+  const [activeTab, setActiveTab] = useState("rings");
 
-  const { data, isLoading, refetch } = trpc.fraudRings.list.useQuery({ status, limit: 50, offset: 0 });
-  const { data: detail } = trpc.fraudRings.getDetail.useQuery(
+  // Wave 34 tRPC router: trpc.fraudRings.*
+  const { data: listData, isLoading, refetch } = trpc.fraudRings.list.useQuery({ status, limit: 50, offset: 0 });
+  const { data: graphData } = trpc.fraudRings.getTopology.useQuery(
     { ringId: selectedRing! },
     { enabled: !!selectedRing }
   );
-  const { data: topology } = trpc.fraudRings.getTopology.useQuery(
+  const { data: ringDetail } = trpc.fraudRings.getDetail.useQuery(
     { ringId: selectedRing! },
     { enabled: !!selectedRing }
   );
+  const detail = ringDetail;
 
   const freezeRing = trpc.fraudRings.freezeRing.useMutation({
     onSuccess: () => { toast.success("Fraud ring frozen — all accounts suspended"); refetch(); setActionRing(null); setReason(""); },
@@ -37,9 +42,15 @@ export default function FraudRingDashboard() {
     onError: (e) => toast.error(e.message),
   });
 
-  const rings = (data?.rings ?? []).filter(r =>
+  const rings = ((listData?.rings ?? []) as any[]).filter((r: any) =>
     !search || r.ringId.toLowerCase().includes(search.toLowerCase())
   );
+  const statsData = {
+    activeRings: rings.filter((r: any) => r.status === "active" || r.ring_status === "open").length,
+    frozenRings: rings.filter((r: any) => r.status === "frozen").length,
+    clearedRings: rings.filter((r: any) => r.status === "cleared").length,
+    avgRiskScore: rings.length > 0 ? Math.round(rings.reduce((s: number, r: any) => s + (r.maxRiskScore ?? 0), 0) / rings.length) : 0,
+  };
 
   const riskColor = (score: number) => {
     if (score >= 80) return "text-red-600 bg-red-50";
@@ -69,26 +80,26 @@ export default function FraudRingDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-4">
-            <div className="text-2xl font-bold text-red-600">{rings.filter(r => r.status === "open").length}</div>
+            <div className="text-2xl font-bold text-red-600">{statsData?.activeRings ?? rings.filter((r: any) => r.status === "active").length}</div>
             <div className="text-sm text-muted-foreground">Active Rings</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-2xl font-bold">{rings.reduce((s, r) => s + r.alertCount, 0)}</div>
-            <div className="text-sm text-muted-foreground">Total Alerts</div>
+            <div className="text-2xl font-bold">{statsData?.frozenRings ?? rings.filter((r: any) => r.status === "frozen").length}</div>
+            <div className="text-sm text-muted-foreground">Frozen Rings</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-2xl font-bold">{rings.reduce((s, r) => s + r.merchantCount, 0)}</div>
-            <div className="text-sm text-muted-foreground">Affected Merchants</div>
+            <div className="text-2xl font-bold text-green-600">{statsData?.clearedRings ?? rings.filter((r: any) => r.status === "cleared").length}</div>
+            <div className="text-sm text-muted-foreground">Cleared Rings</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-orange-600">
-              {rings.length > 0 ? Math.round(rings.reduce((s, r) => s + r.maxRiskScore, 0) / rings.length) : 0}
+              {statsData?.avgRiskScore ?? (rings.length > 0 ? Math.round(rings.reduce((s: number, r: any) => s + (r.totalRiskScore ?? 0), 0) / rings.length) : 0)}/100
             </div>
             <div className="text-sm text-muted-foreground">Avg Risk Score</div>
           </CardContent>
@@ -114,6 +125,55 @@ export default function FraudRingDashboard() {
         </Select>
       </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="rings">Ring List</TabsTrigger>
+          <TabsTrigger value="graph" disabled={!selectedRing}>
+            <Network className="w-4 h-4 mr-1" />
+            {selectedRing ? `Graph (${selectedRing.slice(-6)})` : "Graph View"}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="graph">
+          {selectedRing && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Network className="w-5 h-5 text-indigo-400" />
+                  Ring Topology: <span className="font-mono text-sm">{selectedRing}</span>
+                </h2>
+                <Button variant="outline" size="sm" onClick={() => setActiveTab("rings")}>← Back to List</Button>
+              </div>
+              {graphData ? (
+                <>
+                  <FraudRingGraph
+                    nodes={(graphData?.nodes ?? []).map((n: any) => ({ ...n, label: n.id?.slice(-8) ?? n.id, type: n.type === 'merchant' ? 'account' : (n.type ?? 'account'), riskScore: n.riskScore ?? 50 }))}
+                    edges={(graphData?.edges ?? []).map((e: any) => ({ ...e, edgeType: e.edgeType ?? 'transfer', weight: (e.weight ?? 50) / 100 }))}
+                    ringId={selectedRing}
+                    width={700}
+                    height={480}
+                    onNodeClick={(node) => toast.info(`${node.label} — Risk: ${node.riskScore}/100`)}
+                  />
+                  <div className="grid grid-cols-3 gap-4">
+                    <Card><CardContent className="p-4"><p className="text-muted-foreground text-sm">Nodes</p><p className="text-2xl font-bold">{graphData?.nodes?.length ?? 0}</p></CardContent></Card>
+                    <Card><CardContent className="p-4"><p className="text-muted-foreground text-sm">Edges</p><p className="text-2xl font-bold">{graphData?.edges?.length ?? 0}</p></CardContent></Card>
+                    <Card><CardContent className="p-4"><p className="text-muted-foreground text-sm">Avg Risk</p>
+                      <p className="text-2xl font-bold text-red-500">
+                        {graphData?.nodes?.length ? Math.round(graphData.nodes.reduce((s: number, n: any) => s + (n.riskScore ?? 0), 0) / graphData.nodes.length) : 0}/100
+                      </p>
+                    </CardContent></Card>
+                  </div>
+                </>
+              ) : (
+                <div className="bg-slate-900 rounded-xl border border-slate-700 h-64 flex items-center justify-center text-slate-500">
+                  Loading graph data...
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="rings">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Ring List */}
         <div className="lg:col-span-1 space-y-3">
@@ -297,6 +357,8 @@ export default function FraudRingDashboard() {
           )}
         </div>
       </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Action Dialog */}
       <Dialog open={!!actionRing} onOpenChange={() => { setActionRing(null); setReason(""); }}>

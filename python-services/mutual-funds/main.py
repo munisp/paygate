@@ -72,7 +72,9 @@ async def get_portfolio(customer_id: str = Query(...)):
 async def invest(req: InvestRequest):
     fund = next((f for f in FUNDS if f["id"]==req.fund_id),None)
     if not fund: raise HTTPException(404,"Fund not found")
-    if req.amount < fund["min_investment"]: raise HTTPException(400,f"Minimum investment: {fund[\'min_investment\']}")
+    if req.amount < fund["min_investment"]:
+        min_inv = fund["min_investment"]
+        raise HTTPException(400,f"Minimum investment: {min_inv}")
     units = req.amount/fund["nav"]; inv_id = str(uuid.uuid4()); now = datetime.now(timezone.utc)
     pool = await get_pool()
     if pool:

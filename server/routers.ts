@@ -425,7 +425,26 @@ const transactionsRouter = router({
       // Both stages are fail-open: if a service is unavailable we log and continue.
       // Final score is a weighted merge: 40% rule-based + 60% GNN for high-value.
       const txnId = nanoid("txn_");
-      const HIGH_VALUE_KOBO = 50_000_000; // ₦500,000
+      // Per-plan GNN threshold: look up from plan_limits table, fallback to ₦500,000
+      let HIGH_VALUE_KOBO = 50_000_000; // ₦500,000 default
+      try {
+        const dbForThreshold = await getDb();
+        if (dbForThreshold) {
+          const thresholdRows = await dbForThreshold.execute(sql`
+            SELECT pl.gnn_threshold_kobo
+            FROM plan_limits pl
+            JOIN merchants m ON m.plan_id = pl.plan_id
+            WHERE m.id = ${merchant.id}
+            LIMIT 1
+          `);
+          const row = (thresholdRows as any).rows?.[0] ?? thresholdRows[0];
+          if (row && row.gnn_threshold_kobo != null) {
+            HIGH_VALUE_KOBO = Number(row.gnn_threshold_kobo);
+          }
+        }
+      } catch (e) {
+        logger.warn("[fraud] Could not fetch per-plan GNN threshold, using default:", (e as Error).message);
+      }
       let ruleBasedResult: Awaited<ReturnType<typeof pythonScoreTransaction>> = null;
       let gnnResult: Awaited<ReturnType<typeof gnnScoreTransaction>> = null;
 
