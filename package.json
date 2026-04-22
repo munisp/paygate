@@ -13,7 +13,8 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "vapid:generate": "node scripts/generate-vapid-keys.mjs",
     "vapid:generate:env": "node scripts/generate-vapid-keys.mjs --env",
-    "vapid:generate:json": "node scripts/generate-vapid-keys.mjs --json"
+    "vapid:generate:json": "node scripts/generate-vapid-keys.mjs --json",
+    "db:seed": "tsx drizzle/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

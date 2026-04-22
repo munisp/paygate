@@ -1909,3 +1909,9 @@ import("../cronJobs").then(({ startCronJobs }) => {
 }).catch((err: unknown) => {
   console.warn("[cronJobs] Failed to start cron jobs:", err);
 });
+// ─── Slow-Query Logger (pg_stat_statements + OTel stdout spans) ───────────────
+import("../slowQueryLogger").then(({ startSlowQueryLogger }) => {
+  startSlowQueryLogger();
+}).catch((err: unknown) => {
+  console.warn("[slowQueryLogger] Failed to start:", err);
+});

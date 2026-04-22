@@ -3390,3 +3390,8 @@
 - [x] Run pnpm db:push — 202 tables created in paygate_db
 - [x] Seed all test fixture data (202 tables, 27 schema additions, 40+ seed rows)
 - [x] All 2573 tests pass with PostgreSQL
+
+## Post-Migration Next Steps (Apr 22, 2026)
+- [ ] Configure PG_DATABASE_URL production secret
+- [ ] Write versioned drizzle/seed.ts covering all 202 tables
+- [ ] Enable pg_stat_statements + OpenTelemetry slow-query logging
