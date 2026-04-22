@@ -217,18 +217,18 @@ async function seedInvoices() {
 // ─── Inventory Items ──────────────────────────────────────────────────────────
 async function seedInventory() {
   const items = [
-    { id: uid("inv-item-"), merchant_id: M1, name: "Laptop Stand", sku: "LS-001", quantity: 50, unit_cost_kobo: 25000, selling_price_kobo: 45000, category: "Electronics", reorder_level: 10 },
-    { id: uid("inv-item-"), merchant_id: M1, name: "USB-C Hub", sku: "USB-002", quantity: 120, unit_cost_kobo: 12000, selling_price_kobo: 22000, category: "Electronics", reorder_level: 20 },
-    { id: uid("inv-item-"), merchant_id: M1, name: "Wireless Mouse", sku: "WM-003", quantity: 75, unit_cost_kobo: 8000, selling_price_kobo: 15000, category: "Electronics", reorder_level: 15 },
-    { id: uid("inv-item-"), merchant_id: M2, name: "Office Chair", sku: "OC-001", quantity: 20, unit_cost_kobo: 85000, selling_price_kobo: 150000, category: "Furniture", reorder_level: 5 },
-    { id: uid("inv-item-"), merchant_id: M2, name: "Standing Desk", sku: "SD-001", quantity: 8, unit_cost_kobo: 180000, selling_price_kobo: 320000, category: "Furniture", reorder_level: 3 },
+    { id: uid("inv-item-"), merchant_id: M1, name: "Laptop Stand", unit: "piece", current_stock: 50, cost_per_unit: 25000, reorder_level: 10 },
+    { id: uid("inv-item-"), merchant_id: M1, name: "USB-C Hub", unit: "piece", current_stock: 120, cost_per_unit: 12000, reorder_level: 20 },
+    { id: uid("inv-item-"), merchant_id: M1, name: "Wireless Mouse", unit: "piece", current_stock: 75, cost_per_unit: 8000, reorder_level: 15 },
+    { id: uid("inv-item-"), merchant_id: M2, name: "Office Chair", unit: "piece", current_stock: 20, cost_per_unit: 85000, reorder_level: 5 },
+    { id: uid("inv-item-"), merchant_id: M2, name: "Standing Desk", unit: "piece", current_stock: 8, cost_per_unit: 180000, reorder_level: 3 },
   ];
   const itemIds: string[] = [];
   for (const item of items) {
     itemIds.push(item.id);
-    await q(`INSERT INTO inventory_items (id, merchant_id, name, sku, quantity, unit_cost_kobo, selling_price_kobo, category, reorder_level)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
-      [item.id, item.merchant_id, item.name, item.sku, item.quantity, item.unit_cost_kobo, item.selling_price_kobo, item.category, item.reorder_level]);
+    await q(`INSERT INTO inventory_items (id, merchant_id, name, unit, current_stock, cost_per_unit, reorder_level)
+      VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
+      [item.id, item.merchant_id, item.name, item.unit, item.current_stock, item.cost_per_unit, item.reorder_level]);
   }
   // Inventory transactions
   for (const iid of itemIds.slice(0, 3)) {
