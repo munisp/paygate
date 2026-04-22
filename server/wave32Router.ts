@@ -65,7 +65,7 @@ const inviteCodesRouter = router({
       usesTotal: z.number().int().min(1).max(1000).default(1),
       expiresAt: z.string().datetime().optional(),
       tenantId: z.string().optional(),
-      metadata: z.record(z.any()).optional(),
+      metadata: z.record(z.string(), z.any()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await requireDb();
@@ -200,7 +200,7 @@ const partnerOnboardingRouter = router({
     .input(z.object({
       id: z.string(),
       step: z.enum(["invite_code", "company_info", "branding", "fee_structure", "review", "completed"]),
-      data: z.record(z.any()),
+      data: z.record(z.string(), z.any()),
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
@@ -492,6 +492,7 @@ const billingInvoicesRouter = router({
 // ─── Plan Limits ──────────────────────────────────────────────────────────────
 const planLimitsRouter = router({
   list: protectedProcedure.query(async () => {
+    const db = await requireDb();
     return db.select().from(tenantPlanLimits).orderBy(tenantPlanLimits.priceUsdPerMonth);
   }),
 
@@ -568,7 +569,7 @@ const ssoConfigsRouter = router({
       clientSecret: z.string().optional(),
       discoveryUrl: z.string().url().optional(),
       scopes: z.string().optional(),
-      attributeMapping: z.record(z.string()).optional(),
+      attributeMapping: z.record(z.string(), z.string()).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
@@ -734,6 +735,7 @@ const bnplRepaymentRouter = router({
 // ─── Stripe Subscriptions ─────────────────────────────────────────────────────
 const stripeSubsRouter = router({
   getMine: protectedProcedure.query(async ({ ctx }) => {
+    const db = await requireDb();
     const [row] = await db.select().from(stripeSubscriptions)
       .where(eq(stripeSubscriptions.userId, String(ctx.user.id)))
       .orderBy(desc(stripeSubscriptions.createdAt))

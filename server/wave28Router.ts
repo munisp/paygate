@@ -12,8 +12,9 @@
  */
 
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
-import { getDb } from "./db";
+import { getDb, execRaw } from "./db";
 import crypto from "crypto";
 
 // ─── A: Webhook Retry Bulk Replay ────────────────────────────────────────────
@@ -27,6 +28,7 @@ const webhookRetryEnhancedRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       let whereClause = "WHERE 1=1";
       const params: any[] = [];
       let paramIdx = 1;
@@ -41,7 +43,7 @@ const webhookRetryEnhancedRouter = router({
         paramIdx++;
       }
 
-      const result = await db.execute(`
+      const result = await execRaw(db, `
         SELECT
           wd.id,
           wd.event_type,
@@ -59,17 +61,17 @@ const webhookRetryEnhancedRouter = router({
         FROM webhook_deliveries wd
         ${whereClause}
         ORDER BY wd.created_at DESC
-        LIMIT $${paramIdx}
-      `, [...params, input.limit]);
+        LIMIT ${input.limit}
+      `);
 
-      const statsResult = await db.execute(`
+      const statsResult = await db.execute(sql.raw(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'failed') as failed_count,
           COUNT(*) FILTER (WHERE status = 'abandoned' OR status = 'dead_letter') as abandoned_count,
           COUNT(*) FILTER (WHERE status = 'success' AND delivered_at > NOW() - INTERVAL '24 hours') as succeeded_today
         FROM webhook_deliveries
-      `);
+      `));
 
       const stats = (statsResult as any).rows[0];
       return {
@@ -91,10 +93,11 @@ const webhookRetryEnhancedRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const retryAt = input.delayMinutes > 0
         ? new Date(Date.now() + input.delayMinutes * 60000).toISOString()
         : new Date().toISOString();
-      await db.execute(`
+      await execRaw(db, `
         UPDATE webhook_deliveries SET
           status = 'pending',
           retry_at = $1,
@@ -114,11 +117,12 @@ const webhookRetryEnhancedRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const retryAt = input.delayMinutes > 0
         ? new Date(Date.now() + input.delayMinutes * 60000).toISOString()
         : new Date().toISOString();
       const statusList = input.statuses.map((_, i) => `$${i + 2}`).join(", ");
-      const result = await db.execute(`
+      const result = await execRaw(db, `
         UPDATE webhook_deliveries SET
           status = 'pending',
           retry_at = $1,
@@ -140,9 +144,10 @@ const webhookRetryEnhancedRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const retryAt = new Date(Date.now() + input.delaySeconds * 1000).toISOString();
       const resetClause = input.resetAttemptCount ? ", attempt_count = 0" : "";
-      const result = await db.execute(`
+      const result = await execRaw(db, `
         UPDATE webhook_deliveries SET
           status = 'pending',
           retry_at = $1,
@@ -166,7 +171,8 @@ const webhookRetryEnhancedRouter = router({
     .input(z.object({ deliveryId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE webhook_deliveries SET
           status = 'abandoned',
           updated_at = NOW()
@@ -178,6 +184,7 @@ const webhookRetryEnhancedRouter = router({
   // Get dead-letter queue stats
   getDeadLetterStats: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const result = await db.execute(`
       SELECT
         COUNT(*) as total_dead_letter,
@@ -217,6 +224,7 @@ const loyaltyAutoPromotionRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
 
       // Get all tier configs ordered by min_points
       const tiersResult = await db.execute(`
@@ -259,7 +267,7 @@ const loyaltyAutoPromotionRouter = router({
           if (isUpgrade) upgraded++; else downgraded++;
 
           if (!input.dryRun) {
-            await db.execute(`
+            await execRaw(db, `
               UPDATE consumer_loyalty_accounts SET tier = $1, updated_at = NOW() WHERE id = $2
             `, [newTier, account.id]);
           }
@@ -270,7 +278,7 @@ const loyaltyAutoPromotionRouter = router({
 
       // Record evaluation in audit log
       if (!input.dryRun && changes.length > 0) {
-        await db.execute(`
+        await execRaw(db, `
           INSERT INTO audit_logs (action, resource_type, resource_id, details, created_at)
           VALUES ('loyalty_tier_evaluation', 'system', 'cron', $1::jsonb, NOW())
         `, [JSON.stringify({ upgraded, downgraded, unchanged, total: accounts.length })]);
@@ -289,6 +297,7 @@ const loyaltyAutoPromotionRouter = router({
   // Get tier distribution stats
   getTierDistribution: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const result = await db.execute(`
       SELECT
         cla.tier,
@@ -310,7 +319,8 @@ const loyaltyAutoPromotionRouter = router({
     .input(z.object({ limit: z.number().min(1).max(100).default(20) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT
           al.details,
           al.created_at,
@@ -332,16 +342,17 @@ const loyaltyAutoPromotionRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      const current = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const current = await execRaw(db, `
         SELECT tier FROM consumer_loyalty_accounts WHERE user_id = $1
       `, [input.userId]);
       const oldTier = (current as any).rows[0]?.tier ?? "bronze";
 
-      await db.execute(`
+      await execRaw(db, `
         UPDATE consumer_loyalty_accounts SET tier = $1, updated_at = NOW() WHERE user_id = $2
       `, [input.newTier, input.userId]);
 
-      await db.execute(`
+      await execRaw(db, `
         INSERT INTO audit_logs (action, resource_type, resource_id, details, created_at)
         VALUES ('loyalty_tier_override', 'user', $1::text, $2::jsonb, NOW())
       `, [input.userId.toString(), JSON.stringify({ oldTier, newTier: input.newTier, reason: input.reason })]);
@@ -352,6 +363,7 @@ const loyaltyAutoPromotionRouter = router({
   // Get tier config (for display)
   getTierConfigs: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const result = await db.execute(`
       SELECT * FROM loyalty_tier_configs ORDER BY min_points ASC
     `);
@@ -369,7 +381,8 @@ const loyaltyAutoPromotionRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE loyalty_tier_configs SET
           min_points = $1,
           cashback_rate = $2,
@@ -395,9 +408,10 @@ const bnplRepaymentRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
 
       // Delete existing schedule for this application
-      await db.execute(`DELETE FROM bnpl_repayment_schedules WHERE application_id = $1`, [input.applicationId]);
+      await execRaw(db, `DELETE FROM bnpl_repayment_schedules WHERE application_id = $1`, [input.applicationId]);
 
       const monthlyRate = input.interestRateMonthly / 100;
       const n = input.repaymentMonths;
@@ -443,7 +457,7 @@ const bnplRepaymentRouter = router({
 
       // Bulk insert schedule
       for (const row of schedule) {
-        await db.execute(`
+        await execRaw(db, `
           INSERT INTO bnpl_repayment_schedules
             (application_id, instalment_number, due_date, principal_amount, interest_amount, total_amount, outstanding_balance, status)
           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
@@ -451,7 +465,7 @@ const bnplRepaymentRouter = router({
       }
 
       // Update application with repayment details
-      await db.execute(`
+      await execRaw(db, `
         UPDATE bnpl_applications SET
           repayment_months = $1,
           interest_rate = $2,
@@ -474,13 +488,14 @@ const bnplRepaymentRouter = router({
     .input(z.object({ applicationId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const app = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const app = await execRaw(db, `
         SELECT id, consumer_id, requested_limit, approved_limit, score, status,
                repayment_months, interest_rate, currency
         FROM bnpl_applications WHERE id = $1
       `, [input.applicationId]);
 
-      const schedule = await db.execute(`
+      const schedule = await execRaw(db, `
         SELECT * FROM bnpl_repayment_schedules
         WHERE application_id = $1
         ORDER BY instalment_number ASC
@@ -513,7 +528,8 @@ const bnplRepaymentRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE bnpl_repayment_schedules SET
           status = 'paid',
           paid_at = $1
@@ -525,6 +541,7 @@ const bnplRepaymentRouter = router({
   // Mark overdue instalments
   markOverdue: protectedProcedure.mutation(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const result = await db.execute(`
       UPDATE bnpl_repayment_schedules SET status = 'overdue'
       WHERE status = 'pending' AND due_date < CURRENT_DATE
@@ -540,6 +557,7 @@ const bnplRepaymentRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       let where = "WHERE 1=1";
       const params: any[] = [input.limit];
       if (input.status) {
@@ -558,8 +576,8 @@ const bnplRepaymentRouter = router({
         ${where}
         GROUP BY ba.id
         ORDER BY ba.created_at DESC
-        LIMIT $1
-      `, params);
+        LIMIT ${input.limit}
+      `);
       return (result as any).rows;
     }),
 });
@@ -578,6 +596,7 @@ const inviteCodeRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
 
       // Generate a readable code: PREFIX-XXXX-XXXX
       const prefix = input.prefix?.toUpperCase() ?? "PG";
@@ -592,7 +611,7 @@ const inviteCodeRouter = router({
         : input.type === "multi_use" ? (input.maxUses ?? 10)
         : null; // unlimited
 
-      await db.execute(`
+      await execRaw(db, `
         INSERT INTO invite_codes
           (code, type, uses_remaining, max_uses, expires_at, created_by, plan, notes, is_active)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
@@ -606,7 +625,8 @@ const inviteCodeRouter = router({
     .input(z.object({ code: z.string().min(1) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT id, code, type, uses_remaining, max_uses, uses_total, expires_at, plan, notes, is_active
         FROM invite_codes
         WHERE code = $1
@@ -636,15 +656,16 @@ const inviteCodeRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       let where = "WHERE 1=1";
       const params: any[] = [input.limit];
       if (input.isActive !== undefined) {
         where += " AND is_active = $2";
         params.push(input.isActive);
       }
-      const result = await db.execute(`
+      const result = await db.execute(sql.raw(`
         SELECT * FROM invite_codes ${where} ORDER BY created_at DESC LIMIT $1
-      `, params);
+      `));
       return (result as any).rows;
     }),
 
@@ -653,7 +674,8 @@ const inviteCodeRouter = router({
     .input(z.object({ code: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`UPDATE invite_codes SET is_active = false, updated_at = NOW() WHERE code = $1`, [input.code]);
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE invite_codes SET is_active = false, updated_at = NOW() WHERE code = $1`, [input.code]);
       return { success: true };
     }),
 
@@ -662,7 +684,8 @@ const inviteCodeRouter = router({
     .input(z.object({ code: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`UPDATE invite_codes SET is_active = true, updated_at = NOW() WHERE code = $1`, [input.code]);
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE invite_codes SET is_active = true, updated_at = NOW() WHERE code = $1`, [input.code]);
       return { success: true };
     }),
 });
@@ -674,10 +697,11 @@ const partnerOnboardingRouter = router({
     .input(z.object({ inviteCode: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const code = input.inviteCode.toUpperCase();
 
       // Validate code
-      const codeResult = await db.execute(`
+      const codeResult = await execRaw(db, `
         SELECT id, code, type, uses_remaining, expires_at, plan, is_active
         FROM invite_codes WHERE code = $1
       `, [code]);
@@ -689,7 +713,7 @@ const partnerOnboardingRouter = router({
 
       // Create session
       const sessionId = `pos-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      await db.execute(`
+      await execRaw(db, `
         INSERT INTO partner_onboarding_sessions (id, invite_code, step, status)
         VALUES ($1, $2, 1, 'in_progress')
       `, [sessionId, code]);
@@ -711,7 +735,8 @@ const partnerOnboardingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE partner_onboarding_sessions SET
           step = 2,
           company_name = $1,
@@ -740,7 +765,8 @@ const partnerOnboardingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE partner_onboarding_sessions SET
           step = 3,
           primary_color = $1,
@@ -773,7 +799,8 @@ const partnerOnboardingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE partner_onboarding_sessions SET
           step = 4,
           fee_structure = $1::jsonb,
@@ -789,9 +816,10 @@ const partnerOnboardingRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
 
       // Get session
-      const sessionResult = await db.execute(`
+      const sessionResult = await execRaw(db, `
         SELECT * FROM partner_onboarding_sessions WHERE id = $1 AND status = 'in_progress'
       `, [input.sessionId]);
       const session = (sessionResult as any).rows[0];
@@ -803,10 +831,10 @@ const partnerOnboardingRouter = router({
       const slug = session.company_name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").slice(0, 50);
 
       // Get plan from invite code
-      const inviteResult = await db.execute(`SELECT plan FROM invite_codes WHERE code = $1`, [session.invite_code]);
+      const inviteResult = await execRaw(db, `SELECT plan FROM invite_codes WHERE code = $1`, [session.invite_code]);
       const plan = (inviteResult as any).rows[0]?.plan ?? "starter";
 
-      await db.execute(`
+      await execRaw(db, `
         INSERT INTO tenants
           (id, name, slug, email, phone, country, plan, status,
            primary_color, accent_color, logo_url, font_family, custom_domain,
@@ -821,7 +849,7 @@ const partnerOnboardingRouter = router({
       // Create corridors
       const corridors = session.selected_corridors ?? [];
       for (const corridor of corridors) {
-        await db.execute(`
+        await execRaw(db, `
           INSERT INTO tenant_corridors (tenant_id, source_currency, dest_currency, fee_pct, is_enabled)
           VALUES ($1, $2, $3, $4, true)
           ON CONFLICT (tenant_id, source_currency, dest_currency) DO UPDATE SET fee_pct = EXCLUDED.fee_pct
@@ -838,7 +866,7 @@ const partnerOnboardingRouter = router({
         { type: "fx", value: fees.fxMarkupPct ?? 1.0 },
       ];
       for (const fee of feeTypes) {
-        await db.execute(`
+        await execRaw(db, `
           INSERT INTO tenant_fee_overrides (tenant_id, transaction_type, fee_type, fee_value)
           VALUES ($1, $2, 'percentage', $3)
           ON CONFLICT (tenant_id, transaction_type) DO UPDATE SET fee_value = EXCLUDED.fee_value
@@ -846,7 +874,7 @@ const partnerOnboardingRouter = router({
       }
 
       // Decrement invite code uses
-      await db.execute(`
+      await execRaw(db, `
         UPDATE invite_codes SET
           uses_total = uses_total + 1,
           uses_remaining = CASE WHEN uses_remaining IS NOT NULL THEN GREATEST(0, uses_remaining - 1) ELSE NULL END,
@@ -855,7 +883,7 @@ const partnerOnboardingRouter = router({
       `, [session.invite_code]);
 
       // Mark session complete
-      await db.execute(`
+      await execRaw(db, `
         UPDATE partner_onboarding_sessions SET
           status = 'completed',
           tenant_id = $1,
@@ -878,7 +906,8 @@ const partnerOnboardingRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT * FROM partner_onboarding_sessions WHERE id = $1
       `, [input.sessionId]);
       return (result as any).rows[0] ?? null;
@@ -892,7 +921,8 @@ const tenantAdminRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const tenant = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const tenant = await execRaw(db, `
         SELECT
           t.*,
           COUNT(DISTINCT tu.id) as user_count,
@@ -906,7 +936,7 @@ const tenantAdminRouter = router({
         GROUP BY t.id
       `, [input.tenantId]);
 
-      const recentActivity = await db.execute(`
+      const recentActivity = await execRaw(db, `
         SELECT action, resource_type, details, created_at
         FROM audit_logs
         WHERE details::text LIKE $1
@@ -925,7 +955,8 @@ const tenantAdminRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT tu.*, u.email as user_email, u.name as user_name
         FROM tenant_users tu
         LEFT JOIN users u ON u.id = tu.user_id
@@ -945,7 +976,8 @@ const tenantAdminRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         INSERT INTO tenant_users (tenant_id, email, name, role, invited_by, invited_at)
         VALUES ($1, $2, $3, $4, $5, NOW())
         ON CONFLICT (tenant_id, email) DO UPDATE SET role = EXCLUDED.role, is_active = true
@@ -962,7 +994,8 @@ const tenantAdminRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE tenant_users SET role = $1 WHERE tenant_id = $2 AND email = $3
       `, [input.role, input.tenantId, input.email]);
       return { success: true };
@@ -973,7 +1006,8 @@ const tenantAdminRouter = router({
     .input(z.object({ tenantId: z.string(), email: z.string().email() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE tenant_users SET is_active = false WHERE tenant_id = $1 AND email = $2
       `, [input.tenantId, input.email]);
       return { success: true };
@@ -984,7 +1018,8 @@ const tenantAdminRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT * FROM tenant_corridors WHERE tenant_id = $1 ORDER BY source_currency, dest_currency
       `, [input.tenantId]);
       return (result as any).rows;
@@ -1003,7 +1038,8 @@ const tenantAdminRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         INSERT INTO tenant_corridors
           (tenant_id, source_currency, dest_currency, is_enabled, fee_pct, min_amount, max_amount)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -1023,7 +1059,8 @@ const tenantAdminRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT * FROM tenant_fee_overrides WHERE tenant_id = $1 ORDER BY transaction_type
       `, [input.tenantId]);
       return (result as any).rows;
@@ -1041,7 +1078,8 @@ const tenantAdminRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         INSERT INTO tenant_fee_overrides
           (tenant_id, transaction_type, fee_type, fee_value, min_fee, max_fee)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -1070,6 +1108,7 @@ const tenantAdminRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const updates: string[] = [];
       const params: any[] = [];
       let idx = 1;
@@ -1086,7 +1125,7 @@ const tenantAdminRouter = router({
       updates.push(`updated_at = NOW()`);
       params.push(input.tenantId);
 
-      await db.execute(`UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`, params);
+      await db.execute(sql.raw(`UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`));
       return { success: true };
     }),
 
@@ -1095,7 +1134,8 @@ const tenantAdminRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const result = await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      const result = await execRaw(db, `
         SELECT id, name, slug, primary_color, accent_color, logo_url, font_family,
                footer_text, support_email, custom_domain, plan, status
         FROM tenants WHERE id = $1
@@ -1109,7 +1149,8 @@ const tenantIsolationRouter = router({
   // Get current user's tenant context
   getMyTenant: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    const result = await db.execute(`
+    if (!db) throw new Error("Database unavailable");
+    const result = await execRaw(db, `
       SELECT t.id, t.name, t.slug, t.plan, t.status, t.primary_color, t.accent_color,
              t.logo_url, t.font_family, t.footer_text, t.support_email,
              tu.role as user_role
@@ -1130,13 +1171,14 @@ const tenantIsolationRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       let where = "WHERE 1=1";
       const params: any[] = [input.limit];
       let idx = 2;
       if (input.status) { where += ` AND status = $${idx++}`; params.push(input.status); }
       if (input.plan) { where += ` AND plan = $${idx++}`; params.push(input.plan); }
 
-      const result = await db.execute(`
+      const result = await db.execute(sql.raw(`
         SELECT
           t.*,
           COUNT(DISTINCT tu.id) as user_count,
@@ -1148,7 +1190,7 @@ const tenantIsolationRouter = router({
         GROUP BY t.id
         ORDER BY t.created_at DESC
         LIMIT $1
-      `, params);
+      `));
       return (result as any).rows;
     }),
 
@@ -1157,7 +1199,8 @@ const tenantIsolationRouter = router({
     .input(z.object({ tenantId: z.string(), reason: z.string().min(5) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE tenants SET status = 'suspended', suspend_reason = $1, suspended_at = NOW(), updated_at = NOW()
         WHERE id = $2
       `, [input.reason, input.tenantId]);
@@ -1169,7 +1212,8 @@ const tenantIsolationRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(`
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `
         UPDATE tenants SET status = 'active', suspend_reason = NULL, suspended_at = NULL, updated_at = NOW()
         WHERE id = $1
       `, [input.tenantId]);

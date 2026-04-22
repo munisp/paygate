@@ -439,7 +439,7 @@ const transactionsRouter = router({
             WHERE m.id = ${merchant.id}
             LIMIT 1
           `);
-          const row = (thresholdRows as any).rows?.[0] ?? thresholdRows[0];
+          const row = (thresholdRows as any).rows?.[0] ?? (thresholdRows as any)[0];
           if (row && row.gnn_threshold_kobo != null) {
             HIGH_VALUE_KOBO = Number(row.gnn_threshold_kobo);
           }
@@ -1090,7 +1090,7 @@ const payoutsRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const allPayouts = await listPayouts(merchant.id, { limit: 10000, offset: 0, status: input.status });
-      const filtered = allPayouts.filter((p: any) => {
+      const filtered = allPayouts.rows.filter((p: any) => {
         if (input.from && new Date(p.createdAt) < input.from) return false;
         if (input.to && new Date(p.createdAt) > input.to) return false;
         return true;
@@ -1585,6 +1585,7 @@ const disputesRouter = router({
       const dispute = await getDisputeById(input.id);
       if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const noteId = nanoid('dnote_');
       await db.execute(
         sql`INSERT INTO dispute_notes (id, dispute_id, merchant_id, author_id, author_name, note, visibility, created_at)
@@ -1607,6 +1608,7 @@ const disputesRouter = router({
       const dispute = await getDisputeById(input.id);
       if (!dispute || dispute.merchantId !== merchant.id) throw new TRPCError({ code: 'NOT_FOUND' });
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const notesRes = await db.execute(
         sql`SELECT id, author_name, note, visibility, created_at FROM dispute_notes WHERE dispute_id = ${input.id} ORDER BY created_at ASC`
       );
@@ -1635,6 +1637,7 @@ const disputesRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const res = await db.execute(
         sql`SELECT
               COUNT(*) FILTER (WHERE status = 'open') as open_count,
@@ -1673,8 +1676,8 @@ const disputesRouter = router({
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      const rows = await listDisputes(merchant.id, { page: 1, limit: 5000 });
-      let filtered = rows;
+      const disputeResult = await listDisputes(merchant.id, { limit: 5000, offset: 0 });
+      let filtered = disputeResult.rows;
       if (input.status !== 'all') filtered = filtered.filter((d: any) => d.status === input.status);
       if (input.from) filtered = filtered.filter((d: any) => new Date(d.createdAt) >= new Date(input.from!));
       if (input.to) filtered = filtered.filter((d: any) => new Date(d.createdAt) <= new Date(input.to!));
@@ -2850,7 +2853,7 @@ const complianceKycRouter = router({
   // Admin: manually override a borderline liveness score with a mandatory audit note
   overrideLiveness: protectedProcedure
     .input(z.object({
-      submissionId: z.number(),
+      submissionId: z.string(),
       override: z.boolean(),
       note: z.string().min(10, 'Note must be at least 10 characters for audit trail'),
     }))
@@ -2884,7 +2887,7 @@ const complianceKycRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const subs = await listKycSubmissions(merchant.id, { limit: 10000, offset: 0 });
-      const filtered = subs.filter(s => {
+      const filtered = subs.rows.filter(s => {
         const ts = new Date(s.createdAt).getTime();
         if (input.from && ts < input.from.getTime()) return false;
         if (input.to && ts > input.to.getTime()) return false;
@@ -2896,13 +2899,13 @@ const complianceKycRouter = router({
         doc_type: s.docType,
         status: s.status,
         liveness_score: s.livenessScore ?? "",
-        liveness_passed: s.livenessPassed ?? "",
+        liveness_passed: s.livenessPassedAt ? 'true' : 'false',
         liveness_override: s.livenessOverride ?? "",
         override_note: s.livenessOverrideNote ?? "",
         override_by: s.livenessOverrideBy ?? "",
         override_at: s.livenessOverrideAt ? new Date(s.livenessOverrideAt).toISOString() : "",
         ocr_confidence: s.ocrConfidence ?? "",
-        reviewer_id: s.reviewerId ?? "",
+        reviewer_id: s.reviewedBy ?? "",
         reviewed_at: s.reviewedAt ? new Date(s.reviewedAt).toISOString() : "",
         rejection_reason: s.rejectionReason ?? "",
         created_at: new Date(s.createdAt).toISOString(),
@@ -2968,7 +2971,7 @@ const complianceKycRouter = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const all = await listKycSubmissions(merchant.id, { limit: 10000, offset: 0 });
-      const filtered = all.filter(s =>
+      const filtered = all.rows.filter(s =>
         s.livenessScore !== null &&
         s.livenessScore !== undefined &&
         s.livenessScore >= input.minScore &&
@@ -4372,7 +4375,10 @@ const settlementsRouter = router({
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      const db = await getDb();
       if (!db) return { csv: '', count: 0, filename: 'settlements.csv' };
+      const { and: _and, eq: _eq, gte: _gte, lte: _lte, desc: _desc } = await import('drizzle-orm');
+      const { settlements: settlementsTable } = await import('../drizzle/schema');
       const conditions: any[] = [_eq(settlementsTable.merchantId, merchant.id)];
       if (input.status) conditions.push(_eq(settlementsTable.status, input.status as any));
       if (input.from) conditions.push(_gte(settlementsTable.createdAt, input.from));
@@ -6415,7 +6421,7 @@ const aiRouter = router({
         triggeredBy: ctx.user?.name ?? 'admin',
       });
       // Also attempt to notify the lakehouse-ai service
-      const env = (await import('./_core/env')).env;
+      const { ENV: env } = await import('./_core/env');
       try {
         const lakehouseUrl = env.fraudScoringUrl.replace(':8100', ':8140').replace('fraud-scoring', 'lakehouse-ai');
         await fetch(`${lakehouseUrl}/v1/training/trigger`, {

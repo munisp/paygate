@@ -565,8 +565,8 @@ async function startServer() {
       const wave30 = getWave30SecurityReport();
       const wave31 = getWave31SecurityReport();
       const allVulns = [
-        ...(wave29.vulnerabilities || []),
-        ...(wave30.vulnerabilities || []),
+        ...((wave29 as any).controls || []),
+        ...((wave30 as any).vulnerabilities || []),
         ...(wave31.vulnerabilities || []),
       ];
       const open = allVulns.filter((v: any) => v.status === 'OPEN').length;
@@ -632,8 +632,9 @@ async function startServer() {
     const { chargebackId } = req.body ?? {};
     if (!chargebackId) return res.status(400).json({ error: "chargebackId required" });
     // Validate session via cookie
-    const { verifySession } = await import("./cookies");
-    const sessionUser = await verifySession(req).catch(() => null);
+    const { verifySessionToken } = await import("./keycloak");
+    const sessionCookie = req.cookies?.session;
+    const sessionUser = sessionCookie ? await verifySessionToken(sessionCookie).catch(() => null) : null;
     if (!sessionUser) return res.status(401).json({ error: "Unauthorized" });
     // Validate file type
     const allowedMimes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
@@ -649,7 +650,7 @@ async function startServer() {
       const { chargebacks } = await import("../../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
-      await db.update(chargebacks)
+      await db!.update(chargebacks)
         .set({ evidenceUrl: url, evidenceFileName: req.file.originalname, evidenceSubmitted: true, updatedAt: new Date() })
         .where(eq(chargebacks.id, chargebackId));
       res.json({ url, key, name: req.file.originalname, size: req.file.size });

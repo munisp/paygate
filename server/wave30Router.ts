@@ -6,8 +6,9 @@
  * Security VULN-031–040
  */
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
-import { getDb } from "./db";
+import { getDb, execRaw } from "./db";
 
 // ─── Tenant Billing Stripe Integration ───────────────────────────────────────
 const tenantStripeBillingRouter = router({
@@ -15,22 +16,20 @@ const tenantStripeBillingRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT tsc.*, tbi.total_amount, tbi.status as invoice_status, tbi.period_year, tbi.period_month
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT tsc.*, tbi.total_amount, tbi.status as invoice_status, tbi.period_year, tbi.period_month
          FROM tenant_stripe_customers tsc
          LEFT JOIN tenant_billing_invoices tbi ON tbi.tenant_id = tsc.tenant_id
            AND tbi.period_year = EXTRACT(YEAR FROM NOW())
            AND tbi.period_month = EXTRACT(MONTH FROM NOW())
-         WHERE tsc.tenant_id = $1`,
-        [input.tenantId]
-      );
+         WHERE tsc.tenant_id = $1`, [input.tenantId]);
       return rows[0] ?? null;
     }),
 
   listCustomers: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT tsc.*, 
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT tsc.*, 
               COUNT(tbi.id) as total_invoices,
               SUM(CASE WHEN tbi.status = 'paid' THEN tbi.total_amount ELSE 0 END) as total_paid
        FROM tenant_stripe_customers tsc
@@ -38,8 +37,7 @@ const tenantStripeBillingRouter = router({
        GROUP BY tsc.id, tsc.tenant_id, tsc.stripe_customer_id, tsc.stripe_subscription_id,
                 tsc.stripe_payment_method_id, tsc.plan, tsc.billing_email,
                 tsc.billing_cycle_anchor, tsc.next_invoice_date, tsc.created_at, tsc.updated_at
-       ORDER BY tsc.created_at DESC`
-    );
+       ORDER BY tsc.created_at DESC`)));
     return rows;
   }),
 
@@ -54,8 +52,8 @@ const tenantStripeBillingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `INSERT INTO tenant_stripe_customers 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `INSERT INTO tenant_stripe_customers 
            (tenant_id, stripe_customer_id, stripe_subscription_id, plan, billing_email, billing_cycle_anchor, next_invoice_date)
          VALUES ($1, $2, $3, $4, $5, $6, DATE_TRUNC('month', NOW()) + INTERVAL '1 month')
          ON CONFLICT (tenant_id) DO UPDATE SET
@@ -64,10 +62,8 @@ const tenantStripeBillingRouter = router({
            plan = EXCLUDED.plan,
            billing_email = EXCLUDED.billing_email,
            billing_cycle_anchor = EXCLUDED.billing_cycle_anchor,
-           updated_at = NOW()`,
-        [input.tenantId, input.stripeCustomerId, input.stripeSubscriptionId ?? null,
-         input.plan, input.billingEmail, input.billingCycleAnchor]
-      );
+           updated_at = NOW()`, [input.tenantId, input.stripeCustomerId, input.stripeSubscriptionId ?? null,
+         input.plan, input.billingEmail, input.billingCycleAnchor]);
       return { success: true };
     }),
 
@@ -75,40 +71,35 @@ const tenantStripeBillingRouter = router({
     .input(z.object({ tenantId: z.string(), year: z.number(), month: z.number().min(1).max(12) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       // Get plan limits and usage
-      const { rows: planRows } = await db.execute(
-        `SELECT tsc.plan, tpl.monthly_price_usd, tpl.api_calls_limit, tpl.tx_limit,
+      const { rows: planRows } = await execRaw(db, `SELECT tsc.plan, tpl.monthly_price_usd, tpl.api_calls_limit, tpl.tx_limit,
                 COALESCE(tum.api_calls, 0) as api_calls_used,
                 COALESCE(tum.transactions, 0) as tx_used
          FROM tenant_stripe_customers tsc
          LEFT JOIN tenant_plan_limits tpl ON tpl.plan = tsc.plan
          LEFT JOIN tenant_usage_metrics tum ON tum.tenant_id = tsc.tenant_id
            AND tum.year = $2 AND tum.month = $3
-         WHERE tsc.tenant_id = $1`,
-        [input.tenantId, input.year, input.month]
-      );
+         WHERE tsc.tenant_id = $1`, [input.tenantId, input.year, input.month]);
       if (!planRows.length) throw new Error('Tenant not found');
       const plan = planRows[0];
-      const baseAmount = parseFloat(plan.monthly_price_usd ?? '0');
+      const baseAmount = parseFloat(String(plan.monthly_price_usd ?? '0'));
       // Calculate overage
-      const apiOverage = Math.max(0, (plan.api_calls_used - plan.api_calls_limit) / 1000) * 0.10;
-      const txOverage = Math.max(0, (plan.tx_used - plan.tx_limit)) * 0.05;
+      const apiOverage = Math.max(0, (Number(plan.api_calls_used) - Number(plan.api_calls_limit)) / 1000) * 0.10;
+      const txOverage = Math.max(0, (Number(plan.tx_used) - Number(plan.tx_limit))) * 0.05;
       const overageAmount = apiOverage + txOverage;
       const totalAmount = baseAmount + overageAmount;
       // Upsert invoice
       const invoiceId = `inv_${input.tenantId.slice(0,8)}_${input.year}${String(input.month).padStart(2,'0')}`;
-      await db.execute(
-        `INSERT INTO tenant_billing_invoices 
+      await execRaw(db, `INSERT INTO tenant_billing_invoices 
            (id, tenant_id, period_year, period_month, plan, base_amount, overage_amount, total_amount, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')
          ON CONFLICT (id) DO UPDATE SET
            base_amount = EXCLUDED.base_amount,
            overage_amount = EXCLUDED.overage_amount,
            total_amount = EXCLUDED.total_amount,
-           updated_at = NOW()`,
-        [invoiceId, input.tenantId, input.year, input.month, plan.plan,
-         baseAmount, overageAmount, totalAmount]
-      );
+           updated_at = NOW()`, [invoiceId, input.tenantId, input.year, input.month, plan.plan,
+         baseAmount, overageAmount, totalAmount]);
       return { invoiceId, baseAmount, overageAmount, totalAmount, plan: plan.plan };
     }),
 
@@ -116,12 +107,10 @@ const tenantStripeBillingRouter = router({
     .input(z.object({ invoiceId: z.string(), stripeInvoiceId: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE tenant_billing_invoices 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE tenant_billing_invoices 
          SET status = 'paid', stripe_invoice_id = $2, paid_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [input.invoiceId, input.stripeInvoiceId ?? null]
-      );
+         WHERE id = $1`, [input.invoiceId, input.stripeInvoiceId ?? null]);
       return { success: true };
     }),
 
@@ -129,21 +118,18 @@ const tenantStripeBillingRouter = router({
     .input(z.object({ tenantId: z.string(), limit: z.number().default(12) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT * FROM tenant_billing_invoices 
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT * FROM tenant_billing_invoices 
          WHERE tenant_id = $1 
          ORDER BY period_year DESC, period_month DESC 
-         LIMIT $2`,
-        [input.tenantId, input.limit]
-      );
+         LIMIT $2`, [input.tenantId, input.limit]);
       return rows;
     }),
 
   getPlanPricing: publicProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT * FROM tenant_plan_limits ORDER BY monthly_price_usd ASC`
-    );
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT * FROM tenant_plan_limits ORDER BY monthly_price_usd ASC`)));
     return rows;
   }),
 });
@@ -160,21 +146,16 @@ const onboardingEmailRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const emailId = `email_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
       const subject = `Welcome to PayGate — Your ${input.tenantName} instance is ready`;
       // In production this would call SMTP; here we record the intent
-      await db.execute(
-        `INSERT INTO tenant_onboarding_emails 
+      await execRaw(db, `INSERT INTO tenant_onboarding_emails 
            (id, tenant_id, email_type, recipient_email, subject, status, metadata)
-         VALUES ($1, $2, 'welcome', $3, $4, 'sent', $5)`,
-        [emailId, input.tenantId, input.recipientEmail, subject,
-         JSON.stringify({ apiKey: input.apiKey, subdomainUrl: input.subdomainUrl, tenantName: input.tenantName })]
-      );
+         VALUES ($1, $2, 'welcome', $3, $4, 'sent', $5)`, [emailId, input.tenantId, input.recipientEmail, subject,
+         JSON.stringify({ apiKey: input.apiKey, subdomainUrl: input.subdomainUrl, tenantName: input.tenantName })]);
       // Update sent_at
-      await db.execute(
-        `UPDATE tenant_onboarding_emails SET sent_at = NOW() WHERE id = $1`,
-        [emailId]
-      );
+      await execRaw(db, `UPDATE tenant_onboarding_emails SET sent_at = NOW() WHERE id = $1`, [emailId]);
       return { emailId, status: 'sent', subject };
     }),
 
@@ -182,6 +163,7 @@ const onboardingEmailRouter = router({
     .input(z.object({ tenantId: z.string(), recipientEmail: z.string().email() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const emailId = `email_golive_${Date.now()}`;
       const checklist = [
         '✅ Invite code validated and partner account created',
@@ -193,12 +175,9 @@ const onboardingEmailRouter = router({
         '⏳ Compliance review in progress (2-3 business days)',
         '⏳ Live mode activation pending compliance approval',
       ];
-      await db.execute(
-        `INSERT INTO tenant_onboarding_emails 
+      await execRaw(db, `INSERT INTO tenant_onboarding_emails 
            (id, tenant_id, email_type, recipient_email, subject, status, metadata, sent_at)
-         VALUES ($1, $2, 'go_live', $3, 'Your PayGate Go-Live Checklist', 'sent', $4, NOW())`,
-        [emailId, input.tenantId, input.recipientEmail, JSON.stringify({ checklist })]
-      );
+         VALUES ($1, $2, 'go_live', $3, 'Your PayGate Go-Live Checklist', 'sent', $4, NOW())`, [emailId, input.tenantId, input.recipientEmail, JSON.stringify({ checklist })]);
       return { emailId, checklist, status: 'sent' };
     }),
 
@@ -206,13 +185,11 @@ const onboardingEmailRouter = router({
     .input(z.object({ tenantId: z.string(), recipientEmail: z.string().email(), keyPrefix: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const emailId = `email_apikey_${Date.now()}`;
-      await db.execute(
-        `INSERT INTO tenant_onboarding_emails 
+      await execRaw(db, `INSERT INTO tenant_onboarding_emails 
            (id, tenant_id, email_type, recipient_email, subject, status, metadata, sent_at)
-         VALUES ($1, $2, 'api_key', $3, 'Your PayGate API Key Has Been Generated', 'sent', $4, NOW())`,
-        [emailId, input.tenantId, input.recipientEmail, JSON.stringify({ keyPrefix: input.keyPrefix })]
-      );
+         VALUES ($1, $2, 'api_key', $3, 'Your PayGate API Key Has Been Generated', 'sent', $4, NOW())`, [emailId, input.tenantId, input.recipientEmail, JSON.stringify({ keyPrefix: input.keyPrefix })]);
       return { emailId, status: 'sent' };
     }),
 
@@ -220,6 +197,7 @@ const onboardingEmailRouter = router({
     .input(z.object({ tenantId: z.string().optional(), status: z.string().optional(), limit: z.number().default(50) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: string[] = [];
       const params: unknown[] = [];
       let idx = 1;
@@ -227,10 +205,7 @@ const onboardingEmailRouter = router({
       if (input.status) { conditions.push(`status = $${idx++}`); params.push(input.status); }
       params.push(input.limit);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = await db.execute(
-        `SELECT * FROM tenant_onboarding_emails ${where} ORDER BY created_at DESC LIMIT $${idx}`,
-        params
-      );
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM tenant_onboarding_emails ${where} ORDER BY created_at DESC LIMIT $${idx}`))) as any;
       return rows;
     }),
 
@@ -238,23 +213,20 @@ const onboardingEmailRouter = router({
     .input(z.object({ emailId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE tenant_onboarding_emails 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE tenant_onboarding_emails 
          SET status = 'sent', sent_at = NOW(), retry_count = retry_count + 1, error_message = NULL
-         WHERE id = $1 AND status = 'failed'`,
-        [input.emailId]
-      );
+         WHERE id = $1 AND status = 'failed'`, [input.emailId]);
       return { success: true };
     }),
 
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT email_type, status, COUNT(*) as count
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT email_type, status, COUNT(*) as count
        FROM tenant_onboarding_emails
        GROUP BY email_type, status
-       ORDER BY email_type, status`
-    );
+       ORDER BY email_type, status`)));
     return rows;
   }),
 });
@@ -265,6 +237,7 @@ const slaAlertingRouter = router({
     .input(z.object({ status: z.string().optional(), severity: z.string().optional(), limit: z.number().default(50) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: string[] = [];
       const params: unknown[] = [];
       let idx = 1;
@@ -272,10 +245,7 @@ const slaAlertingRouter = router({
       if (input.severity) { conditions.push(`severity = $${idx++}`); params.push(input.severity); }
       params.push(input.limit);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = await db.execute(
-        `SELECT * FROM sla_incidents ${where} ORDER BY created_at DESC LIMIT $${idx}`,
-        params
-      );
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM sla_incidents ${where} ORDER BY created_at DESC LIMIT $${idx}`))) as any;
       return rows;
     }),
 
@@ -289,13 +259,11 @@ const slaAlertingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const id = `inc_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-      await db.execute(
-        `INSERT INTO sla_incidents (id, title, severity, description, uptime_pct, latency_ms, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'open')`,
-        [id, input.title, input.severity, input.description ?? null,
-         input.uptimePct ?? null, input.latencyMs ?? null]
-      );
+      await execRaw(db, `INSERT INTO sla_incidents (id, title, severity, description, uptime_pct, latency_ms, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'open')`, [id, input.title, input.severity, input.description ?? null,
+         input.uptimePct ?? null, input.latencyMs ?? null]);
       return { id, status: 'open' };
     }),
 
@@ -303,12 +271,10 @@ const slaAlertingRouter = router({
     .input(z.object({ incidentId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE sla_incidents 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE sla_incidents 
          SET status = 'acknowledged', acknowledged_at = NOW(), updated_at = NOW()
-         WHERE id = $1 AND status = 'open'`,
-        [input.incidentId]
-      );
+         WHERE id = $1 AND status = 'open'`, [input.incidentId]);
       return { success: true };
     }),
 
@@ -316,12 +282,10 @@ const slaAlertingRouter = router({
     .input(z.object({ incidentId: z.string(), autoResolved: z.boolean().default(false) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE sla_incidents 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE sla_incidents 
          SET status = 'resolved', resolved_at = NOW(), auto_resolved = $2, updated_at = NOW()
-         WHERE id = $1`,
-        [input.incidentId, input.autoResolved]
-      );
+         WHERE id = $1`, [input.incidentId, input.autoResolved]);
       return { success: true };
     }),
 
@@ -335,15 +299,13 @@ const slaAlertingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const id = `sub_${Date.now()}`;
-      await db.execute(
-        `INSERT INTO sla_alert_subscriptions (id, user_id, endpoint, p256dh, auth, severity_threshold)
+      await execRaw(db, `INSERT INTO sla_alert_subscriptions (id, user_id, endpoint, p256dh, auth, severity_threshold)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (endpoint) DO UPDATE SET
            severity_threshold = EXCLUDED.severity_threshold,
-           active = TRUE`,
-        [id, input.userId, input.endpoint, input.p256dh, input.auth, input.severityThreshold]
-      );
+           active = TRUE`, [id, input.userId, input.endpoint, input.p256dh, input.auth, input.severityThreshold]);
       return { id, status: 'subscribed' };
     }),
 
@@ -351,24 +313,21 @@ const slaAlertingRouter = router({
     .input(z.object({ endpoint: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE sla_alert_subscriptions SET active = FALSE WHERE endpoint = $1`,
-        [input.endpoint]
-      );
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE sla_alert_subscriptions SET active = FALSE WHERE endpoint = $1`, [input.endpoint]);
       return { success: true };
     }),
 
   getAlertStats: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT 
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT 
          COUNT(*) FILTER (WHERE status = 'open') as open_count,
          COUNT(*) FILTER (WHERE status = 'acknowledged') as ack_count,
          COUNT(*) FILTER (WHERE status = 'resolved') as resolved_count,
          COUNT(*) FILTER (WHERE severity = 'critical' AND status != 'resolved') as critical_open,
          AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60) FILTER (WHERE resolved_at IS NOT NULL) as avg_resolution_minutes
-       FROM sla_incidents`
-    );
+       FROM sla_incidents`)));
     return rows[0];
   }),
 
@@ -376,14 +335,13 @@ const slaAlertingRouter = router({
     .input(z.object({ currentUptimePct: z.number(), currentLatencyMs: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       // Auto-resolve if uptime > 99.5% and latency < 1000ms
       if (input.currentUptimePct >= 99.5 && input.currentLatencyMs < 1000) {
-        const { rows } = await db.execute(
-          `UPDATE sla_incidents 
+        const { rows } = (await db.execute(sql.raw(`UPDATE sla_incidents 
            SET status = 'resolved', resolved_at = NOW(), auto_resolved = TRUE, updated_at = NOW()
            WHERE status IN ('open', 'acknowledged') AND severity != 'critical'
-           RETURNING id`
-        );
+           RETURNING id`)));
         return { autoResolved: rows.length, ids: rows.map((r: any) => r.id) };
       }
       return { autoResolved: 0, ids: [] };
@@ -396,10 +354,8 @@ const kybStateMachineRouter = router({
     .input(z.object({ merchantId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT * FROM kyb_state_transitions WHERE merchant_id = $1 ORDER BY created_at ASC`,
-        [input.merchantId]
-      );
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT * FROM kyb_state_transitions WHERE merchant_id = $1 ORDER BY created_at ASC`, [input.merchantId]);
       return rows;
     }),
 
@@ -411,10 +367,11 @@ const kybStateMachineRouter = router({
       triggerEvent: z.string(),
       actorId: z.number().optional(),
       reason: z.string().optional(),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       // Validate state machine transitions
       const validTransitions: Record<string, string[]> = {
         draft: ['submitted'],
@@ -431,20 +388,14 @@ const kybStateMachineRouter = router({
       if (!allowed.includes(input.toState)) {
         throw new Error(`Invalid transition: ${input.fromState} → ${input.toState}`);
       }
-      await db.execute(
-        `INSERT INTO kyb_state_transitions 
+      await execRaw(db, `INSERT INTO kyb_state_transitions 
            (merchant_id, from_state, to_state, trigger_event, actor_id, reason, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [input.merchantId, input.fromState, input.toState, input.triggerEvent,
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [input.merchantId, input.fromState, input.toState, input.triggerEvent,
          input.actorId ?? ctx.user?.id ?? null, input.reason ?? null,
-         JSON.stringify(input.metadata ?? {})]
-      );
+         JSON.stringify(input.metadata ?? {})]);
       // Update merchant KYB status if merchants table has kyb_status column
       try {
-        await db.execute(
-          `UPDATE merchants SET kyb_status = $1, updated_at = NOW() WHERE id = $2`,
-          [input.toState, input.merchantId]
-        );
+        await execRaw(db, `UPDATE merchants SET kyb_status = $1, updated_at = NOW() WHERE id = $2`, [input.toState, input.merchantId]);
       } catch (_) { /* column may not exist in all schemas */ }
       return { success: true, newState: input.toState };
     }),
@@ -453,29 +404,26 @@ const kybStateMachineRouter = router({
     .input(z.object({ merchantId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT to_state as current_state, created_at as last_transition_at
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT to_state as current_state, created_at as last_transition_at
          FROM kyb_state_transitions 
          WHERE merchant_id = $1 
          ORDER BY created_at DESC 
-         LIMIT 1`,
-        [input.merchantId]
-      );
+         LIMIT 1`, [input.merchantId]);
       return rows[0] ?? { current_state: 'draft', last_transition_at: null };
     }),
 
   getStateSummary: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT to_state as state, COUNT(DISTINCT merchant_id) as merchant_count
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT to_state as state, COUNT(DISTINCT merchant_id) as merchant_count
        FROM kyb_state_transitions kst1
        WHERE created_at = (
          SELECT MAX(created_at) FROM kyb_state_transitions kst2 
          WHERE kst2.merchant_id = kst1.merchant_id
        )
        GROUP BY to_state
-       ORDER BY merchant_count DESC`
-    );
+       ORDER BY merchant_count DESC`)));
     return rows;
   }),
 });
@@ -486,6 +434,7 @@ const payoutApprovalRouter = router({
     .input(z.object({ status: z.string().optional(), merchantId: z.number().optional(), limit: z.number().default(50) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: string[] = [];
       const params: unknown[] = [];
       let idx = 1;
@@ -493,10 +442,7 @@ const payoutApprovalRouter = router({
       if (input.merchantId) { conditions.push(`merchant_id = $${idx++}`); params.push(input.merchantId); }
       params.push(input.limit);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = await db.execute(
-        `SELECT * FROM payout_approval_workflows ${where} ORDER BY created_at DESC LIMIT $${idx}`,
-        params
-      );
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM payout_approval_workflows ${where} ORDER BY created_at DESC LIMIT $${idx}`))) as any;
       return rows;
     }),
 
@@ -504,12 +450,10 @@ const payoutApprovalRouter = router({
     .input(z.object({ payoutId: z.string(), approvedBy: z.number(), notes: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE payout_approval_workflows 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', approved_by = $2, approval_notes = $3, approved_at = NOW(), updated_at = NOW()
-         WHERE payout_id = $1 AND status = 'pending_approval'`,
-        [input.payoutId, input.approvedBy, input.notes ?? null]
-      );
+         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, input.approvedBy, input.notes ?? null]);
       return { success: true };
     }),
 
@@ -517,12 +461,10 @@ const payoutApprovalRouter = router({
     .input(z.object({ payoutId: z.string(), rejectedBy: z.number(), reason: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `UPDATE payout_approval_workflows 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'rejected', rejected_by = $2, rejection_reason = $3, rejected_at = NOW(), updated_at = NOW()
-         WHERE payout_id = $1 AND status = 'pending_approval'`,
-        [input.payoutId, input.rejectedBy, input.reason]
-      );
+         WHERE payout_id = $1 AND status = 'pending_approval'`, [input.payoutId, input.rejectedBy, input.reason]);
       return { success: true };
     }),
 
@@ -530,28 +472,25 @@ const payoutApprovalRouter = router({
     .input(z.object({ payoutIds: z.array(z.string()), approvedBy: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const placeholders = input.payoutIds.map((_, i) => `$${i + 2}`).join(', ');
-      await db.execute(
-        `UPDATE payout_approval_workflows 
+      await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
-         WHERE payout_id IN (${placeholders}) AND status = 'pending_approval'`,
-        [input.approvedBy, ...input.payoutIds]
-      );
+         WHERE payout_id IN (${placeholders}) AND status = 'pending_approval'`, [input.approvedBy, ...input.payoutIds]);
       return { success: true, count: input.payoutIds.length };
     }),
 
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT 
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT 
          status,
          COUNT(*) as count,
          SUM(amount_kobo) / 100.0 as total_amount_ngn,
          AVG(risk_score) as avg_risk_score
        FROM payout_approval_workflows
        GROUP BY status
-       ORDER BY status`
-    );
+       ORDER BY status`)));
     return rows;
   }),
 
@@ -559,15 +498,13 @@ const payoutApprovalRouter = router({
     .input(z.object({ riskScoreThreshold: z.number().default(30), maxAmountKobo: z.number().default(10000000) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `UPDATE payout_approval_workflows 
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `UPDATE payout_approval_workflows 
          SET status = 'approved', auto_approved = TRUE, approved_at = NOW(), updated_at = NOW()
          WHERE status = 'pending_approval' 
            AND risk_score <= $1 
            AND amount_kobo <= $2
-         RETURNING payout_id`,
-        [input.riskScoreThreshold, input.maxAmountKobo]
-      );
+         RETURNING payout_id`, [input.riskScoreThreshold, input.maxAmountKobo]);
       return { autoApproved: rows.length, payoutIds: rows.map((r: any) => r.payout_id) };
     }),
 });
@@ -578,12 +515,10 @@ const fxHedgingRouter = router({
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const where = input.status ? `WHERE status = $1` : '';
       const params = input.status ? [input.status] : [];
-      const { rows } = await db.execute(
-        `SELECT * FROM fx_hedging_positions ${where} ORDER BY created_at DESC`,
-        params
-      );
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM fx_hedging_positions ${where} ORDER BY created_at DESC`))) as any;
       return rows;
     }),
 
@@ -599,14 +534,12 @@ const fxHedgingRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const id = `hedge_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-      await db.execute(
-        `INSERT INTO fx_hedging_positions 
+      await execRaw(db, `INSERT INTO fx_hedging_positions 
            (id, base_currency, quote_currency, position_type, notional_amount, entry_rate, current_rate, hedge_ratio, expiry_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`,
-        [id, input.baseCurrency, input.quoteCurrency, input.positionType,
-         input.notionalAmount, input.entryRate, input.hedgeRatio, input.expiryDate ?? null]
-      );
+         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`, [id, input.baseCurrency, input.quoteCurrency, input.positionType,
+         input.notionalAmount, input.entryRate, input.hedgeRatio, input.expiryDate ?? null]);
       return { id, status: 'open' };
     }),
 
@@ -614,23 +547,18 @@ const fxHedgingRouter = router({
     .input(z.object({ positionId: z.string(), currentRate: z.number().positive() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       // Calculate unrealized P&L
-      const { rows } = await db.execute(
-        `SELECT * FROM fx_hedging_positions WHERE id = $1`,
-        [input.positionId]
-      );
+      const { rows } = await execRaw(db, `SELECT * FROM fx_hedging_positions WHERE id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];
-      const priceDiff = input.currentRate - parseFloat(pos.entry_rate);
-      const pnl = pos.position_type === 'long'
-        ? priceDiff * parseFloat(pos.notional_amount)
-        : -priceDiff * parseFloat(pos.notional_amount);
-      await db.execute(
-        `UPDATE fx_hedging_positions 
+      const priceDiff = input.currentRate - parseFloat(String((pos as any).entry_rate));
+      const pnl = (pos as any).position_type === 'long'
+        ? priceDiff * parseFloat(String((pos as any).notional_amount))
+        : -priceDiff * parseFloat(String((pos as any).notional_amount));
+      await execRaw(db, `UPDATE fx_hedging_positions 
          SET current_rate = $2, unrealized_pnl = $3, updated_at = NOW()
-         WHERE id = $1`,
-        [input.positionId, input.currentRate, pnl]
-      );
+         WHERE id = $1`, [input.positionId, input.currentRate, pnl]);
       return { unrealizedPnl: pnl };
     }),
 
@@ -638,37 +566,31 @@ const fxHedgingRouter = router({
     .input(z.object({ positionId: z.string(), closingRate: z.number().positive() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT * FROM fx_hedging_positions WHERE id = $1`,
-        [input.positionId]
-      );
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT * FROM fx_hedging_positions WHERE id = $1`, [input.positionId]);
       if (!rows.length) throw new Error('Position not found');
       const pos = rows[0];
-      const priceDiff = input.closingRate - parseFloat(pos.entry_rate);
-      const realizedPnl = pos.position_type === 'long'
-        ? priceDiff * parseFloat(pos.notional_amount)
-        : -priceDiff * parseFloat(pos.notional_amount);
-      await db.execute(
-        `UPDATE fx_hedging_positions 
+      const priceDiff = input.closingRate - parseFloat(String((pos as any).entry_rate));
+      const realizedPnl = (pos as any).position_type === 'long'
+        ? priceDiff * parseFloat(String((pos as any).notional_amount))
+        : -priceDiff * parseFloat(String((pos as any).notional_amount));
+      await execRaw(db, `UPDATE fx_hedging_positions 
          SET status = 'closed', current_rate = $2, realized_pnl = $3, unrealized_pnl = 0, 
              closed_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [input.positionId, input.closingRate, realizedPnl]
-      );
+         WHERE id = $1`, [input.positionId, input.closingRate, realizedPnl]);
       return { realizedPnl };
     }),
 
   getPortfolioSummary: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT 
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT 
          COUNT(*) FILTER (WHERE status = 'open') as open_positions,
          SUM(unrealized_pnl) FILTER (WHERE status = 'open') as total_unrealized_pnl,
          SUM(realized_pnl) FILTER (WHERE status = 'closed') as total_realized_pnl,
          SUM(notional_amount) FILTER (WHERE status = 'open') as total_notional,
          COUNT(DISTINCT base_currency || quote_currency) as currency_pairs
-       FROM fx_hedging_positions`
-    );
+       FROM fx_hedging_positions`)));
     return rows[0];
   }),
 });
@@ -684,6 +606,7 @@ const middlewareLogsRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: string[] = [];
       const params: unknown[] = [];
       let idx = 1;
@@ -691,10 +614,7 @@ const middlewareLogsRouter = router({
       if (input.success !== undefined) { conditions.push(`success = $${idx++}`); params.push(input.success); }
       params.push(input.limit, input.offset);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = await db.execute(
-        `SELECT * FROM middleware_integration_logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx+1}`,
-        params
-      );
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM middleware_integration_logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx+1}`))) as any;
       return rows;
     }),
 
@@ -702,8 +622,8 @@ const middlewareLogsRouter = router({
     .input(z.object({
       service: z.enum(['nibss', 'mojaloop', 'vtpass', 'termii', 'youverify', 'ussd', 'stripe', 'temporal']),
       operation: z.string(),
-      requestPayload: z.record(z.unknown()).optional(),
-      responsePayload: z.record(z.unknown()).optional(),
+      requestPayload: z.record(z.string(), z.unknown()).optional(),
+      responsePayload: z.record(z.string(), z.unknown()).optional(),
       statusCode: z.number().optional(),
       durationMs: z.number().optional(),
       success: z.boolean(),
@@ -712,23 +632,21 @@ const middlewareLogsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `INSERT INTO middleware_integration_logs 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `INSERT INTO middleware_integration_logs 
            (service, operation, request_payload, response_payload, status_code, duration_ms, success, error_message, correlation_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [input.service, input.operation,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [input.service, input.operation,
          input.requestPayload ? JSON.stringify(input.requestPayload) : null,
          input.responsePayload ? JSON.stringify(input.responsePayload) : null,
          input.statusCode ?? null, input.durationMs ?? null, input.success,
-         input.errorMessage ?? null, input.correlationId ?? null]
-      );
+         input.errorMessage ?? null, input.correlationId ?? null]);
       return { success: true };
     }),
 
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT 
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT 
          service,
          COUNT(*) as total_calls,
          COUNT(*) FILTER (WHERE success = TRUE) as successful_calls,
@@ -738,8 +656,7 @@ const middlewareLogsRouter = router({
        FROM middleware_integration_logs
        WHERE created_at > NOW() - INTERVAL '24 hours'
        GROUP BY service
-       ORDER BY total_calls DESC`
-    );
+       ORDER BY total_calls DESC`)));
     return rows;
   }),
 
@@ -747,15 +664,13 @@ const middlewareLogsRouter = router({
     .input(z.object({ service: z.string(), windowMinutes: z.number().default(60) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT 
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT 
            COUNT(*) as total,
            COUNT(*) FILTER (WHERE success = FALSE) as errors,
            ROUND(COUNT(*) FILTER (WHERE success = FALSE) * 100.0 / NULLIF(COUNT(*), 0), 2) as error_rate_pct
          FROM middleware_integration_logs
-         WHERE service = $1 AND created_at > NOW() - ($2 || ' minutes')::INTERVAL`,
-        [input.service, input.windowMinutes]
-      );
+         WHERE service = $1 AND created_at > NOW() - ($2 || ' minutes')::INTERVAL`, [input.service, input.windowMinutes]);
       return rows[0];
     }),
 });
@@ -766,6 +681,7 @@ const ussdSessionRouter = router({
     .input(z.object({ status: z.string().optional(), phoneNumber: z.string().optional(), limit: z.number().default(50) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: string[] = [];
       const params: unknown[] = [];
       let idx = 1;
@@ -773,10 +689,7 @@ const ussdSessionRouter = router({
       if (input.phoneNumber) { conditions.push(`phone_number = $${idx++}`); params.push(input.phoneNumber); }
       params.push(input.limit);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = await db.execute(
-        `SELECT * FROM ussd_sessions ${where} ORDER BY created_at DESC LIMIT $${idx}`,
-        params
-      );
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM ussd_sessions ${where} ORDER BY created_at DESC LIMIT $${idx}`))) as any;
       return rows;
     }),
 
@@ -789,6 +702,7 @@ const ussdSessionRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       // USSD menu state machine
       const menuTree: Record<string, { prompt: string; options?: Record<string, string> }> = {
         main: {
@@ -812,16 +726,13 @@ const ussdSessionRouter = router({
       const response = menuTree[currentMenu]?.prompt ?? 'Invalid option. Please try again.';
       const isFinal = !menuTree[currentMenu]?.options;
       // Upsert session
-      await db.execute(
-        `INSERT INTO ussd_sessions (id, session_id, phone_number, service_code, current_menu, status, timeout_at)
+      await execRaw(db, `INSERT INTO ussd_sessions (id, session_id, phone_number, service_code, current_menu, status, timeout_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '3 minutes')
          ON CONFLICT (session_id) DO UPDATE SET
            current_menu = EXCLUDED.current_menu,
            status = EXCLUDED.status,
-           updated_at = NOW()`,
-        [`ussd_${Date.now()}`, input.sessionId, input.phoneNumber, input.serviceCode,
-         currentMenu, isFinal ? 'completed' : 'active']
-      );
+           updated_at = NOW()`, [`ussd_${Date.now()}`, input.sessionId, input.phoneNumber, input.serviceCode,
+         currentMenu, isFinal ? 'completed' : 'active']);
       return {
         sessionId: input.sessionId,
         response: `CON ${response}`,
@@ -832,15 +743,14 @@ const ussdSessionRouter = router({
 
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT 
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT 
          status,
          COUNT(*) as count,
          COUNT(DISTINCT phone_number) as unique_users
        FROM ussd_sessions
        WHERE created_at > NOW() - INTERVAL '24 hours'
-       GROUP BY status`
-    );
+       GROUP BY status`)));
     return rows;
   }),
 });
@@ -849,9 +759,8 @@ const ussdSessionRouter = router({
 const grafanaDashboardRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
-    const { rows } = await db.execute(
-      `SELECT * FROM grafana_dashboard_configs ORDER BY is_default DESC, title ASC`
-    );
+    if (!db) throw new Error("Database unavailable");
+    const { rows } = (await db.execute(sql.raw(`SELECT * FROM grafana_dashboard_configs ORDER BY is_default DESC, title ASC`)));
     return rows;
   }),
 
@@ -859,10 +768,8 @@ const grafanaDashboardRouter = router({
     .input(z.object({ uid: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const { rows } = await db.execute(
-        `SELECT * FROM grafana_dashboard_configs WHERE dashboard_uid = $1`,
-        [input.uid]
-      );
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = await execRaw(db, `SELECT * FROM grafana_dashboard_configs WHERE dashboard_uid = $1`, [input.uid]);
       return rows[0] ?? null;
     }),
 
@@ -874,12 +781,12 @@ const grafanaDashboardRouter = router({
       panelCount: z.number().default(0),
       tags: z.array(z.string()).default([]),
       isDefault: z.boolean().default(false),
-      configJson: z.record(z.unknown()).default({}),
+      configJson: z.record(z.string(), z.unknown()).default({}),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `INSERT INTO grafana_dashboard_configs 
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `INSERT INTO grafana_dashboard_configs 
            (dashboard_uid, title, description, panel_count, tags, is_default, config_json)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (dashboard_uid) DO UPDATE SET
@@ -889,10 +796,8 @@ const grafanaDashboardRouter = router({
            tags = EXCLUDED.tags,
            is_default = EXCLUDED.is_default,
            config_json = EXCLUDED.config_json,
-           updated_at = NOW()`,
-        [input.uid, input.title, input.description ?? null, input.panelCount,
-         JSON.stringify(input.tags), input.isDefault, JSON.stringify(input.configJson)]
-      );
+           updated_at = NOW()`, [input.uid, input.title, input.description ?? null, input.panelCount,
+         JSON.stringify(input.tags), input.isDefault, JSON.stringify(input.configJson)]);
       return { success: true };
     }),
 
@@ -900,10 +805,8 @@ const grafanaDashboardRouter = router({
     .input(z.object({ uid: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.execute(
-        `DELETE FROM grafana_dashboard_configs WHERE dashboard_uid = $1`,
-        [input.uid]
-      );
+      if (!db) throw new Error("Database unavailable");
+      await execRaw(db, `DELETE FROM grafana_dashboard_configs WHERE dashboard_uid = $1`, [input.uid]);
       return { success: true };
     }),
 });

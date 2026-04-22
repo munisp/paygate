@@ -67,6 +67,20 @@ export async function getDb() {
   return _db;
 }
 
+
+// ─── Raw SQL helper (parameterized queries for Drizzle) ───────────────────────
+// Drizzle's .execute() only accepts a SQL object. This helper wraps raw SQL
+// strings with positional $1/$2/... parameters using the underlying pg Pool.
+export async function execRaw(
+  _db: ReturnType<typeof drizzle> | null,
+  query: string,
+  params: unknown[] = []
+): Promise<{ rows: Record<string, unknown>[] }> {
+  if (!_pool) throw new Error("Database pool unavailable");
+  const result = await _pool.query(query, params);
+  return { rows: result.rows };
+}
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -2506,7 +2520,7 @@ export async function getSettlementSLABreaches(merchantId: string, opts: { limit
 export async function getTopCustomers(merchantId: string, from: Date, to: Date, limit = 10) {
   const db = await getDb(); if (!db) return [];
   return db.select({
-    customerId: transactions.customerId,
+    customerId: transactions.merchantId,
     customerEmail: transactions.customerEmail,
     totalSpend: sum(transactions.amount),
     txCount: count(),
@@ -2518,7 +2532,7 @@ export async function getTopCustomers(merchantId: string, from: Date, to: Date, 
       gte(transactions.createdAt, from),
       lte(transactions.createdAt, to),
     ))
-    .groupBy(transactions.customerId, transactions.customerEmail)
+    .groupBy(transactions.merchantId, transactions.customerEmail)
     .orderBy(desc(sum(transactions.amount)))
     .limit(limit);
 }

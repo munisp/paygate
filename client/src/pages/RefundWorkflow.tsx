@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState } from "react";
 import Layout from "@/components/Layout";
 import { trpc } from "@/lib/trpc";

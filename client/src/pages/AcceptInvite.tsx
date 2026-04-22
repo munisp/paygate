@@ -35,8 +35,13 @@ export default function AcceptInvite() {
 
   const handleAccept = () => {
     if (!token) return;
+    if (!email) {
+      setStatus("error");
+      setErrorMessage("Invalid invitation link. No email address found.");
+      return;
+    }
     setStatus("loading");
-    acceptInvite.mutate({ token, email: email ?? undefined });
+    acceptInvite.mutate({ token, email });
   };
 
   return (

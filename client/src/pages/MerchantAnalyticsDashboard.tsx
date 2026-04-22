@@ -237,7 +237,7 @@ function TransactionDetailModal({ txId, open, onClose }: { txId: string | null; 
                 { label: "Transaction ID", value: tx.id, copy: true },
                 { label: "Reference", value: tx.reference ?? "—", copy: !!tx.reference },
                 { label: "Channel", value: channelLabel(tx.channel ?? "") },
-                { label: "Customer", value: tx.customerEmail ?? tx.customerId ?? "—" },
+                { label: "Customer", value: tx.customerEmail ?? (tx as any).customerId ?? "—" },
                 { label: "Description", value: tx.description ?? "—" },
                 { label: "Fee", value: fmtNGN(tx.feeAmount) },
                 { label: "Created", value: fmtDateTime(tx.createdAt) },
@@ -843,7 +843,7 @@ export default function MerchantAnalyticsDashboard() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-0.5">
                             <span className="text-xs font-medium text-foreground truncate">
-                              {c.customerEmail ?? c.customerId ?? "Anonymous"}
+                              {c.customerEmail ?? (c as any).customerId ?? "Anonymous"}
                             </span>
                             <span className="text-xs font-bold text-foreground ml-2 flex-shrink-0">{fmtNGN(c.totalSpend)}</span>
                           </div>

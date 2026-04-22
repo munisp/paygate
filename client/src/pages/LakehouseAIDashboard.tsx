@@ -439,7 +439,7 @@ export default function LakehouseAIDashboard() {
 
               <div className="flex gap-2 pt-2">
                 <Button
-                  onClick={() => triggerTraining.mutate({ modelType: "gnn", epochs: 50, hiddenDims: 256 })}
+                  onClick={() => triggerTraining.mutate({ modelType: "gnn_fraud", epochs: 50, hiddenDims: 256 })}
                   disabled={triggerTraining.isPending}
                   className="bg-indigo-600 hover:bg-indigo-700"
                 >

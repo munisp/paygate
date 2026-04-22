@@ -114,7 +114,7 @@ export default function LiveChatWidget() {
       sessionId,
       content,
       merchantId: (user as any)?.merchantId ?? undefined,
-      userId: user?.id ?? undefined,
+      userId: user?.id?.toString() ?? undefined,
     });
   }, [input, sessionId, user, sendMessage]);
 

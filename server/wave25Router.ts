@@ -33,6 +33,7 @@ const chargebackEvidenceRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const buf = Buffer.from(input.fileBase64, "base64");
       const key = `chargeback-evidence/${ctx.user.id}/${input.chargebackId}/${nanoid(8)}-${input.fileName}`;
       const { url } = await storagePut(key, buf, input.mimeType);
@@ -51,6 +52,7 @@ const chargebackEvidenceRouter = router({
     .input(z.object({ chargebackId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         evidenceUrl: chargebacks.evidenceUrl,
         evidenceFileName: chargebacks.evidenceFileName,
@@ -65,6 +67,7 @@ const featureFlagSdkRouter = router({
     .input(z.object({ key: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         key: featureFlags.key,
         enabled: featureFlags.enabled,
@@ -77,6 +80,7 @@ const featureFlagSdkRouter = router({
 
   getAllFlags: publicProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     return db.select({
       key: featureFlags.key,
       enabled: featureFlags.enabled,
@@ -89,6 +93,7 @@ const featureFlagSdkRouter = router({
     .input(z.object({ key: z.string(), userId: z.string().optional() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         enabled: featureFlags.enabled,
         rolloutPercentage: featureFlags.rolloutPercentage,
@@ -112,20 +117,21 @@ const featureFlagSdkRouter = router({
 // ─── Consumer Budget Push Alerts ─────────────────────────────────────────────
 const consumerBudgetAlertsRouter = router({
   checkAndAlert: protectedProcedure
-    .input(z.object({ userId: z.string() }))
+    .input(z.object({ userId: z.union([z.string(), z.number()]) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const budgets = await db.select().from(consumerBudgets)
         .where(and(
-          eq(consumerBudgets.userId, input.userId),
+          eq(consumerBudgets.userId, Number(input.userId)),
           eq(consumerBudgets.isActive, true),
         ));
       const alerts: Array<{ budgetId: string; category: string; utilization: number; threshold: number }> = [];
       for (const budget of budgets) {
-        const utilization = budget.spentAmount && budget.limitAmount
-          ? (Number(budget.spentAmount) / Number(budget.limitAmount)) * 100
+        const utilization = budget.spentKobo && budget.limitKobo
+          ? (Number(budget.spentKobo) / Number(budget.limitKobo)) * 100
           : 0;
-        const threshold = budget.alertThreshold ?? 80;
+        const threshold = budget.alertAt ?? 80;
         if (utilization >= threshold) {
           alerts.push({
             budgetId: budget.id,
@@ -142,15 +148,16 @@ const consumerBudgetAlertsRouter = router({
     .input(z.object({ userId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const budgets = await db.select().from(consumerBudgets)
         .where(and(
-          eq(consumerBudgets.userId, input.userId),
+          eq(consumerBudgets.userId, Number(input.userId)),
           eq(consumerBudgets.isActive, true),
         ));
       return budgets.map(b => ({
         ...b,
-        utilization: b.spentAmount && b.limitAmount
-          ? Math.round((Number(b.spentAmount) / Number(b.limitAmount)) * 100)
+        utilization: b.spentKobo && b.limitKobo
+          ? Math.round((Number(b.spentKobo) / Number(b.limitKobo)) * 100)
           : 0,
       }));
     }),
@@ -166,6 +173,7 @@ const merchantStatusRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const suspendedUntil = input.durationDays
         ? new Date(Date.now() + input.durationDays * 86400000)
         : null;
@@ -185,9 +193,10 @@ const merchantStatusRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.update(merchants)
         .set({
-          status: "banned",
+          status: "suspended",
           updatedAt: new Date(),
         })
         .where(eq(merchants.id, input.merchantId));
@@ -201,6 +210,7 @@ const merchantStatusRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.update(merchants)
         .set({
           status: "active",
@@ -214,6 +224,7 @@ const merchantStatusRouter = router({
     .input(z.object({ merchantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       // Return current merchant status
       const rows = await db.select({
         id: merchants.id,
@@ -238,6 +249,7 @@ const auditLogRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const offset = (input.page - 1) * input.limit;
       // Use fraud_alerts as a proxy for audit events (existing table)
       const conditions = [];
@@ -247,7 +259,7 @@ const auditLogRouter = router({
         id: fraudAlerts.id,
         entityType: sql<string>`'fraud_alert'`,
         action: fraudAlerts.alertType,
-        severity: fraudAlerts.severity,
+        severity: sql<string>`CASE WHEN ${fraudAlerts.riskScore} >= 80 THEN 'critical' WHEN ${fraudAlerts.riskScore} >= 60 THEN 'high' WHEN ${fraudAlerts.riskScore} >= 40 THEN 'medium' ELSE 'low' END`,
         merchantId: fraudAlerts.merchantId,
         transactionId: fraudAlerts.transactionId,
         createdAt: fraudAlerts.createdAt,
@@ -263,11 +275,12 @@ const auditLogRouter = router({
 
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const [{ total }] = await db.select({ total: count() }).from(fraudAlerts);
     const [{ critical }] = await db.select({ critical: count() }).from(fraudAlerts)
-      .where(eq(fraudAlerts.severity, "critical"));
+      .where(gte(fraudAlerts.riskScore, 80));
     const [{ high }] = await db.select({ high: count() }).from(fraudAlerts)
-      .where(eq(fraudAlerts.severity, "high"));
+      .where(and(gte(fraudAlerts.riskScore, 60), lte(fraudAlerts.riskScore, 79)));
     return {
       total: Number(total),
       critical: Number(critical),
@@ -283,7 +296,7 @@ const apiPlaygroundRouter = router({
     .input(z.object({
       endpoint: z.string(),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-      headers: z.record(z.string()).optional(),
+      headers: z.record(z.string(), z.string()).optional(),
       body: z.string().optional(),
       apiKey: z.string().optional(),
     }))
@@ -342,6 +355,7 @@ const apiPlaygroundRouter = router({
 const rateLimitDashboardRouter = router({
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     // Derive rate limit stats from API key usage
     const [{ totalKeys }] = await db.select({ totalKeys: count() }).from(apiKeys);
     const [{ activeKeys }] = await db.select({ activeKeys: count() }).from(apiKeys)
@@ -374,6 +388,7 @@ const transactionReceiptRouter = router({
     .input(z.object({ transactionId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select().from(transactions)
         .where(eq(transactions.id, input.transactionId)).limit(1);
       if (!rows[0]) throw new Error("Transaction not found");
@@ -384,7 +399,7 @@ const transactionReceiptRouter = router({
         amount: tx.amount,
         currency: tx.currency,
         status: tx.status,
-        type: tx.type,
+        type: tx.channel,
         description: tx.description,
         createdAt: tx.createdAt,
         merchantId: tx.merchantId,
@@ -401,6 +416,7 @@ const transactionReceiptRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const offset = (input.page - 1) * input.limit;
       const conditions = input.merchantId
         ? [eq(transactions.merchantId, input.merchantId)]
@@ -433,6 +449,7 @@ const settlementSlaRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const offset = (input.page - 1) * input.limit;
       const conditions = input.status ? [eq(settlementSlaEvents.status, input.status)] : [];
       const rows = await db.select().from(settlementSlaEvents)
@@ -452,6 +469,7 @@ const settlementSlaRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.update(settlementSlaEvents)
         .set({ status: "escalated", updatedAt: new Date() })
         .where(eq(settlementSlaEvents.id, input.slaEventId));
@@ -465,6 +483,7 @@ const settlementSlaRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.update(settlementSlaEvents)
         .set({ status: "resolved", updatedAt: new Date() })
         .where(eq(settlementSlaEvents.id, input.slaEventId));
@@ -473,6 +492,7 @@ const settlementSlaRouter = router({
 
   getSummary: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const [{ total }] = await db.select({ total: count() }).from(settlementSlaEvents);
     const [{ breached }] = await db.select({ breached: count() }).from(settlementSlaEvents)
       .where(eq(settlementSlaEvents.status, "breached"));
@@ -501,6 +521,7 @@ const revenueAnalyticsRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const days = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }[input.period];
       const since = new Date(Date.now() - days * 86400000);
       const conditions = [gte(transactions.createdAt, since)];
@@ -545,6 +566,7 @@ const revenueAnalyticsRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(50).default(10) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const since = new Date(Date.now() - 30 * 86400000);
       return db.select({
         merchantId: transactions.merchantId,
@@ -562,6 +584,7 @@ const revenueAnalyticsRouter = router({
 const systemHealthRouter = router({
   getHealth: publicProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const checks: Record<string, string> = {};
     // Database check
     try {
@@ -592,6 +615,7 @@ const systemHealthRouter = router({
 
   getMetrics: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const [{ txCount }] = await db.select({ txCount: count() }).from(transactions);
     const [{ merchantCount }] = await db.select({ merchantCount: count() }).from(merchants);
     const [{ userCount }] = await db.select({ userCount: count() }).from(users);
@@ -616,6 +640,7 @@ const sdkTokenRouter = router({
     .input(z.object({ merchantId: z.string().optional() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions = input.merchantId
         ? [eq(apiKeys.merchantId, input.merchantId)]
         : [];
@@ -627,7 +652,6 @@ const sdkTokenRouter = router({
         isActive: apiKeys.isActive,
         lastUsedAt: apiKeys.lastUsedAt,
         createdAt: apiKeys.createdAt,
-        expiresAt: apiKeys.expiresAt,
       }).from(apiKeys)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(apiKeys.createdAt));
@@ -637,13 +661,13 @@ const sdkTokenRouter = router({
     .input(z.object({ keyId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const newKey = `sk_${nanoid(32)}`;
       const newPrefix = newKey.slice(0, 12);
       await db.update(apiKeys)
         .set({
           keyPrefix: newPrefix,
           lastUsedAt: null,
-          updatedAt: new Date(),
         })
         .where(eq(apiKeys.id, input.keyId));
       return { newKey, newPrefix };
@@ -656,8 +680,9 @@ const sdkTokenRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.update(apiKeys)
-        .set({ expiresAt: input.expiresAt, updatedAt: new Date() })
+        .set({ revokedAt: input.expiresAt })
         .where(eq(apiKeys.id, input.keyId));
       return { success: true };
     }),
@@ -673,6 +698,7 @@ const webhookSimulatorRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const webhookRows = await db.select().from(webhooks)
         .where(eq(webhooks.id, input.webhookId)).limit(1);
       if (!webhookRows[0]) throw new Error("Webhook not found");
@@ -760,12 +786,12 @@ const helpSearchConsumerRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.insert(helpSearchAnalytics).values({
         id: nanoid(),
         query: input.query,
         resultCount: input.resultCount,
-        clicked: input.clicked,
-        section: input.section ?? "consumer",
+        clickedSection: input.clicked ? (input.section ?? "consumer") : null,
         createdAt: new Date(),
       });
       return { tracked: true };
@@ -775,6 +801,7 @@ const helpSearchConsumerRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(50).default(10) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       return db.select({
         query: helpSearchAnalytics.query,
         searches: count(),
@@ -847,18 +874,19 @@ const tooltipsRouter = router({
 const onboardingWizardRouter = router({
   getProgress: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const merchantRows = await db.select({
       id: merchants.id,
       businessName: merchants.businessName,
       status: merchants.status,
       onboardingStep: merchants.onboardingStep,
-      kycStatus: merchants.kycStatus,
-    }).from(merchants).where(eq(merchants.userId, ctx.user.id)).limit(1);
+      kycStatus: merchants.status,
+    }).from(merchants).where(eq(merchants.ownerId, ctx.user.id)).limit(1);
     const merchant = merchantRows[0];
     if (!merchant) return { step: 0, completed: false, merchant: null };
     const steps = [
       { id: 1, name: "Business Information", completed: !!merchant.businessName },
-      { id: 2, name: "KYC Verification", completed: merchant.kycStatus === "approved" },
+      { id: 2, name: "KYC Verification", completed: merchant.status === "active" },
       { id: 3, name: "Bank Account", completed: (merchant.onboardingStep ?? 0) >= 3 },
       { id: 4, name: "API Setup", completed: (merchant.onboardingStep ?? 0) >= 4 },
       { id: 5, name: "Test Transaction", completed: (merchant.onboardingStep ?? 0) >= 5 },
@@ -877,9 +905,10 @@ const onboardingWizardRouter = router({
     .input(z.object({ step: z.number().int().min(1).max(10) }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.update(merchants)
         .set({ onboardingStep: input.step, updatedAt: new Date() })
-        .where(eq(merchants.userId, ctx.user.id));
+        .where(eq(merchants.ownerId, ctx.user.id));
       return { success: true, step: input.step };
     }),
 });
@@ -891,6 +920,7 @@ const payoutBatchRouter = router({
     .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(30) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const { payouts } = await import('../drizzle/schema');
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(payouts)
@@ -905,6 +935,7 @@ const payoutBatchRouter = router({
     .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(10) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const { payouts } = await import('../drizzle/schema');
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(payouts)
@@ -917,9 +948,10 @@ const payoutBatchRouter = router({
     .input(z.object({ payoutIds: z.array(z.string()), note: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const { payouts } = await import('../drizzle/schema');
       const batchId = nanoid();
-      const amtRows = await db.select({ s: sum(payouts.amountKobo) }).from(payouts)
+      const amtRows = await db.select({ s: sum(payouts.amount) }).from(payouts)
         .where(sql`${payouts.id} IN (${sql.join(input.payoutIds.map(id => sql`${id}`), sql`, `)})`);
       const totalAmountKobo = Number(amtRows[0]?.s ?? 0);
       await db.update(payouts)
@@ -935,6 +967,7 @@ const sdkTokensRouter = router({
     .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(30) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(apiKeys).orderBy(desc(apiKeys.createdAt)).limit(input.limit).offset(offset);
       const [{ total }] = await db.select({ total: count() }).from(apiKeys);
@@ -942,6 +975,7 @@ const sdkTokensRouter = router({
     }),
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const [{ total }] = await db.select({ total: count() }).from(apiKeys);
     const [{ active }] = await db.select({ active: count() }).from(apiKeys).where(eq(apiKeys.isActive, true));
     return { total: Number(total), active: Number(active), revoked: Number(total) - Number(active) };
@@ -950,16 +984,20 @@ const sdkTokensRouter = router({
     .input(z.object({ name: z.string(), environment: z.enum(['live', 'test']).default('test'), expiresAt: z.date().optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const { resolveUser, requireMerchant } = await import('./db');
-      const user = await resolveUser(ctx.user.openId);
-      const merchant = await requireMerchant(user.id);
+      if (!db) throw new Error("Database unavailable");
+      const [userRow] = await db.select().from(users).where(eq(users.openId, ctx.user.openId)).limit(1);
+      if (!userRow) throw new Error('User not found');
+      const [merchant] = await db.select().from(merchants).where(eq(merchants.ownerId, userRow.id)).limit(1);
+      if (!merchant) throw new Error('Merchant not found');
       const rawKey = `sk_${input.environment}_${nanoid(32)}`;
       const keyPrefix = rawKey.slice(0, 16);
       const id = nanoid();
+      const { createHash } = await import('crypto');
+      const keyHash = createHash('sha256').update(rawKey).digest('hex');
       await db.insert(apiKeys).values({
-        id, merchantId: merchant.id, name: input.name, keyPrefix,
-        environment: input.environment, isActive: true,
-        expiresAt: input.expiresAt ?? null, createdAt: new Date(), updatedAt: new Date(),
+        id, merchantId: merchant.id, tenantId: merchant.tenantId ?? '', name: input.name, keyPrefix,
+        keyHash, environment: input.environment, isActive: true,
+        createdAt: new Date(),
       });
       return { id, key: rawKey, keyPrefix };
     }),
@@ -967,7 +1005,8 @@ const sdkTokensRouter = router({
     .input(z.object({ keyId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      await db.update(apiKeys).set({ isActive: false, updatedAt: new Date() }).where(eq(apiKeys.id, input.keyId));
+      if (!db) throw new Error("Database unavailable");
+      await db.update(apiKeys).set({ isActive: false, revokedAt: new Date() }).where(eq(apiKeys.id, input.keyId));
       return { success: true };
     }),
 });
@@ -978,6 +1017,7 @@ const rateLimitsRouter = router({
     .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(50) }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(merchants).orderBy(desc(merchants.createdAt)).limit(input.limit).offset(offset);
       const [{ total }] = await db.select({ total: count() }).from(merchants);
@@ -985,6 +1025,7 @@ const rateLimitsRouter = router({
     }),
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const [{ total }] = await db.select({ total: count() }).from(merchants);
     return { total: Number(total), active: Number(total), breached: 0 };
   }),

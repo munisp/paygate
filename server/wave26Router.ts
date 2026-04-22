@@ -39,15 +39,12 @@ const featureFlagsEnhancedRouter = router({
     }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: ReturnType<typeof eq>[] = [];
       if (input?.category) conditions.push(eq(featureFlags.category, input.category));
       if (input?.environment) conditions.push(eq(featureFlags.environment, input.environment));
-      if (input?.tenantId) {
-        // Include global flags + tenant-specific flags
-        conditions.push(
-          sql`(${featureFlags.tenantId} IS NULL OR ${featureFlags.tenantId} = ${input.tenantId})`
-        );
-      }
+      // Note: featureFlags table doesn't have tenantId - flags are global
+      // if (input?.tenantId) { ... }
       const rows = await db.select().from(featureFlags)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(featureFlags.createdAt));
@@ -79,6 +76,7 @@ const featureFlagsEnhancedRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const existing = await db.select({ id: featureFlags.id })
         .from(featureFlags).where(eq(featureFlags.key, input.key)).limit(1);
       if (existing.length > 0) throw new Error(`Flag key '${input.key}' already exists`);
@@ -90,7 +88,7 @@ const featureFlagsEnhancedRouter = router({
         rolloutPercentage: input.rolloutPercentage,
         category: input.category,
         environment: input.environment,
-        createdBy: ctx.user.id,
+        createdBy: ctx.user.openId,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
         // Store targeting rules in targetMerchantIds/targetUserIds as JSON strings
         targetMerchantIds: input.targetingRules.merchantIds?.join(","),
@@ -114,6 +112,7 @@ const featureFlagsEnhancedRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const { id, targetingRules, expiresAt, ...rest } = input;
       const updateData: Record<string, unknown> = {
         ...rest,
@@ -127,7 +126,7 @@ const featureFlagsEnhancedRouter = router({
         updateData.expiresAt = expiresAt ? new Date(expiresAt) : null;
       }
       const [updated] = await db.update(featureFlags)
-        .set(updateData as Parameters<typeof db.update>[0])
+        .set(updateData as any)
         .where(eq(featureFlags.id, id))
         .returning();
       return updated;
@@ -138,6 +137,7 @@ const featureFlagsEnhancedRouter = router({
     .input(z.object({ id: z.string(), enabled: z.boolean() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const [updated] = await db.update(featureFlags)
         .set({ enabled: input.enabled, updatedAt: new Date() })
         .where(eq(featureFlags.id, input.id))
@@ -150,6 +150,7 @@ const featureFlagsEnhancedRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.delete(featureFlags).where(eq(featureFlags.id, input.id));
       return { success: true };
     }),
@@ -166,6 +167,7 @@ const featureFlagsEnhancedRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         enabled: featureFlags.enabled,
         rolloutPercentage: featureFlags.rolloutPercentage,
@@ -225,6 +227,7 @@ const featureFlagsEnhancedRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         key: featureFlags.key,
         enabled: featureFlags.enabled,
@@ -259,6 +262,7 @@ const featureFlagsEnhancedRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.execute(
         sql`SELECT * FROM tenant_feature_flags WHERE tenant_id = ${input.tenantId} ORDER BY flag_key`
       );
@@ -280,6 +284,7 @@ const featureFlagsEnhancedRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       await db.execute(sql`
         INSERT INTO tenant_feature_flags (id, tenant_id, flag_key, enabled, rollout_percentage, override_reason, set_by, updated_at)
         VALUES (gen_random_uuid()::text, ${input.tenantId}, ${input.flagKey}, ${input.enabled}, ${input.rolloutPercentage}, ${input.overrideReason ?? null}, ${ctx.user.id}, now())
@@ -298,6 +303,7 @@ const featureFlagsEnhancedRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         bnplEnabled: tenants.bnplEnabled,
         crossBorderEnabled: tenants.crossBorderEnabled,
@@ -314,10 +320,11 @@ const featureFlagsEnhancedRouter = router({
       bnplEnabled: z.boolean().optional(),
       crossBorderEnabled: z.boolean().optional(),
       virtualCardsEnabled: z.boolean().optional(),
-      features: z.record(z.boolean()).optional(),
+      features: z.record(z.string(), z.boolean()).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (input.bnplEnabled !== undefined) updateData.bnplEnabled = input.bnplEnabled;
       if (input.crossBorderEnabled !== undefined) updateData.crossBorderEnabled = input.crossBorderEnabled;
@@ -329,7 +336,7 @@ const featureFlagsEnhancedRouter = router({
         `);
       }
       if (Object.keys(updateData).length > 1) {
-        await db.update(tenants).set(updateData as Parameters<typeof db.update>[0]).where(eq(tenants.id, input.tenantId));
+        await db.update(tenants).set(updateData as any).where(eq(tenants.id, input.tenantId));
       }
       return { success: true };
     }),
@@ -341,12 +348,13 @@ const tenantManagementRouter = router({
     .input(z.object({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
-      status: z.enum(["pending", "active", "suspended", "banned"]).optional(),
+      status: z.enum(["pending", "active", "suspended"]).optional(),
       plan: z.enum(["starter", "growth", "enterprise"]).optional(),
       search: z.string().optional(),
     }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const page = input?.page ?? 1;
       const limit = input?.limit ?? 20;
       const offset = (page - 1) * limit;
@@ -390,6 +398,7 @@ const tenantManagementRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select().from(tenants).where(eq(tenants.id, input.id)).limit(1);
       if (!rows[0]) throw new Error("Tenant not found");
       // Get merchant count
@@ -416,6 +425,7 @@ const tenantManagementRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const id = `ten_${input.slug}_${Date.now().toString(36)}`;
       const [tenant] = await db.insert(tenants).values({
         id,
@@ -433,7 +443,7 @@ const tenantManagementRouter = router({
         bnplEnabled: input.bnplEnabled,
         crossBorderEnabled: input.crossBorderEnabled,
         virtualCardsEnabled: input.virtualCardsEnabled,
-        provisionedBy: ctx.user.id,
+        provisionedBy: ctx.user.openId,
         provisionedAt: new Date(),
       }).returning();
       return tenant;
@@ -463,6 +473,7 @@ const tenantManagementRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const { id, ...rest } = input;
       // Use raw SQL for columns not in Drizzle schema yet
       const setClauses: string[] = ["updated_at = now()"];
@@ -506,7 +517,7 @@ const tenantManagementRouter = router({
       if (rest.crossBorderEnabled !== undefined) drizzleUpdate.crossBorderEnabled = rest.crossBorderEnabled;
       if (rest.virtualCardsEnabled !== undefined) drizzleUpdate.virtualCardsEnabled = rest.virtualCardsEnabled;
       const [updated] = await db.update(tenants)
-        .set(drizzleUpdate as Parameters<typeof db.update>[0])
+        .set(drizzleUpdate as any)
         .where(eq(tenants.id, id)).returning();
       return updated;
     }),
@@ -515,8 +526,9 @@ const tenantManagementRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const [updated] = await db.update(tenants)
-        .set({ status: "active", suspendedAt: null, suspendReason: null, updatedAt: new Date() } as Parameters<typeof db.update>[0])
+        .set({ status: "active", suspendedAt: null, suspendReason: null, updatedAt: new Date() } as any)
         .where(eq(tenants.id, input.id)).returning();
       return updated;
     }),
@@ -525,19 +537,21 @@ const tenantManagementRouter = router({
     .input(z.object({ id: z.string(), reason: z.string().min(5) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const [updated] = await db.update(tenants)
         .set({
           status: "suspended",
           suspendedAt: new Date(),
           suspendReason: input.reason,
           updatedAt: new Date(),
-        } as Parameters<typeof db.update>[0])
+        } as any)
         .where(eq(tenants.id, input.id)).returning();
       return updated;
     }),
 
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const [{ total }] = await db.select({ total: count() }).from(tenants);
     const [{ active }] = await db.select({ active: count() }).from(tenants).where(eq(tenants.status, "active"));
     const [{ pending }] = await db.select({ pending: count() }).from(tenants).where(eq(tenants.status, "pending"));
@@ -559,6 +573,7 @@ const whiteLabelRouter = router({
     .input(z.object({ tenantId: z.string().optional(), slug: z.string().optional() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const condition = input.tenantId
         ? eq(tenants.id, input.tenantId)
         : input.slug
@@ -624,6 +639,7 @@ const whiteLabelRouter = router({
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.execute(sql`
         SELECT primary_color, secondary_color, font_family
         FROM tenants WHERE id = ${input.tenantId} LIMIT 1
@@ -640,6 +656,7 @@ const whiteLabelRouter = router({
   // List all tenants with their branding for admin
   listBrandings: protectedProcedure.query(async () => {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
     const rows = await db.execute(sql`
       SELECT id, name, slug, logo_url, primary_color, secondary_color, font_family,
              custom_domain, status, plan
@@ -655,10 +672,11 @@ const chargebackPdfRouter = router({
     .input(z.object({ chargebackId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const rows = await db.select({
         id: chargebacks.id,
-        reference: chargebacks.reference,
-        amount: chargebacks.amount,
+        reference: chargebacks.transactionId,
+        amount: chargebacks.amountKobo,
         status: chargebacks.status,
         reason: chargebacks.reason,
         evidenceUrl: chargebacks.evidenceUrl,
@@ -680,6 +698,7 @@ const revenueExportRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const conditions: ReturnType<typeof eq>[] = [eq(transactions.status, "completed")];
       if (input.from) conditions.push(sql`${transactions.createdAt} >= ${input.from}` as ReturnType<typeof eq>);
       if (input.to) conditions.push(sql`${transactions.createdAt} <= ${input.to}` as ReturnType<typeof eq>);
@@ -729,6 +748,7 @@ const revenueExportRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
       const truncFn = input.groupBy === "day" ? "day" : input.groupBy === "week" ? "week" : "month";
       const rows = await db.execute(sql`
         SELECT

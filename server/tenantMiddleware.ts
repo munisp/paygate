@@ -4,7 +4,7 @@
  * Tenants cannot see each other's data.
  */
 import { TRPCError } from "@trpc/server";
-import { getDb } from "./db";
+import { getDb, execRaw } from "./db";
 import { eq, and } from "drizzle-orm";
 
 // ─── In-memory rate limit store (per-tenant) ─────────────────────────────────
@@ -76,10 +76,8 @@ export async function validateTenant(tenantId: string): Promise<{
   status: string;
 }> {
   const db = await getDb();
-  const result = await db.execute(
-    `SELECT id, slug, name, plan, status FROM partner_tenants WHERE id = $1 AND status = 'active' LIMIT 1`,
-    [tenantId]
-  );
+  if (!db) throw new Error("Database unavailable");
+  const result = await execRaw(db, `SELECT id, slug, name, plan, status FROM partner_tenants WHERE id = $1 AND status = 'active' LIMIT 1`, [tenantId]);
 
   const rows = (result as any).rows ?? result;
   if (!rows || rows.length === 0) {
@@ -102,10 +100,8 @@ export async function validateTenantMembership(
   requiredRoles: string[] = ["owner", "admin", "member", "viewer"]
 ): Promise<{ role: string; is_active: boolean }> {
   const db = await getDb();
-  const result = await db.execute(
-    `SELECT role, is_active FROM tenant_users WHERE tenant_id = $1 AND email = $2 LIMIT 1`,
-    [tenantId, userEmail]
-  );
+  if (!db) throw new Error("Database unavailable");
+  const result = await execRaw(db, `SELECT role, is_active FROM tenant_users WHERE tenant_id = $1 AND email = $2 LIMIT 1`, [tenantId, userEmail]);
 
   const rows = (result as any).rows ?? result;
   if (!rows || rows.length === 0) {
@@ -152,11 +148,9 @@ export async function logTenantAction(
 ): Promise<void> {
   try {
     const db = await getDb();
-    await db.execute(
-      `INSERT INTO tenant_audit_logs (tenant_id, action, actor_email, metadata, created_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
-      [tenantId, action, actorEmail, metadata ? JSON.stringify(metadata) : null]
-    );
+    if (!db) throw new Error("Database unavailable");
+    await execRaw(db, `INSERT INTO tenant_audit_logs (tenant_id, action, actor_email, metadata, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`, [tenantId, action, actorEmail, metadata ? JSON.stringify(metadata) : null]);
   } catch {
     // Non-fatal — audit log failure should not block the main operation
     console.warn("[tenantAudit] Failed to log action:", action, "for tenant:", tenantId);

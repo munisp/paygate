@@ -83,7 +83,8 @@ export const supportRouter = router({
 
       try {
         const response = await invokeLLM({ messages: llmMessages });
-        agentReply = response?.choices?.[0]?.message?.content ?? agentReply;
+        const rawContent = response?.choices?.[0]?.message?.content;
+        agentReply = typeof rawContent === "string" ? rawContent : agentReply;
       } catch (_err) {
         // Fallback to canned response if LLM fails
         agentReply = getCanonicalResponse(input.content);

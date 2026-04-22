@@ -126,7 +126,7 @@ export function validateWebhookNonce(nonce: string, timestamp: number): boolean 
   // Cleanup expired nonces
   if (WEBHOOK_NONCE_CACHE.size > 10000) {
     const cutoff = now - WEBHOOK_REPLAY_WINDOW_MS;
-    for (const [k, v] of WEBHOOK_NONCE_CACHE) {
+    for (const [k, v] of Array.from(WEBHOOK_NONCE_CACHE)) {
       if (v < cutoff) WEBHOOK_NONCE_CACHE.delete(k);
     }
   }

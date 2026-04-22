@@ -83,7 +83,7 @@ export default function QRScanPay() {
         setScanning(true);
         scanFrame();
       }
-    } catch (err) {
+    } catch (err: any) {
       setCameraError("Camera access denied. Use manual code entry instead.");
       setMode("manual");
     }

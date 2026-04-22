@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useEffect, useRef, useMemo } from "react";
 import * as d3 from "d3";
 

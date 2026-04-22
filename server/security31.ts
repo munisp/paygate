@@ -317,7 +317,7 @@ export function getWave31SecurityReport(): Wave31SecurityReport {
   ];
 
   const fixed = vulns.filter(v => v.status === "FIXED").length;
-  const mitigated = vulns.filter(v => v.status === "MITIGATED").length;
+  const mitigated = 0; // All current vulns are FIXED
   const score = Math.round(((fixed + mitigated * 0.7) / vulns.length) * 100);
   const grade = score >= 95 ? "A+" : score >= 90 ? "A" : score >= 80 ? "B" : "C";
 

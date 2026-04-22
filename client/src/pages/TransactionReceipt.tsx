@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";

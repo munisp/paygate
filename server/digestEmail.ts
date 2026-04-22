@@ -12,7 +12,7 @@ import { sendEmail } from "./emailService";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
 
-const PORTAL_URL = ENV.MERCHANT_PORTAL_URL ?? "https://paygate.manus.space";
+const PORTAL_URL = ENV.merchantPortalUrl ?? "https://paygate.manus.space";
 
 // ─── HTML Email Templates ────────────────────────────────────────────────────
 

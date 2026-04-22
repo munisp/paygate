@@ -11,7 +11,7 @@ import {
   Rocket, Crown, Server, FileText, Banknote, Scale, Coins,
   TrendingUp, Repeat, ArrowUpDown, FileSpreadsheet, FilePlus2,
   ShieldCheck, Fingerprint, BookOpen, Gift, Cpu, LineChart, Flame,
-  Umbrella, Leaf, Gem, Bitcoin, Lock, CalendarClock, Receipt, FlaskConical,
+  Umbrella, Leaf, Gem, Bitcoin, Lock, CalendarClock, Clock, Receipt, FlaskConical,
   Landmark, Radio, MessageSquareCode, Network, Layers3, Tablet, Satellite,
   Database, ShieldPlus, Briefcase, PercentSquare, Volume2, PiggyBank,
   SplitSquareHorizontal, ListChecks, BookMarked, UserCheck, EyeOff,

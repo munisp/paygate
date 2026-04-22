@@ -4,7 +4,7 @@
  * e.g. acme.paygate.io → resolves to tenant "acme" → injects CSS vars
  */
 import type { Request, Response, NextFunction } from "express";
-import { getDb } from "./db";
+import { getDb, execRaw } from "./db";
 
 // In-memory branding cache (5 min TTL)
 interface BrandingEntry {
@@ -27,6 +27,7 @@ async function resolveTenantByHost(host: string): Promise<any | null> {
 
   try {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
 
     // Try slug-based subdomain first (e.g. acme.paygate.io → slug = "acme")
     const parts = hostname.split(".");
@@ -35,21 +36,15 @@ async function resolveTenantByHost(host: string): Promise<any | null> {
     let rows: any[] = [];
 
     if (slug && slug !== "www" && slug !== "api") {
-      const result = await db.execute(
-        `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
-         FROM partner_tenants WHERE slug = $1 AND status = 'active'`,
-        [slug]
-      ) as any;
+      const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
+         FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [slug]);
       rows = result.rows ?? [];
     }
 
     // Fall back to custom domain lookup
     if (rows.length === 0) {
-      const result = await db.execute(
-        `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
-         FROM partner_tenants WHERE custom_domain = $1 AND status = 'active'`,
-        [hostname]
-      ) as any;
+      const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
+         FROM partner_tenants WHERE custom_domain = $1 AND status = 'active'`, [hostname]);
       rows = result.rows ?? [];
     }
 
@@ -121,11 +116,9 @@ export async function tenantBrandingHandler(req: Request, res: Response) {
 
   try {
     const db = await getDb();
-    const result = await db.execute(
-      `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family
-       FROM partner_tenants WHERE slug = $1 AND status = 'active'`,
-      [slug]
-    ) as any;
+    if (!db) throw new Error("Database unavailable");
+    const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family
+       FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [slug]);
     const rows = result.rows ?? [];
 
     if (!rows[0]) {
@@ -152,11 +145,9 @@ export async function tenantBrandingJsonHandler(req: Request, res: Response) {
 
   try {
     const db = await getDb();
-    const result = await db.execute(
-      `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain
-       FROM partner_tenants WHERE slug = $1 AND status = 'active'`,
-      [slug]
-    ) as any;
+    if (!db) throw new Error("Database unavailable");
+    const result = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain
+       FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [slug]);
     const rows = result.rows ?? [];
 
     if (!rows[0]) {
@@ -176,6 +167,7 @@ export async function tenantBrandingJsonHandler(req: Request, res: Response) {
 export async function prometheusMetricsHandler(_req: Request, res: Response) {
   try {
     const db = await getDb();
+    if (!db) throw new Error("Database unavailable");
 
     const usageResult = await db.execute(
       `SELECT tenant_id, SUM(api_calls) as total_calls, SUM(tx_count) as total_tx
