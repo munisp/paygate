@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 	"os"
 	"time"
 
@@ -263,7 +264,7 @@ func RelayWebhookEvent(ctx context.Context, merchantID, eventType string, payloa
 			req.Header.Set("X-PayGate-Event", eventType)
 			req.Header.Set("X-PayGate-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
 
-			client := &http.Client{Timeout: 10 * time.Second}
+			client := httpclient.Default
 			resp, err := client.Do(req)
 			if err != nil {
 				slog.Warn("webhook relay: delivery failed", "endpoint_id", ep.EndpointID, "url", ep.EndpointURL, "err", err)
@@ -342,7 +343,7 @@ func RegisterAPISIXRoutes() error {
 		},
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.Default
 	for _, route := range routes {
 		routeBytes, _ := json.Marshal(route)
 		routeID := route["id"].(string)
@@ -410,7 +411,7 @@ func checkPermifyPolicy(ctx context.Context, merchantID, resource, action string
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("PERMIFY_API_KEY")))
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := httpclient.Default
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Warn("Permify check failed, defaulting to allow", "err", err)

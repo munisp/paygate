@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 	"os"
 	"time"
 )
@@ -144,7 +145,7 @@ func proxyUpstream(w http.ResponseWriter, r *http.Request, upstreamURL string, f
 	req.Header.Set("X-Internal-Key", os.Getenv("MIDDLEWARE_INTERNAL_KEY"))
 	req.URL.RawQuery = r.URL.RawQuery
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.Default
 	resp, err := client.Do(req)
 	if err != nil {
 		fallback()

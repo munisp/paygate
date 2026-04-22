@@ -514,4 +514,4 @@ async def resolve_dispute(req: DisputeResolutionRequest):
     return result
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False, workers=4, log_level="warning")

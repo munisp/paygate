@@ -445,4 +445,4 @@ if __name__ == "__main__":
         asyncio.create_task(kafka_consumer_loop())
 
     app.add_event_handler("startup", startup)
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, workers=4, log_level="warning")

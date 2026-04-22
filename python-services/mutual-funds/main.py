@@ -113,11 +113,22 @@ async def create_sip(req: SIPRequest):
 async def nav_history(fund_id: str = Query(...), days: int = Query(30,ge=1,le=365)):
     fund = next((f for f in FUNDS if f["id"]==fund_id),None)
     if not fund: raise HTTPException(404,"Fund not found")
-    random.seed(fund_id); history = []; base_nav = fund["nav"]*0.85
-    for i in range(days):
-        d = datetime.now(timezone.utc)-timedelta(days=days-i)
-        base_nav *= (1+random.uniform(-0.005,0.008))
-        history.append({"date":d.date().isoformat(),"nav":round(base_nav,4)})
+    pool = await get_pool()
+    history = []
+    if pool:
+        try:
+            async with pool.acquire() as c:
+                rows = await c.fetch(
+                    """SELECT nav_date::text AS date, nav_price AS nav
+                       FROM fund_nav_history
+                       WHERE fund_id = $1 AND nav_date >= CURRENT_DATE - ($2 || ' days')::INTERVAL
+                       ORDER BY nav_date ASC""",
+                    fund_id, str(days)
+                )
+                history = [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"NAV history DB query failed: {e}")
+    # If no DB data, return empty history — do not simulate random prices
     return {"fund_id":fund_id,"fund_name":fund["name"],"history":history,"current_nav":fund["nav"]}
 @app.get("/mutual-funds/sips")
 async def list_sips(customer_id: str = Query(...)):
@@ -131,4 +142,4 @@ async def list_sips(customer_id: str = Query(...)):
     return {"customer_id":customer_id,"sips":rows,"count":len(rows)}
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT, workers=4, log_level="warning")

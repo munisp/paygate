@@ -17,6 +17,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 	"os"
 	"time"
 
@@ -470,7 +471,7 @@ func callCreditScoringService(ctx context.Context, req CreditScoreAPIRequest) (*
 		httpReq.Header.Set("X-Internal-Key", key)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.Default
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("call credit scoring service: %w", err)

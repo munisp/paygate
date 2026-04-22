@@ -36,10 +36,12 @@ func LoanDisbursementWorkflow(ctx workflow.Context, input LoanDisbursementInput)
 	logger.Info("LoanDisbursementWorkflow started", "loan_id", input.LoanID)
 
 	retryPolicy := &temporal.RetryPolicy{
-		InitialInterval:    2 * time.Second,
-		BackoffCoefficient: 2.0,
-		MaximumInterval:    30 * time.Second,
-		MaximumAttempts:    3,
+		InitialInterval:        2 * time.Second,
+		BackoffCoefficient:     2.0,
+		MaximumInterval:        30 * time.Second,
+		MaximumAttempts:        3,
+		// Do not retry on validation/business-rule failures — only on transient errors
+		NonRetryableErrorTypes: []string{"EligibilityError", "InsufficientFundsError", "ValidationError", "DuplicateError"},
 	}
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,

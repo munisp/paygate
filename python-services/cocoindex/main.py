@@ -469,4 +469,4 @@ async def reset_watermark(source: str):
     return {"reset": source}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False, workers=4, log_level="warning")

@@ -23,6 +23,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 prometheus = { version = "0.13", features = ["process"] }
 lazy_static = "1"
+num_cpus = "1"
 
 [profile.release]
 opt-level = 3

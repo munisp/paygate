@@ -42,10 +42,11 @@ func KYBWorkflow(ctx workflow.Context, input KYBWorkflowInput) (*KYBWorkflowResu
 	logger.Info("KYBWorkflow started", "merchant_id", input.MerchantID)
 
 	retryPolicy := &temporal.RetryPolicy{
-		InitialInterval:    5 * time.Second,
-		BackoffCoefficient: 2.0,
-		MaximumInterval:    60 * time.Second,
-		MaximumAttempts:    3,
+		InitialInterval:        5 * time.Second,
+		BackoffCoefficient:     2.0,
+		MaximumInterval:        60 * time.Second,
+		MaximumAttempts:        3,
+		NonRetryableErrorTypes: []string{"ValidationError", "DuplicateError", "RejectedError", "BlacklistedError"},
 	}
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 2 * time.Minute,

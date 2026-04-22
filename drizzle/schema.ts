@@ -200,6 +200,9 @@ export const transactions = pgTable("transactions", {
   index("transactions_merchant_idx").on(t.merchantId),
   index("transactions_status_idx").on(t.status),
   index("transactions_created_idx").on(t.createdAt),
+  // Composite indexes for paginated list queries (most common access pattern)
+  index("transactions_merchant_created_idx").on(t.merchantId, t.createdAt),
+  index("transactions_merchant_status_idx").on(t.merchantId, t.status),
 ]);
 
 export type Transaction = typeof transactions.$inferSelect;
@@ -225,6 +228,7 @@ export const customers = pgTable("customers", {
   index("customers_tenant_idx").on(t.tenantId),
   index("customers_merchant_idx").on(t.merchantId),
   unique("customers_tenant_merchant_email_uniq").on(t.tenantId, t.merchantId, t.email),
+  index("customers_merchant_created_idx").on(t.merchantId, t.createdAt),
 ]);
 
 export type Customer = typeof customers.$inferSelect;
@@ -253,6 +257,8 @@ export const payouts = pgTable("payouts", {
   unique("payouts_tenant_ref_uniq").on(t.tenantId, t.reference),
   index("payouts_tenant_idx").on(t.tenantId),
   index("payouts_merchant_idx").on(t.merchantId),
+  index("payouts_merchant_created_idx").on(t.merchantId, t.createdAt),
+  index("payouts_merchant_status_idx").on(t.merchantId, t.status),
 ]);
 
 export type Payout = typeof payouts.$inferSelect;
@@ -326,6 +332,7 @@ export const disputes = pgTable("disputes", {
   unique("disputes_tenant_ref_uniq").on(t.tenantId, t.reference),
   index("disputes_tenant_idx").on(t.tenantId),
   index("disputes_merchant_idx").on(t.merchantId),
+  index("disputes_merchant_created_idx").on(t.merchantId, t.createdAt),
 ]);
 
 export type Dispute = typeof disputes.$inferSelect;
@@ -462,6 +469,8 @@ export const fraudAlerts = pgTable("fraud_alerts", {
   index("fraud_alerts_tenant_idx").on(t.tenantId),
   index("fraud_alerts_merchant_idx").on(t.merchantId),
   index("fraud_alerts_status_idx").on(t.status),
+  index("fraud_alerts_merchant_created_idx").on(t.merchantId, t.createdAt),
+  index("fraud_alerts_merchant_status_idx").on(t.merchantId, t.status),
 ]);
 export type FraudAlert = typeof fraudAlerts.$inferSelect;
 export type InsertFraudAlert = typeof fraudAlerts.$inferInsert;
@@ -1180,14 +1189,18 @@ export type LoyaltyProgram = typeof loyaltyPrograms.$inferSelect;
 
 export const loyaltyAccounts = pgTable("loyalty_accounts", {
   id: text("id").primaryKey().$defaultFn(() => `la_${Date.now()}_${Math.random().toString(36).slice(2,8)}`),
+  accountId: text("account_id").unique(),  // external account ID used by Rust loyalty-ledger
+  programId: text("program_id").default("default"),
   merchantId: text("merchant_id").notNull(),
-  customerId: integer("customer_id").notNull(),
+  customerId: integer("customer_id"),
   pointsBalance: bigint("points_balance", { mode: "number" }).notNull().default(0),
   lifetimePoints: bigint("lifetime_points", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("loyalty_account_merchant_idx").on(t.merchantId),
   index("loyalty_account_customer_idx").on(t.customerId),
+  index("loyalty_account_id_idx").on(t.accountId),
 ]);
 export type LoyaltyAccount = typeof loyaltyAccounts.$inferSelect;
 
@@ -1203,6 +1216,57 @@ export const loyaltyTransactions = pgTable("loyalty_transactions", {
   index("loyalty_tx_account_idx").on(t.accountId),
 ]);
 export type LoyaltyTransaction = typeof loyaltyTransactions.$inferSelect;
+// ─── Loyalty Ledger (used by Rust loyalty-ledger service) ────────────────────
+export const loyaltyLedger = pgTable("loyalty_ledger", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  entryType: text("entry_type").notNull(),  // earn | redeem | expire | adjust
+  points: bigint("points", { mode: "number" }).notNull(),
+  balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
+  description: text("description").notNull().default(""),
+  referenceId: text("reference_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("loyalty_ledger_account_idx").on(t.accountId),
+  index("loyalty_ledger_account_created_idx").on(t.accountId, t.createdAt),
+]);
+export type LoyaltyLedgerEntry = typeof loyaltyLedger.$inferSelect;
+
+// ─── Inventory Reservations (used by Rust inventory-engine) ──────────────────
+export const inventoryReservations = pgTable("inventory_reservations", {
+  reservationId: text("reservation_id").primaryKey(),
+  itemId: text("item_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  quantity: bigint("quantity", { mode: "number" }).notNull(),
+  orderId: text("order_id"),
+  status: text("status").notNull().default("active"),  // active | released | expired
+  expiresAt: timestamp("expires_at").notNull(),
+  releasedAt: timestamp("released_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("inv_res_item_merchant_idx").on(t.itemId, t.merchantId),
+  index("inv_res_status_idx").on(t.status),
+  index("inv_res_expires_idx").on(t.expiresAt),
+]);
+export type InventoryReservation = typeof inventoryReservations.$inferSelect;
+
+// ─── Inventory Audit Log (used by Rust inventory-engine) ─────────────────────
+export const inventoryAuditLog = pgTable("inventory_audit_log", {
+  id: serial("id").primaryKey(),
+  itemId: text("item_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  delta: bigint("delta", { mode: "number" }).notNull(),
+  reason: text("reason").notNull(),
+  referenceId: text("reference_id"),
+  previousStock: bigint("previous_stock", { mode: "number" }).notNull(),
+  newStock: bigint("new_stock", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("inv_audit_item_idx").on(t.itemId, t.merchantId),
+  index("inv_audit_created_idx").on(t.createdAt),
+]);
+export type InventoryAuditLog = typeof inventoryAuditLog.$inferSelect;
+
 
 // ─── KDS Stations ─────────────────────────────────────────────────────────────
 export const kdsStations = pgTable("kds_stations", {

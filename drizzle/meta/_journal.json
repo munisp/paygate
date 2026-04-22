@@ -351,6 +351,13 @@
       "when": 1776788108426,
       "tag": "0049_remarkable_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1776882158261,
+      "tag": "0050_mixed_paladin",
+      "breakpoints": true
     }
   ]
 }

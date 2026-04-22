@@ -265,42 +265,22 @@ def get_churn_predictions(
         logger.error(f"Churn prediction error: {e}")
         return _mock_churn()
 
-# ─── Mock data for demo/fallback ─────────────────────────────────────────────
+# ─── Empty fallbacks (returned when DB is unavailable) ────────────────────────
+# Return empty/zero-value structures so no synthetic data is served in production.
+# Callers should surface a "data unavailable" state to the UI.
 
 def _mock_retention() -> dict:
-    cohorts = [(datetime.now() - timedelta(days=30*i)).strftime("%Y-%m") for i in range(6, 0, -1)]
-    data = []
-    for i, _ in enumerate(cohorts):
-        row = [None] * i + [100.0] + [max(10, 80 - j*12 + int(np.random.randint(-5, 5))) for j in range(1, 6-i)]
-        data.append(row)
-    return {
-        "cohorts": cohorts,
-        "periods": cohorts,
-        "retention_data": data,
-        "cohort_sizes": [int(np.random.randint(50, 200)) for _ in cohorts],
-    }
+    """Return empty retention structure when DB is unavailable."""
+    return {"cohorts": [], "periods": [], "retention_data": [], "cohort_sizes": []}
 
 def _mock_ltv() -> List[dict]:
-    return [
-        {"cohort": (datetime.now() - timedelta(days=30*i)).strftime("%Y-%m"),
-         "avg_ltv": round(15000 + i*2000 + int(np.random.randint(-1000, 1000)), 2),
-         "median_ltv": round(12000 + i*1500, 2),
-         "p90_ltv": round(45000 + i*3000, 2),
-         "customer_count": int(np.random.randint(30, 150))}
-        for i in range(6, 0, -1)
-    ]
+    """Return empty LTV list when DB is unavailable."""
+    return []
 
 def _mock_churn() -> List[dict]:
-    levels = ["low", "medium", "high", "critical"]
-    return [
-        {"customer_id": f"cust_{i:04d}",
-         "churn_probability": round(0.1 + i * 0.05, 3),
-         "risk_level": levels[min(3, i // 5)],
-         "last_transaction_days": 10 + i * 3,
-         "predicted_churn_date": (datetime.now() + timedelta(days=30 - i)).strftime("%Y-%m-%d") if i > 10 else None}
-        for i in range(20)
-    ]
+    """Return empty churn list when DB is unavailable."""
+    return []
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "9015"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=4, log_level="warning")

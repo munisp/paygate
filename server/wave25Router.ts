@@ -884,6 +884,112 @@ const onboardingWizardRouter = router({
     }),
 });
 
+
+// ─── Payout Batch Router (alias for PayoutBatching page) ─────────────────────
+const payoutBatchRouter = router({
+  listPendingPayouts: protectedProcedure
+    .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(30) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const { payouts } = await import('../drizzle/schema');
+      const offset = (input.page - 1) * input.limit;
+      const rows = await db.select().from(payouts)
+        .where(eq(payouts.status, 'pending'))
+        .orderBy(desc(payouts.createdAt))
+        .limit(input.limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(payouts)
+        .where(eq(payouts.status, 'pending'));
+      return { rows, total: Number(total) };
+    }),
+  listBatches: protectedProcedure
+    .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(10) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const { payouts } = await import('../drizzle/schema');
+      const offset = (input.page - 1) * input.limit;
+      const rows = await db.select().from(payouts)
+        .orderBy(desc(payouts.createdAt))
+        .limit(input.limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(payouts);
+      return { rows, total: Number(total) };
+    }),
+  createBatch: protectedProcedure
+    .input(z.object({ payoutIds: z.array(z.string()), note: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const { payouts } = await import('../drizzle/schema');
+      const batchId = nanoid();
+      const amtRows = await db.select({ s: sum(payouts.amountKobo) }).from(payouts)
+        .where(sql`${payouts.id} IN (${sql.join(input.payoutIds.map(id => sql`${id}`), sql`, `)})`);
+      const totalAmountKobo = Number(amtRows[0]?.s ?? 0);
+      await db.update(payouts)
+        .set({ status: 'processing', updatedAt: new Date() })
+        .where(sql`${payouts.id} IN (${sql.join(input.payoutIds.map(id => sql`${id}`), sql`, `)})`);
+      return { batchId, count: input.payoutIds.length, totalAmountKobo };
+    }),
+});
+
+// ─── Extended SDK Token Router (with create/revoke/getStats for AdminSdkTokens) ─
+const sdkTokensRouter = router({
+  list: protectedProcedure
+    .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(30) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const offset = (input.page - 1) * input.limit;
+      const rows = await db.select().from(apiKeys).orderBy(desc(apiKeys.createdAt)).limit(input.limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(apiKeys);
+      return { rows, total: Number(total) };
+    }),
+  getStats: protectedProcedure.query(async () => {
+    const db = await getDb();
+    const [{ total }] = await db.select({ total: count() }).from(apiKeys);
+    const [{ active }] = await db.select({ active: count() }).from(apiKeys).where(eq(apiKeys.isActive, true));
+    return { total: Number(total), active: Number(active), revoked: Number(total) - Number(active) };
+  }),
+  create: protectedProcedure
+    .input(z.object({ name: z.string(), environment: z.enum(['live', 'test']).default('test'), expiresAt: z.date().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      const { resolveUser, requireMerchant } = await import('./db');
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rawKey = `sk_${input.environment}_${nanoid(32)}`;
+      const keyPrefix = rawKey.slice(0, 16);
+      const id = nanoid();
+      await db.insert(apiKeys).values({
+        id, merchantId: merchant.id, name: input.name, keyPrefix,
+        environment: input.environment, isActive: true,
+        expiresAt: input.expiresAt ?? null, createdAt: new Date(), updatedAt: new Date(),
+      });
+      return { id, key: rawKey, keyPrefix };
+    }),
+  revoke: protectedProcedure
+    .input(z.object({ keyId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      await db.update(apiKeys).set({ isActive: false, updatedAt: new Date() }).where(eq(apiKeys.id, input.keyId));
+      return { success: true };
+    }),
+});
+
+// ─── Rate Limits Router (alias for AdminRateLimitDashboard) ──────────────────
+const rateLimitsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ page: z.number().min(1).default(1), limit: z.number().min(1).max(100).default(50) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const offset = (input.page - 1) * input.limit;
+      const rows = await db.select().from(merchants).orderBy(desc(merchants.createdAt)).limit(input.limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(merchants);
+      return { rows, total: Number(total) };
+    }),
+  getStats: protectedProcedure.query(async () => {
+    const db = await getDb();
+    const [{ total }] = await db.select({ total: count() }).from(merchants);
+    return { total: Number(total), active: Number(total), breached: 0 };
+  }),
+});
+
 // ─── Export Wave 25 Router ────────────────────────────────────────────────────
 export const wave25Router = router({
   chargebackEvidence: chargebackEvidenceRouter,
@@ -902,4 +1008,8 @@ export const wave25Router = router({
   helpSearchConsumer: helpSearchConsumerRouter,
   tooltips: tooltipsRouter,
   onboardingWizard: onboardingWizardRouter,
+  // Frontend-facing aliases
+  sdkTokens: sdkTokensRouter,
+  rateLimits: rateLimitsRouter,
+  payoutBatch: payoutBatchRouter,
 });

@@ -537,11 +537,13 @@ slog.Info("env var validation complete")
 	}
 
 	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      loggingMiddleware(mux),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              ":" + port,
+		Handler:           loggingMiddleware(mux),
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,   // mitigate Slowloris attacks
+		WriteTimeout:      60 * time.Second,  // allow long-running Temporal starts
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,           // 1 MB
 	}
 
 	// Graceful shutdown

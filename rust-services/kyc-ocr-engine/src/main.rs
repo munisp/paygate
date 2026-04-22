@@ -239,31 +239,26 @@ fn run_tesseract_ocr(
     img_bytes: &[u8],
     lang: &str,
 ) -> Result<(String, f32, Vec<OcrLine>), String> {
-    // Use leptess crate for Tesseract bindings
-    // In production: use leptess::LepTess
-    // For now, return a structured placeholder that demonstrates the API
-    
-    // NOTE: In production deployment, this calls:
-    //   let mut lt = leptess::LepTess::new(None, lang)?;
-    //   lt.set_image_from_mem(img_bytes)?;
-    //   lt.set_source_resolution(300);
-    //   let text = lt.get_utf8_text()?;
-    //   let conf = lt.mean_text_conf() as f32 / 100.0;
-    
-    // Simulate OCR result structure for compilation
-    let raw_text = String::from_utf8_lossy(img_bytes)
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || c.is_whitespace())
-        .take(500)
-        .collect::<String>();
-    
-    let lines = vec![OcrLine {
-        text: raw_text.clone(),
-        confidence: 0.85,
-        bbox: [0.0, 0.0, 1.0, 1.0],
-    }];
-
-    Ok((raw_text, 0.85, lines))
+    use leptess::LepTess;
+    let mut lt = LepTess::new(None, lang)
+        .map_err(|e| format!("Tesseract init failed: {e}"))?;
+    lt.set_image_from_mem(img_bytes)
+        .map_err(|e| format!("Image load failed: {e}"))?;
+    lt.set_source_resolution(300);
+    let raw_text = lt.get_utf8_text()
+        .map_err(|e| format!("OCR extraction failed: {e}"))?;
+    let conf = (lt.mean_text_conf() as f32 / 100.0).clamp(0.0, 1.0);
+    let lines: Vec<OcrLine> = raw_text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .enumerate()
+        .map(|(i, l)| OcrLine {
+            text: l.to_string(),
+            confidence: conf,
+            bbox: [0.0, i as f32 * 0.05, 1.0, (i + 1) as f32 * 0.05],
+        })
+        .collect();
+    Ok((raw_text, conf, lines))
 }
 
 fn extract_mrz_from_text(text: &str) -> Option<MrzData> {

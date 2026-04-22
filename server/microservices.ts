@@ -13,19 +13,37 @@
  * returning null so callers can degrade to direct-DB mode.
  */
 import { ENV } from "./_core/env";
+import { getCircuitBreaker } from "./circuitBreaker";
 
-// ─── Generic fetch helper ────────────────────────────────────────────────────
+// ─── Generic fetch helper ────────────────────────────────────────────
+// Every microservice call is wrapped in:
+//   1. An AbortController timeout (10 s) to prevent hung connections
+//   2. A per-host circuit breaker (fail-fast when a service is down)
 async function svcFetch<T>(url: string, init?: RequestInit): Promise<T | null> {
+  // Derive a stable circuit-breaker key from the host:port
+  let cbKey = "svc-unknown";
+  try { const u = new URL(url); cbKey = `svc-${u.hostname}-${u.port || "80"}`; } catch {}
+  const cb = getCircuitBreaker(cbKey, { failureThreshold: 5, recoveryTimeMs: 30_000 });
+
   try {
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-      ...init,
+    return await cb.execute(async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+          signal: controller.signal,
+          ...init,
+        });
+        if (!res.ok) {
+          console.warn(`[microservice] ${url} returned ${res.status}`);
+          return null;
+        }
+        return res.json() as Promise<T>;
+      } finally {
+        clearTimeout(timer);
+      }
     });
-    if (!res.ok) {
-      console.warn(`[microservice] ${url} returned ${res.status}`);
-      return null;
-    }
-    return res.json() as Promise<T>;
   } catch (e) {
     console.warn(`[microservice] ${url} unreachable:`, (e as Error).message);
     return null;

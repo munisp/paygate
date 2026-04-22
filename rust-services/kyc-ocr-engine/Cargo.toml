@@ -19,7 +19,7 @@ rayon = "1.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Tesseract OCR bindings (requires libtesseract-dev on host)
-# leptess = "0.14"
+leptess = "0.14"
 # Image processing
 image = "0.25"
 # HTTP utilities

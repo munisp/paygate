@@ -125,4 +125,4 @@ async def calculator(monthly_salary: float = Query(...,gt=0), current_age: int =
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT, workers=4, log_level="warning")

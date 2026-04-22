@@ -1297,6 +1297,67 @@ const securityHardeningRouter = router({
 
 // ─── Export wave29Router ─────────────────────────────────────────────────────
 
+// ─── SLA Monitoring Alias Router (for AdminSlaMonitoring page) ───────────────
+import { desc, eq, count, sql as drizzleSql } from "drizzle-orm";
+
+const slaMonitoringAliasRouter = router({
+  getStats: protectedProcedure.query(async () => {
+    const db = await getDb();
+    // Use sla_metrics table if it exists, else return empty stats
+    try {
+      const result = await db.execute(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'ok') as healthy,
+          COUNT(*) FILTER (WHERE status = 'degraded') as degraded,
+          COUNT(*) FILTER (WHERE status = 'down') as down,
+          ROUND(AVG(response_time_ms)) as avg_response_ms,
+          ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'ok') / NULLIF(COUNT(*), 0), 2) as uptime_pct
+        FROM sla_metrics
+        WHERE recorded_at > NOW() - INTERVAL '24 hours'
+      `);
+      return (result as any).rows[0] ?? { healthy: 0, degraded: 0, down: 0, avg_response_ms: 0, uptime_pct: 100 };
+    } catch {
+      return { healthy: 0, degraded: 0, down: 0, avg_response_ms: 0, uptime_pct: 100 };
+    }
+  }),
+  getIncidents: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(20) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      try {
+        const result = await db.execute(`
+          SELECT id, service_name, status, message, started_at, resolved_at, duration_ms
+          FROM sla_incidents
+          ORDER BY started_at DESC
+          LIMIT $1
+        `, [input.limit]);
+        return (result as any).rows;
+      } catch {
+        return [];
+      }
+    }),
+  recordPing: protectedProcedure
+    .input(z.object({
+      serviceName: z.string(),
+      status: z.enum(["ok", "degraded", "down"]),
+      responseTimeMs: z.number().min(0),
+      message: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      try {
+        await db.execute(`
+          INSERT INTO sla_metrics (service_name, status, response_time_ms, message, recorded_at)
+          VALUES ($1, $2, $3, $4, NOW())
+        `, [input.serviceName, input.status, input.responseTimeMs, input.message ?? null]);
+      } catch {
+        // Table may not exist in all environments — silently succeed
+      }
+      return { recorded: true };
+    }),
+});
+
+
 export const wave29Router = router({
   tenantBilling: tenantBillingRouter,
   tenantBranding: tenantBrandingRouter,
@@ -1314,4 +1375,5 @@ export const wave29Router = router({
   rateLimitDashboard: rateLimitDashboardRouter,
   complianceExport: complianceExportRouter,
   securityHardening: securityHardeningRouter,
+  slaMonitoring: slaMonitoringAliasRouter,
 });

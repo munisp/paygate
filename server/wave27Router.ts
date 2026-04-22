@@ -1028,6 +1028,102 @@ const securityScoreRouter = router({
 });
 
 // ─── Wave 27 Root Router ──────────────────────────────────────────────────────
+// ─── Frontend Alias Routers (kyb, fxHedge, compliance) ───────────────────────
+import { and, desc, eq, count } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { kycSubmissions, fxRates } from "../drizzle/schema";
+
+const kybAliasRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      page: z.number().min(1).default(1),
+      limit: z.number().min(1).max(100).default(20),
+      status: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const offset = (input.page - 1) * input.limit;
+      const rows = await db.select({
+        id: kycSubmissions.id,
+        merchant_id: kycSubmissions.merchantId,
+        status: kycSubmissions.status,
+        submittedAt: kycSubmissions.submittedAt,
+        reviewedAt: kycSubmissions.reviewedAt,
+        reviewNote: kycSubmissions.reviewNote,
+        documentType: kycSubmissions.documentType,
+      }).from(kycSubmissions)
+        .orderBy(desc(kycSubmissions.submittedAt))
+        .limit(input.limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(kycSubmissions);
+      const statuses = ["submitted","under_review","approved","rejected","requires_more_info"];
+      const statsEntries = await Promise.all(statuses.map(async s => {
+        const [{ c }] = await db.select({ c: count() }).from(kycSubmissions).where(eq(kycSubmissions.status, s));
+        return [s, Number(c)] as [string, number];
+      }));
+      return { applications: rows, total: Number(total), stats: Object.fromEntries(statsEntries) };
+    }),
+  updateStatus: protectedProcedure
+    .input(z.object({
+      merchantId: z.string(),
+      status: z.enum(["submitted","under_review","approved","rejected","requires_more_info"]),
+      reviewNote: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      await db.update(kycSubmissions)
+        .set({ status: input.status, reviewNote: input.reviewNote ?? null, reviewedAt: new Date() })
+        .where(eq(kycSubmissions.merchantId, input.merchantId));
+      return { success: true };
+    }),
+});
+
+const fxHedgeAliasRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      status: z.string().optional(),
+      page: z.number().min(1).default(1),
+      limit: z.number().min(1).max(100).default(20),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const offset = (input.page - 1) * input.limit;
+      const rows = await db.select().from(fxRates)
+        .orderBy(desc(fxRates.fetchedAt))
+        .limit(input.limit).offset(offset);
+      const [{ total }] = await db.select({ total: count() }).from(fxRates);
+      const positions = rows.map(r => ({
+        id: r.id, baseCurrency: r.baseCurrency, quoteCurrency: r.quoteCurrency,
+        rate: Number(r.rate), status: "active", notionalAmount: 0,
+        hedgeRate: Number(r.rate), expiresAt: null, createdAt: r.fetchedAt,
+      }));
+      const avgRate = rows.length > 0 ? rows.reduce((a, r) => a + Number(r.rate), 0) / rows.length : 0;
+      return { positions, total: Number(total), summary: { totalNotional: 0, activeCount: rows.length, expiredCount: 0, avgHedgeRate: avgRate } };
+    }),
+  create: protectedProcedure
+    .input(z.object({
+      baseCurrency: z.string().length(3),
+      quoteCurrency: z.string().length(3),
+      notionalAmount: z.number().positive(),
+      hedgeRate: z.number().positive(),
+      expiresAt: z.date().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const id = nanoid();
+      await db.insert(fxRates).values({ id, baseCurrency: input.baseCurrency, quoteCurrency: input.quoteCurrency, rate: String(input.hedgeRate), source: "manual_hedge", fetchedAt: new Date() });
+      return { id, success: true };
+    }),
+  close: protectedProcedure
+    .input(z.object({ positionId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      await db.delete(fxRates).where(eq(fxRates.id, input.positionId));
+      return { success: true };
+    }),
+});
+
+
 export const wave27Router = router({
   tenantOnboarding: tenantOnboardingRouter,
   flagExposure: flagExposureRouter,
@@ -1049,4 +1145,8 @@ export const wave27Router = router({
   payoutApproval: payoutApprovalRouter,
   webhookRetry: webhookRetryRouter,
   securityScore: securityScoreRouter,
+  // Frontend-facing aliases
+  kyb: kybAliasRouter,
+  fxHedge: fxHedgeAliasRouter,
+  compliance: complianceReportRouter,
 });

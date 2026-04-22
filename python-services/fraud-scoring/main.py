@@ -245,7 +245,7 @@ async def batch_score(req: BatchScoreRequest):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8083"))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=2)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=4, log_level="warning")
 
 
 # ─── Consumer fraud scoring ───────────────────────────────────────────────────

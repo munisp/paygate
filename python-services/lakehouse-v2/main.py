@@ -813,4 +813,4 @@ def query_history(
     return {"history": []}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, log_level=os.getenv("LOG_LEVEL", "info").lower())
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT, workers=4, log_level="warning")

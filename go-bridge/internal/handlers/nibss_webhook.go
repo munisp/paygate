@@ -10,6 +10,7 @@ import (
 "io"
 "log/slog"
 "net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 "os"
 "time"
 )
@@ -98,7 +99,7 @@ return
 req.Header.Set("Content-Type", "application/json")
 req.Header.Set("X-Internal-Key", internalKey)
 
-client := &http.Client{Timeout: 10 * time.Second}
+client := httpclient.Default
 resp, err := client.Do(req)
 if err != nil {
 slog.Error("[NIBSS Webhook] Portal call failed", "err", err)

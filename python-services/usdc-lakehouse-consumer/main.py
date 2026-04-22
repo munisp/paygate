@@ -382,4 +382,4 @@ def direct_write(req: DirectWriteRequest):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8099"))
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level=os.getenv("LOG_LEVEL", "info").lower())
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=4, log_level="warning")

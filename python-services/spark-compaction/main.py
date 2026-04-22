@@ -175,4 +175,4 @@ async def _run_compaction_job(job_id: str, req: CompactionRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level=os.getenv("LOG_LEVEL", "info"))
+    uvicorn.run(app, host="0.0.0.0", port=8000, workers=4, log_level="warning")

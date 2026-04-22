@@ -1,13 +1,14 @@
 use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use chrono::Utc;
+use deadpool_postgres::{Config as PgConfig, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use prometheus::{Encoder, IntCounterVec, Opts, Registry, TextEncoder};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tokio_postgres::NoTls;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
@@ -91,17 +92,39 @@ pub struct ErrorResponse {
 }
 
 // ─── App State ───────────────────────────────────────────────────────────────
-
 pub struct AppState {
     pub start_time: std::time::Instant,
     pub registry: Arc<Registry>,
     pub check_counter: IntCounterVec,
     pub reserve_counter: IntCounterVec,
     pub internal_key: String,
+    pub db_pool: Option<Pool>,
+}
+
+// ─── DB Pool ─────────────────────────────────────────────────────────────────
+fn build_db_pool(database_url: &str) -> Option<Pool> {
+    let mut cfg = PgConfig::new();
+    cfg.url = Some(database_url.to_string());
+    cfg.manager = Some(ManagerConfig {
+        recycling_method: RecyclingMethod::Fast,
+    });
+    cfg.pool = Some(deadpool_postgres::PoolConfig {
+        max_size: 20,
+        ..Default::default()
+    });
+    match cfg.create_pool(Some(Runtime::Tokio1), NoTls) {
+        Ok(pool) => {
+            info!("inventory-engine: DB pool created (max=20)");
+            Some(pool)
+        }
+        Err(e) => {
+            warn!("inventory-engine: DB pool creation failed: {} — running without DB", e);
+            None
+        }
+    }
 }
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
-
 fn verify_internal_key(req: &HttpRequest, state: &web::Data<AppState>) -> bool {
     if state.internal_key.is_empty() {
         return true; // No key configured — allow all (dev mode)
@@ -114,7 +137,6 @@ fn verify_internal_key(req: &HttpRequest, state: &web::Data<AppState>) -> bool {
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
-
 async fn health(state: web::Data<AppState>) -> impl Responder {
     let uptime = state.start_time.elapsed().as_secs();
     HttpResponse::Ok().json(HealthResponse {
@@ -137,25 +159,54 @@ async fn check_inventory(
             code: "UNAUTHORIZED".to_string(),
         });
     }
+    state.check_counter.with_label_values(&["check"]).inc();
 
-    state
-        .check_counter
-        .with_label_values(&["check"])
-        .inc();
+    if let Some(pool) = &state.db_pool {
+        match pool.get().await {
+            Ok(client) => {
+                let query = "
+                    SELECT
+                        COALESCE(i.quantity_on_hand, 0) AS current_stock,
+                        COALESCE(SUM(r.quantity) FILTER (WHERE r.status = 'active' AND r.expires_at > NOW()), 0) AS reserved_stock
+                    FROM inventory_items i
+                    LEFT JOIN inventory_reservations r ON r.item_id = i.item_id AND r.merchant_id = i.merchant_id
+                    WHERE i.item_id = $1 AND i.merchant_id = $2
+                    GROUP BY i.quantity_on_hand
+                ";
+                match client.query_opt(query, &[&body.item_id, &body.merchant_id]).await {
+                    Ok(Some(row)) => {
+                        let current_stock: i64 = row.get(0);
+                        let reserved_stock: i64 = row.get(1);
+                        let available_stock = current_stock - reserved_stock;
+                        return HttpResponse::Ok().json(CheckResponse {
+                            available: available_stock >= body.quantity,
+                            current_stock,
+                            reserved_stock,
+                            available_stock,
+                            item_id: body.item_id.clone(),
+                            merchant_id: body.merchant_id.clone(),
+                        });
+                    }
+                    Ok(None) => {
+                        return HttpResponse::NotFound().json(ErrorResponse {
+                            error: format!("Item {} not found", body.item_id),
+                            code: "ITEM_NOT_FOUND".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("inventory check query failed: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("inventory check: DB pool exhausted: {}", e);
+            }
+        }
+    }
 
-    // In production this queries the inventory_items table via DATABASE_URL.
-    // Here we return a stub response that the portal can call against.
-    let current_stock: i64 = 100; // stub
-    let reserved_stock: i64 = 5;  // stub
-    let available = current_stock - reserved_stock >= body.quantity;
-
-    HttpResponse::Ok().json(CheckResponse {
-        available,
-        current_stock,
-        reserved_stock,
-        available_stock: current_stock - reserved_stock,
-        item_id: body.item_id.clone(),
-        merchant_id: body.merchant_id.clone(),
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Inventory service temporarily unavailable".to_string(),
+        code: "SERVICE_UNAVAILABLE".to_string(),
     })
 }
 
@@ -170,33 +221,81 @@ async fn reserve_inventory(
             code: "UNAUTHORIZED".to_string(),
         });
     }
-
-    state
-        .reserve_counter
-        .with_label_values(&["reserve"])
-        .inc();
+    state.reserve_counter.with_label_values(&["reserve"]).inc();
 
     let reservation_id = body
         .reservation_id
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let expires_at = Utc::now() + chrono::Duration::minutes(15);
 
-    // Reservation expires in 15 minutes
-    let expires_at = (Utc::now() + chrono::Duration::minutes(15)).to_rfc3339();
+    if let Some(pool) = &state.db_pool {
+        match pool.get().await {
+            Ok(client) => {
+                // Use a transaction to atomically check and reserve
+                let tx_result: Result<(), tokio_postgres::Error> = async {
+                    let tx = client.build_transaction().start().await?;
+                    // Lock the row for update
+                    let row = tx.query_opt(
+                        "SELECT quantity_on_hand FROM inventory_items WHERE item_id = $1 AND merchant_id = $2 FOR UPDATE",
+                        &[&body.item_id, &body.merchant_id],
+                    ).await?;
 
-    info!(
-        reservation_id = %reservation_id,
-        item_id = %body.item_id,
-        quantity = body.quantity,
-        "Inventory reserved"
-    );
+                    let current_stock: i64 = row.map(|r| r.get(0)).unwrap_or(0);
+                    let reserved: i64 = tx.query_one(
+                        "SELECT COALESCE(SUM(quantity), 0) FROM inventory_reservations WHERE item_id = $1 AND merchant_id = $2 AND status = 'active' AND expires_at > NOW()",
+                        &[&body.item_id, &body.merchant_id],
+                    ).await?.get(0);
 
-    HttpResponse::Ok().json(ReserveResponse {
-        success: true,
-        reservation_id,
-        item_id: body.item_id.clone(),
-        quantity_reserved: body.quantity,
-        expires_at,
+                    if current_stock - reserved < body.quantity {
+                        return Err(tokio_postgres::Error::__private_api_not_stable());
+                    }
+
+                    tx.execute(
+                        "INSERT INTO inventory_reservations (reservation_id, item_id, merchant_id, quantity, order_id, status, expires_at, created_at)
+                         VALUES ($1, $2, $3, $4, $5, 'active', $6, NOW())
+                         ON CONFLICT (reservation_id) DO NOTHING",
+                        &[&reservation_id, &body.item_id, &body.merchant_id, &body.quantity,
+                          &body.order_id.as_deref().unwrap_or(""), &expires_at],
+                    ).await?;
+                    tx.commit().await?;
+                    Ok(())
+                }.await;
+
+                match tx_result {
+                    Ok(()) => {
+                        info!(
+                            reservation_id = %reservation_id,
+                            item_id = %body.item_id,
+                            quantity = body.quantity,
+                            "Inventory reserved"
+                        );
+                        return HttpResponse::Ok().json(ReserveResponse {
+                            success: true,
+                            reservation_id,
+                            item_id: body.item_id.clone(),
+                            quantity_reserved: body.quantity,
+                            expires_at: expires_at.to_rfc3339(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("inventory reserve transaction failed: {}", e);
+                        return HttpResponse::Conflict().json(ErrorResponse {
+                            error: "Insufficient stock or reservation conflict".to_string(),
+                            code: "INSUFFICIENT_STOCK".to_string(),
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                error!("inventory reserve: DB pool exhausted: {}", e);
+            }
+        }
+    }
+
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Inventory service temporarily unavailable".to_string(),
+        code: "SERVICE_UNAVAILABLE".to_string(),
     })
 }
 
@@ -212,16 +311,50 @@ async fn release_inventory(
         });
     }
 
-    info!(
-        reservation_id = %body.reservation_id,
-        item_id = %body.item_id,
-        "Inventory reservation released"
-    );
+    if let Some(pool) = &state.db_pool {
+        match pool.get().await {
+            Ok(client) => {
+                let result = client.query_opt(
+                    "UPDATE inventory_reservations SET status = 'released', released_at = NOW()
+                     WHERE reservation_id = $1 AND merchant_id = $2 AND item_id = $3 AND status = 'active'
+                     RETURNING quantity",
+                    &[&body.reservation_id, &body.merchant_id, &body.item_id],
+                ).await;
 
-    HttpResponse::Ok().json(ReleaseResponse {
-        success: true,
-        reservation_id: body.reservation_id.clone(),
-        quantity_released: 0, // stub — production reads from reservations table
+                match result {
+                    Ok(Some(row)) => {
+                        let quantity_released: i64 = row.get(0);
+                        info!(
+                            reservation_id = %body.reservation_id,
+                            quantity_released = quantity_released,
+                            "Inventory reservation released"
+                        );
+                        return HttpResponse::Ok().json(ReleaseResponse {
+                            success: true,
+                            reservation_id: body.reservation_id.clone(),
+                            quantity_released,
+                        });
+                    }
+                    Ok(None) => {
+                        return HttpResponse::NotFound().json(ErrorResponse {
+                            error: format!("Reservation {} not found or already released", body.reservation_id),
+                            code: "RESERVATION_NOT_FOUND".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("inventory release failed: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("inventory release: DB pool exhausted: {}", e);
+            }
+        }
+    }
+
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Inventory service temporarily unavailable".to_string(),
+        code: "SERVICE_UNAVAILABLE".to_string(),
     })
 }
 
@@ -237,22 +370,62 @@ async fn adjust_inventory(
         });
     }
 
-    let previous_stock: i64 = 100; // stub
-    let new_stock = previous_stock + body.delta;
+    if let Some(pool) = &state.db_pool {
+        match pool.get().await {
+            Ok(client) => {
+                let result = client.query_opt(
+                    "UPDATE inventory_items
+                     SET quantity_on_hand = quantity_on_hand + $3, updated_at = NOW()
+                     WHERE item_id = $1 AND merchant_id = $2
+                     RETURNING quantity_on_hand - $3 AS previous_stock, quantity_on_hand AS new_stock",
+                    &[&body.item_id, &body.merchant_id, &body.delta],
+                ).await;
 
-    info!(
-        item_id = %body.item_id,
-        delta = body.delta,
-        reason = %body.reason,
-        "Inventory adjusted"
-    );
+                match result {
+                    Ok(Some(row)) => {
+                        let previous_stock: i64 = row.get(0);
+                        let new_stock: i64 = row.get(1);
+                        // Audit log
+                        let _ = client.execute(
+                            "INSERT INTO inventory_audit_log (item_id, merchant_id, delta, reason, reference_id, previous_stock, new_stock, created_at)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+                            &[&body.item_id, &body.merchant_id, &body.delta, &body.reason,
+                              &body.reference_id.as_deref().unwrap_or(""), &previous_stock, &new_stock],
+                        ).await;
+                        info!(
+                            item_id = %body.item_id,
+                            delta = body.delta,
+                            reason = %body.reason,
+                            "Inventory adjusted"
+                        );
+                        return HttpResponse::Ok().json(AdjustResponse {
+                            success: true,
+                            item_id: body.item_id.clone(),
+                            previous_stock,
+                            new_stock,
+                            delta: body.delta,
+                        });
+                    }
+                    Ok(None) => {
+                        return HttpResponse::NotFound().json(ErrorResponse {
+                            error: format!("Item {} not found", body.item_id),
+                            code: "ITEM_NOT_FOUND".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("inventory adjust failed: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("inventory adjust: DB pool exhausted: {}", e);
+            }
+        }
+    }
 
-    HttpResponse::Ok().json(AdjustResponse {
-        success: true,
-        item_id: body.item_id.clone(),
-        previous_stock,
-        new_stock,
-        delta: body.delta,
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Inventory service temporarily unavailable".to_string(),
+        code: "SERVICE_UNAVAILABLE".to_string(),
     })
 }
 
@@ -267,13 +440,9 @@ async fn metrics_handler(state: web::Data<AppState>) -> impl Responder {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Load .env if present
     let _ = dotenvy::dotenv();
-
-    // Initialise structured JSON logging
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(
@@ -286,21 +455,27 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or_else(|_| "8091".to_string())
         .parse()
         .unwrap_or(8091);
-
     let internal_key = std::env::var("INTERNAL_API_KEY").unwrap_or_default();
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_default();
+
+    // Build DB pool
+    let db_pool = if database_url.is_empty() {
+        warn!("DATABASE_URL not set — inventory-engine running without DB");
+        None
+    } else {
+        build_db_pool(&database_url)
+    };
 
     // Prometheus registry
     let registry = Arc::new(Registry::new());
     let check_counter = IntCounterVec::new(
         Opts::new("inventory_check_total", "Total inventory check requests"),
         &["operation"],
-    )
-    .unwrap();
+    ).unwrap();
     let reserve_counter = IntCounterVec::new(
         Opts::new("inventory_reserve_total", "Total inventory reserve requests"),
         &["operation"],
-    )
-    .unwrap();
+    ).unwrap();
     registry.register(Box::new(check_counter.clone())).ok();
     registry.register(Box::new(reserve_counter.clone())).ok();
 
@@ -310,10 +485,10 @@ async fn main() -> std::io::Result<()> {
         check_counter,
         reserve_counter,
         internal_key,
+        db_pool,
     });
 
     info!(port = port, "Inventory Engine starting");
-
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
@@ -325,16 +500,14 @@ async fn main() -> std::io::Result<()> {
                 actix_web::error::InternalError::from_response(err, response).into()
             }))
             .wrap(middleware::Logger::default())
-            // Health
             .route("/health", web::get().to(health))
-            // Metrics
             .route("/metrics", web::get().to(metrics_handler))
-            // Inventory operations
             .route("/inventory/check", web::post().to(check_inventory))
             .route("/inventory/reserve", web::post().to(reserve_inventory))
             .route("/inventory/release", web::post().to(release_inventory))
             .route("/inventory/adjust", web::post().to(adjust_inventory))
     })
+    .workers(num_cpus::get())
     .bind(("0.0.0.0", port))?
     .run()
     .await

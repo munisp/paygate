@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte, like, lte, sql, sum } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { withCache, cache, TTL } from "./cache";
 import {
   type InsertApiKey, type InsertCustomer, type InsertDispute,
   type InsertMerchant, type InsertPayout, type InsertPaymentLink,
@@ -50,7 +51,13 @@ export async function getDb() {
     const dbUrl = resolveDbUrl();
     if (!dbUrl) return null;
     try {
-      _pool = new Pool({ connectionString: dbUrl, max: 10 });
+      _pool = new Pool({
+        connectionString: dbUrl,
+        max: parseInt(process.env.PG_POOL_MAX ?? "50"),
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 5_000,
+        allowExitOnIdle: false,
+      });
       _db = drizzle(_pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
@@ -99,9 +106,11 @@ export async function getUserByOpenId(openId: string) {
 // ─── Merchants ────────────────────────────────────────────────────────────────
 
 export async function getMerchantByOwnerId(ownerId: number) {
-  const db = await getDb(); if (!db) return null;
-  const r = await db.select().from(merchants).where(eq(merchants.ownerId, ownerId)).limit(1);
-  return r[0] ?? null;
+  return withCache("merchant:profile", `owner:${ownerId}`, TTL.MERCHANT_PROFILE, async () => {
+    const db = await getDb(); if (!db) return null;
+    const r = await db.select().from(merchants).where(eq(merchants.ownerId, ownerId)).limit(1);
+    return r[0] ?? null;
+  });
 }
 export async function getMerchantById(id: string) {
   const db = await getDb(); if (!db) return null;
@@ -115,6 +124,8 @@ export async function createMerchant(data: InsertMerchant) {
 export async function updateMerchant(id: string, data: Partial<InsertMerchant>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
   await db.update(merchants).set({ ...data, updatedAt: new Date() }).where(eq(merchants.id, id));
+  // Invalidate merchant profile cache on update
+  await cache.flush("merchant:profile").catch(() => {});
   return getMerchantById(id);
 }
 

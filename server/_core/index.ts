@@ -18,6 +18,7 @@ import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
 import { storagePut } from "../storage";
 import helmet from "helmet";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { startSlaEscalationScheduler } from "../slaEscalation";
 import { startWebhookRetryWorker } from "../webhookRetry";
@@ -172,6 +173,9 @@ function sanitizeObject(obj: unknown): unknown {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // ─── Response Compression (gzip) ────────────────────────────────────────────
+  app.use(compression({ level: 6, threshold: 1024 }));
 
   // ─── CORS ─────────────────────────────────────────────────────────────────
   const allowedOrigins = [
@@ -1317,6 +1321,44 @@ async function startServer() {
     });
   });
 
+  // ─── Aggregate Microservice Health Check ──────────────────────────────────
+  app.get("/api/health/services", async (_req, res) => {
+    const { ENV } = await import("../_core/env");
+    const services: Record<string, string> = {
+      "gnn-fraud":           (ENV as any).gnnFraudScoringUrl  ?? "http://127.0.0.1:8141",
+      "fraud-scoring":       (ENV as any).fraudScoringUrl     ?? "http://127.0.0.1:8083",
+      "wealth-management":   (ENV as any).wealthManagementUrl ?? "http://127.0.0.1:8090",
+      "cohort-analytics":    (ENV as any).cohortAnalyticsUrl  ?? "http://127.0.0.1:8091",
+      "kiosk-health":        (ENV as any).kioskHealthUrl      ?? "http://127.0.0.1:8096",
+      "loyalty-ledger":      (ENV as any).loyaltyLedgerUrl    ?? "http://127.0.0.1:8092",
+      "inventory-engine":    (ENV as any).inventoryEngineUrl  ?? "http://127.0.0.1:8093",
+      "kyc-ocr-engine":      (ENV as any).kycOcrEngineUrl     ?? "http://127.0.0.1:8094",
+      "credit-scoring":      (ENV as any).creditScoringUrl    ?? "http://127.0.0.1:8095",
+      "go-bridge":           process.env.MIDDLEWARE_BRIDGE_URL ?? "http://127.0.0.1:8080",
+    };
+    const results: Record<string, { status: string; latencyMs?: number }> = {};
+    await Promise.all(
+      Object.entries(services).map(async ([name, baseUrl]) => {
+        const start = Date.now();
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3000);
+          const r = await fetch(`${baseUrl}/health`, { signal: controller.signal });
+          clearTimeout(timeout);
+          results[name] = { status: r.ok ? "ok" : `http_${r.status}`, latencyMs: Date.now() - start };
+        } catch {
+          results[name] = { status: "unreachable", latencyMs: Date.now() - start };
+        }
+      })
+    );
+    const allOk = Object.values(results).every(r => r.status === "ok");
+    res.status(allOk ? 200 : 207).json({
+      status: allOk ? "ok" : "degraded",
+      timestamp: Date.now(),
+      services: results,
+    });
+  });
+
   app.get("/api/events/transactions", async (req: any, res: any) => {
     try {
       const ctx = await createContext({ req, res } as any);
@@ -1676,20 +1718,29 @@ async function startServer() {
     if (isShuttingDown) return;
     isShuttingDown = true;
     logger.info("graceful_shutdown_initiated", { signal });
-    // Stop accepting new connections
-    server.close((err) => {
-      if (err) {
-        logger.error("graceful_shutdown_error", { error: err.message });
-        process.exit(1);
-      }
-      logger.info("graceful_shutdown_complete");
-      process.exit(0);
-    });
     // Force exit after 30 seconds if drain takes too long
-    setTimeout(() => {
+    const forceExit = setTimeout(() => {
       logger.error("graceful_shutdown_timeout", { hint: "Forcing exit after 30s drain timeout" });
       process.exit(1);
-    }, 30_000).unref();
+    }, 30_000);
+    forceExit.unref();
+    // Stop accepting new connections, then drain all resources
+    server.close(async (err) => {
+      if (err) logger.error("graceful_shutdown_error", { error: err.message });
+      try {
+        // Drain DB connection pool
+        const dbModule = await import("../db") as any;
+        if (dbModule._pool) await dbModule._pool.end().catch(() => {});
+        // Disconnect Redis client if connected
+        const cacheModule = await import("../cache") as any;
+        if (cacheModule.cache?.quit) await cacheModule.cache.quit().catch(() => {});
+        logger.info("graceful_shutdown_complete");
+      } catch (e: any) {
+        logger.error("graceful_shutdown_drain_error", { error: e?.message });
+      }
+      clearTimeout(forceExit);
+      process.exit(err ? 1 : 0);
+    });
   };
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));

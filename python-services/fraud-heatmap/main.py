@@ -554,40 +554,12 @@ async def get_fraud_velocity_by_region(hours: int = 24) -> List[Dict]:
         return []
 
 
-# ─── Mock data for dev/fallback ───────────────────────────────────────────────
+# ─── Empty fallback (returned when DB is unavailable) ─────────────────────────
 
 def _mock_fraud_events(hours: int = 24) -> List[Dict]:
-    """Generate realistic mock fraud events centred on Nigerian cities."""
-    import random
-    cities = [
-        ("Lagos", "Lagos", 6.5244, 3.3792),
-        ("Abuja", "FCT", 9.0765, 7.3986),
-        ("Kano", "Kano", 12.0022, 8.5920),
-        ("Port Harcourt", "Rivers", 4.8156, 7.0498),
-        ("Ibadan", "Oyo", 7.3775, 3.9470),
-    ]
-    fraud_types = ["card_not_present", "account_takeover", "synthetic_identity", "velocity_abuse", "phishing"]
-    events = []
-    now = datetime.now(timezone.utc)
-    random.seed(42)
-    for i in range(200):
-        city, state, base_lat, base_lng = random.choice(cities)
-        events.append({
-            "id": str(uuid.uuid4()),
-            "merchant_id": f"merch_{random.randint(1, 10):03d}",
-            "transaction_id": f"txn_{uuid.uuid4().hex[:8]}",
-            "fraud_type": random.choice(fraud_types),
-            "amount_kobo": random.randint(5000, 500000),
-            "latitude": base_lat + random.gauss(0, 0.05),
-            "longitude": base_lng + random.gauss(0, 0.05),
-            "city": city,
-            "state": state,
-            "risk_score": random.uniform(60, 99),
-            "status": random.choice(["confirmed", "suspected", "confirmed"]),
-            "created_at": now - timedelta(hours=random.uniform(0, hours)),
-        })
-    return events
-
+    """Return empty list when DB is unavailable — no synthetic data in production."""
+    logger.warning("fraud-heatmap: DB unavailable, returning empty event list")
+    return []
 
 # ─── Pydantic models ──────────────────────────────────────────────────────────
 
@@ -822,4 +794,4 @@ async def websocket_fraud_stream(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT, workers=4, log_level="warning")

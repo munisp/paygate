@@ -167,6 +167,23 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // ─── Performance: code-splitting ────────────────────────────────────────────────────────────────────
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        // Rolldown (Vite 8) requires manualChunks as a function, not an object
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) return 'vendor-react';
+            if (id.includes('@trpc') || id.includes('@tanstack/react-query')) return 'vendor-trpc';
+            if (id.includes('@radix-ui')) return 'vendor-ui';
+            if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
+            if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('zod')) return 'vendor-forms';
+            if (id.includes('date-fns') || id.includes('superjson') || id.includes('clsx') || id.includes('class-variance-authority')) return 'vendor-utils';
+          }
+        },
+      },
+    },
   },
   server: {
     host: true,

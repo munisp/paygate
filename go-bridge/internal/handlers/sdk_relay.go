@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 	"time"
 
 	"github.com/google/uuid"
@@ -174,7 +175,7 @@ func (h *SDKRelayHandler) RelayWebhook(w http.ResponseWriter, r *http.Request) {
 
 func deliverWebhookAsync(url string, payload map[string]interface{}) {
 	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.Default
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return

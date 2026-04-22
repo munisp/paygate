@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 	"net/url"
 	"os"
 	"strings"
@@ -726,7 +727,7 @@ func httpPostWithBody(ctx context.Context, targetURL string, body []byte, header
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.Default
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, nil, err
@@ -763,7 +764,7 @@ func httpPost(ctx context.Context, targetURL string, body []byte, headers map[st
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.Default
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err

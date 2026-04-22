@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"github.com/paygate/go-bridge/internal/httpclient"
 	"os"
 	"strconv"
 	"time"
@@ -37,7 +38,7 @@ func proxyToLakehouse(w http.ResponseWriter, method, path string, body []byte) b
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := httpclient.Default
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("[lakehouse-proxy] upstream error: %v", err)
