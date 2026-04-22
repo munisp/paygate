@@ -3380,3 +3380,13 @@
 - [x] TypeScript check passes with 0 errors
 - [x] All 2573 tests pass across 74 test files
 - [x] Fix wave55.test.ts failing tests (incorrect throw-before-assert pattern)
+
+## PostgreSQL Migration (Apr 22, 2026)
+- [x] Install PostgreSQL 14 locally (paygate_db, user: paygate)
+- [x] Swap drizzle driver from mysql2 to postgres (pg + drizzle-orm/node-postgres)
+- [x] Update drizzle.config.ts to use PostgreSQL dialect and paygate_db
+- [x] Update env.ts pgDatabaseUrl fallback to local paygate_db
+- [x] Remove mysql2 from package.json, update wave76 test and tracing.ts
+- [x] Run pnpm db:push — 202 tables created in paygate_db
+- [x] Seed all test fixture data (202 tables, 27 schema additions, 40+ seed rows)
+- [x] All 2573 tests pass with PostgreSQL

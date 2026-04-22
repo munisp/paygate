@@ -59,8 +59,12 @@ export const ENV = {
   fraudScoringUrl: process.env.FRAUD_SCORING_URL ?? "http://fraud-scoring:8083",
   ussdGatewayUrl: process.env.USSD_GATEWAY_URL ?? "http://ussd-gateway:8095",
 
-  // PostgreSQL direct connection (Go bridge / Rust crate)
-  pgDatabaseUrl: process.env.PG_DATABASE_URL ?? process.env.DATABASE_URL ?? "",
+  // PostgreSQL is the database of choice for PayGate.
+  // PG_DATABASE_URL is the primary override (production/staging managed PG).
+  // Falls back to the local dev instance when neither env var is set.
+  pgDatabaseUrl: process.env.PG_DATABASE_URL ??
+    (process.env.DATABASE_URL?.startsWith("postgres") ? process.env.DATABASE_URL : undefined) ??
+    "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",
 
   // ─── Tier 1-5 Service URLs ──────────────────────────────────────────────
   creditScoringUrl: process.env.CREDIT_SCORING_URL ?? "http://credit-scoring:8100",

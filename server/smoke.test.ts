@@ -5,7 +5,7 @@
  * validations, lifecycle state machines, and service integration checks.
  *
  * Run: pnpm test -- server/smoke.test.ts
- * Run with local PG: PG_DATABASE_URL=postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev pnpm test -- server/smoke.test.ts
+ * Run with local PG: PG_DATABASE_URL=postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db pnpm test -- server/smoke.test.ts
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -15,7 +15,7 @@ import { Client } from "pg";
 
 const PG_URL =
   process.env.PG_DATABASE_URL ||
-  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
+  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 
 let pgClient: Client;
 

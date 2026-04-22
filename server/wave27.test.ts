@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { Pool } from "pg";
 
 const pool = new Pool({
-  connectionString: process.env.PG_DATABASE_URL || "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev",
+  connectionString: process.env.PG_DATABASE_URL || "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",
 });
 
 beforeAll(async () => {

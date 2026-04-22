@@ -33,14 +33,14 @@ import * as schema from "../drizzle/schema";
 export { schema };
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
-// The Manus platform injects a MySQL/TiDB DATABASE_URL. Since this project uses
-// PostgreSQL (pg-core), we fall back to the locally installed PostgreSQL when
-// the system URL is not a postgres:// URL.
+// PostgreSQL is the database of choice for PayGate.
+// PG_DATABASE_URL takes precedence; DATABASE_URL is used only if it is already
+// a postgres:// URL (e.g. a managed PG instance injected by the platform).
 function resolveDbUrl(): string | undefined {
   const url = process.env.DATABASE_URL ?? "";
   if (url.startsWith("postgresql://") || url.startsWith("postgres://")) return url;
-  // System URL is MySQL — use local PG or explicit override
-  return process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
+  // Fall back to explicit PG override or the local dev instance
+  return process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 }
 
 let _pool: Pool | null = null;

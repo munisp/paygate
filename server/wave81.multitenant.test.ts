@@ -16,7 +16,7 @@ import { Pool } from "pg";
 const pool = new Pool({
   connectionString:
     process.env.PG_DATABASE_URL ??
-    "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev",
+    "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",
 });
 
 const q = (sql: string, params: any[] = []) => pool.query(sql, params);
@@ -321,7 +321,7 @@ describe("Wave 28-E: Partner Onboarding Wizard", () => {
 describe("Wave 28-F: Tenant Admin Dashboard", () => {
   it("should retrieve seeded partner tenant by ID", async () => {
     const { rows } = await q(
-      "SELECT id, name, plan, status, primary_color FROM partner_tenants WHERE id = $1",
+      "SELECT uuid_id as id, name, plan, status, primary_color FROM partner_tenants WHERE uuid_id = $1",
       [SEED_TENANT_ID]
     );
     expect(rows.length).toBe(1);
@@ -363,7 +363,7 @@ describe("Wave 28-F: Tenant Admin Dashboard", () => {
 
   it("should update tenant branding", async () => {
     await q(
-      "UPDATE partner_tenants SET primary_color = $1, accent_color = $2, updated_at = NOW() WHERE id = $3",
+      "UPDATE partner_tenants SET primary_color = $1, accent_color = $2, updated_at = NOW() WHERE uuid_id = $3",
       ["#0ea5e9", "#06b6d4", SEED_TENANT_ID]
     );
     const { rows } = await q(
@@ -460,19 +460,19 @@ describe("Wave 28-G: Tenant Isolation Middleware", () => {
 
   it("should validate tenant exists and is active", async () => {
     const { rows } = await q(
-      "SELECT id, status FROM partner_tenants WHERE id = $1", [SEED_TENANT_ID]
+      "SELECT uuid_id as id, status FROM partner_tenants WHERE uuid_id = $1", [SEED_TENANT_ID]
     );
     expect(rows.length).toBe(1);
     expect(rows[0].status).toBe("active");
   });
 
   it("should reject inactive tenant", async () => {
-    await q("UPDATE partner_tenants SET status = 'suspended' WHERE id = $1", [SEED_TENANT_2]);
+    await q("UPDATE partner_tenants SET status = 'suspended' WHERE uuid_id = $1", [SEED_TENANT_2]);
     const { rows } = await q(
       "SELECT id FROM partner_tenants WHERE id = $1 AND status = 'active'", [SEED_TENANT_2]
     );
     expect(rows.length).toBe(0);
-    await q("UPDATE partner_tenants SET status = 'active' WHERE id = $1", [SEED_TENANT_2]);
+    await q("UPDATE partner_tenants SET status = 'active' WHERE uuid_id = $1", [SEED_TENANT_2]);
   });
 
   it("should list all active partner tenants", async () => {

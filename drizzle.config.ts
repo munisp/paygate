@@ -1,10 +1,10 @@
 import { defineConfig } from "drizzle-kit";
 
-// The Manus platform injects a MySQL/TiDB DATABASE_URL.
-// This project uses PostgreSQL (pg-core), so we always use the local PG instance.
+// PostgreSQL is the database of choice for PayGate.
+// PG_DATABASE_URL overrides the local default (useful in production/staging).
 const PG_URL =
   process.env.PG_DATABASE_URL ??
-  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
+  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",

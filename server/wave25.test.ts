@@ -14,7 +14,7 @@ beforeAll(async () => {
   pool = new Pool({
     host: "localhost",
     port: 5432,
-    database: "paygate_dev",
+    database: "paygate_db",
     user: "paygate",
     password: "paygate_dev_2026",
   });

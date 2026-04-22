@@ -29,7 +29,7 @@ import {
 
 const DB_URL =
   process.env.PG_DATABASE_URL ??
-  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_dev";
+  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 
 let pool: pg.Pool;
 

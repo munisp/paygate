@@ -34,7 +34,7 @@ global.fetch = mockFetch as unknown as typeof fetch;
 // ─── Mock environment variables ──────────────────────────────────────────────
 vi.stubEnv("MIDDLEWARE_BRIDGE_URL", "http://go-bridge:8080");
 vi.stubEnv("MIDDLEWARE_INTERNAL_KEY", "test-key");
-vi.stubEnv("DATABASE_URL", "mysql://test:test@localhost:3306/test");
+vi.stubEnv("DATABASE_URL", "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db");
 vi.stubEnv("JWT_SECRET", "test-jwt-secret");
 
 // ─── Helper: mock bridge response ────────────────────────────────────────────
