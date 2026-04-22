@@ -2399,6 +2399,320 @@ volumes:
   postgres-data:
   minio-data:
   spark-logs:
+
+  # ─── Wave 80 New Feature Services ────────────────────────────────────────────
+  open-banking-v2:
+    image: paygate/open-banking-v2:latest
+    container_name: paygate-open-banking-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9040"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      OPEN_BANKING_V2_CLIENT_ID: ${OPEN_BANKING_V2_CLIENT_ID:-paygate-ob-client}
+      OPEN_BANKING_V2_CLIENT_SECRET: ${OPEN_BANKING_V2_CLIENT_SECRET:-ob-secret-2026}
+    ports: ["9040:9040"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9040/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  agent-banking-v4:
+    image: paygate/agent-banking-v4:latest
+    container_name: paygate-agent-banking-v4
+    restart: unless-stopped
+    environment:
+      PORT: "9042"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9042:9042"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9042/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  super-agent-v2:
+    image: paygate/super-agent-v2:latest
+    container_name: paygate-super-agent-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9043"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9043:9043"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9043/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  escrow-v2:
+    image: paygate/escrow-v2:latest
+    container_name: paygate-escrow-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9044"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9044:9044"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9044/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  marketplace-pay:
+    image: paygate/marketplace-pay:latest
+    container_name: paygate-marketplace-pay
+    restart: unless-stopped
+    environment:
+      PORT: "9045"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9045:9045"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9045/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  loyalty-v3:
+    image: paygate/loyalty-v3:latest
+    container_name: paygate-loyalty-v3
+    restart: unless-stopped
+    environment:
+      PORT: "9046"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9046:9046"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9046/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  crypto-offramp-v2:
+    image: paygate/crypto-offramp-v2:latest
+    container_name: paygate-crypto-offramp-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9047"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      CRYPTO_OFFRAMP_V2_API_KEY: ${CRYPTO_OFFRAMP_V2_API_KEY:-crypto-offramp-key-2026}
+    ports: ["9047:9047"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9047/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nfc-pay:
+    image: paygate/nfc-pay:latest
+    container_name: paygate-nfc-pay
+    restart: unless-stopped
+    environment:
+      PORT: "9048"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9048:9048"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9048/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  qr-merchant-analytics:
+    image: paygate/qr-merchant-analytics:latest
+    container_name: paygate-qr-merchant-analytics
+    restart: unless-stopped
+    environment:
+      PORT: "9049"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9049:9049"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9049/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  invoice-financing-v2:
+    image: paygate/invoice-financing-v2:latest
+    container_name: paygate-invoice-financing-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9050"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INVOICE_FINANCING_V2_API_KEY: ${INVOICE_FINANCING_V2_API_KEY:-inv-finance-key-2026}
+    ports: ["9050:9050"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  payroll-v3:
+    image: paygate/payroll-v3:latest
+    container_name: paygate-payroll-v3
+    restart: unless-stopped
+    environment:
+      PORT: "9051"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9051:9051"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9051/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tax-filing:
+    image: paygate/tax-filing:latest
+    container_name: paygate-tax-filing
+    restart: unless-stopped
+    environment:
+      PORT: "9052"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      TAX_FILING_API_KEY: ${TAX_FILING_API_KEY:-tax-filing-key-2026}
+    ports: ["9052:9052"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  regulatory-reporting:
+    image: paygate/regulatory-reporting:latest
+    container_name: paygate-regulatory-reporting
+    restart: unless-stopped
+    environment:
+      PORT: "9053"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REGULATORY_REPORTING_API_KEY: ${REGULATORY_REPORTING_API_KEY:-reg-reporting-key-2026}
+    ports: ["9053:9053"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9053/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  usdc-v2:
+    image: paygate/usdc-v2:latest
+    container_name: paygate-usdc-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9054"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9054:9054"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9054/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  multi-currency-ledger:
+    image: paygate/multi-currency-ledger:latest
+    container_name: paygate-multi-currency-ledger
+    restart: unless-stopped
+    environment:
+      PORT: "9055"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9055:9055"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9055/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ussd-session-v2:
+    image: paygate/ussd-session-v2:latest
+    container_name: paygate-ussd-session-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9056"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9056:9056"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9056/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  realtime-notifications:
+    image: paygate/realtime-notifications:latest
+    container_name: paygate-realtime-notifications
+    restart: unless-stopped
+    environment:
+      PORT: "9057"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9057:9057"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9057/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mobile-money-recon-v2:
+    image: paygate/mobile-money-recon-v2:latest
+    container_name: paygate-mobile-money-recon-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9058"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9058:9058"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9058/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   paygate-net:
     driver: bridge

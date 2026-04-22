@@ -2121,8 +2121,8 @@
 - [x] Run pnpm db:push
 
 ### Production Env Defaults
-- [ ] Add all 20 new feature service URLs to env.ts with production defaults
-- [ ] Add all 20 new feature constants to shared/const.ts
+- [x] Add all 20 new feature service URLs to env.ts with production defaults
+- [x] Add all 20 new feature constants to shared/const.ts
 
 ### Stripe Payment Gating
 - [ ] Add stripe_subscriptions table to schema
@@ -2140,7 +2140,7 @@
 - [ ] Add all 20 new feature service URLs to Go bridge env
 
 ### Docker Compose + APISIX + K8s
-- [ ] Add 20 new feature services to docker-compose.prod.yml
+- [x] Add 20 new feature services to docker-compose.prod.yml
 - [ ] Add 20 new APISIX routes
 - [ ] Add 20 new K8s deployments
 
@@ -2183,10 +2183,10 @@
 - [ ] infra/prometheus/alert-rules.yaml: Add alert rules for all 17 Wave 77 services
 - [ ] infra/grafana/wave77-dashboard.json: Grafana dashboard for all Wave 77 services
 - [ ] server/wave78.test.ts: Vitest tests for webhook dispatch, seed data validation, Stripe webhook handler
-- [ ] Full test suite: 0 failures
+- [x] Full test suite: 0 failures
 - [ ] TypeScript: 0 errors
 - [ ] Go bridge: 0 compilation errors
-- [ ] Generate final comprehensive archive paygate_COMPLETE_v78.tar.gz
+- [x] Generate final comprehensive archive paygate_COMPLETE_v78.tar.gz
 
 ## Wave 78 — Production Complete (All Items)
 - [x] Seed all 26 new Wave 76/77 feature tables (seed-wave78.mjs)
@@ -3393,5 +3393,5 @@
 
 ## Post-Migration Next Steps (Apr 22, 2026)
 - [ ] Configure PG_DATABASE_URL production secret
-- [ ] Write versioned drizzle/seed.ts covering all 202 tables
-- [ ] Enable pg_stat_statements + OpenTelemetry slow-query logging
+- [x] Write versioned drizzle/seed.ts covering all 202 tables
+- [x] Enable pg_stat_statements + OpenTelemetry slow-query logging

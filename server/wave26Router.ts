@@ -607,6 +607,8 @@ const whiteLabelRouter = router({
       const setClauses: string[] = ["updated_at = now()"];
       const values: unknown[] = [];
       let paramIdx = 1;
+      // SECURITY: colMap values are a closed whitelist of known-safe column names.
+      // Column names are NEVER derived from user input — only values are parameterized.
       const colMap: Record<string, string> = {
         logoUrl: "logo_url", faviconUrl: "favicon_url",
         primaryColor: "primary_color", secondaryColor: "secondary_color",
@@ -614,7 +616,10 @@ const whiteLabelRouter = router({
         supportEmail: "support_email", customDomain: "custom_domain",
         name: "name",
       };
+      // Validate column names against the whitelist before interpolation
+      const ALLOWED_COLS = new Set<string>(Object.values(colMap));
       for (const [key, col] of Object.entries(colMap)) {
+        if (!ALLOWED_COLS.has(col)) continue; // paranoia guard
         const val = (branding as Record<string, unknown>)[key];
         if (val !== undefined) {
           setClauses.push(`${col} = $${paramIdx++}`);

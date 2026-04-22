@@ -442,11 +442,11 @@ describe("Wave 31 DB: ussd_menus table", () => {
   it("can insert and query ussd_menus", async () => {
     const { rows } = await pool.query(`
       INSERT INTO ussd_menus (menu_code, title, is_active)
-      VALUES ('*737#', 'Main Menu', true)
+      VALUES ('*TEST737#', 'Test Main Menu', true)
       RETURNING id, menu_code, title, is_active
     `);
-    expect(rows[0].menu_code).toBe("*737#");
-    expect(rows[0].title).toBe("Main Menu");
+    expect(rows[0].menu_code).toBe("*TEST737#");
+    expect(rows[0].title).toBe("Test Main Menu");
     expect(rows[0].is_active).toBe(true);
     // cleanup
     await pool.query("DELETE FROM ussd_menus WHERE id = $1", [rows[0].id]);

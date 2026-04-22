@@ -133,9 +133,7 @@ export function startSlowQueryLogger(pool?: Pool): void {
       // Re-export the pool by re-importing the module after initialisation
       // We use execRaw as a proxy to confirm the pool is alive
       resolvedPool = new Pool({
-        connectionString:
-          process.env.PG_DATABASE_URL ??
-          "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",
+        connectionString: process.env.PG_DATABASE_URL ?? process.env.DATABASE_URL,
         max: 2,
         idleTimeoutMillis: 10_000,
       });
