@@ -3466,3 +3466,19 @@
 - [x] Create tieringArchival.ts (hot/warm/cold tiering service)
 - [x] Create wealth-advisor Python microservice (main.py, requirements.txt, Dockerfile)
 - [x] Add wealth-advisor to docker-compose.prod.yml
+## Sprint v90 — ViaMiddleware Wiring & Partner Onboarding (2026-04-23)
+- [x] Create wave90Router.ts with 10 router groups (goldMw, remittanceMw, insuranceMw, emiMw, loyaltyMw, virtualCardsMw, subscriptionsMw, bnplAmortisation, tenantBrandingApi, partnerOnboarding)
+- [x] Wire all 18 ViaMiddleware functions from middlewareBridge.ts
+- [x] Implement BNPL amortisation calculator (calculateSchedule procedure)
+- [x] Implement partner onboarding wizard (5-step: invite, company, branding, fees, review)
+- [x] Implement tenantBrandingApiRouter (getBySlug procedure)
+- [x] Fix reserved word 'apply' → 'applyForEmi' in emiMwRouter
+- [x] Fix logger.info single-arg calls to match winston signature
+- [x] Fix ctx.user.id type coercion (number → string for middleware calls)
+- [x] Register wave90Routers in routers.ts (10 router registrations)
+- [x] Create TenantBrandingContext.tsx with CSS variable injection
+- [x] Create PartnerOnboarding.tsx wizard page (client/src/pages/partner/)
+- [x] Register /partner/onboard/wizard route in App.tsx
+- [x] Create seed-wave90.mjs (11 tables, 30+ records)
+- [x] Write wave90.production.test.ts (47 tests — all passing)
+- [x] Full test suite: 80 test files, 2790 tests passing

@@ -53,6 +53,7 @@ import {
   claimDocumentsEnhancedRouter,
   corridorLiveStatsEnhancedRouter,
 } from './wave89Router';
+import { wave90Routers } from './wave90Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -7538,6 +7539,17 @@ export const appRouter = router({
   portfolioRebalancingEnhanced: portfolioRebalancingEnhancedRouter,
   claimDocumentsEnhanced: claimDocumentsEnhancedRouter,
   corridorLiveEnhanced: corridorLiveStatsEnhancedRouter,
+  // Wave 90 — ViaMiddleware Wiring, Loyalty Cron, BNPL Amortisation, Tenant Branding, Partner Onboarding
+  goldMw: wave90Routers.goldMw,
+  remittanceMw: wave90Routers.remittanceMw,
+  insuranceMw: wave90Routers.insuranceMw,
+  emiMw: wave90Routers.emiMw,
+  loyaltyMw: wave90Routers.loyaltyMw,
+  virtualCardsMw: wave90Routers.virtualCardsMw,
+  subscriptionsMw: wave90Routers.subscriptionsMw,
+  bnplAmortisation: wave90Routers.bnplAmortisation,
+  tenantBrandingApi: wave90Routers.tenantBrandingApi,
+  partnerOnboarding: wave90Routers.partnerOnboarding,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

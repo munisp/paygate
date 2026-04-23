@@ -252,6 +252,7 @@ const DisputeSlaTracking = lz(() => import("./pages/admin/DisputeSlaTracking"));
 
 // ── Misc pages ────────────────────────────────────────────────────────────────
 const PartnerOnboard = lz(() => import("./pages/PartnerOnboard"));
+const PartnerOnboardingWizard = lz(() => import("./pages/partner/PartnerOnboarding"));
 const TenantAdminDashboard = lz(() => import("./pages/TenantAdminDashboard"));
 const WhiteLabelPreview = lz(() => import("./pages/WhiteLabelPreview"));
 const TenantBillingDashboard = lz(() => import("./pages/TenantBillingDashboard"));
@@ -529,6 +530,7 @@ function Router() {
           <Route path="/admin/tenant-revenue" component={AdminTenantRevenuePage} />
           <Route path="/sdk" component={WhiteLabelSDKPage} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
+          <Route path="/partner/onboard/wizard" component={PartnerOnboardingWizard} />
           <Route path="/admin/tenant" component={TenantAdminDashboard} />
           <Route path="/partner/preview" component={WhiteLabelPreview} />
           <Route path="/ollama-chat" component={OllamaChat} />
