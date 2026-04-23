@@ -1,3 +1,4 @@
+import { cpus } from "os";
 import { and, count, desc, eq, gte, like, lte, sql, sum } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -43,6 +44,7 @@ function resolveDbUrl(): string | undefined {
   return process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 }
 
+const cpuCount = cpus().length;
 let _pool: Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -53,7 +55,8 @@ export async function getDb() {
     try {
       _pool = new Pool({
         connectionString: dbUrl,
-        max: parseInt(process.env.PG_POOL_MAX ?? "50"),
+        // 1B-payments lesson: pool size = 2×vCPU+1 (capped at env override)
+        max: parseInt(process.env.PG_POOL_MAX ?? String(Math.min(2 * cpuCount + 1, 50))),
         idleTimeoutMillis: 30_000,
         connectionTimeoutMillis: 5_000,
         allowExitOnIdle: false,

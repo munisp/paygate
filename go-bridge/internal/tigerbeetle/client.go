@@ -277,6 +277,48 @@ func (c *Client) Transfer(
 	return nil
 }
 
+// ─── Batch transfers ────────────────────────────────────────────────────────
+
+// TB_MAX_BATCH_SIZE is the maximum number of transfers per TigerBeetle batch.
+// Each transfer is 128 bytes; 8,190 × 128 B = 1,048,320 B ≈ 1 MB — the exact
+// size of one TigerBeetle network message envelope.
+// Source: https://backend.how/posts/1b-payments-per-day/
+const TB_MAX_BATCH_SIZE = 8190
+
+// BatchTransfers submits up to TB_MAX_BATCH_SIZE transfers in a single
+// CreateTransfers call. This is the high-throughput path: one kernel
+// doorbell ring (io_uring_enter) per ~8,190 transfers instead of one per
+// transfer, eliminating the per-transfer network round-trip overhead.
+//
+// Callers MUST chunk slices larger than TB_MAX_BATCH_SIZE before calling.
+// If the slice is empty, BatchTransfers returns nil immediately.
+//
+// The linked flag on each transfer controls atomicity:
+//   - linked=true on transfers[0..n-2] + linked=false on transfers[n-1]
+//     makes the entire batch succeed or fail atomically.
+//   - All linked=false means each transfer is independent.
+func (c *Client) BatchTransfers(transfers []tb_types.Transfer) error {
+	if len(transfers) == 0 {
+		return nil
+	}
+	if len(transfers) > TB_MAX_BATCH_SIZE {
+		return fmt.Errorf("BatchTransfers: batch size %d exceeds maximum %d", len(transfers), TB_MAX_BATCH_SIZE)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	results, err := c.inner.CreateTransfers(transfers)
+	if err != nil {
+		return fmt.Errorf("BatchTransfers CreateTransfers: %w", err)
+	}
+	for _, r := range results {
+		if r.Result != tb_types.TransferOK {
+			return fmt.Errorf("BatchTransfers[%d]: %v", r.Index, r.Result)
+		}
+	}
+	return nil
+}
+
 // ─── Two-phase transfers ──────────────────────────────────────────────────────
 
 // CodeUSDCEscrow is the TigerBeetle account code for USDC payout escrow accounts.

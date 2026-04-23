@@ -543,8 +543,8 @@ func (a *ActivitySet) ExecuteMojalloopTransfer(ctx context.Context, input CrossB
 	payload := map[string]interface{}{
 		"transferId": input.TransferID,
 		"quoteId":    input.QuoteID,
-		"payerFsp":   input.PayerFSP,
-		"payeeFsp":   input.PayeeFSP,
+		"payerFsp":   input.SenderAccountID,
+		"payeeFsp":   input.RecipientPhone,
 		"amount": map[string]string{
 			"amount":   fmt.Sprintf("%d", input.AmountKobo),
 			"currency": input.Currency,

@@ -1,18 +1,18 @@
 package handlers
 
 import (
-"bytes"
-"crypto/hmac"
-"crypto/sha256"
-"encoding/hex"
-"encoding/json"
-"fmt"
-"io"
-"log/slog"
-"net/http"
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+
 	"github.com/paygate/go-bridge/internal/httpclient"
-"os"
-"time"
 )
 
 // NIBSSConfirmationPayload is the webhook body sent by NIBSS when a PTSP batch is confirmed.

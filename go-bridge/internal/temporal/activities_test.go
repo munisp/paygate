@@ -304,6 +304,7 @@ func TestGetCrossBorderQuote_NoMojaloop_ReturnsMockQuote(t *testing.T) {
 // ─── ExecuteMojalloopTransfer ─────────────────────────────────────────────────
 
 func TestExecuteMojalloopTransfer_NoMojaloop_Noop(t *testing.T) {
+	t.Setenv("MOJALOOP_URL", "") // ensure noop path even when env var is set in shell
 	acts := temporal.NewActivitySet()
 	err := acts.ExecuteMojalloopTransfer(context.Background(), temporal.CrossBorderInput{
 		TransferID: "transfer-001",
