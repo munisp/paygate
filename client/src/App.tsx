@@ -316,6 +316,12 @@ const ConsumerInsurancePortal = lz(() => import("./pages/consumer/ConsumerInsura
 const ConsumerSubscriptions = lz(() => import("./pages/consumer/ConsumerSubscriptions"));
 const ConsumerSIPScheduler = lz(() => import("./pages/consumer/ConsumerSIPScheduler"));
 const PortfolioSummary = lz(() => import("./pages/consumer/PortfolioSummary"));
+const PortfolioRebalancing = lz(() => import("./pages/consumer/PortfolioRebalancing"));
+const ClaimsTracker = lz(() => import("./pages/consumer/ClaimsTracker"));
+const ConsumerLoyaltyDashboard = lz(() => import("./pages/consumer/ConsumerLoyaltyDashboard"));
+const ConsumerBnplRepayments = lz(() => import("./pages/consumer/ConsumerBnplRepayments"));
+const AdminTenantBilling = lz(() => import("./pages/admin/AdminTenantBilling"));
+const AdminCorridorMonitor = lz(() => import("./pages/admin/AdminCorridorMonitor"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -415,6 +421,10 @@ function Router() {
             <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
             <Route path="/consumer/sip" component={ConsumerSIPScheduler} />
             <Route path="/consumer/portfolio" component={PortfolioSummary} />
+            <Route path="/consumer/portfolio/rebalance" component={PortfolioRebalancing} />
+            <Route path="/consumer/claims" component={ClaimsTracker} />
+            <Route path="/consumer/loyalty-dashboard" component={ConsumerLoyaltyDashboard} />
+            <Route path="/consumer/bnpl-repayments" component={ConsumerBnplRepayments} />
             <Route component={ConsumerWallet} />
           </Switch>
         </Suspense>
@@ -510,6 +520,8 @@ function Router() {
           <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
           <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
           <Route path="/admin/invite-codes" component={AdminInviteCodes} />
+          <Route path="/admin/tenant-billing" component={AdminTenantBilling} />
+          <Route path="/admin/corridors" component={AdminCorridorMonitor} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
           <Route path="/admin/tenant" component={TenantAdminDashboard} />
           <Route path="/partner/preview" component={WhiteLabelPreview} />

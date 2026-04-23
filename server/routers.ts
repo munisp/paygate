@@ -6548,7 +6548,12 @@ const reconciliationRouter = router({
     }))
     .mutation(async ({ input }) => {
       const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
-      if (!expectedKey || input.internalKey !== expectedKey) {
+      // VULN-037 fix: use timingSafeEqual to prevent timing-based key enumeration
+      const { timingSafeEqual } = await import("crypto");
+      const keysMatch = expectedKey.length > 0 &&
+        input.internalKey.length === expectedKey.length &&
+        timingSafeEqual(Buffer.from(input.internalKey), Buffer.from(expectedKey));
+      if (!keysMatch) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid internal key" });
       }
       const { createReconciliationAlert } = await import("./db");

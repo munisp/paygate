@@ -133,8 +133,13 @@ export function registerSseEndpoint(app: Express): void {
 
   // ── SSE stats endpoint (internal) ─────────────────────────────────────────
   app.get("/api/sse/stats", async (req: Request, res: Response) => {
-    const internalKey = req.headers["x-internal-key"];
-    if (internalKey !== process.env.MIDDLEWARE_INTERNAL_KEY) {
+    const internalKey = String(req.headers["x-internal-key"] ?? "");
+    const expectedKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+    // VULN-038 fix: use timingSafeEqual to prevent timing-based key enumeration
+    const { timingSafeEqual } = await import("crypto");
+    const keysMatch = expectedKey.length > 0 &&
+      internalKey.length === expectedKey.length &&
+      timingSafeEqual(Buffer.from(internalKey), Buffer.from(expectedKey));
       res.status(403).json({ error: "Forbidden" });
       return;
     }
