@@ -774,6 +774,78 @@ const systemHealthRouter = router({
       };
     }
   }),
+
+  // ─── Slow Queries (pg_stat_statements) ─────────────────────────────────────
+  getSlowQueries: adminProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(20),
+      thresholdMs: z.number().min(0).default(500),
+      orderBy: z.enum(["mean_exec_time", "total_exec_time", "calls", "max_exec_time"]).default("mean_exec_time"),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { rows: [], error: "DB unavailable" };
+      // Whitelist the order column to prevent injection
+      const ORDER_COLS: Record<string, string> = {
+        mean_exec_time: "mean_exec_time",
+        total_exec_time: "total_exec_time",
+        calls: "calls",
+        max_exec_time: "max_exec_time",
+      };
+      const orderCol = ORDER_COLS[input.orderBy] ?? "mean_exec_time";
+      const safeLimit = Math.min(Math.max(1, input.limit), 100);
+      try {
+        const rows = await db.execute(sql.raw(`
+          SELECT
+            queryid::text                                                   AS queryid,
+            LEFT(query, 300)                                                AS query_preview,
+            calls,
+            ROUND(mean_exec_time::numeric, 2)                              AS mean_exec_time_ms,
+            ROUND(max_exec_time::numeric, 2)                               AS max_exec_time_ms,
+            ROUND(min_exec_time::numeric, 2)                               AS min_exec_time_ms,
+            ROUND(total_exec_time::numeric, 2)                             AS total_exec_time_ms,
+            ROUND(stddev_exec_time::numeric, 2)                            AS stddev_exec_time_ms,
+            rows,
+            ROUND(
+              (shared_blks_hit::numeric /
+               NULLIF(shared_blks_hit + shared_blks_read, 0)) * 100, 2
+            )                                                              AS cache_hit_pct,
+            shared_blks_read,
+            shared_blks_hit,
+            temp_blks_written,
+            blk_read_time,
+            blk_write_time
+          FROM pg_stat_statements
+          WHERE mean_exec_time >= ${input.thresholdMs}
+            AND query NOT LIKE '%pg_stat_statements%'
+            AND query NOT LIKE '%pg_class%'
+            AND query NOT LIKE '%pg_stat%'
+          ORDER BY ${orderCol} DESC
+          LIMIT ${safeLimit}
+        `));
+        return { rows: Array.from(rows as any), error: null };
+      } catch (e: any) {
+        if (e.message?.includes("pg_stat_statements")) {
+          return {
+            rows: [],
+            error: "pg_stat_statements extension not loaded. Run: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;",
+          };
+        }
+        return { rows: [], error: e.message };
+      }
+    }),
+
+  resetSlowQueryStats: adminProcedure
+    .mutation(async () => {
+      const db = await getDb();
+      if (!db) return { success: false, error: "DB unavailable" };
+      try {
+        await db.execute(sql.raw(`SELECT pg_stat_statements_reset()`));
+        return { success: true, resetAt: new Date().toISOString() };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }),
 });
 
 // ─── 10. Audit Trail Admin ────────────────────────────────────────────────────

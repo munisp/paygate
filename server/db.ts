@@ -41,7 +41,7 @@ function resolveDbUrl(): string | undefined {
   const url = process.env.DATABASE_URL ?? "";
   if (url.startsWith("postgresql://") || url.startsWith("postgres://")) return url;
   // Fall back to explicit PG override or the local dev instance
-  return process.env.PG_DATABASE_URL ?? "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
+  return process.env.PG_DATABASE_URL ?? "postgresql://paygate_user:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 }
 
 const cpuCount = cpus().length;
@@ -806,6 +806,22 @@ export async function createSettlement(data: InsertSettlement): Promise<Settleme
   const db = await getDb(); if (!db) return null;
   const [row] = await db.insert(settlements).values(data).returning();
   return row ?? null;
+}
+
+/**
+ * Bulk-insert settlements with synchronous_commit = local for the batch.
+ * Per the 1B payments/day benchmark: SET LOCAL synchronous_commit = local gives
+ * 2-3x write throughput on bulk settlement reconciliation jobs.
+ * Safe because settlement rows are idempotent and replayable from Kafka.
+ */
+export async function bulkCreateSettlements(rows: InsertSettlement[]): Promise<Settlement[]> {
+  const db = await getDb(); if (!db || rows.length === 0) return [];
+  return db.transaction(async (tx) => {
+    // Relax fsync to local WAL only — replica lag is acceptable for bulk batch
+    await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+    const inserted = await tx.insert(settlements).values(rows).returning();
+    return inserted;
+  });
 }
 
 export async function getSettlementById(id: string): Promise<Settlement | null> {

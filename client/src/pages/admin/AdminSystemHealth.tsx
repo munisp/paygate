@@ -7,10 +7,14 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import {
   Activity, Database, CheckCircle, AlertTriangle, XCircle,
-  RefreshCw, TrendingUp, Zap, AlertCircle, BarChart3, Clock
+  RefreshCw, TrendingUp, Zap, AlertCircle, BarChart3, Clock,
+  Search, Trash2, Timer
 } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -271,6 +275,224 @@ function DbHealthCard() {
   );
 }
 
+// ─── Slow Queries Card ──────────────────────────────────────────────────────────────
+function SlowQueriesCard() {
+  const { toast } = useToast();
+  const [search, setSearch] = useState("");
+  const [minMs, setMinMs] = useState(500);
+  const [limit, setLimit] = useState(25);
+
+  const { data, isLoading, refetch, isFetching } = trpc.admin.health.getSlowQueries.useQuery(
+    { minMeanMs: minMs, limit },
+    { staleTime: 30_000, refetchInterval: 60_000 }
+  );
+
+  const resetMutation = trpc.admin.health.resetSlowQueryStats.useMutation({
+    onSuccess: () => {
+      toast({ title: "Stats reset", description: "pg_stat_statements counters cleared." });
+      refetch();
+    },
+    onError: (err) => toast({ title: "Reset failed", description: err.message, variant: "destructive" }),
+  });
+
+  const rows: any[] = (data as any)?.queries ?? [];
+  const available: boolean = (data as any)?.available ?? false;
+  const totalCalls: number = (data as any)?.totalCalls ?? 0;
+
+  const filtered = rows.filter((r: any) =>
+    !search || r.query?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const latencyColor = (ms: number) => {
+    if (ms < 100) return "text-green-400";
+    if (ms < 500) return "text-amber-400";
+    return "text-red-400";
+  };
+
+  return (
+    <Card className="bg-slate-900 border-slate-800">
+      <CardHeader>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <CardTitle className="text-white text-base flex items-center gap-2">
+            <Timer className="w-4 h-4 text-orange-400" />
+            Slow Query Monitor
+            <span className="text-xs font-normal text-slate-400 ml-1">(pg_stat_statements)</span>
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-slate-400 hover:text-white h-7 px-2 text-xs"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5 mr-1", isFetching && "animate-spin")} />
+              Refresh
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-400 hover:text-red-300 h-7 px-2 text-xs"
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              Reset Stats
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!available && !isLoading && (
+          <div className="flex items-center gap-2 text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-sm">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            pg_stat_statements extension not available on this database. Run: <code className="font-mono text-xs bg-slate-800 px-1.5 py-0.5 rounded">CREATE EXTENSION pg_stat_statements;</code>
+          </div>
+        )}
+
+        {/* Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <Input
+              placeholder="Filter by query text..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-8 text-xs bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-500"
+            />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span>Min mean:</span>
+            {[100, 500, 1000, 5000].map((ms) => (
+              <button
+                key={ms}
+                onClick={() => setMinMs(ms)}
+                className={cn(
+                  "px-2 py-1 rounded text-xs border transition-colors",
+                  minMs === ms
+                    ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                    : "bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-600"
+                )}
+              >
+                {ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span>Show:</span>
+            {[10, 25, 50].map((n) => (
+              <button
+                key={n}
+                onClick={() => setLimit(n)}
+                className={cn(
+                  "px-2 py-1 rounded text-xs border transition-colors",
+                  limit === n
+                    ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                    : "bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-600"
+                )}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* KPI row */}
+        {available && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
+              <p className="text-xs text-slate-400 mb-1">Total Queries Tracked</p>
+              <p className="text-xl font-bold text-white font-mono">{fmtNum(totalCalls)}</p>
+            </div>
+            <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
+              <p className="text-xs text-slate-400 mb-1">Slow Queries Found</p>
+              <p className={cn("text-xl font-bold font-mono", rows.length > 0 ? "text-orange-400" : "text-green-400")}>{rows.length}</p>
+            </div>
+            <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50">
+              <p className="text-xs text-slate-400 mb-1">Threshold</p>
+              <p className="text-xl font-bold text-white font-mono">{minMs >= 1000 ? `${minMs / 1000}s` : `${minMs}ms`}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Table */}
+        {isLoading ? (
+          <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full bg-slate-800" />)}</div>
+        ) : (
+          <div className="rounded-lg border border-slate-700 overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-700 hover:bg-transparent">
+                    <TableHead className="text-slate-400 text-xs w-[40%]">Query</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Calls</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Mean (ms)</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Max (ms)</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Total (ms)</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Rows/Call</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Cache Hit%</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-10">
+                        <div className="flex flex-col items-center gap-2">
+                          <CheckCircle className="w-8 h-8 text-green-400" />
+                          <p className="text-green-400 font-medium text-sm">
+                            {available ? "No slow queries detected" : "pg_stat_statements not enabled"}
+                          </p>
+                          <p className="text-slate-500 text-xs">
+                            {available ? `All queries complete in under ${minMs}ms` : "Enable the extension to track query performance"}
+                          </p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : filtered.map((q: any, i: number) => (
+                    <TableRow key={i} className="border-slate-700 hover:bg-slate-800/40">
+                      <TableCell className="max-w-[300px]">
+                        <div className="group relative">
+                          <code className="text-xs text-slate-300 font-mono line-clamp-2 block">
+                            {q.query}
+                          </code>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right text-slate-300 text-xs font-mono">{fmtNum(q.calls)}</TableCell>
+                      <TableCell className="text-right text-xs font-mono">
+                        <span className={latencyColor(Number(q.mean_exec_time ?? 0))}>
+                          {Number(q.mean_exec_time ?? 0).toFixed(1)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-mono">
+                        <span className={latencyColor(Number(q.max_exec_time ?? 0))}>
+                          {Number(q.max_exec_time ?? 0).toFixed(1)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-slate-400 text-xs font-mono">
+                        {Number(q.total_exec_time ?? 0).toFixed(0)}
+                      </TableCell>
+                      <TableCell className="text-right text-slate-400 text-xs font-mono">
+                        {q.calls > 0 ? (Number(q.rows ?? 0) / Number(q.calls)).toFixed(1) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-mono">
+                        {q.shared_blks_hit != null ? (
+                          <span className={latencyColor(100 - (Number(q.shared_blks_hit) / Math.max(Number(q.shared_blks_hit) + Number(q.shared_blks_read ?? 0), 1) * 100))}>
+                            {(Number(q.shared_blks_hit) / Math.max(Number(q.shared_blks_hit) + Number(q.shared_blks_read ?? 0), 1) * 100).toFixed(1)}%
+                          </span>
+                        ) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AdminSystemHealth() {
   const healthQuery = trpc.admin.health.getOverview.useQuery(undefined, { refetchInterval: 30_000 });
@@ -381,6 +603,9 @@ export default function AdminSystemHealth() {
 
         {/* DB Health & Index Monitor */}
         <DbHealthCard />
+
+        {/* Slow Query Monitor */}
+        <SlowQueriesCard />
       </div>
     </AdminLayout>
   );

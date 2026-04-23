@@ -6,18 +6,22 @@ version: "3.9"
 # =============================================================================
 
 x-tb-common: &tb-common
-  image: ghcr.io/tigerbeetle/tigerbeetle:latest
+  # Pinned version for reproducible deployments (benchmark: v0.16.44)
+  image: ghcr.io/tigerbeetle/tigerbeetle:0.16.44
   restart: unless-stopped
-  volumes:
-    - type: bind
-      source: ./data
-      target: /var/lib/tigerbeetle
   environment:
     TIGERBEETLE_CLUSTER_ID: "0"
     TIGERBEETLE_DATA_SIZE: "8GB"
     TIGERBEETLE_ADDRESSES: "tb-0:3902,tb-1:3902,tb-2:3902"
   networks:
     - tb-cluster
+  # TigerBeetle is memory-mapped; give it enough file descriptors
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  # Prevent OOM-killer from touching the TigerBeetle process
+  oom_score_adj: -900
 
 services:
   tb-0:
@@ -35,14 +39,20 @@ services:
     ports:
       - "3902:3902"
     healthcheck:
-      test: ["CMD-SHELL", "tigerbeetle version || exit 1"]
+      # Probe TCP port — TigerBeetle has no HTTP health endpoint
+      test: ["CMD-SHELL", "nc -z localhost 3902 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   tb-1:
     <<: *tb-common
     container_name: paygate-tb-1
+    hostname: tb-1
+    depends_on:
+      tb-0:
+        condition: service_healthy
     environment:
       TIGERBEETLE_CLUSTER_ID: "0"
       TIGERBEETLE_DATA_SIZE: "8GB"
@@ -58,6 +68,10 @@ services:
   tb-2:
     <<: *tb-common
     container_name: paygate-tb-2
+    hostname: tb-2
+    depends_on:
+      tb-1:
+        condition: service_healthy
     environment:
       TIGERBEETLE_CLUSTER_ID: "0"
       TIGERBEETLE_DATA_SIZE: "8GB"
@@ -70,11 +84,53 @@ services:
     ports:
       - "3904:3902"
 
+  # ─── Cluster health probe sidecar ──────────────────────────────────────────
+  # Continuously probes all 3 TB nodes and logs status.
+  # Used by go-bridge liveness probe and admin portal health dashboard.
+  tb-healthprobe:
+    image: curlimages/curl:8.7.1
+    container_name: paygate-tb-healthprobe
+    restart: unless-stopped
+    networks:
+      - tb-cluster
+    depends_on:
+      tb-0:
+        condition: service_healthy
+      tb-1:
+        condition: service_healthy
+      tb-2:
+        condition: service_healthy
+    command: >
+      sh -c "while true; do
+        for node in tb-0:3902 tb-1:3902 tb-2:3902; do
+          nc -z $${node%%:*} $${node##*:} 2>/dev/null && echo \"[OK] $$node\" || echo \"[DOWN] $$node\";
+        done;
+        sleep 30;
+      done"
+
 volumes:
   tb-data-0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/tigerbeetle/node-0
   tb-data-1:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/tigerbeetle/node-1
   tb-data-2:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/tigerbeetle/node-2
 
 networks:
   tb-cluster:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
