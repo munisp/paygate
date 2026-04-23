@@ -20,6 +20,11 @@ import AcceptInvite from "./pages/AcceptInvite";
 
 // ── Consumer layout (eager — consumer shell) ─────────────────────────────────
 import ConsumerLayout from "./pages/consumer/ConsumerLayout";
+import EMIManagement from "./pages/EMIManagement";
+import SubscriptionManagement from "./pages/SubscriptionManagement";
+import PartnerAdminDashboard from "./pages/PartnerAdminDashboard";
+import TenantBrandingAdmin from "./pages/TenantBrandingAdmin";
+import PartnerOnboardingWizard from "./pages/partner/PartnerOnboarding";
 
 // ── Lazy page loader helper ───────────────────────────────────────────────────
 const lz = (fn: () => Promise<any>) => lazy(fn);
@@ -677,6 +682,11 @@ function Router() {
           <Route path="/webhook-events" component={WebhookEventsPage} />
           <Route path="/emi-loans" component={EMILoansPage} />
           <Route path="/insurance" component={InsurancePage} />
+          <Route path="/emi-management" component={EMIManagement} />
+          <Route path="/subscription-management" component={SubscriptionManagement} />
+          <Route path="/partner/admin" component={PartnerAdminDashboard} />
+          <Route path="/tenant/branding" component={TenantBrandingAdmin} />
+          <Route path="/partner/onboard/wizard" component={PartnerOnboardingWizard} />
           <Route component={Dashboard} />
         </Switch>
       </Suspense>

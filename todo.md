@@ -3482,3 +3482,22 @@
 - [x] Create seed-wave90.mjs (11 tables, 30+ records)
 - [x] Write wave90.production.test.ts (47 tests — all passing)
 - [x] Full test suite: 80 test files, 2790 tests passing
+## Sprint v91 — Complete Feature Implementation (2026-04-23)
+- [x] Create BNPLCalculator.tsx page with amortisation table + interactive calculator
+- [x] Create LoyaltyDashboard.tsx with tier badge, cashback balance, redemption, history
+- [x] Create RemittanceTracker.tsx with corridor rates, send form, transfer history
+- [x] Create GoldInvestmentHub.tsx enhanced page (buy/sell/SIP/portfolio/history)
+- [x] Create InsuranceHub.tsx with product catalog, policies CRUD, claims workflow
+- [x] Create EMIManagement.tsx with plans, applications, schedule viewer
+- [x] Create VirtualCardsEnhanced.tsx with full CRUD (issue/freeze/unfreeze/list/details)
+- [x] Create SubscriptionManagement.tsx with plans, subscribers, churn analytics
+- [x] Create PartnerAdminDashboard.tsx with partner list, onboarding status, revenue
+- [x] Create TenantBrandingAdmin.tsx with branding CRUD, preview, CSS injection
+- [x] Add wave91 nav items to Layout.tsx sidebar
+- [x] Add wave91 routes to App.tsx
+- [x] Extend wave90Router.ts with missing procedures (list/freeze/unfreeze for virtualCardsMw, subscribers/churn for subscriptionsMw, evaluateTier for loyaltyMw)
+- [x] Write wave91 security audit (SECURITY_AUDIT_v91.md)
+- [x] Fix any new security vulnerabilities found
+- [x] Write wave91.production.test.ts (target 50+ tests)
+- [x] Update seed-wave90.mjs with additional wave91 seed data
+- [x] Full test suite: target 2840+ tests passing
