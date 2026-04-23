@@ -3395,3 +3395,18 @@
 - [x] Configure PG_DATABASE_URL production secret
 - [x] Write versioned drizzle/seed.ts covering all 202 tables
 - [x] Enable pg_stat_statements + OpenTelemetry slow-query logging
+
+## Sprint: 1B Payments Architecture + Follow-ups (Apr 23 2026)
+
+- [x] Research 1B payments/day architecture from backend.how/posts/1b-payments-per-day and github.com/pratikgajjar/1b-payments
+- [x] Apply TigerBeetle batch size 8,190 (already implemented in go-bridge TB_MAX_BATCH_SIZE)
+- [x] Apply zero-fsync pattern (TigerBeetle O_DIRECT + circular WAL — already in go-bridge)
+- [x] Apply idempotency key enforcement (already in server/idempotency.ts)
+- [x] Apply Redis sliding-window rate limiting (already in server/rateLimit.ts)
+- [x] Implement hot/warm/cold tiering archival service (server/tieringArchival.ts)
+- [x] Create docs/1b-payments-architecture.md with all lessons applied to PayGate
+- [x] Create paygate-merchant-portal reusable skill (/home/ubuntu/skills/paygate-merchant-portal/)
+- [x] Add mutual funds side-by-side comparison on ConsumerMutualFunds page (tabs + comparison table with best-value highlighting)
+- [x] Implement portfolio summary feature visualizing holdings across gold, mutual funds, and pensions (PortfolioSummary.tsx with donut chart + sparklines + breakdown table)
+- [x] Register /consumer/portfolio route in App.tsx and ConsumerLayout nav
+- [x] Integrate real-time chat support widget on the insurance portal page (InsuranceChatWidget with LLM + fallback rule-based responses, suggested questions, typing indicator)

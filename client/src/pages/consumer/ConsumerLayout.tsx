@@ -11,7 +11,7 @@ import {
   ArrowDownLeft, RefreshCw, Shield, BarChart2,
   AlertTriangle, Umbrella, MoreHorizontal, X,
   ChevronRight, Repeat, Lock, Fingerprint, Send, Settings, BookOpen,
-  Coins, PieChart, TrendingUp
+  Coins, PieChart, TrendingUp, BarChart3
 } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
@@ -70,6 +70,7 @@ const MORE_SECTIONS = [
   {
     title: "Financial Services",
     items: [
+      { path: "/consumer/portfolio", label: "Portfolio Summary", icon: BarChart3 },
       { path: "/consumer/financial", label: "Financial Hub", icon: TrendingUp },
       { path: "/consumer/gold", label: "Digital Gold", icon: Coins },
       { path: "/consumer/mutual-funds", label: "Mutual Funds", icon: PieChart },

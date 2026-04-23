@@ -315,6 +315,7 @@ const ConsumerInsuranceV2 = lz(() => import("./pages/consumer/ConsumerInsuranceV
 const ConsumerInsurancePortal = lz(() => import("./pages/consumer/ConsumerInsurancePortal"));
 const ConsumerSubscriptions = lz(() => import("./pages/consumer/ConsumerSubscriptions"));
 const ConsumerSIPScheduler = lz(() => import("./pages/consumer/ConsumerSIPScheduler"));
+const PortfolioSummary = lz(() => import("./pages/consumer/PortfolioSummary"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -413,6 +414,7 @@ function Router() {
             <Route path="/consumer/insurance-portal" component={ConsumerInsurancePortal} />
             <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
             <Route path="/consumer/sip" component={ConsumerSIPScheduler} />
+            <Route path="/consumer/portfolio" component={PortfolioSummary} />
             <Route component={ConsumerWallet} />
           </Switch>
         </Suspense>
