@@ -25,6 +25,9 @@ import SubscriptionManagement from "./pages/SubscriptionManagement";
 import PartnerAdminDashboard from "./pages/PartnerAdminDashboard";
 import TenantBrandingAdmin from "./pages/TenantBrandingAdmin";
 import PartnerOnboardingWizard from "./pages/partner/PartnerOnboarding";
+import GoldSIP from "./pages/GoldSIP";
+import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
+import WebhookLiveStream from "./pages/WebhookLiveStream";
 
 // ── Lazy page loader helper ───────────────────────────────────────────────────
 const lz = (fn: () => Promise<any>) => lazy(fn);
@@ -687,8 +690,11 @@ function Router() {
           <Route path="/partner/admin" component={PartnerAdminDashboard} />
           <Route path="/tenant/branding" component={TenantBrandingAdmin} />
           <Route path="/partner/onboard/wizard" component={PartnerOnboardingWizard} />
+          <Route path="/gold/sip" component={GoldSIP} />
+          <Route path="/consumer/loyalty-app" component={ConsumerLoyaltyApp} />
+          <Route path="/webhook-live" component={WebhookLiveStream} />
           <Route component={Dashboard} />
-        </Switch>
+    </Switch>
       </Suspense>
     </Layout>
   );

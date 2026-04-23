@@ -313,6 +313,7 @@ const devItems: NavItem[] = [
   { icon: Key, label: "API Keys", path: "/api-keys" },
   { icon: Key, label: "SDK Tokens", path: "/sdk-tokens", badge: "New" },
   { icon: Webhook, label: "Webhooks", path: "/webhooks" },
+      { icon: Activity, label: "Live Stream", path: "/webhook-live" },
   { icon: Code2, label: "Developer", path: "/developer" },
   { icon: Code2, label: "Dev Sandbox", path: "/developer-sandbox", badge: "New" },
   { icon: QrCode, label: "QR Generator", path: "/qr-generator", badge: "New" },
