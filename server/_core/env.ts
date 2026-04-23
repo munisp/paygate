@@ -64,7 +64,7 @@ export const ENV = {
   // Falls back to the local dev instance when neither env var is set.
   pgDatabaseUrl: process.env.PG_DATABASE_URL ??
     (process.env.DATABASE_URL?.startsWith("postgres") ? process.env.DATABASE_URL : undefined) ??
-    "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",
+    "postgresql://paygate_user:paygate_dev_2026@127.0.0.1:5432/paygate_db",
 
   // ─── Tier 1-5 Service URLs ──────────────────────────────────────────────
   creditScoringUrl: process.env.CREDIT_SCORING_URL ?? "http://credit-scoring:8100",

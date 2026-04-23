@@ -3,205 +3,249 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { TrendingUp, Coins, ShoppingCart, ArrowDownCircle, RefreshCw } from "lucide-react";
-
-const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+import { Coins, TrendingUp, ShoppingCart, ArrowDownCircle, RefreshCw } from "lucide-react";
 
 export default function ConsumerGold() {
-  const [buyDialog, setBuyDialog] = useState(false);
-  const [sellDialog, setSellDialog] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [grams, setGrams] = useState("");
+  const [buyGrams, setBuyGrams] = useState("");
+  const [sellGrams, setSellGrams] = useState("");
+  const [sipAmount, setSipAmount] = useState("");
+  const [sipFrequency, setSipFrequency] = useState<"daily" | "weekly" | "monthly">("monthly");
 
-  const { data: price, refetch: refetchPrice } = trpc.consumerFinancial.gold.getPrice.useQuery();
-  const { data: portfolio, refetch: refetchHoldings } = trpc.consumerFinancial.gold.getPortfolio.useQuery();
+  const { data: price, isLoading: priceLoading, refetch: refetchPrice } = trpc.newFeatures.digitalGold.getPrice.useQuery();
+  const { data: holdings, refetch: refetchHoldings } = trpc.newFeatures.digitalGold.getHoldings.useQuery();
+  const { data: history } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 10 });
 
-  const buyMutation = trpc.consumerFinancial.gold.buy.useMutation({
+  const buyMutation = trpc.newFeatures.digitalGold.buy.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`Purchased ${d.grams?.toFixed(4)}g of gold`);
-      setBuyDialog(false);
-      setAmount("");
+      toast.success(`Purchased ${d.gramsAcquired?.toFixed(4)}g gold`);
+      setBuyGrams("");
       refetchHoldings();
     },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const sellMutation = trpc.consumerFinancial.gold.sell.useMutation({
+  const sellMutation = trpc.newFeatures.digitalGold.sell.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`Sold ${d.grams?.toFixed(4)}g — ${formatKobo(d.proceedsKobo ?? 0)} credited`);
-      setSellDialog(false);
-      setGrams("");
+      toast.success(`Sold gold for ₦${((d.proceedsKobo ?? 0) / 100).toLocaleString()}`);
+      setSellGrams("");
       refetchHoldings();
     },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const holdings = (portfolio as any)?.holdings ?? [];
-  const totalGrams = holdings.reduce((s: number, h: any) => s + (h.grams ?? 0), 0);
-  const totalValue = (portfolio as any)?.totalValueKobo ?? 0;
-  const totalCost = holdings.reduce((s: number, h: any) => s + (h.purchase_price_kobo ?? h.purchasePriceKobo ?? 0), 0);
-  const pnl = totalValue - totalCost;
+  const sipMutation = trpc.newFeatures.digitalGold.createSIP.useMutation({
+    onSuccess: () => {
+      toast.success("Gold SIP plan created");
+      setSipAmount("");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+  const goldPrice = price?.pricePerGramKobo ?? 0;
+  const buyEstimate = buyGrams ? goldPrice * parseFloat(buyGrams) : 0;
 
   return (
-    <div className="p-4 space-y-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <Coins className="w-5 h-5 text-yellow-500" /> Digital Gold
-        </h1>
-        <Button variant="ghost" size="sm" onClick={() => { refetchPrice(); refetchHoldings(); }}>
-          <RefreshCw className="w-4 h-4" />
-        </Button>
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center gap-3">
+        <Coins className="h-8 w-8 text-yellow-500" />
+        <div>
+          <h1 className="text-2xl font-bold">Digital Gold</h1>
+          <p className="text-muted-foreground">Buy, sell, and invest in 24K digital gold</p>
+        </div>
       </div>
 
-      {/* Live Price */}
-      <Card className="bg-gradient-to-r from-yellow-50 to-amber-50 border-yellow-200">
-        <CardContent className="p-4">
-          <p className="text-sm text-yellow-700">Live Gold Price (24K)</p>
-          <p className="text-3xl font-bold text-yellow-800">
-            {price ? formatKobo((price as any).pricePerGramKobo) : "—"} / gram
-          </p>
-          <p className="text-xs text-yellow-600 mt-1">
-            Source: {(price as any)?.source ?? "goldtech-api"} · Updated just now
-          </p>
-        </CardContent>
-      </Card>
+      {/* Price & Holdings */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> Current Price
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">
+              {priceLoading ? "..." : formatKobo(goldPrice)}
+            </div>
+            <p className="text-xs text-muted-foreground">per gram (24K)</p>
+            <Button variant="ghost" size="sm" className="mt-2 p-0 h-auto" onClick={() => refetchPrice()}>
+              <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+            </Button>
+          </CardContent>
+        </Card>
 
-      {/* Portfolio Summary */}
-      <div className="grid grid-cols-3 gap-3">
         <Card>
-          <CardContent className="p-3 text-center">
-            <p className="text-xs text-muted-foreground">Total Holdings</p>
-            <p className="text-lg font-bold">{totalGrams.toFixed(4)}g</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 text-center">
-            <p className="text-xs text-muted-foreground">Current Value</p>
-            <p className="text-lg font-bold">{formatKobo(totalValue)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 text-center">
-            <p className="text-xs text-muted-foreground">P&L</p>
-            <p className={`text-lg font-bold ${pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {pnl >= 0 ? "+" : ""}{formatKobo(pnl)}
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Your Holdings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{(holdings?.totalGrams ?? 0).toFixed(4)}g</div>
+            <p className="text-xs text-muted-foreground">
+              ≈ {formatKobo((holdings?.totalGrams ?? 0) * goldPrice)}
             </p>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Actions */}
-      <div className="flex gap-3">
-        <Button className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white" onClick={() => setBuyDialog(true)}>
-          <ShoppingCart className="w-4 h-4 mr-2" /> Buy Gold
-        </Button>
-        <Button variant="outline" className="flex-1" onClick={() => setSellDialog(true)} disabled={totalGrams <= 0}>
-          <ArrowDownCircle className="w-4 h-4 mr-2" /> Sell Gold
-        </Button>
-      </div>
-
-      {/* Holdings Table */}
-      {holdings?.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-base">My Holdings</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y">
-              {holdings.map((h: any) => (
-                <div key={h.id} className="flex items-center justify-between p-3">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Portfolio Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {formatKobo((holdings?.totalGrams ?? 0) * goldPrice)}
+            </div>
+            <Badge variant="outline" className="text-xs mt-1">Live valuation</Badge>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Buy & Sell */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-green-500" /> Buy Gold
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Amount (grams)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 0.5"
+                value={buyGrams}
+                onChange={(e) => setBuyGrams(e.target.value)}
+                min="0.01"
+                step="0.01"
+              />
+              {buyGrams && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Estimated cost: <strong>{formatKobo(buyEstimate)}</strong>
+                </p>
+              )}
+            </div>
+            <Button
+              className="w-full bg-yellow-500 hover:bg-yellow-600 text-black"
+              onClick={() => buyMutation.mutate({ grams: parseFloat(buyGrams) })}
+              disabled={!buyGrams || buyMutation.isPending}
+            >
+              {buyMutation.isPending ? "Processing..." : "Buy Gold"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowDownCircle className="h-5 w-5 text-red-500" /> Sell Gold
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Amount (grams)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 0.25"
+                value={sellGrams}
+                onChange={(e) => setSellGrams(e.target.value)}
+                min="0.01"
+                step="0.01"
+              />
+              {sellGrams && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Estimated proceeds: <strong>{formatKobo(goldPrice * parseFloat(sellGrams) * 0.98)}</strong>
+                  <span className="text-xs ml-1">(2% spread)</span>
+                </p>
+              )}
+            </div>
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={() => sellMutation.mutate({ grams: parseFloat(sellGrams) })}
+              disabled={!sellGrams || sellMutation.isPending}
+            >
+              {sellMutation.isPending ? "Processing..." : "Sell Gold"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* SIP Plan */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Gold SIP Plan</CardTitle>
+          <p className="text-sm text-muted-foreground">Set up automatic gold purchases at regular intervals</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>Investment Amount (₦)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 5000"
+                value={sipAmount}
+                onChange={(e) => setSipAmount(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Frequency</Label>
+              <select
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={sipFrequency}
+                onChange={(e) => setSipFrequency(e.target.value as any)}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                className="w-full"
+                onClick={() => sipMutation.mutate({ amountKobo: parseFloat(sipAmount) * 100, frequency: sipFrequency })}
+                disabled={!sipAmount || sipMutation.isPending}
+              >
+                {sipMutation.isPending ? "Creating..." : "Start SIP"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Transaction History */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Transaction History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!history?.transactions?.length ? (
+            <p className="text-muted-foreground text-center py-4">No transactions yet</p>
+          ) : (
+            <div className="space-y-2">
+              {history.transactions.map((tx: any, i: number) => (
+                <div key={i} className="flex justify-between items-center py-2 border-b last:border-0">
                   <div>
-                    <p className="text-sm font-medium">{h.grams?.toFixed(4)}g</p>
-                    <p className="text-xs text-muted-foreground">Bought at {formatKobo(h.purchasePriceKobo ?? 0)}</p>
+                    <Badge variant={tx.type === "buy" ? "default" : "destructive"} className="mr-2">
+                      {tx.type?.toUpperCase()}
+                    </Badge>
+                    <span className="text-sm">{tx.grams?.toFixed(4)}g</span>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold">{formatKobo(h.currentValueKobo ?? 0)}</p>
-                    <Badge variant={h.status === "active" ? "default" : "secondary"} className="text-xs">
-                      {h.status}
-                    </Badge>
+                    <div className="text-sm font-medium">{formatKobo(tx.amountKobo ?? 0)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString() : ""}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Buy Dialog */}
-      <Dialog open={buyDialog} onOpenChange={setBuyDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Buy Digital Gold</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Current price: {price ? formatKobo((price as any).pricePerGramKobo) : "—"}/gram
-            </p>
-            <div>
-              <label className="text-sm font-medium">Amount (₦)</label>
-              <Input
-                type="number"
-                placeholder="e.g. 5000"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="mt-1"
-              />
-              {amount && price && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ≈ {(Number(amount) * 100 / (price as any).pricePerGramKobo).toFixed(4)}g of gold
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBuyDialog(false)}>Cancel</Button>
-            <Button
-              className="bg-yellow-500 hover:bg-yellow-600 text-white"
-              disabled={!amount || Number(amount) <= 0 || buyMutation.isPending}
-              onClick={() => buyMutation.mutate({ amountKobo: Math.round(Number(amount) * 100) })}
-            >
-              {buyMutation.isPending ? "Processing..." : "Confirm Purchase"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Sell Dialog */}
-      <Dialog open={sellDialog} onOpenChange={setSellDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Sell Digital Gold</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              You have {totalGrams.toFixed(4)}g available
-            </p>
-            <div>
-              <label className="text-sm font-medium">Grams to sell</label>
-              <Input
-                type="number"
-                placeholder="e.g. 0.5"
-                value={grams}
-                onChange={(e) => setGrams(e.target.value)}
-                className="mt-1"
-              />
-              {grams && price && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ≈ {formatKobo(Number(grams) * (price as any).pricePerGramKobo)} proceeds
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSellDialog(false)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              disabled={!grams || Number(grams) <= 0 || Number(grams) > totalGrams || sellMutation.isPending}
-              onClick={() => sellMutation.mutate({ grams: Number(grams) })}
-            >
-              {sellMutation.isPending ? "Processing..." : "Confirm Sale"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

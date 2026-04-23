@@ -312,6 +312,7 @@ const ConsumerPension = lz(() => import("./pages/consumer/ConsumerPension"));
 const ConsumerEMI = lz(() => import("./pages/consumer/ConsumerEMI"));
 const ConsumerRemittance = lz(() => import("./pages/consumer/ConsumerRemittance"));
 const ConsumerInsuranceV2 = lz(() => import("./pages/consumer/ConsumerInsuranceV2"));
+const ConsumerInsurancePortal = lz(() => import("./pages/consumer/ConsumerInsurancePortal"));
 const ConsumerSubscriptions = lz(() => import("./pages/consumer/ConsumerSubscriptions"));
 const ConsumerSIPScheduler = lz(() => import("./pages/consumer/ConsumerSIPScheduler"));
 
@@ -409,6 +410,7 @@ function Router() {
             <Route path="/consumer/emi" component={ConsumerEMI} />
             <Route path="/consumer/remittance" component={ConsumerRemittance} />
             <Route path="/consumer/insurance" component={ConsumerInsuranceV2} />
+            <Route path="/consumer/insurance-portal" component={ConsumerInsurancePortal} />
             <Route path="/consumer/subscriptions" component={ConsumerSubscriptions} />
             <Route path="/consumer/sip" component={ConsumerSIPScheduler} />
             <Route component={ConsumerWallet} />

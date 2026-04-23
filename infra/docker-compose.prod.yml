@@ -2187,6 +2187,31 @@ services:
           memory: 128M
 
 
+  wealth-advisor-service:
+    image: paygate/wealth-advisor-service:${WEALTH_ADVISOR_VERSION:-latest}
+    container_name: paygate-wealth-advisor-service
+    restart: unless-stopped
+    ports: ["8020:8020"]
+    environment:
+      PORT: "8020"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
   # ─── Rust Services ─────────────────────────────────────────────────────────
   billing-engine:
     image: paygate/billing-engine:${BILLING_ENGINE_VERSION:-latest}

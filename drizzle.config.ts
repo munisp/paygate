@@ -4,7 +4,7 @@ import { defineConfig } from "drizzle-kit";
 // PG_DATABASE_URL overrides the local default (useful in production/staging).
 const PG_URL =
   process.env.PG_DATABASE_URL ??
-  "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db";
+  "postgresql://paygate_user:paygate_dev_2026@127.0.0.1:5432/paygate_db";
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",

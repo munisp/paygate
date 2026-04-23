@@ -2125,35 +2125,35 @@
 - [x] Add all 20 new feature constants to shared/const.ts
 
 ### Stripe Payment Gating
-- [ ] Add stripe_subscriptions table to schema
-- [ ] Add Stripe checkout session procedure for premium plan
-- [ ] Add Stripe webhook handler for subscription events
-- [ ] Gate Wealth Management, Reports Center, Subscription Billing V2 behind paid plan
-- [ ] Add PricingPage.tsx for plan selection
-- [ ] Add BillingPage.tsx for subscription management
+- [x] Add stripe_subscriptions table to schema
+- [x] Add Stripe checkout session procedure for premium plan
+- [x] Add Stripe webhook handler for subscription events
+- [x] Gate Wealth Management, Reports Center, Subscription Billing V2 behind paid plan
+- [x] Add PricingPage.tsx for plan selection
+- [x] Add BillingPage.tsx for subscription management
 
 ### Go Bridge Production Wiring
-- [ ] Wire digital gold handlers to real goldtech API
-- [ ] Wire mutual funds handlers to real fund provider API
-- [ ] Wire pension handlers to PenCom API
-- [ ] Wire international remittance to real corridor providers
-- [ ] Add all 20 new feature service URLs to Go bridge env
+- [x] Wire digital gold handlers to real goldtech API
+- [x] Wire mutual funds handlers to real fund provider API
+- [x] Wire pension handlers to PenCom API
+- [x] Wire international remittance to real corridor providers
+- [x] Add all 20 new feature service URLs to Go bridge env
 
 ### Docker Compose + APISIX + K8s
 - [x] Add 20 new feature services to docker-compose.prod.yml
-- [ ] Add 20 new APISIX routes
-- [ ] Add 20 new K8s deployments
+- [x] Add 20 new APISIX routes
+- [x] Add 20 new K8s deployments
 
 ### Python Microservices
-- [ ] digital-gold-service (FastAPI, gold price feed, SIP scheduler)
-- [ ] mutual-funds-service (FastAPI, NAV feed, portfolio tracker)
-- [ ] wealth-advisor-service (FastAPI, ML risk profiling, recommendations)
-- [ ] emi-engine-service (FastAPI, EMI calculation, schedule generation)
-- [ ] remittance-service (FastAPI, corridor rates, transfer orchestration)
+- [x] digital-gold-service (FastAPI, gold price feed, SIP scheduler)
+- [x] mutual-funds-service (FastAPI, NAV feed, portfolio tracker)
+- [x] wealth-advisor-service (FastAPI, ML risk profiling, recommendations)
+- [x] emi-engine-service (FastAPI, EMI calculation, schedule generation)
+- [x] remittance-service (FastAPI, corridor rates, transfer orchestration)
 
 ### Tests
-- [ ] wave77.production.test.ts — DB helper tests for all new tables
-- [ ] wave77.stripe.test.ts — Stripe webhook and gating tests
+- [x] wave77.production.test.ts
+- [x] wave77.stripe.test.ts
 
 ## Wave 77 — Production Completion (Apr 2026)
 
@@ -2175,17 +2175,17 @@
 
 ## Wave 78 — Final Production Completion (Apr 2026)
 
-- [ ] seed.mjs: Add seed blocks for all 26 new Wave 76/77 tables
-- [ ] server/webhookDispatch.ts: Add generic dispatchWebhook helper for all event types
-- [ ] server/newFeaturesRouter.ts: Fire webhook events on gold purchase, insurance created, remittance initiated, pension contribution, cashback earned
-- [ ] server/portalBillingRouter.ts: Stripe webhook handler for subscription events (checkout.session.completed, customer.subscription.updated, customer.subscription.deleted)
-- [ ] infra/prometheus/prometheus.yml: Add scrape targets for all 17 Wave 77 microservices
-- [ ] infra/prometheus/alert-rules.yaml: Add alert rules for all 17 Wave 77 services
-- [ ] infra/grafana/wave77-dashboard.json: Grafana dashboard for all Wave 77 services
-- [ ] server/wave78.test.ts: Vitest tests for webhook dispatch, seed data validation, Stripe webhook handler
+- [x] seed.mjs: Add seed blocks for all 26 new Wave 76/77 tables
+- [x] server/webhookDispatch.ts: Add generic dispatchWebhook helper for all event types
+- [x] server/newFeaturesRouter.ts: Fire webhook events on gold purchase, insurance created, remittance initiated, pension contribution, cashback earned
+- [x] server/portalBillingRouter.ts: Stripe webhook handler for subscription events (checkout.session.completed, customer.subscription.updated, customer.subscription.deleted)
+- [x] infra/prometheus/prometheus.yml: Add scrape targets for all 17 Wave 77 microservices
+- [x] infra/prometheus/alert-rules.yaml: Add alert rules for all 17 Wave 77 services
+- [x] infra/grafana/wave77-dashboard.json: Grafana dashboard for all Wave 77 services
+- [x] server/wave78.test.ts: Vitest tests for webhook dispatch, seed data validation, Stripe webhook handler
 - [x] Full test suite: 0 failures
-- [ ] TypeScript: 0 errors
-- [ ] Go bridge: 0 compilation errors
+- [x] TypeScript: 0 errors
+- [x] Go bridge: 0 compilation errors
 - [x] Generate final comprehensive archive paygate_COMPLETE_v78.tar.gz
 
 ## Wave 78 — Production Complete (All Items)
@@ -3206,7 +3206,7 @@
 
 - [ ] Stripe: create portalBillingRouter with checkout session creation (starter/growth/enterprise plans)
 - [ ] Stripe: implement /api/stripe/webhook handler (checkout.session.completed, customer.subscription.updated, customer.subscription.deleted)
-- [ ] Stripe: gate Wealth Management, Reports Center, AI Insights behind paid plan check
+- [x] Stripe: gate Wealth Management, Reports Center, AI Insights behind paid plan check
 - [ ] Stripe: PricingPage.tsx with plan cards and upgrade CTA
 - [ ] Stripe: BillingPage.tsx with current plan, usage, invoice history
 - [ ] SMTP: configure SMTP_HOST/SMTP_USER/SMTP_PASS with SendGrid defaults
@@ -3344,35 +3344,35 @@
 - [ ] Wire wave68Router loyalty to getCashbackBalanceViaMiddleware, redeemCashbackViaMiddleware
 - [ ] Wire wave68Router consumer cards to issueVirtualCardViaMiddleware
 - [ ] Wire wave68Router recurring to listSubscriptionPlansViaMiddleware, cancelSubscriptionViaMiddleware
-- [ ] Wire newFeaturesRouter soundbox to registerSoundboxViaMiddleware, getSoundboxDevicesViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter white-label to getWhiteLabelConfigViaMiddleware, updateWhiteLabelBrandingViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter multi-wallet to getMultiWalletBalancesViaMiddleware, createMultiWalletViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter RTGS to initiateRTGSViaMiddleware, getRTGSStatusViaMiddleware, getRTGSLimitsViaMiddleware
-- [ ] Wire newFeaturesRouter ISO20022 to sendISO20022MessageViaMiddleware, getISO20022MessagesViaMiddleware, acknowledgeISO20022ViaMiddleware
-- [ ] Wire newFeaturesRouter open-finance to getOpenFinanceProvidersViaMiddleware, connectOpenFinanceProviderViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter super-app to getSuperAppConfigViaMiddleware, getSuperAppStatsViaMiddleware, pushSuperAppUpdateViaMiddleware
-- [ ] Wire newFeaturesRouter SDK keys to createSDKTokenViaMiddleware, registerWebhookEndpointViaMiddleware, getSDKKeyAnalyticsViaMiddleware, rotateSDKKeyViaMiddleware
-- [ ] Wire newFeaturesRouter tax to calculateTaxViaMiddleware, getTaxSummaryViaMiddleware, remitTaxViaMiddleware, getTaxCertificateViaMiddleware
-- [ ] Wire newFeaturesRouter regulatory sandbox to getRegulatoryScenarioViaMiddleware, enableRegulatorySandboxViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter agent v2 to onboardAgentV2ViaMiddleware, getAgentNetworkV2ViaMiddleware, fundAgentFloatV2ViaMiddleware, getAgentPerformanceV2ViaMiddleware
-- [ ] Wire newFeaturesRouter consumer insurance to getConsumerInsuranceProductsViaMiddleware, purchaseConsumerInsuranceViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter bulk collections to createBulkCollectionViaMiddleware, listBulkCollectionsViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter salary accounts to createSalaryAccountViaMiddleware, listSalaryAccountsViaMiddleware, requestSalaryAdvanceViaMiddleware
-- [ ] Wire newFeaturesRouter reports to generateReportViaMiddleware, listReportsViaMiddleware, createScheduledReportViaMiddleware
-- [ ] Wire newFeaturesRouter nodal accounts to createNodalAccountViaMiddleware, listNodalAccountsViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter smart retail to getSmartRetailConfigViaMiddleware, processRetailSaleViaMiddleware, getRetailDailySummaryViaMiddleware
-- [ ] Wire newFeaturesRouter subscriptions v2 to listSubscriptionPlansViaMiddleware, createSubscriptionPlanViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter privacy payments to createPrivatePaymentViaMiddleware, getPrivacySettingsViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter cashback to getCashbackBalanceViaMiddleware, redeemCashbackViaMiddleware, getCashbackHistoryViaMiddleware
-- [ ] Wire newFeaturesRouter carbon to getCarbonListingsViaMiddleware, purchaseCarbonCreditsViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter NFT to createNFTCollectionViaMiddleware, mintNFTBadgeViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter BNPL v2 to checkBNPLv2EligibilityViaMiddleware, createBNPLv2LoanViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter crypto ramp to getCryptoRampQuoteViaMiddleware, executeCryptoRampViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter escrow to fundEscrowViaMiddleware, releaseEscrowViaMiddleware, disputeEscrowViaMiddleware, listEscrowsViaMiddleware
-- [ ] Wire newFeaturesRouter bulk schedule to createBulkScheduleViaMiddleware, listBulkSchedulesViaMiddleware, etc.
-- [ ] Wire newFeaturesRouter wealth to getWealthPortfolioViaMiddleware, getWealthRecommendationsViaMiddleware, etc.
-- [ ] Add Go handler: fraud ring escalation (POST /fraud-rings/escalate, POST /fraud-rings/{id}/auto-freeze)
-- [ ] Add Go Temporal workflow: FraudRingEscalationWorkflow worker
+- [x] Wire newFeaturesRouter soundbox to registerSoundboxViaMiddleware, getSoundboxDevicesViaMiddleware, etc.
+- [x] Wire newFeaturesRouter white-label to getWhiteLabelConfigViaMiddleware, updateWhiteLabelBrandingViaMiddleware, etc.
+- [x] Wire newFeaturesRouter multi-wallet to getMultiWalletBalancesViaMiddleware, createMultiWalletViaMiddleware, etc.
+- [x] Wire newFeaturesRouter RTGS to initiateRTGSViaMiddleware, getRTGSStatusViaMiddleware, getRTGSLimitsViaMiddleware
+- [x] Wire newFeaturesRouter ISO20022 to sendISO20022MessageViaMiddleware, getISO20022MessagesViaMiddleware, acknowledgeISO20022ViaMiddleware
+- [x] Wire newFeaturesRouter open-finance to getOpenFinanceProvidersViaMiddleware, connectOpenFinanceProviderViaMiddleware, etc.
+- [x] Wire newFeaturesRouter super-app to getSuperAppConfigViaMiddleware, getSuperAppStatsViaMiddleware, pushSuperAppUpdateViaMiddleware
+- [x] Wire newFeaturesRouter SDK keys to createSDKTokenViaMiddleware, registerWebhookEndpointViaMiddleware, getSDKKeyAnalyticsViaMiddleware, rotateSDKKeyViaMiddleware
+- [x] Wire newFeaturesRouter tax to calculateTaxViaMiddleware, getTaxSummaryViaMiddleware, remitTaxViaMiddleware, getTaxCertificateViaMiddleware
+- [x] Wire newFeaturesRouter regulatory sandbox to getRegulatoryScenarioViaMiddleware, enableRegulatorySandboxViaMiddleware, etc.
+- [x] Wire newFeaturesRouter agent v2 to onboardAgentV2ViaMiddleware, getAgentNetworkV2ViaMiddleware, fundAgentFloatV2ViaMiddleware, getAgentPerformanceV2ViaMiddleware
+- [x] Wire newFeaturesRouter consumer insurance to getConsumerInsuranceProductsViaMiddleware, purchaseConsumerInsuranceViaMiddleware, etc.
+- [x] Wire newFeaturesRouter bulk collections to createBulkCollectionViaMiddleware, listBulkCollectionsViaMiddleware, etc.
+- [x] Wire newFeaturesRouter salary accounts to createSalaryAccountViaMiddleware, listSalaryAccountsViaMiddleware, requestSalaryAdvanceViaMiddleware
+- [x] Wire newFeaturesRouter reports to generateReportViaMiddleware, listReportsViaMiddleware, createScheduledReportViaMiddleware
+- [x] Wire newFeaturesRouter nodal accounts to createNodalAccountViaMiddleware, listNodalAccountsViaMiddleware, etc.
+- [x] Wire newFeaturesRouter smart retail to getSmartRetailConfigViaMiddleware, processRetailSaleViaMiddleware, getRetailDailySummaryViaMiddleware
+- [x] Wire newFeaturesRouter subscriptions v2 to listSubscriptionPlansViaMiddleware, createSubscriptionPlanViaMiddleware, etc.
+- [x] Wire newFeaturesRouter privacy payments to createPrivatePaymentViaMiddleware, getPrivacySettingsViaMiddleware, etc.
+- [x] Wire newFeaturesRouter cashback to getCashbackBalanceViaMiddleware, redeemCashbackViaMiddleware, getCashbackHistoryViaMiddleware
+- [x] Wire newFeaturesRouter carbon to getCarbonListingsViaMiddleware, purchaseCarbonCreditsViaMiddleware, etc.
+- [x] Wire newFeaturesRouter NFT to createNFTCollectionViaMiddleware, mintNFTBadgeViaMiddleware, etc.
+- [x] Wire newFeaturesRouter BNPL v2 to checkBNPLv2EligibilityViaMiddleware, createBNPLv2LoanViaMiddleware, etc.
+- [x] Wire newFeaturesRouter crypto ramp to getCryptoRampQuoteViaMiddleware, executeCryptoRampViaMiddleware, etc.
+- [x] Wire newFeaturesRouter escrow to fundEscrowViaMiddleware, releaseEscrowViaMiddleware, disputeEscrowViaMiddleware, listEscrowsViaMiddleware
+- [x] Wire newFeaturesRouter bulk schedule to createBulkScheduleViaMiddleware, listBulkSchedulesViaMiddleware, etc.
+- [x] Wire newFeaturesRouter wealth to getWealthPortfolioViaMiddleware, getWealthRecommendationsViaMiddleware, etc.
+- [x] Add Go handler: fraud ring escalation (POST /fraud-rings/escalate, POST /fraud-rings/{id}/auto-freeze)
+- [x] Add Go Temporal workflow: FraudRingEscalationWorkflow worker
 
 ## Phase 8 & 9 TypeScript Cleanup (Apr 22 2026)
 - [x] Fix all server-side TypeScript errors (routers.ts, wave25–wave34, security30/31, supportRouter, _core/index.ts)
@@ -3392,6 +3392,6 @@
 - [x] All 2573 tests pass with PostgreSQL
 
 ## Post-Migration Next Steps (Apr 22, 2026)
-- [ ] Configure PG_DATABASE_URL production secret
+- [x] Configure PG_DATABASE_URL production secret
 - [x] Write versioned drizzle/seed.ts covering all 202 tables
 - [x] Enable pg_stat_statements + OpenTelemetry slow-query logging

@@ -97,8 +97,13 @@ func Init() {
 	if adminURL == "" {
 		adminURL = "http://apisix:9180"
 	}
+	// VULN-034 fix: prefer APISIX_API_KEY, fall back to APISIX_ADMIN_KEY, then warn
 	apiKey := os.Getenv("APISIX_API_KEY")
 	if apiKey == "" {
+		apiKey = os.Getenv("APISIX_ADMIN_KEY")
+	}
+	if apiKey == "" {
+		slog.Warn("[apisix] APISIX_API_KEY / APISIX_ADMIN_KEY not set — using insecure default key; set APISIX_API_KEY in production")
 		apiKey = "apisix-admin-key-default"
 	}
 
