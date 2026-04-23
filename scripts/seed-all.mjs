@@ -37,6 +37,7 @@ const seeds = [
   ["scripts/seed-wave32.mjs", "Wave 32 (BNPL, loyalty, carbon)"],
   ["scripts/seed-wave34.mjs", "Wave 34 (agent banking, USSD)"],
   ["scripts/seed-wave38.mjs", "Wave 38 (FX, remittance, ISO20022)"],
+  ["scripts/seed-wave89.mjs", "Wave 89 (claim_documents, portfolio_rebalancing_orders, corridor_live_stats)"],
   ["scripts/seed-ai-tables.mjs", "AI/ML tables (embeddings, insights)"],
   ["scripts/seed-complete-all-tables.mjs", "Complete all remaining tables"],
 ];

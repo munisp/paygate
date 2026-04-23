@@ -46,6 +46,13 @@ import {
   adminTenantRevenueRouter,
   whiteLabelSdkRouter,
 } from './wave88Router';
+import {
+  slaBreachesRouter,
+  adminTenantRevenueRouter as adminTenantRevenueEnhancedRouter,
+  portfolioRebalancingEnhancedRouter,
+  claimDocumentsEnhancedRouter,
+  corridorLiveStatsEnhancedRouter,
+} from './wave89Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -7525,6 +7532,12 @@ export const appRouter = router({
   adminSlaMonitor: adminSlaMonitorRouter,
   adminTenantRevenue: adminTenantRevenueRouter,
   whiteLabelSdk: whiteLabelSdkRouter,
+  // Wave 89 — SLA Breaches, Enhanced Portfolio/Claims/Corridor, Admin Tenant Revenue
+  slaBreaches: slaBreachesRouter,
+  adminTenantRevenueEnhanced: adminTenantRevenueEnhancedRouter,
+  portfolioRebalancingEnhanced: portfolioRebalancingEnhancedRouter,
+  claimDocumentsEnhanced: claimDocumentsEnhancedRouter,
+  corridorLiveEnhanced: corridorLiveStatsEnhancedRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
