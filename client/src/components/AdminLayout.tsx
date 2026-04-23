@@ -37,6 +37,7 @@ import {
   TrendingDown,
   ClipboardCheck,
   Lock,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +72,15 @@ const adminNavItems = [
     group: "Analytics",
     items: [
       { label: "Revenue & Fees", href: "/admin/revenue", icon: TrendingUp },
+      { label: "Tenant Revenue", href: "/admin/tenant-revenue", icon: TrendingUp },
+    ],
+  },
+  {
+    group: "Monitoring",
+    items: [
+      { label: "SLA Monitor", href: "/admin/sla-monitor", icon: Activity },
+      { label: "Corridor Monitor", href: "/admin/corridors", icon: Globe },
+      { label: "Tenant Billing", href: "/admin/tenant-billing", icon: CreditCard },
     ],
   },
   {

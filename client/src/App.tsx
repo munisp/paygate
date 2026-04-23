@@ -322,6 +322,9 @@ const ConsumerLoyaltyDashboard = lz(() => import("./pages/consumer/ConsumerLoyal
 const ConsumerBnplRepayments = lz(() => import("./pages/consumer/ConsumerBnplRepayments"));
 const AdminTenantBilling = lz(() => import("./pages/admin/AdminTenantBilling"));
 const AdminCorridorMonitor = lz(() => import("./pages/admin/AdminCorridorMonitor"));
+const AdminSlaMonitorPage = lz(() => import("./pages/admin/AdminSlaMonitor"));
+const AdminTenantRevenuePage = lz(() => import("./pages/admin/AdminTenantRevenue"));
+const WhiteLabelSDKPage = lz(() => import("./pages/WhiteLabelSDK"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -522,6 +525,9 @@ function Router() {
           <Route path="/admin/invite-codes" component={AdminInviteCodes} />
           <Route path="/admin/tenant-billing" component={AdminTenantBilling} />
           <Route path="/admin/corridors" component={AdminCorridorMonitor} />
+          <Route path="/admin/sla-monitor" component={AdminSlaMonitorPage} />
+          <Route path="/admin/tenant-revenue" component={AdminTenantRevenuePage} />
+          <Route path="/sdk" component={WhiteLabelSDKPage} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
           <Route path="/admin/tenant" component={TenantAdminDashboard} />
           <Route path="/partner/preview" component={WhiteLabelPreview} />

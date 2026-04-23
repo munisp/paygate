@@ -3410,3 +3410,59 @@
 - [x] Implement portfolio summary feature visualizing holdings across gold, mutual funds, and pensions (PortfolioSummary.tsx with donut chart + sparklines + breakdown table)
 - [x] Register /consumer/portfolio route in App.tsx and ConsumerLayout nav
 - [x] Integrate real-time chat support widget on the insurance portal page (InsuranceChatWidget with LLM + fallback rule-based responses, suggested questions, typing indicator)
+
+## Sprint v88 — Production Hardening (2026-04-23)
+
+- [x] Implement Portfolio Rebalancing backend (wave88Router: executeRebalance mutation)
+- [x] Implement Claims Document Upload backend (claimDocuments table + uploadDocument procedure)
+- [x] Implement Corridor Live Stats backend (corridorLiveStatsRouter: getLiveStats, setFxMarkup)
+- [x] Add GNN score write-back to transaction record after creation
+- [x] Add gnnScore and gnnRingDetected columns to transactions schema
+- [x] Add claimDocuments table to schema
+- [x] Add portfolioRebalancingOrders table to schema
+- [x] Add corridorLiveStats table to schema
+- [x] Create AdminSlaMonitor.tsx page
+- [x] Create AdminTenantRevenue.tsx page
+- [x] Create WhiteLabelSDK.tsx page (merchant portal)
+- [x] Register AdminSlaMonitor, AdminTenantRevenue, WhiteLabelSDK routes in App.tsx
+- [x] Add Monitoring nav group to AdminLayout (SLA Monitor, Corridor Monitor, Tenant Billing)
+- [x] Add Tenant Revenue to AdminLayout Analytics group
+- [x] Add White-Label SDK to DashboardLayout menuItems
+- [x] Write wave88.newfeatures.test.ts (78 test files, 2706 tests passing)
+- [x] Fix VULN-037: timingSafeEqual for MIDDLEWARE_INTERNAL_KEY in createAlert
+- [x] Fix VULN-038: timingSafeEqual for SSE stats internal key
+- [x] Fix uuid dependency vulnerability (override to ^9.0.0)
+- [x] Write SECURITY_AUDIT_REPORT.md (9.7/10 score)
+- [x] Write PLATFORM_FEATURES.md comprehensive feature inventory
+- [x] Write 1b-payments-architecture.md lessons document
+- [x] Create tieringArchival.ts (hot/warm/cold tiering service)
+- [x] Create wealth-advisor Python microservice (main.py, requirements.txt, Dockerfile)
+- [x] Add wealth-advisor to docker-compose.prod.yml
+
+## Sprint v88 — Production Hardening (2026-04-23)
+
+- [x] Implement Portfolio Rebalancing backend (wave88Router: executeRebalance mutation)
+- [x] Implement Claims Document Upload backend (claimDocuments table + uploadDocument procedure)
+- [x] Implement Corridor Live Stats backend (corridorLiveStatsRouter: getLiveStats, setFxMarkup)
+- [x] Add GNN score write-back to transaction record after creation
+- [x] Add gnnScore and gnnRingDetected columns to transactions schema
+- [x] Add claimDocuments table to schema
+- [x] Add portfolioRebalancingOrders table to schema
+- [x] Add corridorLiveStats table to schema
+- [x] Create AdminSlaMonitor.tsx page
+- [x] Create AdminTenantRevenue.tsx page
+- [x] Create WhiteLabelSDK.tsx page (merchant portal)
+- [x] Register AdminSlaMonitor, AdminTenantRevenue, WhiteLabelSDK routes in App.tsx
+- [x] Add Monitoring nav group to AdminLayout (SLA Monitor, Corridor Monitor, Tenant Billing)
+- [x] Add Tenant Revenue to AdminLayout Analytics group
+- [x] Add White-Label SDK to DashboardLayout menuItems
+- [x] Write wave88.newfeatures.test.ts (78 test files, 2706 tests passing)
+- [x] Fix VULN-037: timingSafeEqual for MIDDLEWARE_INTERNAL_KEY in createAlert
+- [x] Fix VULN-038: timingSafeEqual for SSE stats internal key
+- [x] Fix uuid dependency vulnerability (override to ^9.0.0)
+- [x] Write SECURITY_AUDIT_REPORT.md (9.7/10 score)
+- [x] Write PLATFORM_FEATURES.md comprehensive feature inventory
+- [x] Write 1b-payments-architecture.md lessons document
+- [x] Create tieringArchival.ts (hot/warm/cold tiering service)
+- [x] Create wealth-advisor Python microservice (main.py, requirements.txt, Dockerfile)
+- [x] Add wealth-advisor to docker-compose.prod.yml

@@ -192,6 +192,10 @@ export const transactions = pgTable("transactions", {
   netAmount: bigint("net_amount", { mode: "number" }).default(0).notNull(),
   metadata: jsonb("metadata"),
   completedAt: timestamp("completed_at"),
+  // GNN Fraud Scoring (populated for transactions >= 500,000 NGN)
+  gnnScore: real("gnn_score"),
+  gnnRingDetected: boolean("gnn_ring_detected").default(false).notNull(),
+  gnnScoredAt: timestamp("gnn_scored_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -4082,3 +4086,59 @@ export const userInsuranceClaims = pgTable("user_insurance_claims", {
   index("uic_user_idx").on(t.userId),
 ]);
 export type UserInsuranceClaim = typeof userInsuranceClaims.$inferSelect;
+
+// ─── Claim Documents (Wave 88 — document evidence for insurance claims) ────────
+export const claimDocuments = pgTable("claim_documents", {
+  id: text("id").primaryKey(),
+  claimId: text("claim_id").notNull().references(() => userInsuranceClaims.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull(),
+  fileName: text("file_name").notNull(),
+  fileKey: text("file_key").notNull(),
+  fileUrl: text("file_url").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSizeBytes: integer("file_size_bytes").notNull(),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+}, (t) => [
+  index("claim_docs_claim_idx").on(t.claimId),
+  index("claim_docs_user_idx").on(t.userId),
+]);
+export type ClaimDocument = typeof claimDocuments.$inferSelect;
+export type InsertClaimDocument = typeof claimDocuments.$inferInsert;
+
+// ─── Portfolio Rebalancing Orders (Wave 88 — buy/sell orders from rebalancing) ─
+export const portfolioRebalancingOrders = pgTable("portfolio_rebalancing_orders", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  assetType: text("asset_type").notNull(), // "gold" | "mutual_fund" | "pension"
+  direction: text("direction").notNull(),  // "buy" | "sell"
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  targetAllocationPct: real("target_allocation_pct").notNull(),
+  currentAllocationPct: real("current_allocation_pct").notNull(),
+  status: text("status").default("pending").notNull(), // pending | processing | completed | failed
+  executedAt: timestamp("executed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("rebalance_user_idx").on(t.userId),
+  index("rebalance_status_idx").on(t.status),
+]);
+export type PortfolioRebalancingOrder = typeof portfolioRebalancingOrders.$inferSelect;
+export type InsertPortfolioRebalancingOrder = typeof portfolioRebalancingOrders.$inferInsert;
+
+// ─── Tenant Corridor Daily Stats (Wave 88 — volume tracking per corridor/day) ──
+// Note: tenant_corridor_daily_stats already exists in schema, this is the live stats view
+export const corridorLiveStats = pgTable("corridor_live_stats", {
+  id: serial("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  sourceCurrency: text("source_currency").notNull(),
+  destinationCurrency: text("destination_currency").notNull(),
+  sourceCountry: text("source_country").notNull(),
+  destinationCountry: text("destination_country").notNull(),
+  txCount: integer("tx_count").default(0).notNull(),
+  volumeKobo: bigint("volume_kobo", { mode: "number" }).default(0).notNull(),
+  avgFxRate: real("avg_fx_rate"),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+}, (t) => [
+  index("corridor_live_tenant_idx").on(t.tenantId),
+  index("corridor_live_pair_idx").on(t.sourceCurrency, t.destinationCurrency),
+]);
+export type CorridorLiveStat = typeof corridorLiveStats.$inferSelect;

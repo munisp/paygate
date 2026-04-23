@@ -38,6 +38,14 @@ import { portalBillingRouter } from './portalBillingRouter';
 import { wave32Router } from './wave32Router';
 import { fraudRingRouter, gnnThresholdRouter, pricingRouter, consumerFinancialRouter, webhookEventRouter, adminCrudRouter } from './wave34Router';
 import { sipRouter } from './sipRouter';
+import {
+  portfolioRebalancingRouter,
+  claimDocumentsRouter,
+  corridorLiveStatsRouter,
+  adminSlaMonitorRouter,
+  adminTenantRevenueRouter,
+  whiteLabelSdkRouter,
+} from './wave88Router';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -596,6 +604,12 @@ const transactionsRouter = router({
               ...(inventoryReservationId ? { inventoryReservationId } : {}),
               ...(redeemedPoints > 0 ? { redeemedPoints, pointsValue: pointsKoboValue } : {}),
             },
+            // GNN fraud scoring fields (populated for high-value transactions)
+            ...(gnnResult ? {
+              gnnScore: gnnResult.gnn_risk_score / 100,
+              gnnRingDetected: gnnResult.fraud_ring_detected ?? false,
+              gnnScoredAt: new Date(),
+            } : {}),
           });
         } catch (err) {
           // Transaction creation failed — release any held inventory reservation
@@ -7504,6 +7518,13 @@ export const appRouter = router({
   sip: sipRouter,
   webhookEvents: webhookEventRouter,
   adminCrud: adminCrudRouter,
+  // Wave 88 — Portfolio Rebalancing, Claim Documents, Corridor Live Stats, Admin SLA, Tenant Revenue, White-Label SDK
+  portfolioRebalancing: portfolioRebalancingRouter,
+  claimDocuments: claimDocumentsRouter,
+  corridorLive: corridorLiveStatsRouter,
+  adminSlaMonitor: adminSlaMonitorRouter,
+  adminTenantRevenue: adminTenantRevenueRouter,
+  whiteLabelSdk: whiteLabelSdkRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
