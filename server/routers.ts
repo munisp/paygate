@@ -2203,6 +2203,41 @@ const analyticsRouter = router({
       const avgScore = totalSubmissions > 0 ? totalScore / totalSubmissions : 0;
       return { buckets, totalSubmissions, passRate, avgScore };
     }),
+
+  exportRevenue: protectedProcedure
+    .input(z.object({
+      from: z.date(),
+      to: z.date(),
+      granularity: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rows = await getRevenueTimeSeries(merchant.id, input.from, input.to);
+      const channelRows = await getChannelBreakdown(merchant.id, input.from, input.to);
+      const lines: string[] = [
+        "Date,Volume (NGN),Fees (NGN),Transaction Count",
+        ...(rows as any[]).map((r: any) =>
+          `${r.date},${r.volume ?? 0},${r.fees ?? 0},${r.count ?? 0}`
+        ),
+        "",
+        "Channel,Volume (NGN),Transaction Count,Success Rate (%)",
+        ...(channelRows as any[]).map((r: any) =>
+          `${r.channel ?? "unknown"},${r.volume ?? 0},${r.count ?? 0},${r.successRate ?? 0}`
+        ),
+      ];
+      const csv = lines.join("\n");
+      const { storagePut } = await import("../storage");
+      const suffix = Math.random().toString(36).slice(2, 8);
+      const fileKey = `exports/${merchant.id}/revenue_${input.from.toISOString().slice(0, 10)}_${input.to.toISOString().slice(0, 10)}_${suffix}.csv`;
+      const { url } = await storagePut(fileKey, csv, "text/csv");
+      return {
+        url,
+        filename: `revenue_${input.from.toISOString().slice(0, 10)}_to_${input.to.toISOString().slice(0, 10)}.csv`,
+        rowCount: rows.length,
+        generatedAt: new Date(),
+      };
+    }),
 });
 // ─── Merchant Analytics Dashboard Router ────────────────────────────────────
 const merchantAnalyticsRouter = router({
@@ -2489,6 +2524,10 @@ const fraudRiskRouter = router({
           content: `New ${input.alertType} fraud alert created with risk score ${input.riskScore}${input.description ? ': ' + input.description : ''}.`,
         }).catch(() => {});
       }
+      // Broadcast to SSE fraud alert clients
+      try {
+        (req as any)?.app?._fraudAlertBroadcast?.(merchant.id, alert);
+      } catch {}
       return alert;
     }),
   // Returns open high-severity alerts (riskScore >= 75) for the dashboard banner

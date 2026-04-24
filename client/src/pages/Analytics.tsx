@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 function fmt(n: number | null | undefined) {
   if (!n) return "₦0";
@@ -46,13 +47,39 @@ export default function Analytics() {
     setRange({ from: new Date(Date.now() - days * 24 * 60 * 60 * 1000), to: new Date() });
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+  const exportRevenueMutation = trpc.analytics.exportRevenue.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.url) {
+        // Open the S3 pre-signed URL in a new tab for download
+        const a = document.createElement("a");
+        a.href = data.url;
+        a.download = data.filename ?? `revenue-export-${period}.csv`;
+        a.target = "_blank";
+        a.click();
+        toast.success("Revenue export ready — downloading now");
+      }
+      setIsExporting(false);
+    },
+    onError: (err: any) => {
+      // Fallback to client-side export
+      const rows = [["Date", "Volume (Kobo)", "Count"], ...(timeSeries ?? []).map((r: any) => [r.date, r.volume, r.count])];
+      const csv = rows.map((r: any) => r.join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      a.download = `analytics-${period}.csv`;
+      a.click();
+      setIsExporting(false);
+    },
+  });
   const handleExport = () => {
-    const rows = [["Date", "Volume (Kobo)", "Count"], ...(timeSeries ?? []).map((r: any) => [r.date, r.volume, r.count])];
-    const csv = rows.map(r => r.join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `analytics-${period}.csv`;
-    a.click();
+    setIsExporting(true);
+    exportRevenueMutation.mutate({
+      from: range.from,
+      to: range.to,
+      groupBy: days <= 7 ? "day" : days <= 90 ? "week" : "month",
+      format: "csv",
+    });
   };
 
   const { data: overview, isLoading: oLoading } = trpc.analytics.overview.useQuery(range, { staleTime: 60_000 });
@@ -159,7 +186,7 @@ export default function Analytics() {
           <Button variant="outline" size="sm" onClick={handleRefresh}>
             <RefreshCw className="w-3 h-3 mr-1" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExport}>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             <Download className="w-3 h-3 mr-1" /> Export CSV
           </Button>
         </div>

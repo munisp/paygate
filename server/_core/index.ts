@@ -13,6 +13,7 @@ import { registerKeycloakRoutes } from "./keycloakRoutes";
 import { appRouter, tier1to5Router, tier6to8Router } from "../routers";
 import { newFeaturesRouter } from "../newFeaturesRouter";
 import { wave80Router } from "../wave80Router";
+import { startSIPProcessor } from "../jobs/sipProcessor";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import multer from "multer";
@@ -1548,6 +1549,54 @@ async function startServer() {
         marketDataInterval = null;
       }
     });
+  });
+
+  // ─── Background Jobs ─────────────────────────────────────────────────────
+  startSIPProcessor(); // Gold SIP auto-debit: runs daily at 08:00 UTC
+
+  // ─── Background Jobs ─────────────────────────────────────────────────────
+  startSIPProcessor(); // Gold SIP auto-debit: runs daily at 08:00 UTC
+
+  // ─── SSE: Fraud Alert Stream ───────────────────────────────────────────────
+  const fraudAlertClients = new Map<string, Set<any>>();
+  (app as any)._fraudAlertBroadcast = (merchantId: string, alert: unknown) => {
+    const clients = fraudAlertClients.get(merchantId);
+    if (!clients || clients.size === 0) return;
+    const payload = `event: fraud_alert\ndata: ${JSON.stringify(alert)}\n\n`;
+    for (const res of Array.from(clients)) {
+      try { res.write(payload); } catch { clients.delete(res); }
+    }
+  };
+  app.get("/api/events/fraud", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const { getMerchantByOwnerId, resolveUser } = await import("../db");
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await getMerchantByOwnerId(user.id);
+      if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+      const merchantId = merchant.id;
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+      if (!fraudAlertClients.has(merchantId)) fraudAlertClients.set(merchantId, new Set());
+      fraudAlertClients.get(merchantId)!.add(res);
+      // Send recent open alerts immediately on connect
+      const { listFraudAlerts } = await import("../db");
+      const recent = await listFraudAlerts(merchantId, { limit: 20, status: "open" });
+      res.write(`event: initial\ndata: ${JSON.stringify(recent.rows)}\n\n`);
+      const heartbeat = setInterval(() => {
+        try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
+      }, 25_000);
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        fraudAlertClients.get(merchantId)?.delete(res);
+      });
+    } catch (e) {
+      res.status(500).json({ error: "Fraud SSE setup failed" });
+    }
   });
 
   // ─── Per-route mutation rate limiters ──────────────────────────────────────

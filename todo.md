@@ -3517,3 +3517,31 @@
 - [x] All 2888 tests passing across 82 test files
 - [x] Routes registered in App.tsx for all new pages
 - [x] Nav items added to Layout.tsx sidebar
+
+## Sprint v93 — Gold SIP, Fraud Alerts, Revenue Export
+
+- [x] Gold SIP auto-debit background job (server/jobs/sipProcessor.ts) with cron scheduler (08:00 UTC daily)
+- [x] SIP processor wired into server startup (index.ts) via startSIPProcessor()
+- [x] Gold price oracle with ±₦500 daily variation
+- [x] SIP plan execution with middleware bridge fallback
+- [x] Push notifications on SIP execution success/failure
+- [x] FraudAlertsDashboard.tsx — real-time SSE streaming, country risk map, alert CRUD
+- [x] Fraud Alerts route registered (/fraud/alerts) in App.tsx
+- [x] "Live Alerts" nav item added to Layout.tsx sidebar
+- [x] Analytics.tsx upgraded to use trpc.analytics.exportRevenue (S3 signed URL)
+- [x] wave93.production.test.ts — 41 tests covering SIP processor, fraud rules, revenue export
+- [x] All 2921 tests passing (83 test files)
+
+## Sprint v93 — Gold SIP, Fraud Alerts, Revenue Export
+
+- [x] Gold SIP auto-debit background job (server/jobs/sipProcessor.ts) with cron scheduler (08:00 UTC daily)
+- [x] SIP processor wired into server startup (index.ts) via startSIPProcessor()
+- [x] Gold price oracle with daily variation
+- [x] SIP plan execution with middleware bridge fallback
+- [x] Push notifications on SIP execution success/failure
+- [x] FraudAlertsDashboard.tsx — real-time SSE streaming, country risk map, alert CRUD
+- [x] Fraud Alerts route registered (/fraud/alerts) in App.tsx
+- [x] Live Alerts nav item added to Layout.tsx sidebar
+- [x] Analytics.tsx upgraded to use trpc.analytics.exportRevenue (S3 signed URL)
+- [x] wave93.production.test.ts — 41 tests covering SIP processor, fraud rules, revenue export
+- [x] All 2921 tests passing (83 test files)

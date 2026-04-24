@@ -135,6 +135,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
       { icon: Flame, label: "Fraud Heatmap", path: "/fraud-heatmap" },
+      { icon: Radio, label: "Live Alerts", path: "/fraud/alerts", badge: "LIVE" },
       { icon: Shield, label: "AML Monitor", path: "/aml-monitor" },
       { icon: Fingerprint, label: "Session Risk", path: "/session-risk" },
       { icon: ShieldAlert, label: "Geofence Alerts", path: "/geofence-alerts" },

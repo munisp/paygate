@@ -28,6 +28,7 @@ import PartnerOnboardingWizard from "./pages/partner/PartnerOnboarding";
 import GoldSIP from "./pages/GoldSIP";
 import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
 import WebhookLiveStream from "./pages/WebhookLiveStream";
+import FraudAlertsDashboard from "./pages/FraudAlertsDashboard";
 
 // ── Lazy page loader helper ───────────────────────────────────────────────────
 const lz = (fn: () => Promise<any>) => lazy(fn);
@@ -462,6 +463,7 @@ function Router() {
           <Route path="/disputes/:id" component={DisputeWorkflow} />
           <Route path="/payment-links" component={PaymentLinks} />
           <Route path="/fraud-risk" component={FraudRisk} />
+        <Route path="/fraud/alerts" component={FraudAlertsDashboard} />
           <Route path="/reconciliation-alerts" component={ReconciliationAlerts} />
           <Route path="/bnpl" component={BNPL} />
           <Route path="/fx" component={FXDashboard} />
