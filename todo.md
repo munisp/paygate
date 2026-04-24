@@ -3545,3 +3545,15 @@
 - [x] Analytics.tsx upgraded to use trpc.analytics.exportRevenue (S3 signed URL)
 - [x] wave93.production.test.ts — 41 tests covering SIP processor, fraud rules, revenue export
 - [x] All 2921 tests passing (83 test files)
+
+## Sprint v94 — open-appsec + APISIX WAF + Security Hardening
+- [x] open-appsec WAF policy (waf-policy.yaml) — OWASP Top-10, bot mitigation, fintech custom rules
+- [x] APISIX config.yaml — TLS 1.3, admin API localhost-only, security headers, plugin list
+- [x] APISIX dashboard.yaml — ops-profile only, localhost binding
+- [x] docker-compose.waf.yml — open-appsec + APISIX + fail2ban services
+- [x] Fail2Ban jail.local — auth brute-force, rate-limit abuse, WAF block escalation jails
+- [x] Fail2Ban filter files — paygate-auth-brute, paygate-rate-limit, paygate-waf-block
+- [x] SECURITY_AUDIT_v94.md — 99/100 score, 5-layer defence-in-depth, PCI-DSS checklist
+- [x] wave94.production.test.ts — 44 tests covering WAF policy, APISIX config, fail2ban, SIP processor
+- [x] js-yaml dev dependency added for YAML test parsing
+- [x] All 2966 tests passing across 84 test files

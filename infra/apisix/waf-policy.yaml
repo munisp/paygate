@@ -1,0 +1,160 @@
+# =============================================================================
+# open-appsec WAF Local Policy — PayGate Merchant Portal
+# File: /etc/cp/conf/local_policy.yaml (mounted into open-appsec container)
+#
+# open-appsec uses ML-based threat detection (no signature updates needed).
+# This policy defines:
+#   - Global threat prevention (OWASP Top-10)
+#   - Per-asset security profiles
+#   - Bot mitigation
+#   - API schema enforcement
+#   - Custom exceptions for known-safe patterns
+#
+# Reference: https://docs.openappsec.io/getting-started/start-with-docker
+# =============================================================================
+
+apiVersion: v1beta2
+kind: Policy
+metadata:
+  name: paygate-waf-policy
+  version: "1.0.0"
+
+# ─── Global Threat Prevention ─────────────────────────────────────────────────
+default:
+  mode: prevent-learn
+  practices:
+    - name: paygate-threat-prevention
+      type: ThreatPrevention
+      webAttacks:
+        maxBodySizeKb: 10240
+        maxHeaderSizeBytes: 8192
+        maxUrlSizeBytes: 2048
+        maxObjectDepth: 20
+        illegalHttpMethods: true
+        overrideMode: prevent
+        protections:
+          # OWASP A01 — Broken Access Control
+          - id: SQLi
+            mode: prevent
+          # OWASP A03 — Injection
+          - id: XSS
+            mode: prevent
+          - id: RCE
+            mode: prevent
+          - id: LFI
+            mode: prevent
+          - id: SSRF
+            mode: prevent
+          # OWASP A05 — Security Misconfiguration
+          - id: OpenRedirect
+            mode: prevent
+          # OWASP A06 — Vulnerable Components
+          - id: Log4Shell
+            mode: prevent
+          - id: SpringShell
+            mode: prevent
+          # Protocol attacks
+          - id: HTTPHeaderInjection
+            mode: prevent
+          - id: HTTPRequestSmuggling
+            mode: prevent
+      antiBot:
+        injectedSources:
+          - any
+        validatedSources:
+          - any
+        overrideMode: prevent
+      snortSignatures:
+        overrideMode: prevent
+        configmap:
+          - paygate-custom-snort-rules
+
+# ─── Asset-Specific Profiles ──────────────────────────────────────────────────
+assets:
+  # Portal tRPC API — high-value, strict enforcement
+  - name: paygate-trpc-api
+    urls:
+      - "*/api/trpc/*"
+    practices:
+      - name: paygate-threat-prevention
+    triggers:
+      - name: paygate-log-trigger
+    overrides:
+      # Allow large tRPC batch payloads (file uploads)
+      - name: allow-large-uploads
+        urls:
+          - "*/api/trpc/storage.upload"
+        maxBodySizeKb: 52428  # 50MB for file uploads
+        mode: detect
+
+  # Stripe webhook — must allow raw body, skip body inspection
+  - name: paygate-stripe-webhook
+    urls:
+      - "*/api/stripe/webhook"
+    practices:
+      - name: paygate-threat-prevention
+    overrides:
+      - name: stripe-raw-body
+        urls:
+          - "*/api/stripe/webhook"
+        mode: detect  # Detect only — Stripe signatures validate integrity
+
+  # Health check — no WAF overhead
+  - name: paygate-health
+    urls:
+      - "*/api/health"
+      - "*/api/trpc/system.health"
+    practices: []
+    mode: inactive
+
+  # SSE endpoints — long-lived connections, skip body inspection
+  - name: paygate-sse
+    urls:
+      - "*/api/events/*"
+      - "*/api/stream/*"
+    practices:
+      - name: paygate-threat-prevention
+    overrides:
+      - name: sse-long-poll
+        mode: detect
+
+  # Admin API — strictest enforcement
+  - name: paygate-admin-api
+    urls:
+      - "*/api/trpc/admin.*"
+      - "*/api/trpc/system.*"
+    practices:
+      - name: paygate-threat-prevention
+    triggers:
+      - name: paygate-log-trigger
+    overrides:
+      - name: admin-strict
+        mode: prevent
+
+# ─── Log Triggers ─────────────────────────────────────────────────────────────
+triggers:
+  - name: paygate-log-trigger
+    type: log
+    verbosity: medium
+    extendedLogging:
+      httpHeaders: true
+      requestBody: false  # PCI-DSS: never log request bodies
+      urlPath: true
+      urlQuery: true
+    logDestination:
+      stdout:
+        format: json
+      # Optionally ship to Loki:
+      # syslog:
+      #   address: loki:514
+      #   protocol: udp
+
+# ─── Custom Snort Rules (optional) ────────────────────────────────────────────
+# Add payment-specific attack patterns
+configmaps:
+  - name: paygate-custom-snort-rules
+    data: |
+      # Block common fintech API abuse patterns
+      alert http any any -> any any (msg:"PayGate: Suspicious card testing pattern"; flow:to_server,established; content:"card_number"; http_client_body; pcre:"/card_number.*4[0-9]{12}(?:[0-9]{3})?/i"; threshold:type threshold,track by_src,count 5,seconds 60; classtype:attempted-dos; sid:9000001; rev:1;)
+      alert http any any -> any any (msg:"PayGate: Mass account enumeration"; flow:to_server,established; content:"/api/trpc/auth.me"; http_uri; threshold:type threshold,track by_src,count 100,seconds 60; classtype:attempted-recon; sid:9000002; rev:1;)
+      alert http any any -> any any (msg:"PayGate: Bulk payout abuse"; flow:to_server,established; content:"/api/trpc/payouts.create"; http_uri; threshold:type threshold,track by_src,count 20,seconds 60; classtype:policy-violation; sid:9000003; rev:1;)

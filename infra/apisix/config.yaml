@@ -1,0 +1,126 @@
+# =============================================================================
+# PayGate APISIX Configuration — Production
+# Apache APISIX 3.9 + open-appsec WAF (ML-based, OWASP Top-10 coverage)
+#
+# Architecture:
+#   Internet → open-appsec (WAF/ML) → APISIX (API Gateway) → App Services
+#
+# open-appsec provides:
+#   - ML-based threat detection (no rule updates needed)
+#   - OWASP Top-10 coverage (SQLi, XSS, RCE, LFI, SSRF, etc.)
+#   - Bot mitigation
+#   - API schema enforcement
+#   - Rate limiting (layer 7)
+#
+# APISIX provides:
+#   - JWT authentication
+#   - Route-based proxying
+#   - Prometheus metrics
+#   - CORS enforcement
+#   - Load balancing
+# =============================================================================
+
+apisix:
+  node_listen: 9080
+  ssl:
+    enable: true
+    listen:
+      - port: 9443
+        enable_http3: false
+    ssl_protocols: "TLSv1.2 TLSv1.3"
+    ssl_ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305"
+  enable_ipv6: false
+  enable_admin: true
+  admin_listen:
+    ip: 127.0.0.1
+    port: 9180
+  admin_key:
+    - name: admin
+      key: "${APISIX_ADMIN_KEY:-paygate-apisix-admin-key-change-in-prod}"
+      role: admin
+    - name: viewer
+      key: "${APISIX_VIEWER_KEY:-paygate-apisix-viewer-key-change-in-prod}"
+      role: viewer
+  # Declarative config mode — routes loaded from apisix.yaml (routes.yaml)
+  config_center: yaml
+
+nginx_config:
+  error_log: /dev/stderr
+  error_log_level: warn
+  worker_processes: auto
+  worker_rlimit_nofile: 65535
+  events:
+    worker_connections: 16384
+  http:
+    access_log: /dev/stdout
+    keepalive_timeout: 75s
+    client_max_body_size: 10m
+    # Security headers injected at gateway level
+    add_header:
+      - "X-Frame-Options DENY"
+      - "X-Content-Type-Options nosniff"
+      - "X-XSS-Protection '1; mode=block'"
+      - "Referrer-Policy strict-origin-when-cross-origin"
+      - "Permissions-Policy 'geolocation=(), microphone=(), camera=()'"
+      - "Strict-Transport-Security 'max-age=31536000; includeSubDomains; preload'"
+    # Hide server version
+    server_tokens: "off"
+
+deployment:
+  role: traditional
+  role_traditional:
+    config_provider: yaml
+
+plugin_attr:
+  prometheus:
+    export_uri: /metrics
+    export_addr:
+      ip: "0.0.0.0"
+      port: 9091
+    metric_prefix: apisix_
+    enable_export_server: true
+  log-rotate:
+    max_kept: 168
+    max_size: 104857600
+    enable_compression: true
+
+plugins:
+  # Authentication
+  - jwt-auth
+  - key-auth
+  - basic-auth
+  - hmac-auth
+  # Security
+  - ip-restriction
+  - ua-restriction
+  - referer-restriction
+  - csrf
+  - cors
+  # Traffic control
+  - limit-req
+  - limit-count
+  - limit-conn
+  - traffic-split
+  # Observability
+  - prometheus
+  - opentelemetry
+  - zipkin
+  - http-logger
+  - kafka-logger
+  # Transformations
+  - proxy-rewrite
+  - response-rewrite
+  - grpc-transcode
+  # Fault injection (staging only)
+  - fault-injection
+  # Serverless
+  - serverless-pre-function
+  - serverless-post-function
+
+# ─── open-appsec WAF Integration ─────────────────────────────────────────────
+# open-appsec runs as a sidecar/plugin alongside APISIX.
+# The open-appsec agent intercepts requests before they reach APISIX upstreams.
+# Configuration is managed via /etc/cp/conf/local_policy.yaml (see waf-policy.yaml)
+#
+# To enable: mount open-appsec agent as shared volume and set NGINX_ATTACHMENT_ENABLED=1
+# Reference: https://github.com/openappsec/openappsec
