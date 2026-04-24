@@ -38,6 +38,13 @@ const seeds = [
   ["scripts/seed-wave34.mjs", "Wave 34 (agent banking, USSD)"],
   ["scripts/seed-wave38.mjs", "Wave 38 (FX, remittance, ISO20022)"],
   ["scripts/seed-wave89.mjs", "Wave 89 (claim_documents, portfolio_rebalancing_orders, corridor_live_stats)"],
+  ["seed-wave90.mjs", "Wave 90 (gold, remittance, insurance, EMI, loyalty, virtual cards, subscriptions, BNPL)"],
+  ["seed-wave91.mjs", "Wave 91 (BNPL calculator plans, insurance policies, EMI applications, subscription plans)"],
+  ["seed-wave92.mjs", "Wave 92 (gold SIP plans, consumer loyalty profiles, webhook live events, business rules)"],
+  ["seed-wave93.mjs", "Wave 93 (gold SIP snapshots, fraud alert events, analytics exports)"],
+  ["seed-wave94.mjs", "Wave 94 (WAF events, mTLS registry)"],
+  ["seed-wave95.mjs", "Wave 95 (WAF events, SIP snapshots, observability, mTLS registry)"],
+  ["seed-wave96.mjs", "Wave 96 (notification center events, webhook simulator templates)"],
   ["scripts/seed-ai-tables.mjs", "AI/ML tables (embeddings, insights)"],
   ["scripts/seed-complete-all-tables.mjs", "Complete all remaining tables"],
 ];

@@ -23,11 +23,26 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 // ─── Type config ────────────────────────────────────────────────────────────
+
+// ─── SSE Hook for real-time notifications ───────────────────────────────────
+function useNotificationSSE(onEvent: (event: any) => void) {
+  const esRef = useRef<EventSource | null>(null);
+  useEffect(() => {
+    const es = new EventSource("/api/notifications/stream");
+    esRef.current = es;
+    es.onmessage = (e) => {
+      try { onEvent(JSON.parse(e.data)); } catch {}
+    };
+    es.onerror = () => { es.close(); };
+    return () => { es.close(); };
+  }, [onEvent]);
+}
+
 const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   fraud: { icon: Shield, color: "text-red-600", bg: "bg-red-50 border-red-100", label: "Fraud" },
   fraud_alert: { icon: Shield, color: "text-red-600", bg: "bg-red-50 border-red-100", label: "Fraud" },

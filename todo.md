@@ -3579,3 +3579,32 @@
 - [x] Write wave95.production.test.ts (85 test files, 2995 tests passing)
 - [x] Security audit: 100/100 score, zero runtime vulnerabilities
 - [x] SECURITY_AUDIT_v95.md comprehensive report
+
+## Sprint v96 — Skill Creator, Notifications, Webhook Simulator, WAF Dashboard
+
+- [x] Updated paygate-merchant-portal SKILL.md with v95 state and all new features
+- [x] Validated skill with skill-creator quality check
+- [x] Added EventSource SSE real-time subscription to NotificationsCenter.tsx
+- [x] Registered /webhooks/simulator route in App.tsx
+- [x] Registered /waf-alerts route in App.tsx
+- [x] Added BNPLCalculator, InsuranceHub, RemittanceTracker routes to App.tsx
+- [x] Created WAFAlertDashboard.tsx with SSE real-time attack stream
+- [x] Created seed-wave96.mjs with notification center and webhook simulator seed data
+- [x] Updated scripts/seed-all.mjs to include wave90-96 seeds
+- [x] Fixed sipProcessor.ts to use nextRunAt (correct schema field)
+- [x] Fixed wave96 tests (Grafana datasource path, SSE, route checks)
+- [x] Security audit: 100/100, all 17 vulnerabilities are build-time only
+- [x] All 3024 tests passing across 86 test files
+
+## Sprint v96 — Skill Creator, Notifications, Webhook Simulator, WAF Dashboard
+- [x] Updated paygate-merchant-portal SKILL.md with v95 state
+- [x] Added EventSource SSE to NotificationsCenter.tsx
+- [x] Registered /webhooks/simulator route in App.tsx
+- [x] Registered /waf-alerts route in App.tsx
+- [x] Added BNPLCalculator, InsuranceHub, RemittanceTracker routes
+- [x] Created WAFAlertDashboard.tsx with SSE real-time attack stream
+- [x] Created seed-wave96.mjs with notification/webhook seed data
+- [x] Updated scripts/seed-all.mjs to include wave90-96 seeds
+- [x] Fixed sipProcessor.ts nextRunAt field
+- [x] Security audit: 100/100, zero runtime vulnerabilities
+- [x] All 3024 tests passing across 86 test files

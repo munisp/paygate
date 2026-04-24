@@ -225,8 +225,8 @@ async function getDueSIPPlans(db: any): Promise<SIPPlan[]> {
       .where(
         and(
           eq(schema.goldSipPlans.status, "active"),
-          gte(schema.goldSipPlans.nextDebitAt, today),
-          lt(schema.goldSipPlans.nextDebitAt, tomorrow)
+          gte(schema.goldSipPlans.nextRunAt, today),
+          lt(schema.goldSipPlans.nextRunAt, tomorrow)
         )
       );
   } catch {

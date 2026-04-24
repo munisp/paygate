@@ -29,6 +29,7 @@ import GoldSIP from "./pages/GoldSIP";
 import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
 import WebhookLiveStream from "./pages/WebhookLiveStream";
 import FraudAlertsDashboard from "./pages/FraudAlertsDashboard";
+import WebhookSimulator from "./pages/Webhooks/WebhookSimulator";
 import WAFAlertDashboard from "./pages/WAFAlertDashboard";
 import BNPLCalculator from "./pages/BNPLCalculator";
 import InsuranceHub from "./pages/InsuranceHub";
@@ -481,6 +482,7 @@ function Router() {
           <Route path="/compliance/settings" component={ComplianceSettings} />
           <Route path="/api-keys" component={APIKeys} />
           <Route path="/webhooks" component={Webhooks} />
+        <Route path={"/webhooks/simulator"} component={WebhookSimulator} />
           <Route path="/webhooks/deliveries" component={WebhookDeliveries} />
           <Route path="/settings" component={Settings} />
           <Route path="/qr-payments" component={QRPayments} />
