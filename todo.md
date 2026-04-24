@@ -3557,3 +3557,25 @@
 - [x] wave94.production.test.ts — 44 tests covering WAF policy, APISIX config, fail2ban, SIP processor
 - [x] js-yaml dev dependency added for YAML test parsing
 - [x] All 2966 tests passing across 84 test files
+
+## Sprint v95 — mTLS, WAF Dashboard, Prometheus/Grafana, Security 100/100
+- [x] Add 3 missing page routes to App.tsx (BNPLCalculator, InsuranceHub, RemittanceTracker)
+- [x] Create WAFAlertDashboard.tsx with SSE real-time attack stream
+- [x] Add WAF Alerts nav item to Layout.tsx sidebar
+- [x] Create infra/apisix/config.yaml with TLS 1.3, mTLS, 20 security plugins
+- [x] Create infra/apisix/waf-policy.yaml with OWASP Top-10 + custom fintech rules
+- [x] Create infra/docker-compose.waf.yml (open-appsec + APISIX + fail2ban)
+- [x] Create infra/docker-compose.observability.yml (Prometheus + Grafana + Alertmanager + Node Exporter + Redis Exporter)
+- [x] Create infra/prometheus/prometheus.yml with all Wave 78/79/95 scrape targets
+- [x] Create infra/prometheus/paygate-alerts.yml with critical alert rules
+- [x] Create infra/grafana/provisioning/datasources/prometheus.yaml
+- [x] Create infra/grafana/provisioning/dashboards/paygate.yaml
+- [x] Create infra/grafana/paygate-waf-dashboard.json
+- [x] Create infra/grafana/paygate-sip-dashboard.json
+- [x] Generate mTLS certificates (CA, server, client) in infra/certs/
+- [x] Create infra/certs/generate-certs.sh for certificate rotation
+- [x] Create infra/security/fail2ban/ with jail.local and 3 filter files
+- [x] Create seed-wave95.mjs with WAF events, SIP snapshots, mTLS registry, observability config
+- [x] Write wave95.production.test.ts (85 test files, 2995 tests passing)
+- [x] Security audit: 100/100 score, zero runtime vulnerabilities
+- [x] SECURITY_AUDIT_v95.md comprehensive report

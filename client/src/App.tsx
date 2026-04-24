@@ -29,6 +29,10 @@ import GoldSIP from "./pages/GoldSIP";
 import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
 import WebhookLiveStream from "./pages/WebhookLiveStream";
 import FraudAlertsDashboard from "./pages/FraudAlertsDashboard";
+import WAFAlertDashboard from "./pages/WAFAlertDashboard";
+import BNPLCalculator from "./pages/BNPLCalculator";
+import InsuranceHub from "./pages/InsuranceHub";
+import RemittanceTracker from "./pages/RemittanceTracker";
 
 // ── Lazy page loader helper ───────────────────────────────────────────────────
 const lz = (fn: () => Promise<any>) => lazy(fn);
@@ -464,6 +468,10 @@ function Router() {
           <Route path="/payment-links" component={PaymentLinks} />
           <Route path="/fraud-risk" component={FraudRisk} />
         <Route path="/fraud/alerts" component={FraudAlertsDashboard} />
+            <Route path="/infra/waf-alerts" component={WAFAlertDashboard} />
+            <Route path="/bnpl/calculator" component={BNPLCalculator} />
+            <Route path="/insurance/hub" component={InsuranceHub} />
+            <Route path="/remittance/tracker" component={RemittanceTracker} />
           <Route path="/reconciliation-alerts" component={ReconciliationAlerts} />
           <Route path="/bnpl" component={BNPL} />
           <Route path="/fx" component={FXDashboard} />

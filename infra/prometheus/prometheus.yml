@@ -1,202 +1,119 @@
+# PayGate Prometheus Configuration
 global:
   scrape_interval: 15s
-  evaluation_interval: 30s
+  evaluation_interval: 15s
   external_labels:
-    environment: production
-    project: paygate
+    environment: 'production'
+    service: 'paygate'
 
 rule_files:
-  - alert-rules.yaml
+  - "paygate-alerts.yml"
 
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: ["alertmanager:9093"]
+        - targets: ['alertmanager:9093']
 
 scrape_configs:
-  # ─── PayGate Portal (Node.js) ─────────────────────────────────────────────
-  - job_name: paygate-portal
+  # APISIX metrics
+  - job_name: 'apisix'
     static_configs:
-      - targets: ["portal-1:3000", "portal-2:3000"]
-    metrics_path: /metrics
+      - targets: ['apisix:9091']
+    metrics_path: '/apisix/prometheus/metrics'
+    scrape_interval: 10s
+
+  # PayGate app server metrics
+  - job_name: 'paygate-app'
+    static_configs:
+      - targets: ['paygate-app:3000']
+    metrics_path: '/api/metrics'
     scrape_interval: 15s
 
-  # ─── PayGate Go Bridge ────────────────────────────────────────────────────
-  - job_name: paygate-bridge
+  # Node exporter (system metrics)
+  - job_name: 'node-exporter'
     static_configs:
-      - targets: ["bridge-1:8080", "bridge-2:8080"]
-    metrics_path: /metrics
-    scrape_interval: 15s
+      - targets: ['node-exporter:9100']
 
-  # ─── PostgreSQL (via postgres_exporter) ───────────────────────────────────
-  - job_name: postgresql
+  # MySQL/TiDB metrics
+  - job_name: 'mysql'
     static_configs:
-      - targets: ["pg-exporter:9187"]
-    scrape_interval: 30s
+      - targets: ['mysql-exporter:9104']
 
-  # ─── Redis (via redis_exporter) ───────────────────────────────────────────
-  - job_name: redis
+  # Redis metrics
+  - job_name: 'redis'
     static_configs:
-      - targets: ["redis-exporter:9121"]
-    scrape_interval: 30s
+      - targets: ['redis-exporter:9121']
 
-  # ─── Kafka (via kafka_exporter) ───────────────────────────────────────────
-  - job_name: kafka
+  # open-appsec WAF metrics
+  - job_name: 'open-appsec'
     static_configs:
-      - targets: ["kafka-exporter:9308"]
+      - targets: ['open-appsec:8090']
+    metrics_path: '/metrics'
     scrape_interval: 30s
 
-  # ─── Python microservices ─────────────────────────────────────────────────
-  - job_name: paygate-fraud-scoring
+  # Wave 78 — Digital Finance Microservices
+  - job_name: 'paygate-digital-gold'
     static_configs:
-      - targets: ["fraud-scoring:8083"]
-    metrics_path: /metrics
-    scrape_interval: 30s
+      - targets: ['digital-gold-service:8080']
+    metrics_path: '/metrics'
 
-  - job_name: paygate-ussd-gateway
+  - job_name: 'paygate-mutual-funds'
     static_configs:
-      - targets: ["ussd-gateway:8095"]
-    metrics_path: /metrics
-    scrape_interval: 30s
+      - targets: ['mutual-funds-service:8081']
+    metrics_path: '/metrics'
 
-  - job_name: paygate-payroll
+  - job_name: 'paygate-pension-nps'
     static_configs:
-      - targets: ["payroll-service:8093"]
-    metrics_path: /metrics
-    scrape_interval: 30s
+      - targets: ['pension-nps-service:8082']
+    metrics_path: '/metrics'
 
-  # ─── APISIX ───────────────────────────────────────────────────────────────
-  - job_name: apisix
+  - job_name: 'paygate-cashback-rewards'
     static_configs:
-      - targets: ["apisix:9091"]
-    metrics_path: /apisix/prometheus/metrics
-    scrape_interval: 15s
+      - targets: ['cashback-rewards-service:8083']
+    metrics_path: '/metrics'
 
-  # ─── Temporal ─────────────────────────────────────────────────────────────
-  - job_name: temporal
+  - job_name: 'paygate-soundbox'
     static_configs:
-      - targets: ["temporal:8000"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  # ─── Wave 78 New Feature Microservices ────────────────────────────────────
-  - job_name: paygate-digital-gold
-    static_configs:
-      - targets: ["digital-gold:9020"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-mutual-funds
-    static_configs:
-      - targets: ["mutual-funds:9021"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-pension-nps
-    static_configs:
-      - targets: ["pension-nps:9022"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-cashback-rewards
-    static_configs:
-      - targets: ["cashback-rewards:9023"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-soundbox
-    static_configs:
-      - targets: ["soundbox:9024"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-wealth-management
-    static_configs:
-      - targets: ["wealth-management:9025"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-emi-service
-    static_configs:
-      - targets: ["emi-service:9026"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-bulk-collections
-    static_configs:
-      - targets: ["bulk-collections:9027"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-salary-accounts
-    static_configs:
-      - targets: ["salary-accounts:9028"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-intl-remittance
-    static_configs:
-      - targets: ["intl-remittance:9029"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-lakehouse-v2
-    static_configs:
-      - targets: ["lakehouse-v2-service:8125"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-fraud-heatmap
-    static_configs:
-      - targets: ["fraud-heatmap:8120"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-minio
-    static_configs:
-      - targets: ["minio:9000"]
-    metrics_path: /minio/v2/metrics/cluster
-    scrape_interval: 30s
-  - job_name: paygate-spark-master
-    static_configs:
-      - targets: ["spark-master:8080"]
-    metrics_path: /metrics/prometheus
-    scrape_interval: 30s
-  - job_name: paygate-trino
-    static_configs:
-      - targets: ["trino:8080"]
-    metrics_path: /v1/jmx/mbean/trino.execution:name=QueryManager
-    scrape_interval: 30s
-  - job_name: paygate-credit-scoring
-    static_configs:
-      - targets: ["credit-scoring:8200"]
-    metrics_path: /metrics
-    scrape_interval: 30s
+      - targets: ['soundbox-service:8084']
+    metrics_path: '/metrics'
 
-  - job_name: paygate-gnn-fraud
+  - job_name: 'paygate-wealth-management'
     static_configs:
-      - targets: ["gnn-fraud:8000"]
-    metrics_path: /metrics
-    scrape_interval: 15s
-  - job_name: paygate-vector-store
+      - targets: ['wealth-management-service:8085']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-emi-service'
     static_configs:
-      - targets: ["vector-store:8101"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-knowledge-graph
+      - targets: ['emi-service:8086']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-bulk-collections'
     static_configs:
-      - targets: ["knowledge-graph:8102"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-art-reasoning
+      - targets: ['bulk-collections-service:8087']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-salary-accounts'
     static_configs:
-      - targets: ["art-reasoning:8103"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-cocoindex
+      - targets: ['salary-accounts-service:8088']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-intl-remittance'
     static_configs:
-      - targets: ["cocoindex:8104"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-lakehouse-ai
+      - targets: ['intl-remittance-service:8089']
+    metrics_path: '/metrics'
+
+  # Wave 79 — Admin & Observability
+  - job_name: 'digital-gold-service'
     static_configs:
-      - targets: ["lakehouse-ai:8105"]
-    metrics_path: /metrics
-    scrape_interval: 30s
-  - job_name: paygate-fraud-heatmap
+      - targets: ['digital-gold-service:8080']
+    metrics_path: '/metrics'
+
+  - job_name: 'mutual-funds-service'
     static_configs:
-      - targets: ["fraud-heatmap:8120"]
-    metrics_path: /metrics
-    scrape_interval: 15s
-  - job_name: paygate-lakehouse-v2
+      - targets: ['mutual-funds-service:8081']
+    metrics_path: '/metrics'
+
+  - job_name: 'intl-remittance-service'
     static_configs:
-      - targets: ["lakehouse-v2:8125"]
-    metrics_path: /metrics
-    scrape_interval: 30s
+      - targets: ['intl-remittance-service:8089']
+    metrics_path: '/metrics'

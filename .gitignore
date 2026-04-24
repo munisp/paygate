@@ -112,3 +112,11 @@ temp/
 # Rust build artifacts
 rust-services/*/target/
 rust/*/target/
+
+# mTLS certificates (generated, not committed)
+infra/certs/*.key
+infra/certs/*.crt
+infra/certs/*.csr
+infra/certs/*.srl
+infra/certs/server-ext.cnf
+*.pem

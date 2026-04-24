@@ -1,0 +1,113 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "PayGate WAF & APISIX Security Dashboard",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 100 }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "title": "WAF Blocked Requests (1h)",
+      "type": "stat",
+      "targets": [{ "expr": "sum(increase(apisix_http_status{status=~\"4..\"}[1h]))", "legendFormat": "Blocked" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "value" },
+      "title": "Request Rate (req/s)",
+      "type": "stat",
+      "targets": [{ "expr": "sum(rate(apisix_http_requests_total[5m]))", "legendFormat": "RPS" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 200 }] } } },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "title": "Avg Response Time (ms)",
+      "type": "stat",
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(apisix_http_latency_bucket[5m])) by (le)) * 1000", "legendFormat": "p95 latency" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "title": "Rate Limited (429s, 1h)",
+      "type": "stat",
+      "targets": [{ "expr": "sum(increase(apisix_http_status{status=\"429\"}[1h]))", "legendFormat": "Rate Limited" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "title": "Request Rate by Status Code",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(apisix_http_status{status=~\"2..\"}[5m]))", "legendFormat": "2xx Success" },
+        { "expr": "sum(rate(apisix_http_status{status=~\"4..\"}[5m]))", "legendFormat": "4xx Client Error" },
+        { "expr": "sum(rate(apisix_http_status{status=~\"5..\"}[5m]))", "legendFormat": "5xx Server Error" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "title": "APISIX Latency Percentiles",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(apisix_http_latency_bucket[5m])) by (le)) * 1000", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(apisix_http_latency_bucket[5m])) by (le)) * 1000", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(apisix_http_latency_bucket[5m])) by (le)) * 1000", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 7,
+      "title": "Top Routes by Request Volume",
+      "type": "bargauge",
+      "targets": [{ "expr": "topk(10, sum(rate(apisix_http_requests_total[5m])) by (route))", "legendFormat": "{{route}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 8,
+      "title": "SIP Processor Executions",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "paygate_sip_executions_total", "legendFormat": "SIP Runs" },
+        { "expr": "paygate_sip_failures_total", "legendFormat": "SIP Failures" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["paygate", "waf", "apisix", "security"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "PayGate WAF & Security Dashboard",
+  "uid": "paygate-waf-v95",
+  "version": 1
+}
