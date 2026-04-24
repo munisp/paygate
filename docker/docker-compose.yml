@@ -1,0 +1,464 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PayGate Merchant Portal — Full Stack Docker Compose
+# Includes: App, Go Bridge, Go Microservices, Rust Services, Python Services,
+#           Middleware (Kafka, Redis, PostgreSQL, OpenSearch, Keycloak, Temporal,
+#           TigerBeetle, Fluvio, Permify, APISIX, Dapr, Lakehouse)
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-common-env: &common-env
+  NODE_ENV: production
+  LOG_LEVEL: info
+  MIDDLEWARE_BRIDGE_URL: http://go-bridge:8080
+  REDIS_URL: redis://redis:6379
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  TEMPORAL_HOST_PORT: temporal:7233
+  TEMPORAL_NAMESPACE: paygate
+  KEYCLOAK_URL: http://keycloak:8080
+  KEYCLOAK_REALM: paygate
+  KEYCLOAK_CLIENT_ID: paygate-portal
+  KEYCLOAK_CLIENT_SECRET: paygate-secret-changeme
+  PERMIFY_URL: http://permify:3476
+  TIGERBEETLE_ADDRESS: tigerbeetle:3000
+  OPENSEARCH_URL: http://opensearch:9200
+  FLUVIO_ENDPOINT: fluvio:9003
+  MOJALOOP_URL: http://mojaloop-fspiop:8100
+  CIPS_GATEWAY_URL: http://cips-gateway:8200
+  UPI_GATEWAY_URL: http://upi-gateway:8300
+  PIX_GATEWAY_URL: http://pix-gateway:8400
+  FRAUD_SCORING_URL: http://cross-border-fraud:8500
+  LEDGER_SERVICE_URL: http://tigerbeetle-ledger:8600
+  OPENSEARCH_SERVICE_URL: http://opensearch-service:8700
+  FX_SERVICE_URL: http://cips-upi-pix-fx:8800
+  LAKEHOUSE_URL: http://lakehouse:8125
+
+networks:
+  paygate-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+  opensearch-data:
+  keycloak-data:
+  tigerbeetle-data:
+  lakehouse-data:
+
+services:
+  # ─── Core App ──────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      <<: *common-env
+      DATABASE_URL: mysql://paygate:paygate@mysql:3306/paygate
+      JWT_SECRET: paygate-jwt-secret-changeme-in-production
+      VITE_APP_ID: paygate-portal
+      OAUTH_SERVER_URL: http://keycloak:8080/realms/paygate
+      VITE_OAUTH_PORTAL_URL: http://localhost:8080/realms/paygate
+      OWNER_OPEN_ID: owner-openid-changeme
+      OWNER_NAME: PayGate Admin
+      PAYMENT_LINK_BASE_URL: http://localhost:3000/pay
+      STRIPE_SECRET_KEY: sk_test_changeme
+      STRIPE_WEBHOOK_SECRET: whsec_changeme
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      go-bridge:
+        condition: service_started
+    networks:
+      - paygate-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Go Bridge (Middleware Orchestrator) ──────────────────────────────────
+  go-bridge:
+    build:
+      context: ../go-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *common-env
+      INTERNAL_API_KEY: paygate-internal-key-changeme
+      MIDDLEWARE_INTERNAL_KEY: paygate-middleware-key-changeme
+      NIBSS_GATEWAY_URL: https://nibss-gateway.paygate.io
+      NIBSS_INSTITUTION_CODE: 000001
+      NIBSS_SECRET_KEY: nibss-secret-changeme
+      NIP_API_KEY: nip-api-key-changeme
+      MOJALOOP_API_KEY: mojaloop-api-key-changeme
+      USSD_GATEWAY_URL: http://ussd-gateway:8900
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  # ─── Go Microservices ──────────────────────────────────────────────────────
+  mojaloop-fspiop:
+    build:
+      context: ../go-services/mojaloop-fspiop-adapter
+    ports:
+      - "8100:8100"
+    environment:
+      PORT: "8100"
+      MOJALOOP_HUB_URL: http://mojaloop-hub:3000
+      FSPIOP_SOURCE: paygate-ng
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LOG_LEVEL: info
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  cips-gateway:
+    build:
+      context: ../go-services/cips-gateway
+    ports:
+      - "8200:8200"
+    environment:
+      PORT: "8200"
+      CIPS_API_URL: https://cips.pboc.gov.cn/api
+      CIPS_PARTICIPANT_CODE: PAYGATECN
+      CIPS_API_KEY: cips-api-key-changeme
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  upi-gateway:
+    build:
+      context: ../go-services/upi-gateway
+    ports:
+      - "8300:8300"
+    environment:
+      PORT: "8300"
+      UPI_API_URL: https://api.npci.org.in/upi
+      UPI_VPA: paygate@upi
+      UPI_MERCHANT_ID: PAYGATE001
+      UPI_API_KEY: upi-api-key-changeme
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  pix-gateway:
+    build:
+      context: ../go-services/pix-gateway
+    ports:
+      - "8400:8400"
+    environment:
+      PORT: "8400"
+      PIX_API_URL: https://pix.bcb.gov.br/api
+      PIX_CLIENT_ID: paygate-pix-client
+      PIX_CLIENT_SECRET: pix-client-secret-changeme
+      PIX_CERT_PATH: /certs/pix-cert.pem
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  # ─── Rust Microservices ────────────────────────────────────────────────────
+  cross-border-fraud:
+    build:
+      context: ../rust-services/cross-border-fraud-engine
+    ports:
+      - "8500:8500"
+    environment:
+      PORT: "8500"
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FRAUD_MODEL_VERSION: "1.0.0"
+      RISK_THRESHOLD_HIGH: "0.8"
+      RISK_THRESHOLD_MEDIUM: "0.5"
+      LOG_LEVEL: info
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  tigerbeetle-ledger:
+    build:
+      context: ../rust-services/tigerbeetle-ledger
+    ports:
+      - "8600:8600"
+    environment:
+      PORT: "8600"
+      TIGERBEETLE_ADDRESS: tigerbeetle:3000
+      CLUSTER_ID: "0"
+      LOG_LEVEL: info
+    depends_on:
+      - tigerbeetle
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  # ─── Python Microservices ──────────────────────────────────────────────────
+  opensearch-service:
+    build:
+      context: ../python-services/opensearch-service
+    ports:
+      - "8700:8700"
+    environment:
+      PORT: "8700"
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_INDEX_PREFIX: paygate
+      LOG_LEVEL: info
+    depends_on:
+      - opensearch
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  cips-upi-pix-fx:
+    build:
+      context: ../python-services/cips-upi-pix-fx
+    ports:
+      - "8800:8800"
+    environment:
+      PORT: "8800"
+      REDIS_URL: redis://redis:6379
+      FX_REFRESH_INTERVAL: "60"
+      LOG_LEVEL: info
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  lakehouse:
+    build:
+      context: ../python-services/lakehouse-v2
+    ports:
+      - "8125:8125"
+    environment:
+      PORT: "8125"
+      LAKEHOUSE_PATH: /data/lakehouse
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LOG_LEVEL: info
+    volumes:
+      - lakehouse-data:/data/lakehouse
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: paygate
+      MYSQL_USER: paygate
+      MYSQL_PASSWORD: paygate
+    volumes:
+      - postgres-data:/var/lib/mysql
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass paygate-redis-changeme
+    volumes:
+      - redis-data:/data
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: paygate_analytics
+      POSTGRES_USER: paygate
+      POSTGRES_PASSWORD: paygate-pg-changeme
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_SECURITY_PLUGIN: "true"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.0
+    ports:
+      - "8081:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin-changeme
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/paygate_analytics
+      KC_DB_USERNAME: paygate
+      KC_DB_PASSWORD: paygate-pg-changeme
+    command: start-dev
+    depends_on:
+      - postgres
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.22.0
+    ports:
+      - "7233:7233"
+    environment:
+      DB: postgresql
+      DB_PORT: "5432"
+      POSTGRES_USER: paygate
+      POSTGRES_PWD: paygate-pg-changeme
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    depends_on:
+      - postgres
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.21.0
+    ports:
+      - "8082:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    depends_on:
+      - temporal
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.15.3
+    ports:
+      - "3001:3000"
+    command: ["start", "--addresses=0.0.0.0:3000", "0_0.tigerbeetle"]
+    volumes:
+      - tigerbeetle-data:/data
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  permify:
+    image: ghcr.io/permify/permify:v0.8.0
+    ports:
+      - "3476:3476"
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: postgres://paygate:paygate-pg-changeme@postgres:5432/paygate_analytics
+      PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: "20"
+    depends_on:
+      - postgres
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  # ─── APISIX API Gateway ────────────────────────────────────────────────────
+  apisix:
+    image: apache/apisix:3.7.0-debian
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+    volumes:
+      - ../middleware/apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+    depends_on:
+      - apisix-etcd
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  apisix-etcd:
+    image: bitnami/etcd:3.5
+    ports:
+      - "2379:2379"
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: http://apisix-etcd:2379
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  apisix-dashboard:
+    image: apache/apisix-dashboard:3.0.0-centos
+    ports:
+      - "9000:9000"
+    networks:
+      - paygate-net
+    restart: unless-stopped

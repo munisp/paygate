@@ -233,7 +233,7 @@ describe("SDK Portal Router", () => {
     const updateSchema = z.object({
       allowedOrigins: z.array(z.string()).optional(),
       webhookUrl: z.string().url().optional(),
-      checkoutTheme: z.record(z.string(), z.unknown()).optional(),
+      checkoutTheme: z.record(z.string(), z.string(), z.string(), z.unknown()).optional(),
       enabledMethods: z.array(z.string()).optional(),
     });
 

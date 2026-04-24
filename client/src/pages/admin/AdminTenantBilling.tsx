@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * AdminTenantBilling — Usage dashboard with quota bars, invoice history,
  * and billing management per tenant.

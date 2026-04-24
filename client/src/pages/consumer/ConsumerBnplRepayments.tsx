@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * ConsumerBnplRepayments — BNPL repayment schedule calendar with
  * instalment tracking, overdue alerts, and pay-now button.

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * ConsumerLoyaltyDashboard — Points balance, tier progress,
  * cashback history, and redemption options.

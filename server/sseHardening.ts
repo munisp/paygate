@@ -140,6 +140,7 @@ export function registerSseEndpoint(app: Express): void {
     const keysMatch = expectedKey.length > 0 &&
       internalKey.length === expectedKey.length &&
       timingSafeEqual(Buffer.from(internalKey), Buffer.from(expectedKey));
+    if (!keysMatch) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

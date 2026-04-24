@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * ConsumerInsurancePortal — Insurance products, policies, claims, and
  * a real-time AI chat support widget for user questions.

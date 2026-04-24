@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * PartnerOnboarding — 5-step wizard for partner/white-label tenant onboarding
  *

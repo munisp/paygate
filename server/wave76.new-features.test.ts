@@ -170,7 +170,7 @@ describe("Consumer Insurance Router", () => {
     const purchaseSchema = z.object({
       productId: z.string(),
       customerId: z.string().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
+      metadata: z.record(z.string(), z.string(), z.string(), z.unknown()).optional(),
     });
     expect(() => purchaseSchema.parse({ productId: "INS-001" })).not.toThrow();
   });
@@ -570,7 +570,7 @@ describe("Reports Center Router", () => {
       from: z.string(),
       to: z.string(),
       format: z.enum(["csv", "xlsx", "pdf"]),
-      filters: z.record(z.string(), z.unknown()).optional(),
+      filters: z.record(z.string(), z.string(), z.string(), z.unknown()).optional(),
     });
     expect(() => reportSchema.parse({ from: "2025-01-01", to: "2025-01-31", format: "csv" })).not.toThrow();
     expect(() => reportSchema.parse({ from: "2025-01-01", to: "2025-01-31", format: "docx" })).toThrow();

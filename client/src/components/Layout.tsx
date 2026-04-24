@@ -16,7 +16,7 @@ import {
   Database, ShieldPlus, Briefcase, PercentSquare, Volume2, PiggyBank,
   SplitSquareHorizontal, ListChecks, BookMarked, UserCheck, EyeOff,
   BarChart2, Building, ShoppingBag, Send, ChevronDown,
-  Calendar, CheckSquare, Mic, Split, TrendingDown, Wifi, MessageSquare} from "lucide-react";
+  Calendar, CheckSquare, Mic, Split, TrendingDown, Wifi, MessageSquare, Calculator, MapPin} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLocation as useWouterLocation } from "wouter";

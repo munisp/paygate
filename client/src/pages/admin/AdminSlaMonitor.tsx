@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, CheckCircle, Clock, RefreshCw, TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
-import AdminLayout from "./AdminLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 
 export default function AdminSlaMonitor() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -25,7 +25,7 @@ export default function AdminSlaMonitor() {
     : "red";
 
   return (
-    <AdminLayout>
+    <DashboardLayout>
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -182,6 +182,6 @@ export default function AdminSlaMonitor() {
           </CardContent>
         </Card>
       </div>
-    </AdminLayout>
+    </DashboardLayout>
   );
 }

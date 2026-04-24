@@ -706,7 +706,7 @@ async function startServer() {
         appId: process.env.VITE_APP_ID ?? "paygate",
         name: user.name ?? user.email ?? "Merchant",
       }, { expiresInMs: ONE_YEAR_MS });
-      const { getMerchantByOwnerId } = await import("../db");
+      const { getMerchantByOwnerId, getUserByOpenId } = await import("../db");
       const merchant = await getMerchantByOwnerId(user.id);
       return res.json({
         token,
@@ -1571,9 +1571,9 @@ async function startServer() {
     try {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
-      const { getMerchantByOwnerId, resolveUser } = await import("../db");
-      const user = await resolveUser(ctx.user.openId);
-      const merchant = await getMerchantByOwnerId(user.id);
+      const { getMerchantByOwnerId, getUserByOpenId } = await import("../db");
+      const user = await getUserByOpenId(ctx.user.openId);
+      const merchant = await getMerchantByOwnerId(user?.id ?? 0);
       if (!merchant) return res.status(404).json({ error: "Merchant not found" });
       const merchantId = merchant.id;
       res.setHeader("Content-Type", "text/event-stream");

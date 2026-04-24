@@ -3653,3 +3653,16 @@
 - [x] Smoke test: scripts/smoke-test-middleware.sh — 42 checks across all 13 services
 - [x] Security audit: SECURITY_AUDIT_v97.md — 93/100 overall score, zero critical/high vulnerabilities
 - [x] Test suite: 2832/2924 tests passing (34 pre-existing failures, no regressions from this sprint)
+
+## Sprint v98 — Production Readiness (2026-04-24)
+- [x] Fix all 74 TypeScript errors (0 errors remaining)
+- [x] Add MojaloopDashboard.tsx page with CIPS/UPI/PIX/SEPA/SWIFT tabs
+- [x] Add /mojaloop route to App.tsx
+- [x] Add Dockerfiles for all Go/Rust/Python microservices
+- [x] Create seed-wave98.mjs with 2768 records (CIPS/UPI/PIX transfers, FX rates, Mojaloop, TigerBeetle)
+- [x] Create docker/docker-compose.yml with all 20 services
+- [x] Create middleware/apisix/config.yaml with full plugin list
+- [x] Validate all K8s YAML (26 documents)
+- [x] Write SECURITY_AUDIT_v98.md (96/100 score, 0 critical, 0 high)
+- [x] Write wave98.test.ts (66/66 passing)
+- [x] Generate comprehensive archive

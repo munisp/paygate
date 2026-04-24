@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,

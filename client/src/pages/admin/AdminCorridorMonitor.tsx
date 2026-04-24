@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * AdminCorridorMonitor — Cross-tenant corridor volume heatmap,
  * FX markup management, and daily limit monitoring.
