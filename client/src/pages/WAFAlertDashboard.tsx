@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,10 @@ const generateMockEvents = () => {
 };
 
 export default function WAFAlertDashboard() {
+  // Real audit events from DB
+  const { data: auditEvents } = trpc.wave99.auditEvents.list.useQuery({ limit: 100 });
+  const { data: rateLimitEvents } = trpc.wave99.rateLimitEvents.list.useQuery({ limit: 50 });
+  
   const [events, setEvents] = useState(generateMockEvents());
   const [liveEvents, setLiveEvents] = useState<any[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);

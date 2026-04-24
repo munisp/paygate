@@ -1,3 +1,4 @@
+import { trpc } from "@/lib/trpc";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,8 @@ const generateMockEvent = (): WebhookEvent => {
 };
 
 export default function WebhookLiveStream() {
+  // Real webhook deliveries from DB
+  const { data: realDeliveries } = trpc.webhookDeliveries.list.useQuery({ limit: 20 });
   const [events, setEvents] = useState<WebhookEvent[]>(() =>
     Array.from({ length: 8 }, generateMockEvent)
   );

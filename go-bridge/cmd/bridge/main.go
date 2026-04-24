@@ -536,6 +536,40 @@ slog.Info("env var validation complete")
 		port = "8080"
 	}
 
+
+// ── Cross-Border Rails (CIPS / UPI / PIX / Mojaloop) ────────────────────────
+mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransfer))
+mux.HandleFunc("GET /v1/cips/status", authMiddleware(handlers.GetCIPSTransferStatus))
+mux.HandleFunc("GET /v1/cips/corridors", authMiddleware(handlers.GetCIPSCorridors))
+mux.HandleFunc("GET /v1/cips/health", handlers.GetCIPSHealth)
+
+mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPay))
+mux.HandleFunc("POST /v1/upi/collect", authMiddleware(handlers.ProxyUPICollect))
+mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPA))
+mux.HandleFunc("GET /v1/upi/status", authMiddleware(handlers.GetUPITransferStatus))
+mux.HandleFunc("GET /v1/upi/health", handlers.GetUPIHealth)
+
+mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPayment))
+mux.HandleFunc("POST /v1/pix/key/lookup", authMiddleware(handlers.LookupPIXKey))
+mux.HandleFunc("GET /v1/pix/status", authMiddleware(handlers.GetPIXTransferStatus))
+mux.HandleFunc("GET /v1/pix/health", handlers.GetPIXHealth)
+
+mux.HandleFunc("POST /v1/mojaloop/transfer", authMiddleware(handlers.ProxyMojaloopTransfer))
+mux.HandleFunc("GET /v1/mojaloop/quote", authMiddleware(handlers.GetMojaloopQuote))
+mux.HandleFunc("GET /v1/mojaloop/parties", authMiddleware(handlers.GetMojaloopParties))
+mux.HandleFunc("GET /v1/mojaloop/health", handlers.GetMojaloopHealth)
+
+// ── OpenSearch ───────────────────────────────────────────────────────────────
+mux.HandleFunc("POST /v1/opensearch/query", authMiddleware(handlers.ProxyOpenSearchQuery))
+mux.HandleFunc("POST /v1/opensearch/index", authMiddleware(handlers.ProxyOpenSearchIndex))
+mux.HandleFunc("GET /v1/opensearch/health", handlers.GetOpenSearchHealth)
+
+// ── TigerBeetle Ledger ───────────────────────────────────────────────────────
+mux.HandleFunc("GET /v1/ledger/accounts", authMiddleware(handlers.GetLedgerAccounts))
+mux.HandleFunc("POST /v1/ledger/transfer", authMiddleware(handlers.CreateLedgerTransfer))
+mux.HandleFunc("GET /v1/ledger/balance", authMiddleware(handlers.GetLedgerBalance))
+mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
+
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           loggingMiddleware(mux),

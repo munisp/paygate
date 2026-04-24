@@ -1,3 +1,4 @@
+import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,9 @@ const offers = [
 ];
 
 export default function ConsumerLoyaltyApp() {
+  // Real loyalty data from DB
+  const { data: loyaltyAccounts } = trpc.wave99.loyalty.listAccounts.useQuery({ limit: 10 });
+  const { data: loyaltyTransactions } = trpc.wave99.loyalty.listTransactions.useQuery({ limit: 20 });
   const [points, setPoints] = useState(3_750);
   const [cashbackBalance, setCashbackBalance] = useState(3_750); // kobo → naira
   const [showRedeem, setShowRedeem] = useState(false);

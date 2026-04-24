@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,8 @@ const RAIL_STATS = {
 };
 
 export default function MojaloopDashboard() {
+  const { data: crossBorderTransfers } = trpc.crossBorder.list.useQuery({ limit: 20 });
+  const { data: middlewareHealth } = trpc.middlewareDashboard.kafkaTopics.useQuery();
   const [selectedRail, setSelectedRail] = useState("all");
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("overview");

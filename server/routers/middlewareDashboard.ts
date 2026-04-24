@@ -154,7 +154,7 @@ function generateDemoTemporalWorkflows() {
     workflow_type: types[i % types.length],
     status: statuses[i % statuses.length],
     started_at: new Date(Date.now() - i * 300000).toISOString(),
-    duration_ms: Math.floor(Math.random() * 30000) + 500,
+    duration_ms: ((i * 1237 + 500) % 30000) + 500,
     merchant_id: "merchant_demo_001",
   }));
 }

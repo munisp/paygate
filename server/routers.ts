@@ -38,6 +38,7 @@ import { portalBillingRouter } from './portalBillingRouter';
 import { wave32Router } from './wave32Router';
 import { fraudRingRouter, gnnThresholdRouter, pricingRouter, consumerFinancialRouter, webhookEventRouter, adminCrudRouter } from './wave34Router';
 import { sipRouter } from './sipRouter';
+import { marketDataRouter } from './marketDataRouter';
 import {
   portfolioRebalancingRouter,
   claimDocumentsRouter,
@@ -54,6 +55,7 @@ import {
   corridorLiveStatsEnhancedRouter,
 } from './wave89Router';
 import { wave90Routers } from './wave90Router';
+import { wave99Router } from './wave99Router';
 import { middlewareDashboardRouter } from './routers/middlewareDashboard';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
@@ -7564,6 +7566,7 @@ export const appRouter = router({
   consumerFinancial: consumerFinancialRouter,
   emi: consumerFinancialRouter,
   sip: sipRouter,
+  marketData: marketDataRouter,
   webhookEvents: webhookEventRouter,
   adminCrud: adminCrudRouter,
   // Wave 88 — Portfolio Rebalancing, Claim Documents, Corridor Live Stats, Admin SLA, Tenant Revenue, White-Label SDK
@@ -7592,6 +7595,7 @@ export const appRouter = router({
   partnerOnboarding: wave90Routers.partnerOnboarding,
   // v97 — Full Middleware Dashboard (Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, OpenSearch, APISIX, TigerBeetle, Lakehouse)
   middlewareDashboard: middlewareDashboardRouter,
+  wave99: wave99Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
