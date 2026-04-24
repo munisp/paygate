@@ -28,6 +28,7 @@ import PartnerOnboardingWizard from "./pages/partner/PartnerOnboarding";
 import GoldSIP from "./pages/GoldSIP";
 import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
 import WebhookLiveStream from "./pages/WebhookLiveStream";
+import MiddlewareDashboard from "./pages/MiddlewareDashboard";
 import FraudAlertsDashboard from "./pages/FraudAlertsDashboard";
 import WebhookSimulator from "./pages/Webhooks/WebhookSimulator";
 import WAFAlertDashboard from "./pages/WAFAlertDashboard";
@@ -705,6 +706,7 @@ function Router() {
           <Route path="/gold/sip" component={GoldSIP} />
           <Route path="/consumer/loyalty-app" component={ConsumerLoyaltyApp} />
           <Route path="/webhook-live" component={WebhookLiveStream} />
+          <Route path="/admin/middleware-dashboard" component={MiddlewareDashboard} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

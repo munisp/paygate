@@ -54,6 +54,7 @@ import {
   corridorLiveStatsEnhancedRouter,
 } from './wave89Router';
 import { wave90Routers } from './wave90Router';
+import { middlewareDashboardRouter } from './routers/middlewareDashboard';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -7589,6 +7590,8 @@ export const appRouter = router({
   bnplAmortisation: wave90Routers.bnplAmortisation,
   tenantBrandingApi: wave90Routers.tenantBrandingApi,
   partnerOnboarding: wave90Routers.partnerOnboarding,
+  // v97 — Full Middleware Dashboard (Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, OpenSearch, APISIX, TigerBeetle, Lakehouse)
+  middlewareDashboard: middlewareDashboardRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
