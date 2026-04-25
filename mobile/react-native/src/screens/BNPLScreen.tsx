@@ -1,51 +1,101 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, TextInput } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-const mockPlans = [
-  { id: 'BNPL-001', customer: 'Adaeze Okonkwo', amount: 45000, currency: 'NGN', installments: 3, paid: 1, status: 'active', nextDue: '2026-05-01' },
-  { id: 'BNPL-002', customer: 'Emeka Nwosu', amount: 120000, currency: 'NGN', installments: 6, paid: 3, status: 'active', nextDue: '2026-05-15' },
-  { id: 'BNPL-003', customer: 'Fatima Aliyu', amount: 30000, currency: 'NGN', installments: 3, paid: 3, status: 'completed', nextDue: null },
-  { id: 'BNPL-004', customer: 'Chidi Okeke', amount: 80000, currency: 'NGN', installments: 4, paid: 0, status: 'defaulted', nextDue: '2026-04-01' },
-];
-
-const statusColor = (s: string) => ({ active: '#2563eb', completed: '#16a34a', defaulted: '#dc2626', pending: '#d97706' }[s] || '#6b7280');
+const statusColor = (s: string) => ({ active: '#2563eb', completed: '#16a34a', defaulted: '#dc2626', pending: '#d97706', cancelled: '#6b7280' }[s] ?? '#6b7280');
 
 export default function BNPLScreen() {
   const [filter, setFilter] = useState('all');
-  const filtered = filter === 'all' ? mockPlans : mockPlans.filter(p => p.status === filter);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { data, isLoading, refetch } = trpc.bnpl.list.useQuery({
+    status: filter === 'all' ? undefined : filter,
+    limit: 50,
+  });
+
+  const approveMutation = trpc.bnpl.approve.useMutation({
+    onSuccess: () => { refetch(); Alert.alert('Approved', 'BNPL plan approved'); },
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
+  const cancelMutation = trpc.bnpl.cancel.useMutation({
+    onSuccess: () => { refetch(); Alert.alert('Cancelled', 'BNPL plan cancelled'); },
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
+  const onRefresh = async () => { setRefreshing(true); await refetch(); setRefreshing(false); };
+
+  const plans = (data as any[]) ?? [];
+  const filtered = plans.filter(p =>
+    !search || String(p.customerId ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    String(p.id ?? '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handlePlanPress = (item: any) => {
+    const paid = item.installmentsPaid ?? 0;
+    const total = item.totalInstallments ?? 0;
+    Alert.alert(
+      String(item.id ?? 'BNPL Plan'),
+      `Customer: ${item.customerId ?? 'N/A'}\nAmount: ${(item.totalAmount ?? 0).toLocaleString()} ${item.currency ?? 'NGN'}\nInstallments: ${paid}/${total} paid\nNext Due: ${item.nextDueDate ? new Date(item.nextDueDate).toLocaleDateString() : 'N/A'}\nStatus: ${item.status}`,
+      [
+        { text: 'Close', style: 'cancel' },
+        item.status === 'pending'
+          ? { text: 'Approve', onPress: () => approveMutation.mutate({ id: item.id }) }
+          : { text: 'Cancel', style: 'destructive', onPress: () => cancelMutation.mutate({ id: item.id }) },
+      ]
+    );
+  };
+
+  if (isLoading) return (
+    <View style={styles.center}>
+      <ActivityIndicator size="large" color="#2563eb" />
+      <Text style={{ marginTop: 8, color: '#6b7280' }}>Loading BNPL plans...</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>BNPL Plans</Text>
+      <TextInput style={styles.search} placeholder="Search by customer or plan ID..." value={search} onChangeText={setSearch} placeholderTextColor="#9ca3af" />
       <View style={styles.filterRow}>
-        {['all', 'active', 'completed', 'defaulted'].map(f => (
+        {['all', 'active', 'pending', 'completed', 'defaulted'].map(f => (
           <TouchableOpacity key={f} style={[styles.chip, filter === f && styles.chipActive]} onPress={() => setFilter(f)}>
             <Text style={[styles.chipText, filter === f && styles.chipTextActive]}>{f}</Text>
           </TouchableOpacity>
         ))}
       </View>
-      <FlatList
-        data={filtered}
-        keyExtractor={p => p.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => Alert.alert(item.id, `Customer: ${item.customer}\nInstallments: ${item.paid}/${item.installments} paid\nNext Due: ${item.nextDue || 'N/A'}`)}>
-            <View style={styles.row}>
-              <Text style={styles.planId}>{item.id}</Text>
-              <View style={[styles.badge, { backgroundColor: statusColor(item.status) + '20' }]}>
-                <Text style={[styles.badgeText, { color: statusColor(item.status) }]}>{item.status}</Text>
-              </View>
-            </View>
-            <Text style={styles.customer}>{item.customer}</Text>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${(item.paid / item.installments) * 100}%`, backgroundColor: statusColor(item.status) }]} />
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.installments}>{item.paid}/{item.installments} installments</Text>
-              <Text style={styles.amount}>{item.amount.toLocaleString()} {item.currency}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-      />
+      {filtered.length === 0 ? (
+        <View style={styles.center}><Text style={{ color: '#6b7280' }}>No BNPL plans found</Text></View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={p => String(p.id)}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          renderItem={({ item }) => {
+            const paid = item.installmentsPaid ?? 0;
+            const total = item.totalInstallments ?? 1;
+            return (
+              <TouchableOpacity style={styles.card} onPress={() => handlePlanPress(item)}>
+                <View style={styles.row}>
+                  <Text style={styles.planId}>{item.id}</Text>
+                  <View style={[styles.badge, { backgroundColor: statusColor(item.status) + '20' }]}>
+                    <Text style={[styles.badgeText, { color: statusColor(item.status) }]}>{item.status}</Text>
+                  </View>
+                </View>
+                <Text style={styles.customer}>{item.customerId ?? 'Unknown'}</Text>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${Math.min(paid / total, 1) * 100}%`, backgroundColor: statusColor(item.status) }]} />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.installments}>{paid}/{total} installments</Text>
+                  <Text style={styles.amount}>{(item.totalAmount ?? 0).toLocaleString()} {item.currency ?? 'NGN'}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      )}
     </View>
   );
 }

@@ -1,0 +1,33 @@
+=== Wave 102 Change Manifest ===
+Date: 2026-04-25T07:42:47Z
+
+=== NEW FILES ===
+client/src/pages/LoyaltyLedger.tsx
+client/src/pages/CarbonCreditsLedger.tsx
+client/src/pages/EscrowContracts.tsx
+mobile/flutter/lib/screens/fraud_risk/fraud_risk_screen.dart
+mobile/flutter/lib/screens/payment_links/payment_links_screen.dart
+mobile/flutter/lib/screens/cross_border/cross_border_screen.dart
+mobile/flutter/lib/screens/notifications/notifications_screen.dart
+mobile/flutter/lib/services/security_service.dart
+infra/opensearch/security/field_masking.yml
+SECURITY_AUDIT_v102.md
+
+=== MODIFIED FILES ===
+go-services/pix-gateway/cmd/gateway/main.go — mTLS cert pinning via newMTLSClient()
+mobile/flutter/pubspec.yaml — added flutter_jailbreak_detection + ssl_pinning_plugin
+mobile/flutter/lib/services/api_service.dart — added BNPL, FX, FraudRisk, PaymentLinks, CrossBorder, Notifications API methods
+client/src/App.tsx — added routes for LoyaltyLedger, CarbonCreditsLedger, EscrowContracts
+client/src/components/Layout.tsx — added nav items for new pages
+server/orphanedTablesCRUD.ts — fixed initialization order (loyaltyLedger/carbonCredits/escrowContracts defined before router)
+server/wave101.test.ts — rewrote corrupted file, all 87 tests passing
+
+=== TEST RESULTS ===
+90 test files, 3363 tests, all passing
+
+=== SECURITY AUDIT DELTA ===
+MEDIUM: PIX mTLS cert pinning — RESOLVED
+MEDIUM: OpenSearch PII field masking — RESOLVED
+LOW: Flutter cert pinning — RESOLVED
+LOW: Flutter jailbreak detection — RESOLVED
+Overall security score: 70/70 (was 60/70)

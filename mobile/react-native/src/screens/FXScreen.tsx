@@ -1,90 +1,63 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, TextInput } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-const PAIRS = [
-  { pair: 'USD/NGN', rate: 1580.50, change: +0.32, bid: 1578.00, ask: 1583.00 },
-  { pair: 'EUR/NGN', rate: 1720.25, change: -0.15, bid: 1718.00, ask: 1722.50 },
-  { pair: 'GBP/NGN', rate: 2010.75, change: +0.48, bid: 2008.00, ask: 2013.50 },
-  { pair: 'CNY/NGN', rate: 217.80, change: +0.12, bid: 217.50, ask: 218.10 },
-  { pair: 'INR/NGN', rate: 18.95, change: -0.08, bid: 18.90, ask: 19.00 },
-  { pair: 'BRL/NGN', rate: 282.40, change: +0.22, bid: 282.00, ask: 282.80 },
-];
+export default function FXScreen() {
+  const [fromCurrency, setFromCurrency] = useState('NGN');
+  const [toCurrency, setToCurrency] = useState('USD');
+  const [amount, setAmount] = useState('');
+  const [converting, setConverting] = useState(false);
+  const [result, setResult] = useState<any>(null);
 
-export default function FXDashboardScreen() {
-  const [fromAmount, setFromAmount] = useState('');
-  const [selectedPair, setSelectedPair] = useState(PAIRS[0]);
+  const convertMutation = trpc.fx.convert.useMutation({
+    onSuccess: (data) => { setResult(data); setConverting(false); },
+    onError: (e) => { Alert.alert('Error', e.message); setConverting(false); },
+  });
 
-  const converted = fromAmount ? (parseFloat(fromAmount) * selectedPair.rate).toFixed(2) : '';
+  const handleConvert = () => {
+    if (!amount || isNaN(Number(amount))) { Alert.alert('Invalid', 'Enter a valid amount'); return; }
+    setConverting(true);
+    setResult(null);
+    convertMutation.mutate({ fromCurrency, toCurrency, amount: Number(amount) });
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>FX Dashboard</Text>
-
-      {/* Converter */}
-      <View style={styles.converter}>
-        <Text style={styles.converterTitle}>Quick Convert</Text>
-        <View style={styles.converterRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="Amount (USD)"
-            keyboardType="numeric"
-            value={fromAmount}
-            onChangeText={setFromAmount}
-          />
-          <Text style={styles.arrow}>→</Text>
-          <View style={styles.resultBox}>
-            <Text style={styles.resultText}>{converted || '0.00'} NGN</Text>
-          </View>
-        </View>
-        <Text style={styles.rateHint}>Rate: 1 USD = {selectedPair.rate} NGN</Text>
+    <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 32 }}>
+      <Text style={s.title}>FX Conversion</Text>
+      <View style={s.card}>
+        <Text style={s.label}>From Currency</Text>
+        <TextInput style={s.input} value={fromCurrency} onChangeText={setFromCurrency} autoCapitalize="characters" maxLength={3} />
+        <Text style={s.label}>To Currency</Text>
+        <TextInput style={s.input} value={toCurrency} onChangeText={setToCurrency} autoCapitalize="characters" maxLength={3} />
+        <Text style={s.label}>Amount</Text>
+        <TextInput style={s.input} value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="0.00" placeholderTextColor="#9ca3af" />
+        <TouchableOpacity style={s.btn} onPress={handleConvert} disabled={converting}>
+          {converting ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Convert</Text>}
+        </TouchableOpacity>
       </View>
-
-      {/* Rates */}
-      <Text style={styles.sectionTitle}>Live Rates</Text>
-      <FlatList
-        data={PAIRS}
-        keyExtractor={p => p.pair}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[styles.rateCard, selectedPair.pair === item.pair && styles.rateCardSelected]}
-            onPress={() => { setSelectedPair(item); Alert.alert(item.pair, `Bid: ${item.bid}\nAsk: ${item.ask}\nMid: ${item.rate}`); }}
-          >
-            <View style={styles.rateRow}>
-              <Text style={styles.pair}>{item.pair}</Text>
-              <Text style={[styles.change, { color: item.change >= 0 ? '#16a34a' : '#dc2626' }]}>
-                {item.change >= 0 ? '+' : ''}{item.change}%
-              </Text>
-            </View>
-            <Text style={styles.rate}>{item.rate.toFixed(2)}</Text>
-            <View style={styles.bidAsk}>
-              <Text style={styles.bidAskText}>Bid: {item.bid}</Text>
-              <Text style={styles.bidAskText}>Ask: {item.ask}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-      />
-    </View>
+      {result && (
+        <View style={s.resultCard}>
+          <Text style={s.resultLabel}>Converted Amount</Text>
+          <Text style={s.resultAmount}>{(result.convertedAmount ?? 0).toLocaleString()} {result.toCurrency ?? toCurrency}</Text>
+          <Text style={s.resultRate}>Rate: 1 {result.fromCurrency ?? fromCurrency} = {(result.rate ?? 0).toFixed(6)} {result.toCurrency ?? toCurrency}</Text>
+          {result.fee != null && <Text style={s.resultFee}>Fee: {result.fee} {result.fromCurrency ?? fromCurrency}</Text>}
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
-  converter: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  converterTitle: { fontSize: 14, fontWeight: '600', color: '#475569', marginBottom: 10 },
-  converterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  input: { flex: 1, backgroundColor: '#f8fafc', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#e2e8f0', fontSize: 14 },
-  arrow: { fontSize: 18, color: '#6366f1', fontWeight: '700' },
-  resultBox: { flex: 1, backgroundColor: '#eff6ff', borderRadius: 8, padding: 10, alignItems: 'center' },
-  resultText: { fontSize: 14, fontWeight: '600', color: '#1d4ed8' },
-  rateHint: { fontSize: 11, color: '#94a3b8', marginTop: 6 },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#1e293b', marginBottom: 8 },
-  rateCard: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1, borderWidth: 1, borderColor: '#e2e8f0' },
-  rateCardSelected: { borderColor: '#6366f1', backgroundColor: '#f5f3ff' },
-  rateRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
-  pair: { fontSize: 14, fontWeight: '700', color: '#1e293b' },
-  change: { fontSize: 13, fontWeight: '600' },
-  rate: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  bidAsk: { flexDirection: 'row', gap: 16 },
-  bidAskText: { fontSize: 11, color: '#64748b' },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f9fafb', padding: 16 },
+  title: { fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 16 },
+  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  label: { fontSize: 13, color: '#6b7280', marginBottom: 4, marginTop: 8 },
+  input: { backgroundColor: '#f3f4f6', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#111827', borderWidth: 1, borderColor: '#e5e7eb' },
+  btn: { backgroundColor: '#2563eb', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 16 },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  resultCard: { backgroundColor: '#eff6ff', borderRadius: 12, padding: 20, alignItems: 'center' },
+  resultLabel: { fontSize: 13, color: '#3b82f6', marginBottom: 8 },
+  resultAmount: { fontSize: 28, fontWeight: '800', color: '#1d4ed8', marginBottom: 4 },
+  resultRate: { fontSize: 13, color: '#6b7280' },
+  resultFee: { fontSize: 12, color: '#9ca3af', marginTop: 4 },
 });

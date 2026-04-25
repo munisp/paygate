@@ -1,49 +1,53 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Share } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, TextInput, Share } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-const mockLinks = [
-  { id: 'PL-001', title: 'Invoice #INV-2026-001', amount: 50000, currency: 'NGN', status: 'active', clicks: 12, payments: 3, expiresAt: '2026-06-01' },
-  { id: 'PL-002', title: 'Product Bundle', amount: 25000, currency: 'NGN', status: 'active', clicks: 45, payments: 18, expiresAt: '2026-05-15' },
-  { id: 'PL-003', title: 'Event Registration', amount: 10000, currency: 'NGN', status: 'expired', clicks: 200, payments: 87, expiresAt: '2026-04-01' },
-];
-
-const statusColor = (s: string) => ({ active: '#16a34a', expired: '#dc2626', draft: '#d97706' }[s] || '#6b7280');
+const statusColor = (s: string) => ({ active: '#16a34a', expired: '#6b7280', disabled: '#dc2626', draft: '#d97706' }[s] ?? '#6b7280');
 
 export default function PaymentLinksScreen() {
-  const shareLink = (link: any) => {
-    Share.share({ message: `Pay ${link.amount.toLocaleString()} ${link.currency} for "${link.title}": https://pay.paygate.ng/${link.id}` });
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const { data, isLoading, refetch } = trpc.paymentLinks.list.useQuery({ limit: 50 });
+  const deactivateMutation = trpc.paymentLinks.deactivate.useMutation({ onSuccess: () => refetch(), onError: (e) => Alert.alert('Error', e.message) });
+  const onRefresh = async () => { setRefreshing(true); await refetch(); setRefreshing(false); };
+  const links = (data as any[]) ?? [];
+  const filtered = links.filter(l => !search || String(l.title ?? '').toLowerCase().includes(search.toLowerCase()) || String(l.id ?? '').toLowerCase().includes(search.toLowerCase()));
+
+  const handleShare = (item: any) => {
+    if (item.url) Share.share({ message: `Pay via PayGate: ${item.url}`, url: item.url });
+    else Alert.alert('No URL', 'This payment link has no URL yet');
   };
 
+  if (isLoading) return <View style={s.center}><ActivityIndicator size="large" color="#2563eb" /></View>;
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Payment Links</Text>
-      <TouchableOpacity style={styles.createBtn} onPress={() => Alert.alert('Create Link', 'Payment link creation coming soon')}>
-        <Text style={styles.createBtnText}>+ Create Payment Link</Text>
-      </TouchableOpacity>
+    <View style={s.container}>
+      <Text style={s.title}>Payment Links</Text>
+      <TextInput style={s.search} placeholder="Search by title or ID..." value={search} onChangeText={setSearch} placeholderTextColor="#9ca3af" />
       <FlatList
-        data={mockLinks}
-        keyExtractor={l => l.id}
+        data={filtered}
+        keyExtractor={l => String(l.id)}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        ListEmptyComponent={<View style={s.center}><Text style={{ color: '#6b7280' }}>No payment links found</Text></View>}
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <Text style={styles.linkTitle} numberOfLines={1}>{item.title}</Text>
-              <View style={[styles.badge, { backgroundColor: statusColor(item.status) + '20' }]}>
-                <Text style={[styles.badgeText, { color: statusColor(item.status) }]}>{item.status}</Text>
+          <View style={s.card}>
+            <View style={s.row}>
+              <Text style={s.title2}>{item.title ?? 'Untitled'}</Text>
+              <View style={[s.badge, { backgroundColor: statusColor(item.status) + '20' }]}>
+                <Text style={[s.badgeText, { color: statusColor(item.status) }]}>{item.status ?? 'unknown'}</Text>
               </View>
             </View>
-            <Text style={styles.amount}>{item.amount.toLocaleString()} {item.currency}</Text>
-            <View style={styles.stats}>
-              <Text style={styles.stat}>👁 {item.clicks} views</Text>
-              <Text style={styles.stat}>💳 {item.payments} paid</Text>
-              <Text style={styles.stat}>📅 Exp: {item.expiresAt}</Text>
-            </View>
-            <View style={styles.actions}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => shareLink(item)}>
-                <Text style={styles.actionBtnText}>Share</Text>
+            <Text style={s.amount}>{(item.amount ?? 0).toLocaleString()} {item.currency ?? 'NGN'}</Text>
+            <Text style={s.uses}>Uses: {item.usageCount ?? 0}{item.maxUses ? `/${item.maxUses}` : ''}</Text>
+            <View style={s.actions}>
+              <TouchableOpacity style={s.actionBtn} onPress={() => handleShare(item)}>
+                <Text style={s.actionText}>Share</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnSecondary]} onPress={() => Alert.alert('Copy', `https://pay.paygate.ng/${item.id}`)}>
-                <Text style={styles.actionBtnTextSecondary}>Copy Link</Text>
-              </TouchableOpacity>
+              {item.status === 'active' && (
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: '#fee2e2' }]} onPress={() => deactivateMutation.mutate({ id: item.id })}>
+                  <Text style={[s.actionText, { color: '#dc2626' }]}>Deactivate</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -52,22 +56,19 @@ export default function PaymentLinksScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
-  createBtn: { backgroundColor: '#6366f1', borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 16 },
-  createBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  linkTitle: { fontSize: 14, fontWeight: '600', color: '#1e293b', flex: 1, marginRight: 8 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  amount: { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
-  stats: { flexDirection: 'row', gap: 12, marginBottom: 10 },
-  stat: { fontSize: 12, color: '#64748b' },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f9fafb', padding: 16 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  title2: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1 },
+  search: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: '#111827', borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 12 },
+  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
+  badgeText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
+  amount: { fontSize: 18, fontWeight: '700', color: '#2563eb', marginBottom: 4 },
+  uses: { fontSize: 12, color: '#6b7280', marginBottom: 12 },
   actions: { flexDirection: 'row', gap: 8 },
-  actionBtn: { flex: 1, backgroundColor: '#6366f1', borderRadius: 8, padding: 10, alignItems: 'center' },
-  actionBtnSecondary: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
-  actionBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  actionBtnTextSecondary: { color: '#475569', fontWeight: '600', fontSize: 13 },
+  actionBtn: { flex: 1, backgroundColor: '#eff6ff', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  actionText: { fontSize: 13, fontWeight: '600', color: '#2563eb' },
 });

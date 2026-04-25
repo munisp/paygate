@@ -1,44 +1,56 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, TextInput } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-const mockAlerts = [
-  { id: 'FA-001', transactionId: 'TXN-9001', riskScore: 92, reason: 'Velocity anomaly', status: 'open', severity: 'critical', amount: 5000, currency: 'NGN' },
-  { id: 'FA-002', transactionId: 'TXN-9002', riskScore: 78, reason: 'Geo mismatch', status: 'reviewing', severity: 'high', amount: 12000, currency: 'NGN' },
-  { id: 'FA-003', transactionId: 'TXN-9003', riskScore: 55, reason: 'Device fingerprint change', status: 'resolved', severity: 'medium', amount: 3000, currency: 'NGN' },
-];
-
-const severityColor = (s: string) => ({ critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#16a34a' }[s] || '#6b7280');
+const sevColor = (s: string) => ({ critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#16a34a' }[s] ?? '#6b7280');
 
 export default function FraudRiskScreen() {
   const [filter, setFilter] = useState('all');
-  const filtered = filter === 'all' ? mockAlerts : mockAlerts.filter(a => a.severity === filter);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { data, isLoading, refetch } = trpc.fraudRisk.list.useQuery({ severity: filter === 'all' ? undefined : filter, limit: 50 });
+  const reviewMutation = trpc.fraudRisk.review.useMutation({ onSuccess: () => refetch(), onError: (e) => Alert.alert('Error', e.message) });
+  const clearMutation = trpc.fraudRisk.clear.useMutation({ onSuccess: () => refetch(), onError: (e) => Alert.alert('Error', e.message) });
+
+  const onRefresh = async () => { setRefreshing(true); await refetch(); setRefreshing(false); };
+  const alerts = (data as any[]) ?? [];
+  const filtered = alerts.filter(a => !search || String(a.transactionId ?? '').toLowerCase().includes(search.toLowerCase()));
+
+  if (isLoading) return <View style={s.center}><ActivityIndicator size="large" color="#dc2626" /></View>;
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Fraud & Risk Alerts</Text>
-      <View style={styles.filterRow}>
-        {['all', 'critical', 'high', 'medium'].map(f => (
-          <TouchableOpacity key={f} style={[styles.chip, filter === f && styles.chipActive]} onPress={() => setFilter(f)}>
-            <Text style={[styles.chipText, filter === f && styles.chipTextActive]}>{f}</Text>
+    <View style={s.container}>
+      <Text style={s.title}>Fraud & Risk Alerts</Text>
+      <TextInput style={s.search} placeholder="Search by transaction ID..." value={search} onChangeText={setSearch} placeholderTextColor="#9ca3af" />
+      <View style={s.filterRow}>
+        {['all', 'critical', 'high', 'medium', 'low'].map(f => (
+          <TouchableOpacity key={f} style={[s.chip, filter === f && s.chipActive]} onPress={() => setFilter(f)}>
+            <Text style={[s.chipText, filter === f && s.chipTextActive]}>{f}</Text>
           </TouchableOpacity>
         ))}
       </View>
       <FlatList
         data={filtered}
-        keyExtractor={a => a.id}
+        keyExtractor={a => String(a.id)}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        ListEmptyComponent={<View style={s.center}><Text style={{ color: '#6b7280' }}>No fraud alerts</Text></View>}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => Alert.alert(item.id, `Score: ${item.riskScore}\nReason: ${item.reason}\nStatus: ${item.status}`)}>
-            <View style={styles.row}>
-              <Text style={styles.alertId}>{item.id}</Text>
-              <View style={[styles.badge, { backgroundColor: severityColor(item.severity) + '20' }]}>
-                <Text style={[styles.badgeText, { color: severityColor(item.severity) }]}>{item.severity}</Text>
+          <TouchableOpacity style={s.card} onPress={() => Alert.alert(String(item.id), `Score: ${item.riskScore ?? 'N/A'}\nReason: ${item.reason ?? 'N/A'}\nStatus: ${item.status ?? 'N/A'}\nAmount: ${(item.amount ?? 0).toLocaleString()} ${item.currency ?? 'NGN'}`, [
+            { text: 'Close', style: 'cancel' },
+            { text: 'Review', onPress: () => reviewMutation.mutate({ id: item.id }) },
+            { text: 'Clear', onPress: () => clearMutation.mutate({ id: item.id }) },
+          ])}>
+            <View style={s.row}>
+              <Text style={s.txnId}>{item.transactionId ?? item.id}</Text>
+              <View style={[s.badge, { backgroundColor: sevColor(item.severity) + '20' }]}>
+                <Text style={[s.badgeText, { color: sevColor(item.severity) }]}>{item.severity ?? 'unknown'}</Text>
               </View>
             </View>
-            <Text style={styles.txnId}>{item.transactionId}</Text>
-            <Text style={styles.reason}>{item.reason}</Text>
-            <View style={styles.row}>
-              <Text style={styles.score}>Risk Score: <Text style={{ color: severityColor(item.severity), fontWeight: '700' }}>{item.riskScore}</Text></Text>
-              <Text style={styles.amount}>{item.amount.toLocaleString()} {item.currency}</Text>
+            <Text style={s.reason}>{item.reason ?? 'No reason provided'}</Text>
+            <View style={s.row}>
+              <Text style={s.score}>Score: {item.riskScore ?? 'N/A'}</Text>
+              <Text style={s.amount}>{(item.amount ?? 0).toLocaleString()} {item.currency ?? 'NGN'}</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -47,21 +59,22 @@ export default function FraudRiskScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
-  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
-  chipActive: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
-  chipText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-  chipTextActive: { color: '#fff' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f9fafb', padding: 16 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  search: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: '#111827', borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 12 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#e5e7eb' },
+  chipActive: { backgroundColor: '#dc2626' },
+  chipText: { fontSize: 12, color: '#374151', textTransform: 'capitalize' },
+  chipTextActive: { color: '#fff', fontWeight: '600' },
+  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  alertId: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  txnId: { fontSize: 12, color: '#64748b', marginBottom: 2 },
-  reason: { fontSize: 12, color: '#475569', marginBottom: 6 },
-  score: { fontSize: 12, color: '#64748b' },
-  amount: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  txnId: { fontSize: 13, fontWeight: '600', color: '#374151' },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
+  badgeText: { fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },
+  reason: { fontSize: 14, color: '#374151', marginBottom: 8 },
+  score: { fontSize: 12, color: '#6b7280' },
+  amount: { fontSize: 14, fontWeight: '600', color: '#111827' },
 });
