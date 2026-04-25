@@ -326,7 +326,15 @@ export const loyaltyMwRouter = router({
         { name: "platinum", minPoints: 100_000 },
       ];
       // In production, fetch from loyalty_points table
-      const currentPoints = 0; // placeholder
+      // Fetch real current points from loyalty_accounts table
+      const db = await getDb();
+      let currentPoints = 0;
+      if (db) {
+        try {
+          const rows = await db.execute(sql`SELECT total_points FROM loyalty_accounts WHERE merchant_id = ${merchant.id} AND customer_id = ${input.customerId ?? 0} LIMIT 1`);
+          currentPoints = (rows as any[])[0]?.total_points ?? 0;
+        } catch { currentPoints = 0; }
+      }
       const newTier = [...TIERS].reverse().find(t => currentPoints >= t.minPoints)?.name ?? "bronze";
       logger.info(`[loyalty] User ${userId} tier evaluated: ${newTier}`);
       return { userId, newTier, currentPoints };

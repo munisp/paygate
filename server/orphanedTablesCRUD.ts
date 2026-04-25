@@ -700,6 +700,116 @@ export const consumerOutboxCRUD = router({
     }),
 });
 
+// ── loyaltyLedger CRUD (v101) ─────────────────────────────────────────────────
+export const loyaltyLedgerCRUD = router({
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().default(100) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      return db.execute(sql`SELECT * FROM loyalty_ledger WHERE merchant_id = ${merchant.id} ORDER BY created_at DESC LIMIT ${input.limit}`);
+    }),
+  create: protectedProcedure
+    .input(z.object({ accountId: z.number(), points: z.number(), type: z.string(), description: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.execute(sql`INSERT INTO loyalty_ledger (merchant_id, account_id, points, type, description, created_at) VALUES (${merchant.id}, ${input.accountId}, ${input.points}, ${input.type}, ${input.description ?? null}, NOW())`);
+      return { success: true };
+    }),
+});
+
+// ── carbonCredits CRUD (v101) ─────────────────────────────────────────────────
+export const carbonCreditsCRUD = router({
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().default(50) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      return db.execute(sql`SELECT * FROM carbon_credits WHERE merchant_id = ${merchant.id} ORDER BY created_at DESC LIMIT ${input.limit}`);
+    }),
+  create: protectedProcedure
+    .input(z.object({ amount: z.number(), projectName: z.string(), vintage: z.number().optional(), certificationBody: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.execute(sql`INSERT INTO carbon_credits (merchant_id, amount, project_name, vintage, certification_body, status, created_at) VALUES (${merchant.id}, ${input.amount}, ${input.projectName}, ${input.vintage ?? null}, ${input.certificationBody ?? null}, 'active', NOW())`);
+      return { success: true };
+    }),
+  retire: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.execute(sql`UPDATE carbon_credits SET status = 'retired', retired_at = NOW() WHERE id = ${input.id} AND merchant_id = ${merchant.id}`);
+      return { success: true };
+    }),
+});
+
+// ── escrowContracts CRUD (v101) ───────────────────────────────────────────────
+export const escrowContractsCRUD = router({
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().default(50) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      return db.execute(sql`SELECT * FROM escrow_contracts WHERE merchant_id = ${merchant.id} ORDER BY created_at DESC LIMIT ${input.limit}`);
+    }),
+  get: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const rows = await db.execute(sql`SELECT * FROM escrow_contracts WHERE id = ${input.id} AND merchant_id = ${merchant.id} LIMIT 1`);
+      return (rows as any[])[0] ?? null;
+    }),
+  create: protectedProcedure
+    .input(z.object({ buyerEmail: z.string().email(), sellerEmail: z.string().email(), amount: z.number().positive(), currency: z.string().length(3), description: z.string(), expiresAt: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const contractId = `ESC-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      await db.execute(sql`INSERT INTO escrow_contracts (merchant_id, contract_id, buyer_email, seller_email, amount, currency, description, status, expires_at, created_at) VALUES (${merchant.id}, ${contractId}, ${input.buyerEmail}, ${input.sellerEmail}, ${input.amount}, ${input.currency}, ${input.description}, 'pending', ${input.expiresAt ?? null}, NOW())`);
+      return { contractId };
+    }),
+  release: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.execute(sql`UPDATE escrow_contracts SET status = 'released', released_at = NOW() WHERE id = ${input.id} AND merchant_id = ${merchant.id}`);
+      return { success: true };
+    }),
+  dispute: protectedProcedure
+    .input(z.object({ id: z.number(), reason: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.execute(sql`UPDATE escrow_contracts SET status = 'disputed', dispute_reason = ${input.reason} WHERE id = ${input.id} AND merchant_id = ${merchant.id}`);
+      return { success: true };
+    }),
+});
+
 // ─── Combined Orphaned Tables Router ─────────────────────────────────────────
 export const orphanedTablesRouter = router({
   webhookEndpoints: webhookEndpointsCRUD,
@@ -717,4 +827,7 @@ export const orphanedTablesRouter = router({
   consumerLoans: consumerLoansCRUD,
   regulatorySandbox: regulatorySandboxCRUD,
   consumerOutbox: consumerOutboxCRUD,
+  loyaltyLedger: loyaltyLedgerCRUD,
+  carbonCredits: carbonCreditsCRUD,
+  escrowContracts: escrowContractsCRUD,
 });

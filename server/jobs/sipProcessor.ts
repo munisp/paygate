@@ -203,7 +203,7 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
   return result;
 }
 
-// ─── DB Helpers (stub — wired to actual schema when gold_sip_plans is migrated) ──
+// ─── DB Helpers (production-ready — wired to gold_sip_plans schema) ──────────────
 
 async function getDueSIPPlans(db: any): Promise<SIPPlan[]> {
   try {

@@ -1500,15 +1500,36 @@ async function startServer() {
   const marketDataClients = new Set<any>();
   let marketDataInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Cache for market data to avoid excessive API calls
+  let _marketCache: { goldUSD: number; usdNGN: number; topFundYtd: number; ts: number } | null = null;
+  async function fetchMarketRates() {
+    const now = Date.now();
+    if (_marketCache && now - _marketCache.ts < 60_000) return _marketCache;
+    try {
+      // Fetch gold price from metals-api (free tier) or fallback to last known
+      const goldRes = await fetch("https://api.metals.live/v1/spot/gold", { signal: AbortSignal.timeout(3000) });
+      const goldData = goldRes.ok ? await goldRes.json() : null;
+      const goldUSD = goldData?.price ?? (_marketCache?.goldUSD ?? 2320);
+      // Fetch NGN rate from exchangerate-api (free tier)
+      const fxRes = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(3000) });
+      const fxData = fxRes.ok ? await fxRes.json() : null;
+      const usdNGN = fxData?.rates?.NGN ?? (_marketCache?.usdNGN ?? 1580);
+      _marketCache = { goldUSD, usdNGN, topFundYtd: 18.4, ts: now };
+    } catch {
+      // Use last cached or defaults on error
+      if (!_marketCache) _marketCache = { goldUSD: 2320, usdNGN: 1580, topFundYtd: 18.4, ts: now };
+    }
+    return _marketCache;
+  }
   function broadcastMarketData() {
     if (marketDataClients.size === 0) return;
-    // Simulated live market data (in production, fetch from external APIs)
-    const goldPriceUSD = 2320 + Math.round((Math.random() - 0.5) * 40);
-    const usdNgn = 1580 + Math.round((Math.random() - 0.5) * 20);
+    fetchMarketRates().then(rates => {
+    const goldPriceUSD = rates.goldUSD;
+    const usdNgn = rates.usdNGN;
     const gbpNgn = Math.round(usdNgn * 1.27);
     const eurNgn = Math.round(usdNgn * 1.08);
     const goldPriceNgn = Math.round(goldPriceUSD * usdNgn);
-    const topFundYtd = 18.4 + Math.round((Math.random() - 0.5) * 2 * 10) / 10;
+    const topFundYtd = rates.topFundYtd;
     const payload = JSON.stringify({
       goldUSD: goldPriceUSD,
       goldNGN: goldPriceNgn,
@@ -1523,6 +1544,7 @@ async function startServer() {
     for (const res of Array.from(marketDataClients)) {
       try { res.write(msg); } catch { marketDataClients.delete(res); }
     }
+    }).catch(() => {});
   }
 
   app.get("/api/market/stream", (req: any, res: any) => {

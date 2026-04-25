@@ -7538,7 +7538,7 @@ export const appRouter = router({
   //               wealthManagement, emiCheckout, bulkCollections, apiDocs, salaryAccounts, privacyPayments,
   //               reports, aiInsightsV2, nodalAccounts, smartRetailPOS, internationalRemittance, subscriptionBillingV2
   newFeatures: newFeaturesRouter,
-  orphaned: orphanedTablesRouter,
+  orphanedTables: orphanedTablesRouter,
   // Wave 24 — Help analytics, feature flags, merchant risk, budgets, savings, referrals, chargebacks, SLA, webhook simulator, merchant actions, receipts
   wave24: wave24Router,
   // Wave 25 — Chargeback evidence, feature flag SDK, budget alerts, ban/suspend, audit log, API playground,
