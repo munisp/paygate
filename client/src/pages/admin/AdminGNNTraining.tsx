@@ -10,6 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { Brain, Play, RefreshCw, CheckCircle, Clock, Database, BarChart2, Cpu, TrendingUp, AlertTriangle, Download, Upload, Layers } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const MODEL_REGISTRY = [
   { version: "v4.2.1", type: "GNN (GraphSAGE)", trainedOn: "2026-04-18", accuracy: 97.3, precision: 96.8, recall: 97.9, f1: 97.3, auc: 0.998, status: "production", samples: "2.4M", epochs: 50 },
@@ -46,17 +49,34 @@ export default function AdminGNNTraining() {
   const [isTraining, setIsTraining] = useState(false);
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [activeTab, setActiveTab] = useState("registry");
+  const [modelType, setModelType] = useState<"gnn_fraud" | "anomaly_detection" | "credit_scoring" | "churn_prediction" | "aml_detection">("gnn_fraud");
+  const [epochs, setEpochs] = useState("50");
+  const [hiddenDims, setHiddenDims] = useState("256");
+  const [learningRate, setLearningRate] = useState("0.001");
+  const [batchSize, setBatchSize] = useState("256");
+
+  // Real tRPC data
+  const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = trpc.ai.getTrainingJobs.useQuery({ limit: 20 });
+  const liveJobs = (jobsData as any[]) ?? [];
+
+  const triggerMutation = trpc.ai.triggerGNNTraining.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Training job queued — Job ID: ${data.jobId}`);
+      setIsTraining(false);
+      refetchJobs();
+    },
+    onError: (e) => { toast.error(`Failed to queue training: ${e.message}`); setIsTraining(false); },
+  });
 
   const handleStartTraining = () => {
     setIsTraining(true);
-    setTrainingProgress(0);
-    toast.info("GNN training job queued — estimated completion in ~2.5 hours");
-    const interval = setInterval(() => {
-      setTrainingProgress(p => {
-        if (p >= 100) { clearInterval(interval); setIsTraining(false); toast.success("GNN training complete — v4.3.0 ready for staging review"); return 100; }
-        return p + 2;
-      });
-    }, 300);
+    triggerMutation.mutate({
+      modelType,
+      epochs: parseInt(epochs) || 50,
+      hiddenDims: parseInt(hiddenDims) || 256,
+      learningRate: parseFloat(learningRate) || 0.001,
+      batchSize: parseInt(batchSize) || 256,
+    });
   };
 
   return (
@@ -115,6 +135,7 @@ export default function AdminGNNTraining() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-3 w-full max-w-md">
           <TabsTrigger value="registry"><Layers className="w-4 h-4 mr-1" />Model Registry</TabsTrigger>
+          <TabsTrigger value="livejobs"><Database className="w-4 h-4 mr-1" />Live Jobs ({liveJobs.length})</TabsTrigger>
           <TabsTrigger value="runs"><Clock className="w-4 h-4 mr-1" />Training Runs</TabsTrigger>
           <TabsTrigger value="features"><BarChart2 className="w-4 h-4 mr-1" />Feature Importance</TabsTrigger>
         </TabsList>
@@ -171,6 +192,57 @@ export default function AdminGNNTraining() {
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="livejobs" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center justify-between">
+                Live Training Jobs (DB)
+                <Button variant="outline" size="sm" onClick={() => refetchJobs()}><RefreshCw className="w-4 h-4 mr-1" />Refresh</Button>
+              </CardTitle>
+              <CardDescription>Real-time training jobs from the database</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {jobsLoading ? (
+                <div className="flex items-center justify-center h-32"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+              ) : liveJobs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Brain className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                  <p>No training jobs yet. Use the &quot;Train New Model&quot; button to queue one.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Job ID</TableHead>
+                      <TableHead>Model Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Epochs</TableHead>
+                      <TableHead>Hidden Dims</TableHead>
+                      <TableHead>LR</TableHead>
+                      <TableHead>Triggered By</TableHead>
+                      <TableHead>Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {liveJobs.map((job: any) => (
+                      <TableRow key={job.id}>
+                        <TableCell className="font-mono text-xs">{String(job.id).slice(0, 12)}…</TableCell>
+                        <TableCell>{job.modelType}</TableCell>
+                        <TableCell><StatusBadge status={job.status} /></TableCell>
+                        <TableCell>{job.epochs}</TableCell>
+                        <TableCell>{job.hiddenDims}</TableCell>
+                        <TableCell className="font-mono text-xs">{job.learningRate}</TableCell>
+                        <TableCell>{job.triggeredBy ?? "system"}</TableCell>
+                        <TableCell className="text-xs">{job.createdAt ? new Date(job.createdAt).toLocaleString() : "N/A"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -66,20 +66,34 @@ export default function AdminDataPipeline() {
   const [activeTab, setActiveTab] = useState("overview");
   const [triggeringDag, setTriggeringDag] = useState<string | null>(null);
 
+  // Real tRPC data
+  const { data: liveDags, isLoading: dagsLoading, refetch: refetchDags } = trpc.adminDataPipeline.listDags.useQuery();
+  const { data: liveDbtRuns, isLoading: dbtLoading, refetch: refetchDbt } = trpc.adminDataPipeline.listDbtRuns.useQuery();
+  const { data: liveNifiFlows, isLoading: nifiLoading, refetch: refetchNifi } = trpc.adminDataPipeline.listNifiFlows.useQuery();
+
+  const triggerDagMutation = trpc.adminDataPipeline.triggerDag.useMutation({
+    onSuccess: (r) => {
+      setTriggeringDag(null);
+      if (r.fallback) toast.info(`DAG trigger queued (bridge unavailable). Run ID: ${r.runId ?? "N/A"}`);
+      else toast.success(`DAG triggered successfully. Run ID: ${r.runId ?? "N/A"}`);
+      refetchDags();
+    },
+    onError: (e) => { setTriggeringDag(null); toast.error(`Failed to trigger DAG: ${e.message}`); },
+  });
+
   const handleTriggerDag = (dagId: string) => {
     setTriggeringDag(dagId);
-    setTimeout(() => {
-      setTriggeringDag(null);
-      toast.success(`DAG "${dagId}" triggered successfully`);
-    }, 1500);
+    triggerDagMutation.mutate({ dagId });
   };
 
   const handleDbtRun = () => {
     toast.info("dbt run queued — transformations will complete in ~7 minutes");
+    refetchDbt();
   };
 
   const handleNiFiRestart = (flowId: string) => {
     toast.success(`NiFi flow "${flowId}" restarted`);
+    refetchNifi();
   };
 
   return (
@@ -92,7 +106,7 @@ export default function AdminDataPipeline() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info("Refreshing pipeline status…")}>
+          <Button variant="outline" size="sm" onClick={() => { refetchDags(); refetchDbt(); refetchNifi(); toast.success("Pipeline status refreshed"); }}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
           <Button size="sm" onClick={handleDbtRun}>

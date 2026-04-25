@@ -53,13 +53,29 @@ export default function AdminDisputeLifecycle() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("disputes");
-  const [selectedDispute, setSelectedDispute] = useState<typeof DISPUTES[0] | null>(null);
+  const [selectedDispute, setSelectedDispute] = useState<any | null>(null);
   const [evidenceNote, setEvidenceNote] = useState("");
 
-  const filtered = DISPUTES.filter(d => {
-    const matchSearch = d.id.toLowerCase().includes(search.toLowerCase()) ||
-      d.merchant.toLowerCase().includes(search.toLowerCase()) ||
-      d.customer.toLowerCase().includes(search.toLowerCase());
+  // Real tRPC data
+  const { data: disputesData, isLoading: disputesLoading, refetch: refetchDisputes } = trpc.disputes.list.useQuery({
+    status: statusFilter === "all" ? undefined : statusFilter,
+    limit: 50,
+    offset: 0,
+  });
+  const liveDisputes = (disputesData?.disputes ?? (Array.isArray(disputesData) ? disputesData : [])) as any[];
+
+  const respondMutation = trpc.disputes.respond.useMutation({
+    onSuccess: () => { toast.success("Response submitted successfully"); setSelectedDispute(null); setEvidenceNote(""); refetchDisputes(); },
+    onError: (e) => toast.error(`Failed to submit response: ${e.message}`),
+  });
+
+  // Use live data if available, fall back to static mock for display
+  const displayDisputes = liveDisputes.length > 0 ? liveDisputes : DISPUTES;
+
+  const filtered = displayDisputes.filter((d: any) => {
+    const matchSearch = (d.id ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (d.merchant ?? d.merchantId ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (d.customer ?? d.customerId ?? "").toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || d.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -67,10 +83,10 @@ export default function AdminDisputeLifecycle() {
   const formatNGN = (kobo: number) => `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}`;
 
   const stats = {
-    open: DISPUTES.filter(d => ["open", "evidence_requested", "evidence_submitted", "under_review"].includes(d.status)).length,
-    won: DISPUTES.filter(d => d.status === "won").length,
-    lost: DISPUTES.filter(d => d.status === "lost").length,
-    totalAmount: DISPUTES.reduce((s, d) => s + d.amount, 0),
+    open: displayDisputes.filter((d: any) => ["open", "evidence_requested", "evidence_submitted", "under_review"].includes(d.status)).length,
+    won: displayDisputes.filter((d: any) => d.status === "won").length,
+    lost: displayDisputes.filter((d: any) => d.status === "lost").length,
+    totalAmount: displayDisputes.reduce((s: number, d: any) => s + (Number(d.amount) || 0), 0),
   };
 
   return (

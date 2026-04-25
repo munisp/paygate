@@ -56,6 +56,7 @@ import {
 } from './wave89Router';
 import { wave90Routers } from './wave90Router';
 import { wave99Router } from './wave99Router';
+import { adminDataPipelineRouter } from './wave104Router';
 import { middlewareDashboardRouter } from './routers/middlewareDashboard';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
@@ -7600,6 +7601,8 @@ export const appRouter = router({
   // v97 — Full Middleware Dashboard (Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, OpenSearch, APISIX, TigerBeetle, Lakehouse)
   middlewareDashboard: middlewareDashboardRouter,
   wave99: wave99Router,
+  // Wave 104 — Admin Data Pipeline
+  adminDataPipeline: adminDataPipelineRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

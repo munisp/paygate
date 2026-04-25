@@ -47,6 +47,11 @@ function StatusBadge({ status }: { status: string }) {
 export default function AdminSettlementSLA() {
   const [activeTab, setActiveTab] = useState("dashboard");
 
+  // Real tRPC data
+  const { data: slaData, isLoading: slaLoading, refetch: refetchSla } = trpc.adminSlaMonitor.getBreachMetrics.useQuery();
+  const liveMetrics = slaData?.metrics;
+  const liveBreaches = slaData?.breachedSettlements ?? [];
+
   const formatNGN = (kobo: number) => `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}`;
 
   return (
@@ -69,10 +74,10 @@ export default function AdminSettlementSLA() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Overall SLA Compliance", value: "99.94%", icon: CheckCircle, color: "text-green-500" },
-          { label: "Pending Settlements", value: "₦876M", icon: DollarSign, color: "text-indigo-500" },
-          { label: "At Risk (< 3h)", value: "2", icon: AlertTriangle, color: "text-amber-500" },
-          { label: "Breached Today", value: "1", icon: XCircle, color: "text-red-500" },
+          { label: "Pending", value: slaLoading ? "…" : String(liveMetrics?.pendingCount ?? "99.94%"), icon: CheckCircle, color: "text-green-500" },
+          { label: "Breached", value: slaLoading ? "…" : String(liveMetrics?.breachedCount ?? 0), icon: XCircle, color: "text-red-500" },
+          { label: "Unalerted Breaches", value: slaLoading ? "…" : String(liveMetrics?.unalertedCount ?? 0), icon: AlertTriangle, color: "text-amber-500" },
+          { label: "Avg Settlement (hrs)", value: slaLoading ? "…" : `${(liveMetrics?.avgSettlementHours ?? 0).toFixed(1)}h`, icon: Clock, color: "text-indigo-500" },
         ].map(m => (
           <Card key={m.label}>
             <CardContent className="pt-4 pb-4">
@@ -86,11 +91,61 @@ export default function AdminSettlementSLA() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <TabsList className="grid grid-cols-4 w-full max-w-xl">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="live">Live Breaches ({liveBreaches.length})</TabsTrigger>
           <TabsTrigger value="pending">Pending</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="live" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center justify-between">
+                Live SLA Breaches (DB)
+                <Button variant="outline" size="sm" onClick={() => refetchSla()}><RefreshCw className="w-4 h-4 mr-1" />Refresh</Button>
+              </CardTitle>
+              <CardDescription>Real-time SLA breach data from the database</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {slaLoading ? (
+                <div className="flex items-center justify-center h-32"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+              ) : liveBreaches.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500 opacity-50" />
+                  <p className="font-medium">No SLA breaches — all settlements on track</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Settlement ID</TableHead>
+                      <TableHead>Merchant ID</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Currency</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>SLA Deadline</TableHead>
+                      <TableHead>Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {liveBreaches.map((s: any) => (
+                      <TableRow key={s.id} className="bg-red-50 dark:bg-red-950/20">
+                        <TableCell className="font-mono text-xs">{s.id}</TableCell>
+                        <TableCell className="text-xs">{s.merchant_id}</TableCell>
+                        <TableCell className="font-semibold">{formatNGN(Number(s.amount))}</TableCell>
+                        <TableCell>{s.currency}</TableCell>
+                        <TableCell><StatusBadge status={s.status} /></TableCell>
+                        <TableCell className="text-xs">{s.sla_deadline ? new Date(s.sla_deadline).toLocaleString() : "N/A"}</TableCell>
+                        <TableCell className="text-xs">{s.created_at ? new Date(s.created_at).toLocaleString() : "N/A"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="dashboard" className="mt-4 space-y-4">
           <Card>

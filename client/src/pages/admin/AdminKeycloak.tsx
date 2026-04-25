@@ -43,6 +43,18 @@ export default function AdminKeycloak() {
   const [selectedRealm, setSelectedRealm] = useState("paygate-prod");
   const [activeTab, setActiveTab] = useState("overview");
   const [searchUser, setSearchUser] = useState("");
+  const [syncUserId, setSyncUserId] = useState("");
+
+  // Real tRPC data
+  const { data: keycloakConfig } = trpc.settings.keycloak.isConfigured.useQuery();
+  const syncRolesMutation = trpc.settings.keycloak.syncRoles.useMutation({
+    onSuccess: (r) => toast.success(`Synced ${r.synced} role(s): ${(r.roles ?? []).join(", ") || "none"}${r.fallback ? " (bridge unavailable)" : ""}`),
+    onError: (e) => toast.error(`Sync failed: ${e.message}`),
+  });
+  const syncAllMutation = trpc.settings.keycloak.syncAllRoles.useMutation({
+    onSuccess: (r) => toast.success(`Synced ${r.users} / ${r.total} users${r.fallback ? " (bridge unavailable)" : ""}`),
+    onError: (e) => toast.error(`Bulk sync failed: ${e.message}`),
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -55,8 +67,9 @@ export default function AdminKeycloak() {
           <Button variant="outline" size="sm" onClick={() => window.open("http://localhost:8080/admin/", "_blank")}>
             <Globe className="w-4 h-4 mr-2" />Open Keycloak Admin
           </Button>
-          <Button size="sm" onClick={() => toast.info("Syncing realm configuration…")}>
-            <RefreshCw className="w-4 h-4 mr-2" />Sync Realm
+          <Button size="sm" onClick={() => syncAllMutation.mutate({})} disabled={syncAllMutation.isPending}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${syncAllMutation.isPending ? "animate-spin" : ""}`} />
+            {syncAllMutation.isPending ? "Syncing…" : "Sync All Roles"}
           </Button>
         </div>
       </div>
