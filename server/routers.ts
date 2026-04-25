@@ -7593,6 +7593,10 @@ export const appRouter = router({
   bnplAmortisation: wave90Routers.bnplAmortisation,
   tenantBrandingApi: wave90Routers.tenantBrandingApi,
   partnerOnboarding: wave90Routers.partnerOnboarding,
+  emiMwCore: wave90Routers.emiMwCore,
+  loyaltyMwCore: wave90Routers.loyaltyMwCore,
+  virtualCardsMwCore: wave90Routers.virtualCardsMwCore,
+  subscriptionsMwCore: wave90Routers.subscriptionsMwCore,
   // v97 — Full Middleware Dashboard (Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, OpenSearch, APISIX, TigerBeetle, Lakehouse)
   middlewareDashboard: middlewareDashboardRouter,
   wave99: wave99Router,

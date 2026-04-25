@@ -75,10 +75,31 @@ export const digitalGoldRouter = router({
       return res;
     }),
   setupSIP: protectedProcedure
-    .input(z.object({ amountKobo: z.number().min(10000), frequency: z.enum(["daily", "weekly", "monthly"]), startDate: z.string() }))
+    .input(z.object({ amountKobo: z.number().min(10000), frequency: z.enum(["daily", "weekly", "monthly"]), startDate: z.string(), name: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/digital-gold/sip/create", { ...input, userId: ctx.user.id });
       return res as { sipId: string; status: string; nextExecutionDate: string };
+    }),
+  listSIPs: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const res = await bridgeGet(`/digital-gold/sip/list?userId=${ctx.user.id}`);
+      return res as { plans: { id: string; name: string; amountKobo: number; frequency: string; status: string; gramsAccumulated: number; totalInvestedKobo: number; currentValueKobo: number; nextDebitDate: string; startDate: string }[]; total: number };
+    } catch { return { plans: [], total: 0 }; }
+  }),
+  pauseSIP: protectedProcedure
+    .input(z.object({ sipId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return await bridgePost("/digital-gold/sip/pause", { ...input, userId: ctx.user.id }) as { success: boolean; status: string };
+    }),
+  resumeSIP: protectedProcedure
+    .input(z.object({ sipId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return await bridgePost("/digital-gold/sip/resume", { ...input, userId: ctx.user.id }) as { success: boolean; status: string };
+    }),
+  cancelSIP: protectedProcedure
+    .input(z.object({ sipId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return await bridgePost("/digital-gold/sip/cancel", { ...input, userId: ctx.user.id }) as { success: boolean };
     }),
   getTransactionHistory: protectedProcedure
     .input(z.object({ page: z.number().default(1), limit: z.number().default(20) }))
