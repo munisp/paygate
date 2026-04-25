@@ -200,7 +200,75 @@ class ApiService {
   Future<Map<String, dynamic>> deleteWebhook(int webhookId) =>
       trpcMutation('webhooks.delete', {'webhookId': webhookId});
 
-  // ─── Push Notifications ────────────────────────────────────────────────────
+  //  // ─── BNPL ──────────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> listBnplPlans({int page = 1, String? status}) =>
+      trpcQuery('bnpl.listPlans', {'page': page, 'limit': 20, if (status != null) 'status': status});
+
+  Future<Map<String, dynamic>> getBnplPlan(int planId) =>
+      trpcQuery('bnpl.getPlan', {'planId': planId});
+
+  Future<Map<String, dynamic>> createBnplPlan(Map<String, dynamic> data) =>
+      trpcMutation('bnpl.createPlan', data);
+
+  Future<Map<String, dynamic>> recordBnplRepayment(int planId, double amount) =>
+      trpcMutation('bnpl.recordRepayment', {'planId': planId, 'amount': amount});
+
+  // ─── FX & Cross-Border ─────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> getFxRates({String? baseCurrency}) =>
+      trpcQuery('fx.getRates', {if (baseCurrency != null) 'baseCurrency': baseCurrency});
+
+  Future<Map<String, dynamic>> convertCurrency(String from, String to, double amount) =>
+      trpcMutation('fx.convert', {'from': from, 'to': to, 'amount': amount});
+
+  Future<Map<String, dynamic>> listCrossBorderTransactions({int page = 1, String? status}) =>
+      trpcQuery('crossBorder.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+
+  Future<Map<String, dynamic>> initiateCrossBorderTransfer(Map<String, dynamic> data) =>
+      trpcMutation('crossBorder.initiate', data);
+
+  // ─── Fraud Risk ────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> getFraudAlerts({int page = 1, String? severity}) =>
+      trpcQuery('fraud.getAlerts', {'page': page, 'limit': 20, if (severity != null) 'severity': severity});
+
+  Future<Map<String, dynamic>> getFraudStats() =>
+      trpcQuery('fraud.getStats');
+
+  Future<Map<String, dynamic>> dismissFraudAlert(int alertId) =>
+      trpcMutation('fraud.dismissAlert', {'alertId': alertId});
+
+  Future<Map<String, dynamic>> blockFraudEntity(String entityType, String entityId) =>
+      trpcMutation('fraud.blockEntity', {'entityType': entityType, 'entityId': entityId});
+
+  // ─── Payment Links ────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> listPaymentLinks({int page = 1, String? status}) =>
+      trpcQuery('paymentLinks.list', {'page': page, 'limit': 20, if (status != null) 'status': status});
+
+  Future<Map<String, dynamic>> createPaymentLink(Map<String, dynamic> data) =>
+      trpcMutation('paymentLinks.create', data);
+
+  Future<Map<String, dynamic>> deactivatePaymentLink(int linkId) =>
+      trpcMutation('paymentLinks.deactivate', {'linkId': linkId});
+
+  Future<Map<String, dynamic>> getPaymentLinkStats(int linkId) =>
+      trpcQuery('paymentLinks.getStats', {'linkId': linkId});
+
+  // ─── Notifications ─────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> listNotifications({int page = 1, bool? unreadOnly}) =>
+      trpcQuery('notifications.list', {'page': page, 'limit': 20, if (unreadOnly != null) 'unreadOnly': unreadOnly});
+
+  Future<Map<String, dynamic>> markNotificationRead(int notificationId) =>
+      trpcMutation('notifications.markRead', {'notificationId': notificationId});
+
+  Future<Map<String, dynamic>> markAllNotificationsRead() =>
+      trpcMutation('notifications.markAllRead', {});
+
+  Future<Map<String, dynamic>> getNotificationPreferences() =>
+      trpcQuery('notifications.getPreferences');
+
+  Future<Map<String, dynamic>> updateNotificationPreferences(Map<String, dynamic> prefs) =>
+      trpcMutation('notifications.updatePreferences', prefs);
+
+  // ─── Push Notifications ──────────────────────────────────────────────
   Future<Map<String, dynamic>> registerPushToken(String token, String platform) =>
       trpcMutation('pushTokens.register', {'token': token, 'platform': platform});
 

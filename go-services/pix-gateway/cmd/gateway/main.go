@@ -6,6 +6,10 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -269,10 +273,37 @@ type Server struct {
 	client *http.Client
 }
 
+// newMTLSClient creates an HTTP client with mTLS cert pinning for the BACEN PIX API.
+// Set PIX_CERT_FINGERPRINT env var to the SHA-256 hex fingerprint of the BACEN leaf
+// certificate to enable strict cert pinning. Without it, standard TLS verification applies.
+func newMTLSClient() *http.Client {
+	pinnedFingerprint := strings.ToLower(strings.ReplaceAll(os.Getenv("PIX_CERT_FINGERPRINT"), ":", ""))
+	tlsCfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	if pinnedFingerprint != "" {
+		tlsCfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			for _, rawCert := range rawCerts {
+				fingerprint := sha256.Sum256(rawCert)
+				hex := hex.EncodeToString(fingerprint[:])
+				if hex == pinnedFingerprint {
+					return nil // cert matches pinned fingerprint
+				}
+			}
+			return fmt.Errorf("pix-gateway: cert pinning failed — no cert matched fingerprint %s", pinnedFingerprint)
+		}
+		slog.Info("PIX gateway mTLS cert pinning enabled", "fingerprint", pinnedFingerprint)
+	} else {
+		slog.Warn("PIX gateway cert pinning disabled — set PIX_CERT_FINGERPRINT for production")
+	}
+	transport := &http.Transport{TLSClientConfig: tlsCfg}
+	return &http.Client{Timeout: 30 * time.Second, Transport: transport}
+}
+
 func NewServer(cfg Config) *Server {
 	return &Server{
 		cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: newMTLSClient(),
 	}
 }
 

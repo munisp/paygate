@@ -343,6 +343,11 @@ const AdminSlaMonitorPage = lz(() => import("./pages/admin/AdminSlaMonitor"));
 const AdminTenantRevenuePage = lz(() => import("./pages/admin/AdminTenantRevenue"));
 const WhiteLabelSDKPage = lz(() => import("./pages/WhiteLabelSDK"));
 
+// ── Orphaned Tables CRUD pages ──────────────────────────────────────────────
+const LoyaltyLedger = lz(() => import("./pages/LoyaltyLedger"));
+const CarbonCreditsLedger = lz(() => import("./pages/CarbonCreditsLedger"));
+const EscrowContractsPage = lz(() => import("./pages/EscrowContracts"));
+
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -641,6 +646,9 @@ function Router() {
           <Route path="/agent-banking-v4" component={AgentBankingV4} />
           <Route path="/super-agent-v2" component={SuperAgentV2} />
           <Route path="/escrow-v2" component={EscrowV2} />
+          <Route path="/loyalty-ledger" component={LoyaltyLedger} />
+          <Route path="/carbon-credits-ledger" component={CarbonCreditsLedger} />
+          <Route path="/escrow-contracts" component={EscrowContractsPage} />
           <Route path="/marketplace-pay" component={MarketplacePay} />
           <Route path="/loyalty-v3" component={LoyaltyV3} />
           <Route path="/crypto-offramp-v2" component={CryptoOfframpV2} />

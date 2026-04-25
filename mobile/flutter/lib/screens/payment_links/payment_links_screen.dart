@@ -1,78 +1,159 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/api_service.dart';
 
-class PaymentLinksScreen extends StatelessWidget {
+class PaymentLinksScreen extends ConsumerStatefulWidget {
   const PaymentLinksScreen({super.key});
+  @override
+  ConsumerState<PaymentLinksScreen> createState() => _PaymentLinksScreenState();
+}
 
-  final _links = const [
-    {'id': 'PL-001', 'title': 'Invoice #INV-2026-001', 'amount': 50000.0, 'currency': 'NGN', 'status': 'active', 'clicks': 12, 'payments': 3},
-    {'id': 'PL-002', 'title': 'Product Bundle', 'amount': 25000.0, 'currency': 'NGN', 'status': 'active', 'clicks': 45, 'payments': 18},
-    {'id': 'PL-003', 'title': 'Event Registration', 'amount': 10000.0, 'currency': 'NGN', 'status': 'expired', 'clicks': 200, 'payments': 87},
-  ];
+class _PaymentLinksScreenState extends ConsumerState<PaymentLinksScreen> {
+  List<dynamic> _links = [];
+  bool _loading = true;
+  String? _error;
+  bool _creating = false;
 
-  Color _statusColor(String s) => s == 'active' ? Colors.green : s == 'expired' ? Colors.red : Colors.orange;
+  final _nameCtrl = TextEditingController();
+  final _amountCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+
+  @override
+  void initState() { super.initState(); _load(); }
+  @override
+  void dispose() { _nameCtrl.dispose(); _amountCtrl.dispose(); _descCtrl.dispose(); super.dispose(); }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final api = ref.read(apiServiceProvider);
+      final result = await api.listPaymentLinks();
+      final rows = result['rows'] ?? result['links'] ?? result['data'] ?? [];
+      setState(() { _links = rows is List ? rows : []; _loading = false; });
+    } catch (e) {
+      setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  Future<void> _create() async {
+    if (_nameCtrl.text.isEmpty || _amountCtrl.text.isEmpty) return;
+    setState(() => _creating = true);
+    try {
+      final api = ref.read(apiServiceProvider);
+      await api.createPaymentLink({
+        'name': _nameCtrl.text,
+        'amount': double.parse(_amountCtrl.text),
+        'description': _descCtrl.text,
+        'currency': 'NGN',
+      });
+      _nameCtrl.clear(); _amountCtrl.clear(); _descCtrl.clear();
+      if (mounted) Navigator.pop(context);
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  void _showCreateDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Create Payment Link', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 16),
+            TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: _amountCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (NGN)', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: _descCtrl, decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder())),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _creating ? null : _create,
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1), foregroundColor: Colors.white),
+                child: _creating ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2) : const Text('Create'),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Payment Links'), backgroundColor: const Color(0xFF6366F1), foregroundColor: Colors.white),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: _links.length,
-        itemBuilder: (ctx, i) {
-          final l = _links[i];
-          final url = 'https://pay.paygate.ng/${l['id']}';
-          return Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(child: Text(l['title'] as String, style: const TextStyle(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(color: _statusColor(l['status'] as String).withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                        child: Text(l['status'] as String, style: TextStyle(color: _statusColor(l['status'] as String), fontWeight: FontWeight.w600, fontSize: 11)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text('${(l['amount'] as double).toStringAsFixed(0)} ${l['currency']}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-                  const SizedBox(height: 6),
-                  Row(children: [
-                    const Icon(Icons.visibility, size: 14, color: Colors.grey),
-                    Text(' ${l['clicks']} views  ', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                    const Icon(Icons.payment, size: 14, color: Colors.grey),
-                    Text(' ${l['payments']} paid', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  ]),
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () { Clipboard.setData(ClipboardData(text: url)); ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Copied: $url'))); },
-                        icon: const Icon(Icons.copy, size: 16),
-                        label: const Text('Copy Link'),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1), foregroundColor: Colors.white),
-                      ),
-                    ),
-                  ]),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Create link coming soon'))),
-        label: const Text('Create Link'),
-        icon: const Icon(Icons.add_link),
+      appBar: AppBar(
+        title: const Text('Payment Links'),
         backgroundColor: const Color(0xFF6366F1),
+        foregroundColor: Colors.white,
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showCreateDialog,
+        backgroundColor: const Color(0xFF6366F1),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+          ? Center(child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 12),
+                Text(_error!),
+                ElevatedButton(onPressed: _load, child: const Text('Retry')),
+              ],
+            ))
+          : _links.isEmpty
+            ? const Center(child: Text('No payment links yet'))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _links.length,
+                  itemBuilder: (ctx, i) {
+                    final l = _links[i];
+                    final url = l['url'] ?? l['link_url'] ?? '';
+                    final status = l['status'] ?? 'active';
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: status == 'active' ? Colors.green.withOpacity(0.15) : Colors.grey.withOpacity(0.15),
+                          child: Icon(Icons.link, color: status == 'active' ? Colors.green : Colors.grey),
+                        ),
+                        title: Text(l['name'] ?? 'Payment Link', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('NGN ${(l['amount'] ?? 0.0).toString()}'),
+                            Text('Visits: ${l['visit_count'] ?? l['visits'] ?? 0}  •  Paid: ${l['paid_count'] ?? l['conversions'] ?? 0}',
+                              style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                          ],
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.copy, size: 20),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: url));
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link copied!')));
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
     );
   }
 }

@@ -173,6 +173,7 @@ const navGroups: NavGroup[] = [
       { icon: FilePlus2, label: "Invoice Financing V2", path: "/invoice-financing-v2", badge: "New" },
       { icon: Shield, label: "Escrow", path: "/escrow" },
       { icon: Shield, label: "Escrow V2", path: "/escrow-v2", badge: "New" },
+      { icon: Shield, label: "Escrow Contracts", path: "/escrow-contracts", badge: "New" },
       { icon: Cpu, label: "Embedded Finance", path: "/embedded-finance" },
     ],
   },
@@ -193,6 +194,7 @@ const navGroups: NavGroup[] = [
       { icon: Briefcase, label: "Wealth Management", path: "/wealth-management" },
       { icon: Leaf, label: "Carbon Credits", path: "/carbon-credit" },
       { icon: Leaf, label: "Carbon Credits V2", path: "/carbon-credits-v2", badge: "New" },
+      { icon: Leaf, label: "Carbon Ledger", path: "/carbon-credits-ledger", badge: "New" },
     ],
   },
   {
@@ -201,6 +203,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: Gift, label: "Loyalty Engine", path: "/loyalty-engine" },
       { icon: Star, label: "Loyalty V3", path: "/loyalty-v3", badge: "New" },
+      { icon: Gift, label: "Loyalty Ledger", path: "/loyalty-ledger", badge: "New" },
       { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards" },
       { icon: Gem, label: "NFT Badges", path: "/nft-badges" },
       { icon: BookOpen, label: "Open Banking", path: "/open-banking" },

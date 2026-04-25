@@ -65,6 +65,10 @@ dependencies:
   package_info_plus: ^8.0.2
   path_provider: ^2.1.4
 
+  # Security (LOW vulnerabilities resolved — wave102)
+  flutter_jailbreak_detection: ^1.10.0  # Detects rooted/jailbroken devices
+  ssl_pinning_plugin: ^2.0.0             # Certificate pinning for API endpoints
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
