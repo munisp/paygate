@@ -64,6 +64,13 @@ export default function AdminDisputeLifecycle() {
   });
   const liveDisputes = (disputesData?.disputes ?? (Array.isArray(disputesData) ? disputesData : [])) as any[];
 
+  const generateReportMutation = trpc.wave27.complianceReport.generateReport.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Dispute report generated (${data.rowCount ?? 0} records)`);
+      if (data.downloadUrl) window.open(data.downloadUrl, '_blank');
+    },
+    onError: (err) => toast.error(`Report generation failed: ${err.message}`),
+  });
   const respondMutation = trpc.disputes.respond.useMutation({
     onSuccess: () => { toast.success("Response submitted successfully"); setSelectedDispute(null); setEvidenceNote(""); refetchDisputes(); },
     onError: (e) => toast.error(`Failed to submit response: ${e.message}`),
@@ -96,7 +103,7 @@ export default function AdminDisputeLifecycle() {
           <h1 className="text-2xl font-bold">Dispute Lifecycle Manager</h1>
           <p className="text-muted-foreground text-sm mt-1">Chargeback management · Visa / Mastercard / Verve · Evidence workflows</p>
         </div>
-        <Button size="sm" onClick={() => toast.info("Generating dispute report…")}>
+        <Button size="sm" onClick={() => generateReportMutation.mutate({ reportType: 'fraud_incidents', period: 'monthly', startDate: new Date(Date.now() - 30*86400000).toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0], format: 'json' })} disabled={generateReportMutation.isPending}>
           <FileText className="w-4 h-4 mr-2" />Export Report
         </Button>
       </div>

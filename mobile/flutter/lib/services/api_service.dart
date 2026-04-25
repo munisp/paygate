@@ -274,6 +274,16 @@ class ApiService {
 
   Future<Map<String, dynamic>> deregisterPushToken(String token) =>
       trpcMutation('pushTokens.deregister', {'token': token});
+
+  // ─── Webhook Deliveries ──────────────────────────────────────────────
+  Future<Map<String, dynamic>> listWebhookDeliveries({int page = 1}) =>
+      trpcQuery('webhookDeliveries.list', {'page': page, 'limit': 20});
+
+  Future<Map<String, dynamic>> updateWebhook(String webhookId, Map<String, dynamic> data) =>
+      trpcMutation('webhooks.update', {'webhookId': webhookId, ...data});
+
+  Future<Map<String, dynamic>> retryWebhookDelivery(String deliveryId) =>
+      trpcMutation('webhookDeliveries.retry', {'deliveryId': deliveryId});
 }
 
 extension _Let<T> on T {

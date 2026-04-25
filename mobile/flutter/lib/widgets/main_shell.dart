@@ -14,6 +14,7 @@ class MainShell extends StatelessWidget {
     _TabItem(path: '/disputes', icon: Icons.warning_amber_rounded, label: 'Disputes'),
     _TabItem(path: '/notifications', icon: Icons.notifications_rounded, label: 'Alerts'),
     _TabItem(path: '/settings', icon: Icons.settings_rounded, label: 'Settings'),
+    _TabItem(path: '/webhooks', icon: Icons.webhook_rounded, label: 'Webhooks'),
   ];
 
   int _currentIndex(BuildContext context) {

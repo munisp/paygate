@@ -6,6 +6,9 @@ import {
   Calendar, BarChart3, ArrowUpRight, Filter, Search, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
@@ -44,6 +47,18 @@ export default function BNPL() {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "overdue" | "completed" | "defaulted">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showNewPlan, setShowNewPlan] = useState(false);
+  const [restructureOpen, setRestructureOpen] = useState<string | null>(null);
+  const [restructureMonths, setRestructureMonths] = useState(6);
+  const [restructureReason, setRestructureReason] = useState("");
+  const restructureMutation = trpc.bnpl.restructureLoan.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Loan restructured — new instalment: ₦${(data.newMonthlyInstalment / 100).toLocaleString()}/month for ${restructureMonths} months`);
+      setRestructureOpen(null);
+      setRestructureReason("");
+      refetchLoans();
+    },
+    onError: (err) => toast.error(`Restructure failed: ${err.message}`),
+  });
   const [newPlan, setNewPlan] = useState({ name: "", instalments: 3, interestRate: 0, minAmount: 5000, maxAmount: 500000 });
 
   // Real tRPC data
@@ -287,7 +302,29 @@ export default function BNPL() {
                             <Button size="sm" onClick={() => sendReminderMutation.mutate({ loanId: loan.id })} disabled={sendReminderMutation.isPending}>
                               Send Reminder
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => toast.info("Loan restructuring — contact support")}>Restructure Loan</Button>
+                            <Dialog open={restructureOpen === loan.id} onOpenChange={(o) => { setRestructureOpen(o ? loan.id : null); }}>
+                              <DialogTrigger asChild>
+                                <Button size="sm" variant="outline">Restructure Loan</Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-md">
+                                <DialogHeader>
+                                  <DialogTitle>Restructure Loan {loan.id}</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 pt-2">
+                                  <div>
+                                    <Label className="text-sm">New Tenure (months)</Label>
+                                    <Input type="number" min={1} max={60} value={restructureMonths} onChange={(e) => setRestructureMonths(Number(e.target.value))} className="mt-1" />
+                                  </div>
+                                  <div>
+                                    <Label className="text-sm">Reason for Restructuring</Label>
+                                    <Input value={restructureReason} onChange={(e) => setRestructureReason(e.target.value)} placeholder="e.g. Customer financial hardship" className="mt-1" />
+                                  </div>
+                                  <Button className="w-full" onClick={() => restructureMutation.mutate({ loanId: loan.id, newTenureMonths: restructureMonths, reason: restructureReason })} disabled={restructureMutation.isPending || restructureReason.length < 5}>
+                                    {restructureMutation.isPending ? "Restructuring…" : "Confirm Restructure"}
+                                  </Button>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
                             <Button size="sm" variant="destructive" onClick={() => toast.warning("Loan flagged for collections")}>Flag for Collections</Button>
                           </div>
                         )}

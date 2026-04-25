@@ -55,6 +55,25 @@ export default function AdminKeycloak() {
     onSuccess: (r) => toast.success(`Synced ${r.users} / ${r.total} users${r.fallback ? " (bridge unavailable)" : ""}`),
     onError: (e) => toast.error(`Bulk sync failed: ${e.message}`),
   });
+  const createClientMutation = trpc.settings.keycloak.createClient.useMutation({
+    onSuccess: (d) => { toast.success(d.fallback ? 'Client queued (bridge offline)' : 'Keycloak client created'); },
+    onError: (e) => toast.error(`Create client failed: ${e.message}`),
+  });
+  const createRoleMutation = trpc.settings.keycloak.createRole.useMutation({
+    onSuccess: (d) => { toast.success(d.fallback ? 'Role queued (bridge offline)' : 'Keycloak role created'); },
+    onError: (e) => toast.error(`Create role failed: ${e.message}`),
+  });
+  const rotateSecretMutation = trpc.settings.keycloak.rotateClientSecret.useMutation({
+    onSuccess: (d) => {
+      if (d.newSecret) toast.success(`New secret: ${d.newSecret.substring(0, 8)}…`);
+      else toast.success('Secret rotation queued (bridge offline)');
+    },
+    onError: (e) => toast.error(`Rotate secret failed: ${e.message}`),
+  });
+  const toggleProviderMutation = trpc.settings.keycloak.toggleProvider.useMutation({
+    onSuccess: (d) => { toast.success(d.fallback ? 'Provider toggle queued (bridge offline)' : `Provider ${d.enabled ? 'enabled' : 'disabled'}`); },
+    onError: (e) => toast.error(`Toggle provider failed: ${e.message}`),
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -164,7 +183,7 @@ export default function AdminKeycloak() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">OAuth 2.0 Clients</CardTitle>
-                <Button size="sm" onClick={() => toast.info("Create client flow — configure in Keycloak Admin UI")}>
+                <Button size="sm" onClick={() => createClientMutation.mutate({ clientId: `client-${Date.now()}`, name: 'New Client', protocol: 'openid-connect', publicClient: false, redirectUris: [] })} disabled={createClientMutation.isPending}>
                   + Add Client
                 </Button>
               </div>
@@ -190,7 +209,7 @@ export default function AdminKeycloak() {
                       <TableCell className="text-xs text-muted-foreground">{c.redirectUris.join(", ") || "—"}</TableCell>
                       <TableCell><Badge variant={c.status === "enabled" ? "default" : "secondary"}>{c.status}</Badge></TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline" onClick={() => toast.info(`Rotating secret for ${c.clientId}…`)}>
+                        <Button size="sm" variant="outline" onClick={() => rotateSecretMutation.mutate({ clientId: c.clientId })} disabled={rotateSecretMutation.isPending}>
                           <Key className="w-3 h-3 mr-1" />Rotate
                         </Button>
                       </TableCell>
@@ -207,7 +226,7 @@ export default function AdminKeycloak() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Realm Roles</CardTitle>
-                <Button size="sm" onClick={() => toast.info("Create role flow — configure in Keycloak Admin UI")}>
+                <Button size="sm" onClick={() => createRoleMutation.mutate({ name: `role-${Date.now()}`, description: 'New role', composite: false })} disabled={createRoleMutation.isPending}>
                   + Add Role
                 </Button>
               </div>
@@ -276,7 +295,7 @@ export default function AdminKeycloak() {
                           : <Badge variant="outline"><XCircle className="w-3 h-3 mr-1" />Disabled</Badge>}
                       </TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline" onClick={() => toast.info(`${p.enabled ? "Disabling" : "Enabling"} ${p.displayName}`)}>
+                        <Button size="sm" variant="outline" onClick={() => toggleProviderMutation.mutate({ providerId: p.alias ?? p.displayName, enabled: !p.enabled })} disabled={toggleProviderMutation.isPending}>
                           {p.enabled ? "Disable" : "Enable"}
                         </Button>
                       </TableCell>

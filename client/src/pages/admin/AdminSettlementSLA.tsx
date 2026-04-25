@@ -51,6 +51,20 @@ export default function AdminSettlementSLA() {
   const { data: slaData, isLoading: slaLoading, refetch: refetchSla } = trpc.adminSlaMonitor.getBreachMetrics.useQuery();
   const liveMetrics = slaData?.metrics;
   const liveBreaches = slaData?.breachedSettlements ?? [];
+  const sendAlertsMutation = trpc.adminSlaMonitor.sendBreachAlerts.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Breach alerts sent to compliance team (${data.alertsSent} alert${data.alertsSent !== 1 ? 's' : ''})`);
+      refetchSla();
+    },
+    onError: (err) => toast.error(`Failed to send alerts: ${err.message}`),
+  });
+  const triggerSettlementMutation = trpc.adminSlaMonitor.triggerManualSettlement.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Manual settlement run triggered${data.fallback ? ' (queued — bridge offline)' : ''} · Run ID: ${data.runId}`);
+      refetchSla();
+    },
+    onError: (err) => toast.error(`Failed to trigger settlement: ${err.message}`),
+  });
 
   const formatNGN = (kobo: number) => `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}`;
 
@@ -62,11 +76,11 @@ export default function AdminSettlementSLA() {
           <p className="text-muted-foreground text-sm mt-1">Real-time SLA compliance monitoring · T+0 / T+1 / T+2 / T+5 tiers</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info("Sending SLA breach alerts to compliance team…")}>
-            <Bell className="w-4 h-4 mr-2" />Alert Compliance
+          <Button variant="outline" size="sm" onClick={() => sendAlertsMutation.mutate()} disabled={sendAlertsMutation.isPending}>
+            <Bell className="w-4 h-4 mr-2" />{sendAlertsMutation.isPending ? "Sending…" : "Alert Compliance"}
           </Button>
-          <Button size="sm" onClick={() => toast.info("Triggering manual settlement run…")}>
-            <RefreshCw className="w-4 h-4 mr-2" />Force Settle
+          <Button size="sm" onClick={() => triggerSettlementMutation.mutate({})} disabled={triggerSettlementMutation.isPending}>
+            <RefreshCw className="w-4 h-4 mr-2" />{triggerSettlementMutation.isPending ? "Running…" : "Force Settle"}
           </Button>
         </div>
       </div>

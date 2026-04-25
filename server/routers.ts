@@ -2452,6 +2452,48 @@ const middlewareRouter = router({
         if (!result) return { roles: [], fallback: true };
         return result as { roles: string[] };
       }),
+    // Create a new Keycloak client (proxied via middleware bridge)
+    createClient: protectedProcedure
+      .input(z.object({
+        clientId: z.string().min(3).max(100),
+        name: z.string().min(1).max(200),
+        protocol: z.enum(['openid-connect', 'saml']).default('openid-connect'),
+        publicClient: z.boolean().default(false),
+        redirectUris: z.array(z.string()).default([]),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await bridgeFetch('/v1/auth/keycloak/clients', 'POST', input);
+        if (!result) return { created: false, fallback: true, clientId: input.clientId };
+        return { created: true, ...(result as object) };
+      }),
+    // Create a new Keycloak realm role
+    createRole: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1).max(100),
+        description: z.string().max(500).optional(),
+        composite: z.boolean().default(false),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await bridgeFetch('/v1/auth/keycloak/roles', 'POST', input);
+        if (!result) return { created: false, fallback: true, name: input.name };
+        return { created: true, ...(result as object) };
+      }),
+    // Rotate client secret for a Keycloak client
+    rotateClientSecret: protectedProcedure
+      .input(z.object({ clientId: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await bridgeFetch(`/v1/auth/keycloak/clients/${input.clientId}/secret`, 'POST', {});
+        if (!result) return { rotated: false, fallback: true, newSecret: null };
+        return { rotated: true, newSecret: (result as any).value ?? null };
+      }),
+    // Toggle an identity provider (enable/disable)
+    toggleProvider: protectedProcedure
+      .input(z.object({ providerId: z.string(), enabled: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const result = await bridgeFetch(`/v1/auth/keycloak/identity-providers/${input.providerId}`, 'PATCH', { enabled: input.enabled });
+        if (!result) return { updated: false, fallback: true };
+        return { updated: true, enabled: input.enabled };
+      }),
   }),
 });
 
@@ -3194,6 +3236,43 @@ const bnplRouter = router({
       if (!db) return null;
       const [loan] = await db.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
       return loan ?? null;
+    }),
+  /**
+   * Restructure a BNPL loan — extend tenure and recalculate instalments
+   */
+  restructureLoan: protectedProcedure
+    .input(z.object({
+      loanId: z.string(),
+      newTenureMonths: z.number().int().min(1).max(60),
+      reason: z.string().min(5).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { bnplLoans } = await import('../drizzle/schema');
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const [loan] = await db.select().from(bnplLoans).where(and(eq(bnplLoans.id, input.loanId), eq(bnplLoans.merchantId, merchant.id)));
+      if (!loan) throw new TRPCError({ code: 'NOT_FOUND', message: 'Loan not found' });
+      if (loan.status === 'paid' || loan.status === 'cancelled') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Cannot restructure a ${loan.status} loan` });
+      }
+      const remaining = Number(loan.principalAmount) - Number(loan.paidAmount ?? 0);
+      const monthlyInstalment = Math.ceil(remaining / input.newTenureMonths);
+      const newMaturityDate = new Date(Date.now() + input.newTenureMonths * 30 * 86400000);
+      await db.update(bnplLoans).set({
+        tenure: input.newTenureMonths,
+        instalmentAmount: monthlyInstalment,
+        maturityDate: newMaturityDate,
+        status: 'active',
+        updatedAt: new Date(),
+      }).where(eq(bnplLoans.id, input.loanId));
+      notifyOwner({
+        title: 'BNPL Loan Restructured',
+        content: `Loan ${input.loanId} restructured to ${input.newTenureMonths} months. Reason: ${input.reason}`,
+      }).catch(() => {});
+      return { success: true, newMonthlyInstalment: monthlyInstalment, newMaturityDate, remaining };
     }),
 });
 

@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "seed:wave102": "node seed-wave102.mjs",
     "vapid:generate": "node scripts/generate-vapid-keys.mjs",
     "vapid:generate:env": "node scripts/generate-vapid-keys.mjs --env",
     "vapid:generate:json": "node scripts/generate-vapid-keys.mjs --json",

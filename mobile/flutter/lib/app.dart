@@ -18,6 +18,7 @@ import 'screens/fraud_risk/fraud_risk_screen.dart';
 import 'screens/bnpl/bnpl_screen.dart';
 import 'screens/fx/fx_screen.dart';
 import 'screens/payment_links/payment_links_screen.dart';
+import 'screens/webhooks/webhooks_screen.dart';
 import 'widgets/main_shell.dart';
 
 class PayGateApp extends StatelessWidget {
@@ -53,6 +54,7 @@ class PayGateApp extends StatelessWidget {
           '/bnpl': (_) => const MainShell(child: BNPLScreen()),
           '/fx': (_) => const MainShell(child: FXScreen()),
           '/payment-links': (_) => const MainShell(child: PaymentLinksScreen()),
+          '/webhooks': (_) => const MainShell(child: WebhooksScreen()),
         },
         onGenerateRoute: (settings) {
           if (settings.name?.startsWith('/transaction/') == true) {
