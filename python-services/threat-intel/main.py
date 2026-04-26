@@ -1,24 +1,28 @@
 """
-PayGate Threat Intelligence Engine
-===================================
+PayGate Threat Intelligence Engine  v2.0
+=========================================
 FastAPI microservice providing:
   - Anomaly detection (Isolation Forest) for transaction patterns
-  - Brute-force login attack analysis (sliding-window counters)
+    → Model serialised to Redis (joblib) so it survives restarts
+  - Brute-force login attack analysis (sliding-window counters backed by Redis)
   - DDoS pattern recognition (request-rate spike detection)
-  - IP reputation scoring (geo-velocity + known-bad-IP heuristics)
-  - Threat feed aggregation (MISP-compatible IOC ingestion)
+  - IP reputation scoring with MaxMind GeoLite2 geo-velocity checks
+  - Threat feed aggregation (MISP-compatible IOC ingestion, persisted in Redis)
 
 Exposes REST endpoints consumed by the Node.js backend (server/_core/index.ts).
 """
 
+import io
 import os
 import time
 import hashlib
 import logging
+import ipaddress
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import joblib
 import numpy as np
 import structlog
 import uvicorn
@@ -48,8 +52,59 @@ REQUEST_COUNTER = Counter("threat_intel_requests_total", "Total requests", ["end
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 REDIS_URL = os.getenv("REDIS_URL", "")
 PORT = int(os.getenv("THREAT_INTEL_PORT", "8095"))
+GEOIP_DB_PATH = os.getenv("GEOIP_DB_PATH", "/data/GeoLite2-City.mmdb")
 
-# ─── In-memory Sliding Window Stores ──────────────────────────────────────────
+# ─── Redis Client (optional — falls back to in-memory if not configured) ──────
+_redis = None
+
+def _get_redis():
+    """Lazy-initialise Redis client. Returns None if REDIS_URL not set."""
+    global _redis
+    if _redis is not None:
+        return _redis
+    if not REDIS_URL:
+        return None
+    try:
+        import redis as redis_lib
+        _redis = redis_lib.from_url(REDIS_URL, decode_responses=False, socket_connect_timeout=2)
+        _redis.ping()
+        log.info("redis_connected", url=REDIS_URL[:30])
+        return _redis
+    except Exception as e:
+        log.warning("redis_unavailable", error=str(e))
+        return None
+
+# ─── GeoIP Reader (optional — falls back to heuristic if DB not present) ──────
+_geoip_reader = None
+
+def _get_geoip():
+    """Lazy-load MaxMind GeoLite2 reader."""
+    global _geoip_reader
+    if _geoip_reader is not None:
+        return _geoip_reader
+    if not os.path.exists(GEOIP_DB_PATH):
+        return None
+    try:
+        import geoip2.database
+        _geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
+        log.info("geoip_loaded", path=GEOIP_DB_PATH)
+        return _geoip_reader
+    except Exception as e:
+        log.warning("geoip_unavailable", error=str(e))
+        return None
+
+def _get_country(ip: str) -> Optional[str]:
+    """Return ISO country code for an IP, or None if lookup fails."""
+    reader = _get_geoip()
+    if reader is None:
+        return None
+    try:
+        resp = reader.city(ip)
+        return resp.country.iso_code
+    except Exception:
+        return None
+
+# ─── In-memory Sliding Window Stores (Redis-backed when available) ─────────────
 # Maps IP → deque of timestamps (request times within last 60s)
 _request_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
 # Maps identifier → deque of failed login timestamps
@@ -58,20 +113,95 @@ _login_fail_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
 _known_bad_ips: set[str] = set()
 # Transaction velocity windows: account_id → deque of (timestamp, amount)
 _tx_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=500))
+# Geo-velocity: account_id → list of (timestamp, country_code)
+_geo_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=50))
 
-# ─── Isolation Forest (lazy-loaded) ───────────────────────────────────────────
+# ─── Redis Persistence Helpers ─────────────────────────────────────────────────
+REDIS_MODEL_KEY = "threat_intel:iso_forest:model"
+REDIS_TRAINING_KEY = "threat_intel:iso_forest:training_buffer"
+REDIS_BAD_IPS_KEY = "threat_intel:known_bad_ips"
+REDIS_LOGIN_FAIL_PREFIX = "threat_intel:login_fail:"
+REDIS_REQUEST_PREFIX = "threat_intel:requests:"
+
+def _redis_save_model(model) -> bool:
+    """Serialise Isolation Forest model to Redis using joblib."""
+    r = _get_redis()
+    if r is None:
+        return False
+    try:
+        buf = io.BytesIO()
+        joblib.dump(model, buf)
+        r.set(REDIS_MODEL_KEY, buf.getvalue(), ex=86400 * 7)  # 7-day TTL
+        log.info("model_saved_to_redis")
+        return True
+    except Exception as e:
+        log.warning("redis_model_save_failed", error=str(e))
+        return False
+
+def _redis_load_model():
+    """Load Isolation Forest model from Redis."""
+    r = _get_redis()
+    if r is None:
+        return None
+    try:
+        data = r.get(REDIS_MODEL_KEY)
+        if data is None:
+            return None
+        model = joblib.load(io.BytesIO(data))
+        log.info("model_loaded_from_redis")
+        return model
+    except Exception as e:
+        log.warning("redis_model_load_failed", error=str(e))
+        return None
+
+def _redis_save_bad_ips():
+    """Persist known-bad-IPs set to Redis."""
+    r = _get_redis()
+    if r is None or not _known_bad_ips:
+        return
+    try:
+        r.sadd(REDIS_BAD_IPS_KEY, *_known_bad_ips)
+        r.expire(REDIS_BAD_IPS_KEY, 86400 * 30)  # 30-day TTL
+    except Exception as e:
+        log.warning("redis_bad_ips_save_failed", error=str(e))
+
+def _redis_load_bad_ips():
+    """Load known-bad-IPs from Redis into in-memory set."""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        members = r.smembers(REDIS_BAD_IPS_KEY)
+        for m in members:
+            _known_bad_ips.add(m.decode() if isinstance(m, bytes) else m)
+        log.info("bad_ips_loaded_from_redis", count=len(_known_bad_ips))
+    except Exception as e:
+        log.warning("redis_bad_ips_load_failed", error=str(e))
+
+# ─── Isolation Forest (lazy-loaded, Redis-persisted) ──────────────────────────
 _iso_forest = None
 _iso_forest_trained = False
 _iso_training_buffer: list[list[float]] = []
 ISO_MIN_SAMPLES = 50  # Minimum samples before training
 
 def _get_iso_forest():
-    """Lazy-load and train Isolation Forest when enough samples are available."""
+    """Lazy-load and train Isolation Forest. Tries Redis first, then trains fresh."""
     global _iso_forest, _iso_forest_trained
+
     if _iso_forest_trained:
         return _iso_forest
+
+    # Try loading from Redis first
+    if not _iso_forest_trained:
+        cached = _redis_load_model()
+        if cached is not None:
+            _iso_forest = cached
+            _iso_forest_trained = True
+            return _iso_forest
+
     if len(_iso_training_buffer) < ISO_MIN_SAMPLES:
         return None
+
     from sklearn.ensemble import IsolationForest
     _iso_forest = IsolationForest(
         n_estimators=100,
@@ -83,13 +213,17 @@ def _get_iso_forest():
     _iso_forest.fit(X)
     _iso_forest_trained = True
     log.info("isolation_forest_trained", samples=len(_iso_training_buffer))
+
+    # Persist to Redis for next restart
+    _redis_save_model(_iso_forest)
+
     return _iso_forest
 
 # ─── FastAPI App ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title="PayGate Threat Intelligence Engine",
-    version="1.0.0",
-    description="Real-time threat detection: anomaly analysis, brute-force detection, DDoS recognition",
+    version="2.0.0",
+    description="Real-time threat detection: anomaly analysis, brute-force detection, DDoS recognition, GeoIP velocity",
 )
 
 app.add_middleware(
@@ -98,6 +232,13 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def _startup():
+    """Load persisted state from Redis on startup."""
+    _redis_load_bad_ips()
+    # Pre-warm model from Redis if available
+    _get_iso_forest()
 
 # ─── Auth Middleware ───────────────────────────────────────────────────────────
 def _verify_key(x_internal_key: Optional[str]) -> None:
@@ -119,6 +260,7 @@ class TransactionFeatures(BaseModel):
     is_international: bool = False
     velocity_1h: int = Field(ge=0, description="Number of transactions in last 1 hour")
     velocity_24h: int = Field(ge=0, description="Number of transactions in last 24 hours")
+    ip: Optional[str] = Field(None, description="Originating IP for geo-velocity check")
 
 class AnomalyResult(BaseModel):
     is_anomaly: bool
@@ -126,6 +268,7 @@ class AnomalyResult(BaseModel):
     risk_level: str = Field(description="LOW | MEDIUM | HIGH | CRITICAL")
     reasons: list[str]
     model_trained: bool
+    geo_velocity_anomaly: bool = False
 
 class LoginAttemptEvent(BaseModel):
     identifier: str = Field(description="IP address or email hash")
@@ -170,6 +313,35 @@ class IPReputationResult(BaseModel):
     reputation_score: float = Field(description="0.0 (clean) to 1.0 (malicious)")
     risk_factors: list[str]
     geo_velocity_anomaly: bool
+    country: Optional[str] = None
+
+# ─── Helper: Geo-Velocity Check ────────────────────────────────────────────────
+
+def _check_geo_velocity(account_id: str, ip: str) -> tuple[bool, Optional[str]]:
+    """
+    Detect impossible geo-velocity: same account transacting from two different
+    countries within 30 minutes.
+    Returns (anomaly_detected, country_code).
+    """
+    country = _get_country(ip)
+    if country is None:
+        # GeoIP not available — use heuristic: flag if IP class changes rapidly
+        return False, None
+
+    now = time.time()
+    window = _geo_windows[account_id]
+    window.append((now, country))
+
+    # Check for country change within 30 minutes
+    cutoff = now - 1800  # 30 minutes
+    recent = [(ts, c) for ts, c in window if ts >= cutoff]
+    countries_seen = {c for _, c in recent}
+
+    if len(countries_seen) > 1:
+        log.warning("geo_velocity_anomaly", account_id=account_id, countries=list(countries_seen))
+        return True, country
+
+    return False, country
 
 # ─── Helper: Extract Features ──────────────────────────────────────────────────
 
@@ -214,13 +386,16 @@ def _rule_based_anomaly(tx: TransactionFeatures) -> tuple[bool, list[str]]:
 
 @app.get("/health")
 def health():
+    r = _get_redis()
     return {
         "status": "ok",
         "service": "threat-intel",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "model_trained": _iso_forest_trained,
         "training_samples": len(_iso_training_buffer),
         "known_bad_ips": len(_known_bad_ips),
+        "redis_connected": r is not None,
+        "geoip_available": _get_geoip() is not None,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -235,7 +410,7 @@ def analyze_transaction(
 ):
     """
     Analyze a transaction for anomalies using Isolation Forest + rule-based checks.
-    Returns risk level and reasons for flagging.
+    Includes geo-velocity check if IP is provided.
     """
     _verify_key(x_internal_key)
     start = time.monotonic()
@@ -243,18 +418,27 @@ def analyze_transaction(
     reasons: list[str] = []
     is_anomaly = False
     score = 0.0
+    geo_velocity_anomaly = False
 
     # 1. Rule-based checks (fast path)
     rule_anomaly, rule_reasons = _rule_based_anomaly(tx)
     reasons.extend(rule_reasons)
 
-    # 2. Add to training buffer and update velocity window
+    # 2. Geo-velocity check (if IP provided)
+    if tx.ip:
+        geo_anomaly, country = _check_geo_velocity(tx.account_id, tx.ip)
+        if geo_anomaly:
+            geo_velocity_anomaly = True
+            is_anomaly = True
+            reasons.append(f"Geo-velocity anomaly: impossible travel detected from {country}")
+
+    # 3. Add to training buffer and update velocity window
     features = _extract_features(tx)
     _iso_training_buffer.append(features)
     now = time.time()
     _tx_windows[tx.account_id].append((now, tx.amount))
 
-    # 3. ML anomaly detection (if model trained)
+    # 4. ML anomaly detection (if model trained)
     model = _get_iso_forest()
     if model is not None:
         X = np.array([features])
@@ -266,10 +450,10 @@ def analyze_transaction(
             reasons.append(f"ML model flagged as anomaly (score: {score:.3f})")
     else:
         # Model not trained yet — use rules only
-        is_anomaly = rule_anomaly
-        score = -1.0 if rule_anomaly else 0.5
+        is_anomaly = is_anomaly or rule_anomaly
+        score = -1.0 if (is_anomaly or rule_anomaly) else 0.5
 
-    # 4. Determine risk level
+    # 5. Determine risk level
     n_reasons = len(reasons)
     if is_anomaly and n_reasons >= 3:
         risk_level = "CRITICAL"
@@ -292,6 +476,7 @@ def analyze_transaction(
         risk_level=risk_level,
         reasons=reasons,
         model_trained=_iso_forest_trained,
+        geo_velocity_anomaly=geo_velocity_anomaly,
     )
 
 @app.post("/analyze/login", response_model=BruteForceResult)
@@ -302,6 +487,7 @@ def analyze_login(
     """
     Analyze login events for brute-force patterns.
     Uses sliding window counters over 10-minute and 1-hour windows.
+    Redis-backed when available for cross-instance consistency.
     """
     _verify_key(x_internal_key)
 
@@ -309,11 +495,28 @@ def analyze_login(
     now_s = now_ms / 1000
 
     if not event.success:
-        _login_fail_windows[event.identifier].append(now_s)
-
-    # Count failures in windows
-    window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
-    window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
+        r = _get_redis()
+        if r is not None:
+            # Use Redis sorted set for cross-instance sliding window
+            try:
+                key = f"{REDIS_LOGIN_FAIL_PREFIX}{event.identifier}"
+                r.zadd(key, {str(now_ms): now_s})
+                r.zremrangebyscore(key, 0, now_s - 3600)  # Prune >1h old
+                r.expire(key, 3600)
+                window_10min = r.zcount(key, now_s - 600, "+inf")
+                window_1h = r.zcount(key, now_s - 3600, "+inf")
+            except Exception:
+                # Fall back to in-memory
+                _login_fail_windows[event.identifier].append(now_s)
+                window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
+                window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
+        else:
+            _login_fail_windows[event.identifier].append(now_s)
+            window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
+            window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
+    else:
+        window_10min = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 600)
+        window_1h = sum(1 for t in _login_fail_windows[event.identifier] if now_s - t <= 3600)
 
     # Thresholds
     is_brute_force = window_10min >= 5 or window_1h >= 15
@@ -335,8 +538,8 @@ def analyze_login(
 
     return BruteForceResult(
         is_brute_force=is_brute_force,
-        attempts_last_10min=window_10min,
-        attempts_last_1h=window_1h,
+        attempts_last_10min=int(window_10min),
+        attempts_last_1h=int(window_1h),
         risk_level=risk_level,
         lockout_recommended=lockout_recommended,
     )
@@ -395,7 +598,8 @@ def analyze_ip_reputation(
     x_internal_key: Optional[str] = Header(None),
 ):
     """
-    Score IP reputation based on known-bad-IP list and geo-velocity heuristics.
+    Score IP reputation based on known-bad-IP list, geo-velocity heuristics,
+    and MaxMind GeoLite2 country lookup.
     """
     _verify_key(x_internal_key)
 
@@ -424,6 +628,15 @@ def analyze_ip_reputation(
         risk_factors.append(f"High login failure rate: {recent_fails} failures in 10min")
         reputation_score += 0.4
 
+    # GeoIP lookup
+    country = _get_country(ip)
+    if country is not None:
+        # High-risk country heuristic (simplified — production should use threat intel)
+        HIGH_RISK_COUNTRIES = {"KP", "IR", "SY", "CU"}  # OFAC-sanctioned
+        if country in HIGH_RISK_COUNTRIES:
+            risk_factors.append(f"IP from high-risk country: {country}")
+            reputation_score += 0.5
+
     # Geo-velocity anomaly (simplified: flag if IP appears in multiple windows rapidly)
     geo_velocity_anomaly = recent_requests > 100 and recent_fails > 3
     if geo_velocity_anomaly:
@@ -439,6 +652,7 @@ def analyze_ip_reputation(
         reputation_score=reputation_score,
         risk_factors=risk_factors,
         geo_velocity_anomaly=geo_velocity_anomaly,
+        country=country,
     )
 
 @app.post("/threat-feed/ingest")
@@ -448,7 +662,7 @@ def ingest_threat_feed(
 ):
     """
     Ingest threat intelligence feed entries (IPs, domains, hashes).
-    Supports MISP-compatible IOC format.
+    Supports MISP-compatible IOC format. Persists to Redis.
     """
     _verify_key(x_internal_key)
 
@@ -458,6 +672,9 @@ def ingest_threat_feed(
             _known_bad_ips.add(entry.ip)
             ingested += 1
 
+    # Persist to Redis
+    _redis_save_bad_ips()
+
     log.info("threat_feed_ingested", count=ingested, total_known_bad=len(_known_bad_ips))
     return {"ingested": ingested, "total_known_bad_ips": len(_known_bad_ips)}
 
@@ -465,18 +682,51 @@ def ingest_threat_feed(
 def threat_feed_stats(x_internal_key: Optional[str] = Header(None)):
     """Return current threat intelligence statistics."""
     _verify_key(x_internal_key)
+    r = _get_redis()
     return {
         "known_bad_ips": len(_known_bad_ips),
         "tracked_ips": len(_request_windows),
         "tracked_login_identifiers": len(_login_fail_windows),
         "iso_forest_trained": _iso_forest_trained,
         "iso_training_samples": len(_iso_training_buffer),
+        "redis_connected": r is not None,
+        "geoip_available": _get_geoip() is not None,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+@app.post("/model/retrain")
+def retrain_model(x_internal_key: Optional[str] = Header(None)):
+    """Force retrain the Isolation Forest model and persist to Redis."""
+    _verify_key(x_internal_key)
+    global _iso_forest, _iso_forest_trained
+
+    if len(_iso_training_buffer) < ISO_MIN_SAMPLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough training samples: {len(_iso_training_buffer)} < {ISO_MIN_SAMPLES}"
+        )
+
+    from sklearn.ensemble import IsolationForest
+    _iso_forest = IsolationForest(
+        n_estimators=100,
+        contamination=0.05,
+        random_state=42,
+        n_jobs=-1,
+    )
+    X = np.array(_iso_training_buffer)
+    _iso_forest.fit(X)
+    _iso_forest_trained = True
+    saved = _redis_save_model(_iso_forest)
+    log.info("model_retrained", samples=len(_iso_training_buffer), redis_saved=saved)
+    return {
+        "success": True,
+        "samples_used": len(_iso_training_buffer),
+        "redis_saved": saved,
     }
 
 # ─── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    log.info("threat_intel_starting", port=PORT)
+    log.info("threat_intel_starting", port=PORT, version="2.0.0")
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

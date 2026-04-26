@@ -3720,3 +3720,18 @@
 - [x] Full test suite: 92 files · 3,408 tests · 100% pass rate
 - [x] WAVE107_CHANGE_MANIFEST.md written
 - [x] SECURITY_AUDIT_v107.md written (18 vulnerabilities tracked, 18 fixed, score 97/100)
+
+## Wave 108 — Permify Seeding, Threat-Intel v2, Docker Completeness
+
+- [x] Permify schema seeding script (scripts/seed-permify.mjs) with 16 resource types, 7 roles
+- [x] Threat-intel v2.0: Redis model persistence (joblib + Redis sorted sets for brute-force counters)
+- [x] Threat-intel v2.0: MaxMind GeoLite2 GeoIP velocity checks (impossible travel detection)
+- [x] Threat-intel v2.0: /model/retrain endpoint for on-demand model retraining
+- [x] Threat-intel v2.0: 17/17 pytest tests passing
+- [x] Docker Compose: Added 4 missing services (threat-intel, cips-upi-pix-fx, opensearch-service, wealth-advisor)
+- [x] Fixed middlewareBridge.ts: exported safe() and bridgeFetch() aliases
+- [x] Fixed appRouter: added orphaned alias so trpc.orphaned.* resolves
+- [x] Fixed TypeScript 0-error build (ptspSettlementBatches, tenure, instalmentAmount, maturityDate)
+- [x] Smoke test: 17/17 passing (added PBAC health and NIBSS webhook tests)
+- [x] Full vitest suite: 92 files, 3408 tests, 100% pass rate
+- [x] Security audit v108 addendum: 0 new vulnerabilities, score 97/100

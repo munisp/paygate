@@ -158,6 +158,26 @@ await test("POST /api/stripe/webhook returns 400 (missing signature) not 500", a
   if (res.status === 200) throw new Error("Should not accept unsigned webhook");
 });
 
+// ─── Wave 108: Security Services ────────────────────────────────────────────
+console.log("\n🛡️  Wave 108: Security Services");
+await test("GET /api/security/pbac-health returns 200", async () => {
+  const res = await fetchWithTimeout(`${BASE_URL}/api/security/pbac-health`);
+  if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+  const body = await res.json();
+  if (body.localMatrixActive === undefined) throw new Error("Missing localMatrixActive field in PBAC health");
+  if (!Array.isArray(body.policies)) throw new Error("Missing policies array in PBAC health");
+});
+
+await test("POST /api/nibss/webhook returns 401 (missing sig) not 500", async () => {
+  const res = await fetchWithTimeout(`${BASE_URL}/api/nibss/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "test" }),
+  });
+  if (res.status >= 500) throw new Error(`Server error: ${res.status}`);
+  if (res.status === 200) throw new Error("Should not accept unsigned NIBSS webhook");
+});
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 console.log("\n─────────────────────────────────────────");
 console.log(`  Results: ${passed} passed, ${failed} failed`);

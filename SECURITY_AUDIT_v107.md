@@ -198,3 +198,28 @@ The following items are recommended for the next wave:
 2. **Threat intel model persistence:** The Isolation Forest model is currently in-memory and lost on restart. Wave 108 should add model serialisation (joblib) and Redis-backed nonce storage for the Python service.
 3. **PBAC on all financial procedures:** `pbacProcedure()` is implemented but not yet applied to all payout, settlement, and escrow procedures. Wave 108 should complete the rollout.
 4. **Geo-velocity with real GeoIP:** The current geo-velocity check is heuristic. Wave 108 should integrate MaxMind GeoLite2 for accurate country-level velocity checks.
+
+---
+
+## Wave 108 Security Addendum
+
+**Date:** 2026-04-26  
+**Auditor:** Automated (Wave 108 pass)  
+**New issues found:** 0  
+**New issues fixed:** 0  
+
+### Wave 108 Security Enhancements
+
+| Enhancement | Description | Status |
+|---|---|---|
+| Threat-Intel Redis Persistence | Isolation Forest model and known-bad-IP set now survive restarts via Redis serialisation | Implemented |
+| GeoIP Velocity Checks | MaxMind GeoLite2 integration detects impossible travel (same account, different countries within 30 min) | Implemented |
+| CIPS/UPI/PIX/FX Docker | Service added to production compose with healthcheck | Implemented |
+| OpenSearch Service Docker | Service added to production compose with healthcheck | Implemented |
+| Wealth Advisor Docker | Service added to production compose with healthcheck | Implemented |
+| Threat-Intel Docker | Service added to production compose with Redis + GeoIP volume mounts | Implemented |
+| `safe` / `bridgeFetch` exports | Fixed missing exports from middlewareBridge.ts that caused test failures | Fixed |
+| `orphaned` router alias | Added `orphaned` alias in appRouter so `trpc.orphaned.*` calls resolve correctly | Fixed |
+| TypeScript 0-error build | Fixed `ptspSettlementBatches`, `tenure`, `instalmentAmount`, `maturityDate` field mismatches | Fixed |
+
+**Updated Score: 97/100** (unchanged — no new vulnerabilities found)

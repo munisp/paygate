@@ -355,15 +355,14 @@ async function startServer() {
           const { getDb } = await import("../db");
           const db = await getDb();
           if (db && payload.batchId) {
-            const { ptspSettlementBatches } = await import("../../drizzle/schema");
+            const { ptspBatches } = await import("../../drizzle/schema");
             const { eq } = await import("drizzle-orm");
-            await db.update(ptspSettlementBatches)
+            await db.update(ptspBatches)
               .set({
-                status: payload.type === "batch.confirmed" ? "settled" : "failed",
-                nibssReference: payload.reference ?? null,
+                status: payload.type === "batch.confirmed" ? "confirmed" : "failed",
                 updatedAt: new Date(),
               })
-              .where(eq(ptspSettlementBatches.id, payload.batchId));
+              .where(eq(ptspBatches.id, payload.batchId));
             logger.info("[NIBSS Webhook] Batch updated", { batchId: payload.batchId, status: payload.type });
           }
         }

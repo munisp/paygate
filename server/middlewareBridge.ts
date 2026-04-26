@@ -55,7 +55,7 @@ async function bridgeRequest<T>(
 }
 
 /** Safe wrapper — uses circuit breaker, logs and returns null on failure (never throws to callers) */
-async function safe<T>(
+export async function safe<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown
@@ -1183,4 +1183,10 @@ export async function getSuperAppStatsViaMiddleware(merchantId: string): Promise
 }
 export async function pushSuperAppUpdateViaMiddleware(merchantId: string, version: string, releaseNotes: string): Promise<{ success: boolean; deployedAt: string } | null> {
   return safe<{ success: boolean; deployedAt: string }>("POST", "/super-app/push-update", { merchant_id: merchantId, version, release_notes: releaseNotes });
+}
+
+// ─── Legacy alias ─────────────────────────────────────────────────────────────
+// wave104Router.ts imports bridgeFetch; keep this alias for backward compat.
+export async function bridgeFetch(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<unknown> {
+  return safe<unknown>(method, path, body);
 }

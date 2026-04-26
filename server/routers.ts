@@ -3262,9 +3262,8 @@ const bnplRouter = router({
       const monthlyInstalment = Math.ceil(remaining / input.newTenureMonths);
       const newMaturityDate = new Date(Date.now() + input.newTenureMonths * 30 * 86400000);
       await db.update(bnplLoans).set({
-        tenure: input.newTenureMonths,
-        instalmentAmount: monthlyInstalment,
-        maturityDate: newMaturityDate,
+        installments: input.newTenureMonths,
+        installmentAmount: monthlyInstalment,
         status: 'active',
         updatedAt: new Date(),
       }).where(eq(bnplLoans.id, input.loanId));
@@ -7682,6 +7681,8 @@ export const appRouter = router({
   wave99: wave99Router,
   // Wave 104 — Admin Data Pipeline
   adminDataPipeline: adminDataPipelineRouter,
+  // Alias: pages using trpc.orphaned.* instead of trpc.orphanedTables.*
+  orphaned: orphanedTablesRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

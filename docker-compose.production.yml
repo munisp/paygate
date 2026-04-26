@@ -1012,6 +1012,103 @@ services:
       retries: 5
       start_period: 30s
 
+  # ─── Threat Intelligence Engine (Wave 108) ──────────────────────
+  threat-intel:
+    build:
+      context: ./python-services/threat-intel
+      dockerfile: Dockerfile
+    container_name: paygate_threat_intel
+    restart: unless-stopped
+    ports:
+      - "${THREAT_INTEL_PORT:-8095}:8095"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      GEOIP_DB_PATH: /data/GeoLite2-City.mmdb
+      THREAT_INTEL_PORT: "8095"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./infra/geoip:/data:ro
+    networks: [paygate]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── CIPS/UPI/PIX/FX Corridor Service ───────────────────────────
+  cips-upi-pix-fx:
+    build:
+      context: ./python-services/cips-upi-pix-fx
+      dockerfile: Dockerfile
+    container_name: paygate_cips_upi_pix_fx
+    restart: unless-stopped
+    ports:
+      - "${CIPS_UPI_PIX_FX_PORT:-8102}:8102"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8102/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── OpenSearch Analytics Service ───────────────────────────────
+  opensearch-service:
+    build:
+      context: ./python-services/opensearch-service
+      dockerfile: Dockerfile
+    container_name: paygate_opensearch_service
+    restart: unless-stopped
+    ports:
+      - "${OPENSEARCH_SERVICE_PORT:-8300}:8300"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── Wealth Advisor ML Service ───────────────────────────────────
+  wealth-advisor:
+    build:
+      context: ./python-services/wealth-advisor
+      dockerfile: Dockerfile
+    container_name: paygate_wealth_advisor
+    restart: unless-stopped
+    ports:
+      - "${WEALTH_ADVISOR_PORT:-8020}:8020"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 volumes:
   nifi_data:
   nifi_logs:
