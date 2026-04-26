@@ -34,6 +34,8 @@ import { validateEnvironment } from "../security";
 import { installPrototypePollutionGuard, reDoSGuard, getWave29SecurityReport } from "../security29";
 import { securityHeadersMiddleware as wave30SecurityHeaders, getWave30SecurityReport, validateExternalUrl, validateWebhookNonce, generateSecureApiKey } from "../security30";
 import { getWave31SecurityReport } from "../security31";
+import { slowDown } from "express-slow-down";
+import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -145,6 +147,18 @@ const financialLimiter = rateLimit({
   skip: () => process.env.NODE_ENV === "development",
 });
 
+// ─── Progressive DDoS Slow-Down (express-slow-down) ──────────────────────────
+// After 50 requests per minute, add 500ms delay per additional request (max 5s).
+// This degrades attacker throughput without hard-blocking legitimate users.
+const globalSlowDown = slowDown({
+  windowMs: 60_000,
+  delayAfter: 50,
+  delayMs: (used: number, req: any) => {
+    const delayAfter = req.slowDown?.limit ?? 50;
+    return Math.min((used - delayAfter) * 500, 5000);
+  },
+  skip: () => process.env.NODE_ENV === "development",
+});
 
 // ─── HTML Sanitization Helper ─────────────────────────────────────────────────
 // Recursively strips HTML tags from all string values in an object.
@@ -313,7 +327,53 @@ async function startServer() {
 
   // ─── Rate Limiting ─────────────────────────────────────────────────────────
   app.use(globalLimiter);
+  app.use(globalSlowDown); // Progressive DDoS delay after 50 req/min
   app.use("/api/oauth", authLimiter);
+
+  // ─── NIBSS Webhook (MUST be before express.json() to preserve raw body) ───
+  // Verifies HMAC-SHA256 signature from X-NIBSS-Signature header before processing.
+  app.post(
+    "/api/nibss/webhook",
+    express.raw({ type: "application/json" }),
+    async (req: any, res: any) => {
+      const sig = req.headers["x-nibss-signature"] as string;
+      if (!sig) {
+        logger.warn("[NIBSS Webhook] Missing X-NIBSS-Signature header");
+        return res.status(400).json({ error: "Missing X-NIBSS-Signature header" });
+      }
+      const secret = process.env.NIBSS_WEBHOOK_SECRET ?? "";
+      const isValid = verifyWebhookSignature(req.body, sig, secret);
+      if (!isValid) {
+        logger.warn("[NIBSS Webhook] Invalid signature — rejecting");
+        return res.status(401).json({ error: "Invalid webhook signature" });
+      }
+      try {
+        const payload = JSON.parse(req.body.toString());
+        logger.info("[NIBSS Webhook] Received event", { type: payload.type, ref: payload.reference });
+        // Dispatch to tRPC procedure for batch confirmation
+        if (payload.type === "batch.confirmed" || payload.type === "batch.failed") {
+          const { getDb } = await import("../db");
+          const db = await getDb();
+          if (db && payload.batchId) {
+            const { ptspSettlementBatches } = await import("../../drizzle/schema");
+            const { eq } = await import("drizzle-orm");
+            await db.update(ptspSettlementBatches)
+              .set({
+                status: payload.type === "batch.confirmed" ? "settled" : "failed",
+                nibssReference: payload.reference ?? null,
+                updatedAt: new Date(),
+              })
+              .where(eq(ptspSettlementBatches.id, payload.batchId));
+            logger.info("[NIBSS Webhook] Batch updated", { batchId: payload.batchId, status: payload.type });
+          }
+        }
+        res.json({ received: true });
+      } catch (err: any) {
+        logger.error("[NIBSS Webhook] Processing error", { error: err.message });
+        res.status(400).json({ error: `Webhook processing error: ${err.message}` });
+      }
+    }
+  );
 
   // ─── Stripe Webhook (MUST be before express.json() to preserve raw body) ──
   app.post(
@@ -592,8 +652,17 @@ async function startServer() {
       res.status(500).json({ error: 'Failed to generate security report' });
     }
   });
+  // ─── PBAC Health Endpoint ──────────────────────────────────────────────────────────
+  app.get('/api/security/pbac-health', async (_req: any, res: any) => {
+    try {
+      const health = await getPbacHealth();
+      res.json({ timestamp: new Date().toISOString(), ...health });
+    } catch (err) {
+      res.status(500).json({ error: 'PBAC health check failed' });
+    }
+  });
 
-  // ─── File Upload ───────────────────────────────────────────────────────────
+  // ─── File Upload ────────────────────────────────────────────────────────────
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 16 * 1024 * 1024 }, // 16 MB

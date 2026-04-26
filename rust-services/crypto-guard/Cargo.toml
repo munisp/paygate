@@ -1,0 +1,57 @@
+[package]
+name = "crypto-guard"
+version = "1.0.0"
+edition = "2021"
+description = "Cryptographic security primitives for PayGate: HMAC webhook verification, replay protection, nonce validation, timing-safe compare"
+
+[[bin]]
+name = "crypto-guard"
+path = "src/main.rs"
+
+[lib]
+name = "crypto_guard"
+path = "src/lib.rs"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+
+# Cryptography
+hmac = "0.12"
+sha2 = "0.10"
+sha3 = "0.10"
+hex = "0.4"
+rand = "0.8"
+constant_time_eq = "0.3"
+base64 = "0.22"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Redis for nonce/replay store
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# HTTP client (for health checks) - using ureq to avoid OpenSSL dependency
+ureq = { version = "2", features = ["json"] }
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+axum-test = "20"
+tokio-test = "0.4"

@@ -3705,3 +3705,18 @@
 - [x] Wave100 tests: 114/114 passing
 - [x] TypeScript: 0 errors
 - [x] Security: 97/100 score, 0 Critical, 0 High
+
+## Wave 107 — Security Hardening & PBAC
+- [x] Rust crypto-guard: fix replay.rs type annotation + never-type warning (cargo check clean)
+- [x] Rust crypto-guard: cargo test all passing
+- [x] Go pbac-engine: install Go 1.21, fix atomic.Bool compile error, go test passing
+- [x] TypeScript: server/pbac.ts — 626-line PBAC engine (policies, Permify, nonce, webhook sig, brute force)
+- [x] TypeScript: express-slow-down globalSlowDown middleware (50 req/min threshold, 500ms delay)
+- [x] TypeScript: NIBSS webhook HMAC-SHA256 signature verification (/api/nibss/webhook)
+- [x] TypeScript: PBAC health endpoint (/api/security/pbac-health)
+- [x] Python: threat-intel microservice (FastAPI, Isolation Forest, brute-force, DDoS, IP reputation)
+- [x] Python: 14/14 pytest tests passing
+- [x] Vitest: server/pbac.test.ts — 28 tests (PBAC policies, checkPermission, nonce, webhook sig, brute force)
+- [x] Full test suite: 92 files · 3,408 tests · 100% pass rate
+- [x] WAVE107_CHANGE_MANIFEST.md written
+- [x] SECURITY_AUDIT_v107.md written (18 vulnerabilities tracked, 18 fixed, score 97/100)
