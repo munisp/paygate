@@ -3757,3 +3757,12 @@
 - [x] Full test suite: 93 files · 3428 tests · 100% pass rate
 - [x] Python: threat-intel 17/17 + merchant-ussd-fallback 33/33 = 50 Python tests passing
 - [x] Go: all packages build cleanly, all test files pass
+
+## Wave 109 — Post-Fix: Import Repair
+- [x] Restore 95 files from HEAD after broken duplicate-import cleanup
+- [x] Write fix_imports_correct.py: detect orphaned identifier blocks and insert missing import { lines
+- [x] Fix IDENT_LINE regex to handle multi-identifier lines (recharts, lucide batches)
+- [x] Fix OPEN_IMPORT regex to only match bare import { not inline imports
+- [x] Restore LiveChatWidget.tsx and carousel.tsx from HEAD (false positives)
+- [x] TypeScript: 0 errors confirmed
+- [x] Vitest: 93 files, 3428 tests, 100% pass rate
