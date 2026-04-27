@@ -2,8 +2,6 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useResilientSSE } from "@/lib/resilientSSE";
-import { trpc } from "@/lib/trpc";
-import { useResilientSSE } from "@/lib/resilientSSE";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

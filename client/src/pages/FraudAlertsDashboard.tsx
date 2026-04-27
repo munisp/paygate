@@ -7,7 +7,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useResilientSSE } from "@/lib/resilientSSE";
-import { useResilientSSE } from "@/lib/resilientSSE";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -28,7 +26,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import {
   AlertTriangle,
   Shield,
   ShieldOff,

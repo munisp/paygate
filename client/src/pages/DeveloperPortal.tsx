@@ -169,7 +169,6 @@ chargeCard({
   "Cross-Border Transfer": {
     go: (key: string) => `package main
 
-import (
     "bytes"
     "encoding/json"
     "fmt"
@@ -319,7 +318,6 @@ async function initiateCrossBorderTransfer(
   "Webhook Verification": {
     go: (key: string) => `package main
 
-import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"

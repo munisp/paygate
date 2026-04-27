@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Activity, Globe, ArrowRightLeft, CheckCircle, XCircle, Clock, RefreshCw, Search, Download, AlertTriangle, Zap, Shield, DollarSign } from "lucide-react";
-import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const RAILS = [
