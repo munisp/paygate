@@ -3801,6 +3801,19 @@
 - [ ] USSD: add Python tests for Redis language persistence
 - [ ] DashboardLayout: migrate sidebar notification badge counters to useAdaptiveInterval
 - [ ] Settings page: add LANG_PICKER_ENABLED toggle (UI + tRPC backend)
-- [ ] Run full test suites and confirm 0 TS errors
+- [x] Run full test suites and confirm 0 TS errors
 - [ ] Write WAVE112_CHANGE_MANIFEST.md
-- [ ] Save checkpoint and generate archive
+- [x] Save checkpoint and generate archive
+
+## Wave 113
+
+- [x] Add /api/merchant-config/:merchantId public endpoint to portal server
+- [x] Add INTERNAL_API_KEY auth guard to the merchant-config endpoint
+- [x] Wire USSD service to poll /merchant-config on startup and cache result in Redis
+- [x] Add Reset Language Preference button to USSD Sessions page UI
+- [x] Add tRPC procedure for resetting a customer's USSD language preference
+- [x] Add vitest integration tests for settings.getUssdLangPickerEnabled
+- [x] Add vitest integration tests for settings.updateUssdLangPickerEnabled
+- [x] Run full test suites and confirm 0 TS errors
+- [x] Write WAVE113_CHANGE_MANIFEST.md
+- [x] Save checkpoint and generate archive

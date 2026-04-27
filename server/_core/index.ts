@@ -1727,6 +1727,42 @@ async function startServer() {
   app.use("/api/trpc4/invoiceFinancing.apply", financialLimiter);
   app.use("/api/trpc4/payroll.runPayroll", financialLimiter);
 
+  // ─── Internal Merchant Config API (used by USSD microservice) ─────────────
+  // Returns per-merchant configuration flags. Protected by INTERNAL_API_KEY.
+  // The USSD service polls this on startup and caches the result in Redis.
+  app.get("/api/merchant-config/:merchantId", async (req: any, res: any) => {
+    try {
+      const apiKey = req.headers["x-internal-api-key"] || (req.headers["authorization"] as string | undefined)?.replace("Bearer ", "");
+      const expectedKey = process.env.INTERNAL_API_KEY;
+      if (!expectedKey || apiKey !== expectedKey) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const merchantId = parseInt(req.params.merchantId, 10);
+      if (isNaN(merchantId)) {
+        return res.status(400).json({ error: "Invalid merchantId" });
+      }
+      const { getDb, schema } = await import("../db");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable" });
+      const [merchant] = await db
+        .select({
+          id: schema.merchants.id,
+          ussdLangPickerEnabled: schema.merchants.ussdLangPickerEnabled,
+        })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+      return res.json({
+        merchantId: merchant.id,
+        ussdLangPickerEnabled: merchant.ussdLangPickerEnabled ?? true,
+      });
+    } catch (err: any) {
+      logger.error("merchant_config_endpoint_error", { error: err.message });
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",

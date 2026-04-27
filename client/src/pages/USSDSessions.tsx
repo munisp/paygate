@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Phone, Search, RefreshCw, Clock, CheckCircle, XCircle, AlertCircle, Activity } from "lucide-react";
+import { Phone, Search, RefreshCw, Clock, CheckCircle, XCircle, AlertCircle, Activity, Languages } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS_CONFIG: Record<string, { color: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode }> = {
@@ -35,6 +35,7 @@ export default function USSDSessions() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedSession, setSelectedSession] = useState<UssdSession | null>(null);
+  const [confirmResetPhone, setConfirmResetPhone] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const { data: sessions = [], isLoading, refetch } = trpc.ussd.list.useQuery(
@@ -47,6 +48,17 @@ export default function USSDSessions() {
   );
 
   const { data: stats } = trpc.ussd.stats.useQuery(undefined, { staleTime: 30_000 });
+
+  const resetLangPref = trpc.ussd.resetLangPref.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Language preference cleared for ${data.phone}. They will see the language picker on their next dial.`);
+      setConfirmResetPhone(null);
+    },
+    onError: (err) => {
+      toast.error(`Failed to reset language preference: ${err.message}`);
+      setConfirmResetPhone(null);
+    },
+  });
 
   const handleRefresh = () => {
     refetch();
@@ -197,25 +209,78 @@ export default function USSDSessions() {
             <DialogDescription className="font-mono text-xs">{selectedSession?.sessionId}</DialogDescription>
           </DialogHeader>
           {selectedSession && (
-            <div className="space-y-3 text-sm">
-              {[
-                ["MSISDN", selectedSession.msisdn],
-                ["Service Code", selectedSession.serviceCode],
-                ["Status", <Badge variant={STATUS_CONFIG[selectedSession.status]?.color ?? "outline"} className="capitalize">{selectedSession.status}</Badge>],
-                ["Steps Completed", selectedSession.steps],
-                ["Last Input", selectedSession.lastInput || "—"],
-                ["Amount", formatAmount(selectedSession.amountKobo, selectedSession.currency)],
-                ["Started", new Date(selectedSession.startedAt).toLocaleString()],
-                ["Ended", selectedSession.endedAt ? new Date(selectedSession.endedAt).toLocaleString() : "Still active"],
-                ["Duration", durationSec(selectedSession)],
-              ].map(([label, value]) => (
-                <div key={String(label)} className="flex justify-between border-b pb-2 last:border-0">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-medium text-right">{value as React.ReactNode}</span>
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="space-y-3 text-sm">
+                {[
+                  ["MSISDN", selectedSession.msisdn],
+                  ["Service Code", selectedSession.serviceCode],
+                  ["Status", <Badge variant={STATUS_CONFIG[selectedSession.status]?.color ?? "outline"} className="capitalize">{selectedSession.status}</Badge>],
+                  ["Steps Completed", selectedSession.steps],
+                  ["Last Input", selectedSession.lastInput || "—"],
+                  ["Amount", formatAmount(selectedSession.amountKobo, selectedSession.currency)],
+                  ["Started", new Date(selectedSession.startedAt).toLocaleString()],
+                  ["Ended", selectedSession.endedAt ? new Date(selectedSession.endedAt).toLocaleString() : "Still active"],
+                  ["Duration", durationSec(selectedSession)],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="flex justify-between border-b pb-2 last:border-0">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-medium text-right">{value as React.ReactNode}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Support action: reset stored language preference */}
+              <div className="mt-4 pt-3 border-t">
+                <p className="text-xs text-muted-foreground mb-2">
+                  Support actions for <span className="font-mono font-medium">{selectedSession.msisdn}</span>
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+                  onClick={() => setConfirmResetPhone(selectedSession.msisdn)}
+                >
+                  <Languages className="h-4 w-4" />
+                  Reset Language Preference
+                </Button>
+              </div>
+            </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Reset Language Preference Dialog */}
+      <Dialog open={!!confirmResetPhone} onOpenChange={() => setConfirmResetPhone(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Languages className="h-5 w-5 text-amber-500" />
+              Reset Language Preference
+            </DialogTitle>
+            <DialogDescription>
+              This will clear the stored language preference for{" "}
+              <span className="font-mono font-medium">{confirmResetPhone}</span>. The customer will see the language
+              picker menu on their next USSD dial.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setConfirmResetPhone(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              className="bg-amber-600 hover:bg-amber-700"
+              disabled={resetLangPref.isPending}
+              onClick={() => {
+                if (confirmResetPhone) resetLangPref.mutate({ phone: confirmResetPhone });
+              }}
+            >
+              {resetLangPref.isPending ? (
+                <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Resetting…</>
+              ) : (
+                "Yes, Reset"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

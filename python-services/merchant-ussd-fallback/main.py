@@ -65,7 +65,15 @@ DEFAULT_LANG = os.getenv("DEFAULT_LANG", "en")
 SUPPORTED_LANGS = {"en", "ha", "yo", "ig", "fr"}
 # When True, fresh USSD sessions show a language-picker step before the main menu.
 # Set LANG_PICKER_ENABLED=false to skip the picker (e.g. when operator pre-selects lang).
+# LANG_PICKER_ENABLED is the static fallback (from env var).
+# At runtime it is overridden by _lang_picker_enabled which is fetched from the
+# portal's /api/merchant-config endpoint during startup.
 LANG_PICKER_ENABLED = os.getenv("LANG_PICKER_ENABLED", "true").lower() != "false"
+# Mutable runtime flag — updated by _fetch_merchant_config() in lifespan
+_lang_picker_enabled: bool = LANG_PICKER_ENABLED
+# Portal URL and merchant ID for fetching per-merchant config
+MERCHANT_PORTAL_URL = os.getenv("MERCHANT_PORTAL_URL", "").rstrip("/")
+MERCHANT_ID = os.getenv("MERCHANT_ID", "")  # numeric merchant DB id
 # Ordered list for the picker menu (1-indexed)
 LANG_PICKER_ORDER = ["en", "ha", "yo", "ig", "fr"]
 
@@ -307,7 +315,7 @@ async def handle_merchant_ussd(
     # is True and no language has been pre-selected by the operator.
     is_fresh_session = not session or "menu" not in session
     operator_preselected = lang_explicitly_set  # operator passed ?lang=xx explicitly
-    if depth == 0 and LANG_PICKER_ENABLED and is_fresh_session and not operator_preselected:
+    if depth == 0 and _lang_picker_enabled and is_fresh_session and not operator_preselected:
         # Check Redis for a persisted language preference — skip picker if found
         persisted_lang = await _get_lang_pref(phone)
         if persisted_lang:
@@ -575,6 +583,41 @@ def _verify_otp(phone: str, otp: str) -> bool:
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 @asynccontextmanager
+async def _fetch_merchant_config() -> None:
+    """Fetch per-merchant config from the portal API and update runtime flags.
+
+    Falls back to the static LANG_PICKER_ENABLED env var if the portal is
+    unreachable or MERCHANT_PORTAL_URL / MERCHANT_ID are not configured.
+    """
+    global _lang_picker_enabled
+    if not MERCHANT_PORTAL_URL or not MERCHANT_ID:
+        logger.info(
+            "MERCHANT_PORTAL_URL or MERCHANT_ID not set — "
+            "using env-var LANG_PICKER_ENABLED=%s",
+            LANG_PICKER_ENABLED,
+        )
+        return
+    url = f"{MERCHANT_PORTAL_URL}/api/merchant-config/{MERCHANT_ID}"
+    headers = {"x-internal-api-key": INTERNAL_API_KEY}
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            _lang_picker_enabled = bool(data.get("ussdLangPickerEnabled", LANG_PICKER_ENABLED))
+            logger.info(
+                "Fetched merchant config from portal: ussdLangPickerEnabled=%s",
+                _lang_picker_enabled,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Could not fetch merchant config from %s (%s) — "
+            "using env-var LANG_PICKER_ENABLED=%s",
+            url, exc, LANG_PICKER_ENABLED,
+        )
+
+
 async def lifespan(app: FastAPI):
     global _redis_client
     _load_locales()
@@ -589,9 +632,11 @@ async def lifespan(app: FastAPI):
             _redis_client = None
     else:
         logger.info("Redis not configured — using in-memory fallback for lang prefs")
+    # Fetch per-merchant config from portal (overrides env-var defaults)
+    await _fetch_merchant_config()
     logger.info(
-        "Merchant USSD Fallback Service v2.0 starting on port %d (locales: %s)",
-        PORT, ", ".join(sorted(_LOCALES.keys())),
+        "Merchant USSD Fallback Service v2.0 starting on port %d (locales: %s, lang_picker=%s)",
+        PORT, ", ".join(sorted(_LOCALES.keys())), _lang_picker_enabled,
     )
     yield
     if _redis_client is not None:

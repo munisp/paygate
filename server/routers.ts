@@ -1214,6 +1214,33 @@ const ussdRouter = router({
       });
       return { id, success: true };
     }),
+  // Reset a customer's stored USSD language preference.
+  // Calls the USSD microservice DELETE /lang-pref/{phone} endpoint.
+  // Used by support agents when a customer wants to re-select their language.
+  resetLangPref: protectedProcedure
+    .input(z.object({ phone: z.string().min(7).max(20) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      await requireMerchant(user.id);
+      const ussdServiceUrl = process.env.USSD_GATEWAY_URL;
+      if (!ussdServiceUrl) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'USSD_GATEWAY_URL not configured' });
+      }
+      const url = `${ussdServiceUrl.replace(/\/$/, '')}/lang-pref/${encodeURIComponent(input.phone)}`;
+      try {
+        const resp = await fetch(url, {
+          method: 'DELETE',
+          headers: { 'x-internal-api-key': process.env.INTERNAL_API_KEY ?? '' },
+        });
+        if (!resp.ok && resp.status !== 404) {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `USSD service returned ${resp.status}` });
+        }
+        return { success: true, phone: input.phone };
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Failed to reach USSD service: ${err.message}` });
+      }
+    }),
 });
 
 // ─── API Keys Router ──────────────────────────────────────────────────────────
