@@ -9,6 +9,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   CreditCard, TrendingUp, Activity, AlertTriangle, CheckCircle,
   Download, RefreshCw, Zap, Star, Rocket, Building2,
@@ -29,12 +30,13 @@ const PLAN_ICONS: Record<string, any> = {
 };
 
 export default function TenantBillingDashboard() {
+  const tenantBillingInterval = useAdaptiveInterval(30000);
   const [selectedTenant, setSelectedTenant] = useState<string>("3");
   const now = new Date();
 
   const { data: quota, isLoading: quotaLoading } = trpc.wave29.tenantBilling.checkQuota.useQuery(
     { tenantId: selectedTenant },
-    { refetchInterval: 30_000 }
+    { refetchInterval: tenantBillingInterval }
   );
 
   const { data: plans } = trpc.wave29.tenantBilling.getAllPlans.useQuery();

@@ -10,6 +10,7 @@
  *  - Middleware architecture overview
  */
 import { useState, useEffect, useCallback } from "react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   Copy, Check, Code2, Key, BookOpen, Zap, Globe, Shield,
   Terminal, ChevronRight, Play, CheckCircle, XCircle, Loader2,
@@ -24,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -444,6 +446,7 @@ function DeliveryStatusBadge({ status, responseStatus }: { status: string; respo
 }
 
 function WebhookEventLog() {
+  const devPortalInterval = useAdaptiveInterval(30000);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [webhookFilter, setWebhookFilter] = useState<string>("all");
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -455,7 +458,7 @@ function WebhookEventLog() {
       webhookId: webhookFilter === "all" ? undefined : webhookFilter,
       limit: 20,
     },
-    { refetchInterval: 30_000 }
+    { refetchInterval: devPortalInterval }
   );
 
   const retryMutation = trpc.webhookDeliveries.retry.useMutation({

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { RefreshCw, CheckCircle2, Clock, XCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -24,12 +25,13 @@ const statusIcons: Record<string, React.ReactNode> = {
 };
 
 export default function PtspBatches() {
+  const ptspInterval = useAdaptiveInterval(30000);
   const { isAuthenticated } = useAuth();
   const [reconfirmingId, setReconfirmingId] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = trpc.pos.listBatches.useQuery(
     { limit: 100 },
-    { enabled: isAuthenticated, refetchInterval: 30_000 }
+    { enabled: isAuthenticated, refetchInterval: ptspInterval }
   );
 
   const confirmBatch = trpc.pos.confirmBatch.useMutation({

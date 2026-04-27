@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 
@@ -173,6 +174,7 @@ function InitiatePayoutForm({ onSuccess }: { onSuccess: () => void }) {
 // ── Payout Row ────────────────────────────────────────────────────────────────
 
 function PayoutRow({ payout }: { payout: any }) {
+  const usdcPayoutsInterval = useAdaptiveInterval(3000);
   const [expanded, setExpanded] = useState(false);
   const utils = trpc.useUtils();
 
@@ -181,7 +183,7 @@ function PayoutRow({ payout }: { payout: any }) {
     { payoutId: payout.id },
     {
       enabled: ["pending", "reserved", "broadcasting", "confirming"].includes(payout.status),
-      refetchInterval: 3000,
+      refetchInterval: usdcPayoutsInterval,
     }
   );
 

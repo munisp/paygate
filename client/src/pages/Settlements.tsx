@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ function SlaCountdown({ slaDeadlineAt, slaBreachedAt, status }: {
   slaBreachedAt?: Date | string | null;
   status: SettlementStatus;
 }) {
+  const settlementsInterval = useAdaptiveInterval(15000);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -182,7 +184,7 @@ export default function Settlements() {
       offset: page * PAGE_SIZE,
       status: statusFilter !== "all" ? statusFilter : undefined,
     },
-    { enabled: isAuthenticated, refetchInterval: 15_000 }
+    { enabled: isAuthenticated, refetchInterval: settlementsInterval }
   );
 
   const rows: Settlement[] = (data?.rows ?? []) as Settlement[];

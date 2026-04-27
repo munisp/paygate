@@ -57,6 +57,11 @@ DEFAULT_LANG = os.getenv("DEFAULT_LANG", "en")
 
 # ─── Supported languages ──────────────────────────────────────────────────────
 SUPPORTED_LANGS = {"en", "ha", "yo", "ig", "fr"}
+# When True, fresh USSD sessions show a language-picker step before the main menu.
+# Set LANG_PICKER_ENABLED=false to skip the picker (e.g. when operator pre-selects lang).
+LANG_PICKER_ENABLED = os.getenv("LANG_PICKER_ENABLED", "true").lower() != "false"
+# Ordered list for the picker menu (1-indexed)
+LANG_PICKER_ORDER = ["en", "ha", "yo", "ig", "fr"]
 
 # ─── Locale store ─────────────────────────────────────────────────────────────
 _LOCALES: dict[str, dict] = {}
@@ -224,6 +229,7 @@ async def handle_merchant_ussd(
     text: str,
     service_code: str,
     lang: str = "en",
+    lang_explicitly_set: bool = False,
 ) -> str:
     """
     Main USSD state machine for merchant operations.
@@ -242,6 +248,22 @@ async def handle_merchant_ussd(
         "USSD session=%s phone=%s depth=%d lang=%s", session_id, phone, depth, session_lang
     )
 
+    # ── Language picker (step 0) ───────────────────────────────────────────────
+    # Show a language selection menu for fresh sessions when LANG_PICKER_ENABLED
+    # is True and no language has been pre-selected by the operator.
+    is_fresh_session = not session or "menu" not in session
+    operator_preselected = lang_explicitly_set  # operator passed ?lang=xx explicitly
+    if depth == 0 and LANG_PICKER_ENABLED and is_fresh_session and not operator_preselected:
+        _set_session(session_id, {"phone": phone, "menu": "lang_select", "lang": session_lang})
+        return (
+            f"CON {t('en', 'lang_select_header', default='PayGate Merchant - Select language:')}\n"
+            f"1. {t('en', 'lang_select_1', default='English')}\n"
+            f"2. {t('ha', 'lang_select_2', default='Hausa')}\n"
+            f"3. {t('yo', 'lang_select_3', default='Yoruba')}\n"
+            f"4. {t('ig', 'lang_select_4', default='Igbo')}\n"
+            f"5. {t('fr', 'lang_select_5', default='Français')}"
+        )
+
     # ── Root menu ──────────────────────────────────────────────────────────────
     if depth == 0:
         _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
@@ -259,6 +281,33 @@ async def handle_merchant_ussd(
     choice = inputs[-1]
 
     # ── Main menu choices ──────────────────────────────────────────────────────
+    # ── Language picker response (step 1) ──────────────────────────────────────
+    if session.get("menu") == "lang_select" and depth == 1:
+        lang_map = {str(i + 1): code for i, code in enumerate(LANG_PICKER_ORDER)}
+        selected_code = lang_map.get(choice)
+        if not selected_code:
+            return (
+                f"CON {t('en', 'lang_invalid', default='Invalid choice. Select 1-5.')}\n"
+                f"1. {t('en', 'lang_select_1', default='English')}\n"
+                f"2. {t('ha', 'lang_select_2', default='Hausa')}\n"
+                f"3. {t('yo', 'lang_select_3', default='Yoruba')}\n"
+                f"4. {t('ig', 'lang_select_4', default='Igbo')}\n"
+                f"5. {t('fr', 'lang_select_5', default='Français')}"
+            )
+        # Language selected — update session and show main menu
+        session_lang = selected_code
+        _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
+        return (
+            f"CON {t(session_lang, 'app_name', default='PayGate Merchant')}\n"
+            f"1. {t(session_lang, 'menu_balance_label', default='Settlement Balance')}\n"
+            f"2. {t(session_lang, 'menu_payout_label', default='Approve Payout')}\n"
+            f"3. {t(session_lang, 'menu_recent_label', default='Recent Transactions')}\n"
+            f"4. {t(session_lang, 'menu_paylink_label', default='Generate Payment Link')}\n"
+            f"5. {t(session_lang, 'menu_dispute_label', default='Dispute Status')}\n"
+            f"6. {t(session_lang, 'menu_freeze_label', default='Freeze Account')}\n"
+            f"0. {t(session_lang, 'menu_exit_label', default='Exit')}"
+        )
+
     if depth == 1:
         if choice == "0":
             _clear_session(session_id)
@@ -541,6 +590,7 @@ async def merchant_ussd_callback(
             text=text,
             service_code=serviceCode,
             lang=resolved_lang,
+            lang_explicitly_set=lang is not None,
         )
         return PlainTextResponse(response)
     except Exception as exc:

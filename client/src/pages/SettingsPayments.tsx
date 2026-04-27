@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 type CheckStatus = "ok" | "pending" | "warning" | "info";
@@ -98,6 +99,7 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SettingsPayments() {
+  const settingsPayInterval = useAdaptiveInterval(60000);
   const [testChargeResult, setTestChargeResult] = useState<{
     ok: boolean;
     intentId?: string;
@@ -117,7 +119,7 @@ export default function SettingsPayments() {
     isLoading: checklistLoading,
     refetch: refetchChecklist,
   } = trpc.system.goLiveChecklist.useQuery(undefined, {
-    refetchInterval: 60_000,
+    refetchInterval: settingsPayInterval,
   });
 
   // Test charge

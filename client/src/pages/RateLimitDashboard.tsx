@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Activity, AlertTriangle, CheckCircle, Zap } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const PLAN_COLORS: Record<string, string> = {
   starter: "bg-gray-100 text-gray-700",
@@ -17,9 +18,10 @@ const PLAN_COLORS: Record<string, string> = {
 };
 
 export default function RateLimitDashboard() {
+  const rateLimitInterval = useAdaptiveInterval(60000);
   const { data: stats, refetch } = trpc.wave29.rateLimitDashboard.getStats.useQuery(
     {},
-    { refetchInterval: 60_000 }
+    { refetchInterval: rateLimitInterval }
   );
 
   const setOverride = trpc.wave29.rateLimitDashboard.setOverride.useMutation({

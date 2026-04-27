@@ -19,6 +19,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 interface ServiceInfo {
   name: string;
@@ -276,9 +277,10 @@ services:
       DATABASE_URL: \${DATABASE_URL}`;
 
 export default function MicroserviceHealth() {
+  const microserviceInterval = useAdaptiveInterval(30000);
   const [showCompose, setShowCompose] = useState(false);
   const { data, isLoading, refetch } = trpc.system.microservicesHealth.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: microserviceInterval,
   });
 
   const onlineCount = data ? Object.values(data).filter((v: any) => v === "ok").length : 0;

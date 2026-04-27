@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Wifi, WifiOff, AlertTriangle, MapPin, RefreshCw } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,13 +84,14 @@ export default function TerminalMap() {
   const markersRef = useRef<Map<string, google.maps.marker.AdvancedMarkerElement>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
 
+  const terminalMapInterval = useAdaptiveInterval(30000);
   const [filter, setFilter] = useState<"all" | "online" | "warning" | "offline">("all");
   const [selectedTerminal, setSelectedTerminal] = useState<Terminal | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const { data, isLoading, refetch } = trpc.pos.list.useQuery(
     { limit: 200 },
-    { refetchInterval: 30_000 }
+    { refetchInterval: terminalMapInterval }
   );
 
   const updateLocation = trpc.pos.updateLocation.useMutation();

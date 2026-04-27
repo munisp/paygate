@@ -45,6 +45,7 @@ import {
   Copy,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const PAGE_SIZE = 25;
 
@@ -93,6 +94,7 @@ function httpStatusColor(code: number | null | undefined) {
 }
 
 export default function WebhookDeliveries() {
+  const webhookDelivInterval = useAdaptiveInterval(30000);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(0);
@@ -107,7 +109,7 @@ export default function WebhookDeliveries() {
       status: statusFilter === "all" ? undefined : statusFilter,
       search: search.trim() || undefined,
     },
-    { refetchInterval: 30_000 }
+    { refetchInterval: webhookDelivInterval }
   );
 
   const retryMutation = trpc.webhookDeliveries.retry.useMutation({

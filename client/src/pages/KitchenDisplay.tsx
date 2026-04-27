@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   ChefHat, RefreshCw, Clock, CheckCircle2, AlertTriangle,
   Zap, Bell, Monitor, Settings2
@@ -188,6 +189,7 @@ function OrderCard({
 // ── Main KDS page ─────────────────────────────────────────────────────────────
 export default function KitchenDisplay() {
   const utils = trpc.useUtils();
+  const kitchenInterval = useAdaptiveInterval(15000);
   const [activeStation, setActiveStation] = useState<string | null>(null);
   const [markingItem, setMarkingItem] = useState<number | null>(null);
   const [markingOrder, setMarkingOrder] = useState<string | null>(null);
@@ -195,7 +197,7 @@ export default function KitchenDisplay() {
 
   const { data: stationsData } = trpc.kds.listStations.useQuery(undefined, { staleTime: 60_000 });
   const { data, isLoading, refetch } = trpc.kds.listOrders.useQuery(undefined, {
-    refetchInterval: 15_000,
+    refetchInterval: kitchenInterval,
   });
 
   const markItemReady = trpc.kds.markItemReady.useMutation({

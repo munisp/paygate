@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { TrendingUp, TrendingDown, Plus, Pause, Play, Trash2, Target, Coins, Calendar, BarChart3 } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const GOLD_PRICE_NGN = 98_500; // per gram
 const GOLD_PRICE_USD = 62.5;
@@ -64,11 +65,12 @@ const portfolioHistory = [
 ];
 
 export default function GoldSIP() {
+  const goldSipInterval = useAdaptiveInterval(60000);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", amountNGN: "", frequency: "monthly" as const });
 
   // tRPC data
-  const { data: priceData } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: 60_000 });
+  const { data: priceData } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval });
   const { data: sipData, refetch: refetchSIPs } = trpc.newFeatures.digitalGold.listSIPs.useQuery();
   const plans = sipData?.plans ?? mockPlans; // fallback to mock while backend warms up
 

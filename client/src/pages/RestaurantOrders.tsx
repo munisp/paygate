@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   RefreshCw, Receipt, Split, Plus, ChefHat, Send,
   Clock, BarChart3, Utensils, X
@@ -293,6 +294,7 @@ function SplitBillDialog({ order, onClose }: { order: any; onClose: () => void }
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function RestaurantOrders() {
   const utils = trpc.useUtils();
+  const restaurantInterval = useAdaptiveInterval(30000);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [addItemOrder, setAddItemOrder] = useState<any>(null);
@@ -301,7 +303,7 @@ export default function RestaurantOrders() {
 
   const { data, isLoading, refetch } = trpc.restaurant.listOrders.useQuery(
     { status: statusFilter === "all" ? undefined : statusFilter },
-    { refetchInterval: 30_000 }
+    { refetchInterval: restaurantInterval }
   );
   const { data: tablesData } = trpc.restaurant.listTables.useQuery(undefined, { staleTime: 60_000 });
   const { data: menuData } = trpc.restaurant.listMenu.useQuery(undefined, { staleTime: 60_000 });

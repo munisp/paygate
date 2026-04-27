@@ -66,6 +66,14 @@
     "rate_limit_exceeded": "Ọpọlọpọ awọn ibeere. Jọwọ gbiyanju lẹẹkansi ni iṣẹju 1.",
     "recent_txns_header": "Awọn Iṣowo Aipẹ",
     "reject_label": "Kọ",
-    "via_sms": "nipasẹ SMS"
+    "via_sms": "nipasẹ SMS",
+    "lang_select_header": "PayGate Merchant - Yan ede:",
+    "lang_select_1": "Gesi",
+    "lang_select_2": "Hausa",
+    "lang_select_3": "Yoruba",
+    "lang_select_4": "Igbo",
+    "lang_select_5": "Faranse",
+    "lang_invalid": "Aṣayan ko tọ. Yan 1-5.",
+    "lang_selected": "Ede ti wa ni Yoruba."
   }
 }

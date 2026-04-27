@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function formatKobo(k: number) {
@@ -283,6 +284,7 @@ function AdjustStockDialog({ open, onClose, item, onSaved }: AdjustProps) {
 type TabFilter = "all" | "low" | "ok" | "out";
 
 export default function Inventory() {
+  const inventoryInterval = useAdaptiveInterval(60000);
   const { isAuthenticated } = useAuth();
   const [search, setSearch] = useState("");
   const [tabFilter, setTabFilter] = useState<TabFilter>("all");
@@ -294,7 +296,7 @@ export default function Inventory() {
 
   const { data: items = [], isLoading, refetch } = trpc.inventory.listItems.useQuery(
     undefined,
-    { enabled: isAuthenticated, refetchInterval: 60_000 }
+    { enabled: isAuthenticated, refetchInterval: inventoryInterval }
   );
 
   const refresh = () => {

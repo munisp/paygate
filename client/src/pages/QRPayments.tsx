@@ -14,8 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { QrCode, Scan, Download, Share2, Clock, CheckCircle, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 export default function QRPayments() {
+  const qrPaymentsInterval = useAdaptiveInterval(30000);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [qrPaymentUrl, setQrPaymentUrl] = useState("");
@@ -38,7 +40,7 @@ export default function QRPayments() {
   });
 
   const { data: recentData, isLoading: recentLoading, refetch: refetchRecent } =
-    trpc.qrPayments.recentScans.useQuery({ limit: 20 }, { refetchInterval: 30_000 });
+    trpc.qrPayments.recentScans.useQuery({ limit: 20 }, { refetchInterval: qrPaymentsInterval });
 
   useEffect(() => { return () => { stopScanning(); }; }, []);
 

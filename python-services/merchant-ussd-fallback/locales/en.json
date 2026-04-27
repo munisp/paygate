@@ -66,6 +66,14 @@
     "rate_limit_exceeded": "Too many requests. Please try again in 1 minute.",
     "recent_txns_header": "Recent Transactions",
     "reject_label": "Reject",
-    "via_sms": "via SMS"
+    "via_sms": "via SMS",
+    "lang_select_header": "PayGate Merchant - Select language:",
+    "lang_select_1": "English",
+    "lang_select_2": "Hausa",
+    "lang_select_3": "Yoruba",
+    "lang_select_4": "Igbo",
+    "lang_select_5": "French",
+    "lang_invalid": "Invalid choice. Select 1-5.",
+    "lang_selected": "Language set to English."
   }
 }

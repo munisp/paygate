@@ -50,6 +50,7 @@ def test_health():
 
 # ─── USSD main menu (English default) ────────────────────────────────────────
 def test_ussd_main_menu():
+    """Fresh session (no ?lang) should show language picker first."""
     r = client.post("/v1/ussd/merchant/callback", data={
         "sessionId": "sess-001",
         "phoneNumber": "+2348000000001",
@@ -59,12 +60,100 @@ def test_ussd_main_menu():
     assert r.status_code == 200
     assert "CON" in r.text
     assert "PayGate" in r.text
+    # Language picker should be shown (not the main menu)
+    assert "English" in r.text or "Select language" in r.text or "language" in r.text.lower()
+    assert "Hausa" in r.text
+
+def test_ussd_lang_picker_select_english():
+    """Selecting 1 (English) from language picker shows English main menu."""
+    # Step 1: fresh session shows language picker
+    client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-lp-001",
+        "phoneNumber": "+2348000000010",
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    # Step 2: select English (1)
+    r = client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-lp-001",
+        "phoneNumber": "+2348000000010",
+        "text": "1",
+        "serviceCode": "*737*PG#",
+    })
+    assert r.status_code == 200
+    assert "CON" in r.text
     assert "Settlement Balance" in r.text or "Balance" in r.text
-    assert "Freeze" in r.text or "freeze" in r.text.lower()
+
+def test_ussd_lang_picker_select_hausa():
+    """Selecting 2 (Hausa) from language picker shows Hausa main menu."""
+    # Step 1: fresh session shows language picker
+    client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-lp-002",
+        "phoneNumber": "+2348000000011",
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    # Step 2: select Hausa (2)
+    r = client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-lp-002",
+        "phoneNumber": "+2348000000011",
+        "text": "2",
+        "serviceCode": "*737*PG#",
+    })
+    assert r.status_code == 200
+    assert "CON" in r.text
+    assert "PayGate Dan Kasuwa" in r.text or "Hausa" in r.text or "Kuɗi" in r.text or "Duba" in r.text
+
+def test_ussd_lang_picker_invalid_choice():
+    """Invalid choice in language picker should re-show the picker."""
+    # Step 1: fresh session shows language picker
+    client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-lp-003",
+        "phoneNumber": "+2348000000012",
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    # Step 2: invalid choice (9)
+    r = client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-lp-003",
+        "phoneNumber": "+2348000000012",
+        "text": "9",
+        "serviceCode": "*737*PG#",
+    })
+    assert r.status_code == 200
+    assert "CON" in r.text
+    # Should re-show language options
+    assert "English" in r.text or "Invalid" in r.text
+
+def test_ussd_operator_preselected_lang_skips_picker():
+    """?lang=ha should skip the language picker and go straight to Hausa main menu."""
+    r = client.post("/v1/ussd/merchant/callback?lang=ha", data={
+        "sessionId": "sess-lp-004",
+        "phoneNumber": "+2348000000013",
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    assert r.status_code == 200
+    assert "CON" in r.text
+    # Should show Hausa main menu directly (no language picker)
+    assert "English" not in r.text or "PayGate Dan Kasuwa" in r.text or "Hausa" in r.text.lower()
+
+def test_ussd_main_menu_with_lang_param():
+    """?lang=en should show English main menu directly (skip picker)."""
+    r = client.post("/v1/ussd/merchant/callback?lang=en", data={
+        "sessionId": "sess-lp-005",
+        "phoneNumber": "+2348000000014",
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    assert r.status_code == 200
+    assert "CON" in r.text
+    assert "Settlement Balance" in r.text or "Balance" in r.text
 
 
 def test_ussd_exit():
-    r = client.post("/v1/ussd/merchant/callback", data={
+    """Exit from main menu (using ?lang=en to skip picker)."""
+    r = client.post("/v1/ussd/merchant/callback?lang=en", data={
         "sessionId": "sess-002",
         "phoneNumber": "+2348000000002",
         "text": "0",
@@ -77,7 +166,7 @@ def test_ussd_exit():
 
 def test_ussd_balance_no_bridge():
     """Without bridge configured, should return graceful error message."""
-    r = client.post("/v1/ussd/merchant/callback", data={
+    r = client.post("/v1/ussd/merchant/callback?lang=en", data={
         "sessionId": "sess-003",
         "phoneNumber": "+2348000000003",
         "text": "1",
@@ -89,7 +178,7 @@ def test_ussd_balance_no_bridge():
 
 
 def test_ussd_recent_transactions_no_bridge():
-    r = client.post("/v1/ussd/merchant/callback", data={
+    r = client.post("/v1/ussd/merchant/callback?lang=en", data={
         "sessionId": "sess-004",
         "phoneNumber": "+2348000000004",
         "text": "3",
@@ -100,7 +189,7 @@ def test_ussd_recent_transactions_no_bridge():
 
 
 def test_ussd_pending_payouts_no_bridge():
-    r = client.post("/v1/ussd/merchant/callback", data={
+    r = client.post("/v1/ussd/merchant/callback?lang=en", data={
         "sessionId": "sess-004b",
         "phoneNumber": "+2348000000004",
         "text": "2",

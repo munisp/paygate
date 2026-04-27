@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -56,8 +57,9 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
 }
 
 export default function GoLiveChecklist() {
+  const goLiveInterval = useAdaptiveInterval(60000);
   const { data, isLoading, refetch } = trpc.system.goLiveChecklist.useQuery(undefined, {
-    refetchInterval: 60_000,
+    refetchInterval: goLiveInterval,
   });
 
   const items = data?.items ?? [];

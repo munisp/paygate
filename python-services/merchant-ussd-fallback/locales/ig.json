@@ -66,6 +66,14 @@
     "rate_limit_exceeded": "Arịrịọ ọtụtụ. Biko nwaa ọzọ n'ime nkeji 1.",
     "recent_txns_header": "Azụmahịa Ndị Ọhụrụ",
     "reject_label": "Jụ",
-    "via_sms": "site na SMS"
+    "via_sms": "site na SMS",
+    "lang_select_header": "PayGate Merchant - Họrọ asụsụ:",
+    "lang_select_1": "Bekee",
+    "lang_select_2": "Hausa",
+    "lang_select_3": "Yoruba",
+    "lang_select_4": "Igbo",
+    "lang_select_5": "French",
+    "lang_invalid": "Nhọrọ ezighi ezi. Họrọ 1-5.",
+    "lang_selected": "Asụsụ atọọla Igbo."
   }
 }

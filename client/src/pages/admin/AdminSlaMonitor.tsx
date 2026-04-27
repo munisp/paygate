@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, CheckCircle, Clock, RefreshCw, TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 export default function AdminSlaMonitor() {
+  const adminSlaInterval = useAdaptiveInterval(30000);
   const [refreshKey, setRefreshKey] = useState(0);
   const { data, isLoading, refetch } = trpc.adminSlaMonitor.getBreachMetrics.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: adminSlaInterval,
   });
 
   const metrics = data?.metrics;

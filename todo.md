@@ -3778,3 +3778,17 @@
 - [ ] client/src/hooks/useAdaptiveInterval.ts: hook that reads network tier and returns interval
 - [ ] Wire useAdaptiveInterval into top 10 polling pages
 - [ ] server/resilience.test.ts: add adaptive interval tests
+
+## Wave 111
+
+- [x] USSD step-0 language picker: add language selection menu before main menu, persist choice in session
+- [x] Add `lang_select_prompt` and `lang_*` locale keys to all 5 locale files
+- [x] Update USSD Python tests for language picker flow
+- [x] Migrate POSTerminals.tsx to useAdaptiveInterval
+- [x] Migrate Disputes.tsx to useAdaptiveInterval
+- [x] Migrate Customers.tsx to useAdaptiveInterval
+- [x] Audit and migrate any other remaining hardcoded refetchInterval pages
+- [x] Add vitest unit tests for useAdaptiveInterval (offline/2g/4g/5g tiers)
+- [x] Run full test suites and confirm 0 TS errors
+- [x] Write WAVE111_CHANGE_MANIFEST.md
+- [x] Save checkpoint and generate archive

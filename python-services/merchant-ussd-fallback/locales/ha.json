@@ -66,6 +66,14 @@
     "rate_limit_exceeded": "Yawan buƙatun da yawa. Don Allah sake gwadawa bayan minti 1.",
     "recent_txns_header": "Ma'amaloli na Kwanan Nan",
     "reject_label": "Ƙi",
-    "via_sms": "ta SMS"
+    "via_sms": "ta SMS",
+    "lang_select_header": "PayGate Merchant - Zabi harshe:",
+    "lang_select_1": "Turanci",
+    "lang_select_2": "Hausa",
+    "lang_select_3": "Yarbanci",
+    "lang_select_4": "Igbo",
+    "lang_select_5": "Faransanci",
+    "lang_invalid": "Zabin ba daidai ba. Zabi 1-5.",
+    "lang_selected": "An saita harshe zuwa Hausa."
   }
 }

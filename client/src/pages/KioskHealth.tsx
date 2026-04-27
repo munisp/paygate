@@ -4,13 +4,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Wifi, WifiOff, AlertTriangle, Monitor } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 export default function KioskHealth() {
+  const kioskInterval = useAdaptiveInterval(15000);
   const { isAuthenticated } = useAuth();
 
   const { data, isLoading, refetch } = trpc.agentBanking.kioskHealth.useQuery(
     undefined,
-    { enabled: isAuthenticated, refetchInterval: 15_000 }
+    { enabled: isAuthenticated, refetchInterval: kioskInterval }
   );
 
   const health: any = data ?? { total: 0, online: 0, warning: 0, offline: 0, terminals: [] };
