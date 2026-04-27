@@ -119,6 +119,7 @@ import {
   getKioskHealthSummary,
   disburseAgentCommissions,
   getRestaurantTableTurnStats,
+  logAuditEvent,
 } from "./db";
 import {
   isBridgeAvailable,
@@ -1221,7 +1222,7 @@ const ussdRouter = router({
     .input(z.object({ phone: z.string().min(7).max(20) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      await requireMerchant(user.id);
+      const merchant = await requireMerchant(user.id);
       const ussdServiceUrl = process.env.USSD_GATEWAY_URL;
       if (!ussdServiceUrl) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'USSD_GATEWAY_URL not configured' });
@@ -1235,6 +1236,16 @@ const ussdRouter = router({
         if (!resp.ok && resp.status !== 404) {
           throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `USSD service returned ${resp.status}` });
         }
+        // Fire-and-forget audit log (use already-resolved merchant to avoid extra DB call)
+        logAuditEvent({
+          merchantId: merchant.id,
+          actorId: ctx.user.openId,
+          actorName: ctx.user.name ?? ctx.user.openId,
+          action: 'ussd.resetLangPref',
+          resource: 'ussd_lang_pref',
+          resourceId: input.phone,
+          metadata: { phone: input.phone, resetBy: ctx.user.openId },
+        }).catch(() => {/* non-critical */});
         return { success: true, phone: input.phone };
       } catch (err: any) {
         if (err instanceof TRPCError) throw err;

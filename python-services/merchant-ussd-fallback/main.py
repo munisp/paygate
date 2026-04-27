@@ -1,3 +1,4 @@
+import asyncio
 """
 PayGate — Merchant USSD/SMS Fallback Service (Wave 110)
 ==========================================================
@@ -71,6 +72,8 @@ SUPPORTED_LANGS = {"en", "ha", "yo", "ig", "fr"}
 LANG_PICKER_ENABLED = os.getenv("LANG_PICKER_ENABLED", "true").lower() != "false"
 # Mutable runtime flag — updated by _fetch_merchant_config() in lifespan
 _lang_picker_enabled: bool = LANG_PICKER_ENABLED
+# How often (seconds) to re-fetch merchant config from the portal (default: 5 min)
+CONFIG_REFRESH_INTERVAL_SECS: int = int(os.getenv("CONFIG_REFRESH_INTERVAL_SECS", "300"))
 # Portal URL and merchant ID for fetching per-merchant config
 MERCHANT_PORTAL_URL = os.getenv("MERCHANT_PORTAL_URL", "").rstrip("/")
 MERCHANT_ID = os.getenv("MERCHANT_ID", "")  # numeric merchant DB id
@@ -582,7 +585,6 @@ def _verify_otp(phone: str, otp: str) -> bool:
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
-@asynccontextmanager
 async def _fetch_merchant_config() -> None:
     """Fetch per-merchant config from the portal API and update runtime flags.
 
@@ -618,6 +620,17 @@ async def _fetch_merchant_config() -> None:
         )
 
 
+
+async def _config_refresh_loop() -> None:
+    """Background task: re-fetch merchant config every CONFIG_REFRESH_INTERVAL_SECS."""
+    while True:
+        await asyncio.sleep(CONFIG_REFRESH_INTERVAL_SECS)
+        try:
+            await _fetch_merchant_config()
+        except Exception as exc:
+            logger.warning("[merchantConfig] Background refresh failed: %s", exc)
+
+
 async def lifespan(app: FastAPI):
     global _redis_client
     _load_locales()
@@ -634,11 +647,17 @@ async def lifespan(app: FastAPI):
         logger.info("Redis not configured — using in-memory fallback for lang prefs")
     # Fetch per-merchant config from portal (overrides env-var defaults)
     await _fetch_merchant_config()
+    _refresh_task = asyncio.create_task(_config_refresh_loop())
     logger.info(
         "Merchant USSD Fallback Service v2.0 starting on port %d (locales: %s, lang_picker=%s)",
         PORT, ", ".join(sorted(_LOCALES.keys())), _lang_picker_enabled,
     )
     yield
+    _refresh_task.cancel()
+    try:
+        await _refresh_task
+    except asyncio.CancelledError:
+        pass
     if _redis_client is not None:
         await _redis_client.aclose()
     logger.info("Merchant USSD Fallback Service shutting down")

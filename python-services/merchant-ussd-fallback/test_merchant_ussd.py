@@ -866,3 +866,319 @@ def test_lang_pref_invalid_lang_not_returned():
     phone = "+2348111000009"
     _lang_prefs_fallback[phone] = "xx"  # Simulate corrupted value
     assert _run(_get_lang_pref(phone)) is None
+
+
+# ---------------------------------------------------------------------------
+# Wave 114 — Background config refresh loop tests
+# ---------------------------------------------------------------------------
+
+def test_config_refresh_interval_constant_exists():
+    """CONFIG_REFRESH_INTERVAL_SECS constant is defined in main module."""
+    from main import CONFIG_REFRESH_INTERVAL_SECS
+    assert isinstance(CONFIG_REFRESH_INTERVAL_SECS, int)
+    assert CONFIG_REFRESH_INTERVAL_SECS > 0
+
+
+def test_config_refresh_interval_default_value():
+    """CONFIG_REFRESH_INTERVAL_SECS defaults to 300 when env var is not set."""
+    import main as main_mod
+    # If env var is not set, the default should be 300
+    expected = int(os.getenv("CONFIG_REFRESH_INTERVAL_SECS", "300"))
+    assert main_mod.CONFIG_REFRESH_INTERVAL_SECS == expected
+
+
+def test_config_refresh_loop_function_exists():
+    """_config_refresh_loop async function is defined in main module."""
+    import inspect
+    from main import _config_refresh_loop
+    assert inspect.iscoroutinefunction(_config_refresh_loop)
+
+
+def test_config_refresh_loop_calls_fetch(monkeypatch):
+    """_config_refresh_loop calls _fetch_merchant_config at least once per iteration."""
+    import asyncio
+    import main as main_mod
+    call_count = {"n": 0}
+
+    async def fake_fetch():
+        call_count["n"] += 1
+
+    async def fake_sleep(secs):
+        if call_count["n"] >= 1:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", fake_fetch)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert call_count["n"] >= 1
+
+
+def test_config_refresh_loop_handles_exception(monkeypatch):
+    """_config_refresh_loop continues after a fetch exception without crashing."""
+    import asyncio
+    import main as main_mod
+    call_count = {"n": 0}
+
+    async def failing_fetch():
+        call_count["n"] += 1
+        raise RuntimeError("Network error")
+
+    async def fake_sleep(secs):
+        if call_count["n"] >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", failing_fetch)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert call_count["n"] >= 2
+
+
+def test_config_refresh_loop_uses_correct_interval(monkeypatch):
+    """_config_refresh_loop passes CONFIG_REFRESH_INTERVAL_SECS to asyncio.sleep."""
+    import asyncio
+    import main as main_mod
+    sleep_args = []
+
+    async def fake_fetch():
+        pass
+
+    async def recording_sleep(secs):
+        sleep_args.append(secs)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", fake_fetch)
+    monkeypatch.setattr(asyncio, "sleep", recording_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert len(sleep_args) >= 1
+    assert sleep_args[0] == main_mod.CONFIG_REFRESH_INTERVAL_SECS
+
+
+# ---------------------------------------------------------------------------
+# Wave 114 — Background config refresh loop tests
+# ---------------------------------------------------------------------------
+
+def test_config_refresh_interval_constant_exists():
+    """CONFIG_REFRESH_INTERVAL_SECS constant is defined in main module."""
+    from main import CONFIG_REFRESH_INTERVAL_SECS
+    assert isinstance(CONFIG_REFRESH_INTERVAL_SECS, int)
+    assert CONFIG_REFRESH_INTERVAL_SECS > 0
+
+
+def test_config_refresh_interval_default_value():
+    """CONFIG_REFRESH_INTERVAL_SECS defaults to 300 when env var is not set."""
+    import main as main_mod
+    expected = int(os.getenv("CONFIG_REFRESH_INTERVAL_SECS", "300"))
+    assert main_mod.CONFIG_REFRESH_INTERVAL_SECS == expected
+
+
+def test_config_refresh_loop_function_exists():
+    """_config_refresh_loop async function is defined in main module."""
+    import inspect
+    from main import _config_refresh_loop
+    assert inspect.iscoroutinefunction(_config_refresh_loop)
+
+
+def test_config_refresh_loop_calls_fetch(monkeypatch):
+    """_config_refresh_loop calls _fetch_merchant_config at least once per iteration."""
+    import asyncio
+    import main as main_mod
+    call_count = {"n": 0}
+
+    async def fake_fetch():
+        call_count["n"] += 1
+
+    async def fake_sleep(secs):
+        if call_count["n"] >= 1:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", fake_fetch)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert call_count["n"] >= 1
+
+
+def test_config_refresh_loop_handles_exception(monkeypatch):
+    """_config_refresh_loop continues after a fetch exception without crashing."""
+    import asyncio
+    import main as main_mod
+    call_count = {"n": 0}
+
+    async def failing_fetch():
+        call_count["n"] += 1
+        raise RuntimeError("Network error")
+
+    async def fake_sleep(secs):
+        if call_count["n"] >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", failing_fetch)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert call_count["n"] >= 2
+
+
+def test_config_refresh_loop_uses_correct_interval(monkeypatch):
+    """_config_refresh_loop passes CONFIG_REFRESH_INTERVAL_SECS to asyncio.sleep."""
+    import asyncio
+    import main as main_mod
+    sleep_args = []
+
+    async def fake_fetch():
+        pass
+
+    async def recording_sleep(secs):
+        sleep_args.append(secs)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", fake_fetch)
+    monkeypatch.setattr(asyncio, "sleep", recording_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert len(sleep_args) >= 1
+    assert sleep_args[0] == main_mod.CONFIG_REFRESH_INTERVAL_SECS
+
+
+# ---------------------------------------------------------------------------
+# Wave 114 — Background config refresh loop tests
+# ---------------------------------------------------------------------------
+
+def test_config_refresh_interval_constant_exists():
+    """CONFIG_REFRESH_INTERVAL_SECS constant is defined in main module."""
+    from main import CONFIG_REFRESH_INTERVAL_SECS
+    assert isinstance(CONFIG_REFRESH_INTERVAL_SECS, int)
+    assert CONFIG_REFRESH_INTERVAL_SECS > 0
+
+
+def test_config_refresh_interval_default_value():
+    """CONFIG_REFRESH_INTERVAL_SECS defaults to 300 when env var is not set."""
+    import main as main_mod
+    expected = int(os.getenv("CONFIG_REFRESH_INTERVAL_SECS", "300"))
+    assert main_mod.CONFIG_REFRESH_INTERVAL_SECS == expected
+
+
+def test_config_refresh_loop_function_exists():
+    """_config_refresh_loop async function is defined in main module."""
+    import inspect
+    from main import _config_refresh_loop
+    assert inspect.iscoroutinefunction(_config_refresh_loop)
+
+
+def test_config_refresh_loop_calls_fetch(monkeypatch):
+    """_config_refresh_loop calls _fetch_merchant_config at least once per iteration."""
+    import asyncio
+    import main as main_mod
+    call_count = {"n": 0}
+
+    async def fake_fetch():
+        call_count["n"] += 1
+
+    async def fake_sleep(secs):
+        if call_count["n"] >= 1:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", fake_fetch)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert call_count["n"] >= 1
+
+
+def test_config_refresh_loop_handles_exception(monkeypatch):
+    """_config_refresh_loop continues after a fetch exception without crashing."""
+    import asyncio
+    import main as main_mod
+    call_count = {"n": 0}
+
+    async def failing_fetch():
+        call_count["n"] += 1
+        raise RuntimeError("Network error")
+
+    async def fake_sleep(secs):
+        if call_count["n"] >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", failing_fetch)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert call_count["n"] >= 2
+
+
+def test_config_refresh_loop_uses_correct_interval(monkeypatch):
+    """_config_refresh_loop passes CONFIG_REFRESH_INTERVAL_SECS to asyncio.sleep."""
+    import asyncio
+    import main as main_mod
+    sleep_args = []
+
+    async def fake_fetch():
+        pass
+
+    async def recording_sleep(secs):
+        sleep_args.append(secs)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main_mod, "_fetch_merchant_config", fake_fetch)
+    monkeypatch.setattr(asyncio, "sleep", recording_sleep)
+
+    async def run():
+        try:
+            await main_mod._config_refresh_loop()
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert len(sleep_args) >= 1
+    assert sleep_args[0] == main_mod.CONFIG_REFRESH_INTERVAL_SECS

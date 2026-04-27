@@ -3817,3 +3817,12 @@
 - [x] Run full test suites and confirm 0 TS errors
 - [x] Write WAVE113_CHANGE_MANIFEST.md
 - [x] Save checkpoint and generate archive
+## Wave 114
+- [x] Add background config refresh loop to USSD service (_config_refresh_loop, CONFIG_REFRESH_INTERVAL_SECS)
+- [x] Add audit log entry to ussd.resetLangPref mutation (logAuditEvent static import + fire-and-forget call)
+- [x] Write DEPLOYMENT_RUNBOOK.md for USSD microservice
+- [x] Add 5 new vitest tests for resetLangPref audit log behavior (wave114.auditLog.test.ts)
+- [x] Add 6 new Python tests for background config refresh loop
+- [x] Run full test suites and confirm 0 TS errors
+- [x] Write WAVE114_CHANGE_MANIFEST.md
+- [x] Save checkpoint and generate archive
