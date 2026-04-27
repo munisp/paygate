@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useResilientSSE } from "@/lib/resilientSSE";
 import { useEffect, useRef, useCallback, useState } from "react";
 import {
   AlertTriangle, Bell, CheckCheck, ChevronRight,
@@ -60,7 +61,6 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
   const [, navigate] = useLocation();
 
   const [sseConnected, setSseConnected] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
 
   const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 50, unreadOnly: false },
@@ -85,35 +85,25 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
 
   const unreadCount = listData?.unreadCount ?? notifs.filter((n: any) => !n.isRead).length;
 
-  // ── SSE real-time connection ─────────────────────────────────────────────────
-  const connectSSE = useCallback(() => {
-    if (esRef.current) esRef.current.close();
-    const es = new EventSource("/api/events/notifications", { withCredentials: true });
-    esRef.current = es;
-    es.onopen = () => setSseConnected(true);
-    es.addEventListener("notification", (e: MessageEvent) => {
+  // ── SSE real-time connection (resilient: backoff + polling fallback for 2G) ──
+  useResilientSSE<{ type?: string; title?: string; message?: string }>({
+    url: "/api/events/notifications",
+    pollUrl: "/api/trpc/notifications.list",
+    pollIntervalMs: 20_000,
+    onConnected: setSseConnected,
+    onMessage: (data) => {
       try {
-        const data = JSON.parse(e.data);
+        const parsed = typeof data === "string" ? JSON.parse(data) : data;
         utils.notifications.list.invalidate();
         utils.notifications.unreadCount.invalidate();
-        if (["fraud", "fraud_alert", "dispute_escalated", "payout_approved"].includes(data.type ?? "")) {
-          toast.warning(data.title ?? "New notification", { description: data.message ?? "", duration: 6000 });
+        if (["fraud", "fraud_alert", "dispute_escalated", "payout_approved"].includes(parsed.type ?? "")) {
+          toast.warning(parsed.title ?? "New notification", { description: parsed.message ?? "", duration: 6000 });
         }
       } catch { /* ignore */ }
-    });
-    es.addEventListener("ping", () => setSseConnected(true));
-    es.onerror = () => {
-      setSseConnected(false);
-      es.close();
-      setTimeout(() => { if (esRef.current === es) connectSSE(); }, 5000);
-    };
-  }, [utils]);
-
-  useEffect(() => {
-    connectSSE();
-    return () => { esRef.current?.close(); esRef.current = null; setSseConnected(false); };
-  }, [connectSSE]);
-
+    },
+    heartbeatTimeoutSec: 60,
+    pauseOnHidden: false,
+  });
   useEffect(() => {
     if (open) refetch();
   }, [open]);
@@ -263,27 +253,19 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
  */
 export function useNotificationCount(): number {
   const utils = trpc.useUtils();
-  const esRef = useRef<EventSource | null>(null);
-
-  useEffect(() => {
-    const es = new EventSource("/api/events/notifications", { withCredentials: true });
-    esRef.current = es;
-    es.addEventListener("notification", () => {
+  // Resilient SSE: auto-reconnect with backoff + polling fallback on 2G/offline
+  useResilientSSE<unknown>({
+    url: "/api/events/notifications",
+    pollUrl: "/api/trpc/notifications.unreadCount",
+    pollIntervalMs: 30_000,
+    onMessage: () => {
       utils.notifications.unreadCount.invalidate();
-    });
-    es.onerror = () => {
-      es.close();
-      setTimeout(() => {
-        const es2 = new EventSource("/api/events/notifications", { withCredentials: true });
-        esRef.current = es2;
-        es2.addEventListener("notification", () => utils.notifications.unreadCount.invalidate());
-      }, 5000);
-    };
-    return () => { esRef.current?.close(); };
-  }, [utils]);
-
+    },
+    heartbeatTimeoutSec: 90,
+    pauseOnHidden: false,
+  });
   const { data } = trpc.notifications.unreadCount.useQuery(undefined, {
-    refetchInterval: 60000,
+    refetchInterval: 60_000,
     retry: false,
   });
   return data?.count ?? 0;

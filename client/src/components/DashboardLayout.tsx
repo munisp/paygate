@@ -25,6 +25,7 @@ import { Code2, LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { NetworkQualityBanner } from './NetworkQualityBanner';
 import { Button } from "./ui/button";
 
 const menuItems = [
@@ -258,6 +259,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
+        <NetworkQualityBanner />
         <main className="flex-1 p-4">{children}</main>
       </SidebarInset>
     </>

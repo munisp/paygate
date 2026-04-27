@@ -679,6 +679,12 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/lakehouse-ai/train", handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/train"))
 	mux.HandleFunc("/v1/lakehouse-ai/infer", handlers.ProxyToService("LAKEHOUSE_AI_URL", "http://localhost:8250", "/v1/infer"))
 
+	// ── Bandwidth Probe & Resilience Endpoints ─────────────────────────────────
+	mux.HandleFunc("/v1/bandwidth/ping", handlers.ProbePing)
+	mux.HandleFunc("/v1/bandwidth/probe", handlers.ProbeBandwidth)
+	mux.HandleFunc("/v1/bandwidth/report", handlers.ProbeReport)
+	mux.HandleFunc("/v1/bandwidth/stats", handlers.ProbeStats)
+
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           loggingMiddleware(mux),

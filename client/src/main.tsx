@@ -170,6 +170,21 @@ if ('serviceWorker' in navigator) {
         });
       })
       .catch((err) => console.warn('[PWA] Service worker registration failed:', err));
+
+    // Also register the resilience service worker for offline queue + background sync
+    navigator.serviceWorker
+      .register('/sw-resilience.js', { scope: '/' })
+      .then((reg) => {
+        console.log('[Resilience SW] Registered, scope:', reg.scope);
+        // Listen for background sync completion messages
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'SYNC_COMPLETE') {
+            console.log('[Resilience SW] Background sync complete:', event.data.count, 'requests flushed');
+            window.dispatchEvent(new CustomEvent('offline-queue:flushed', { detail: event.data }));
+          }
+        });
+      })
+      .catch((err) => console.warn('[Resilience SW] Registration failed:', err));
   });
 }
 

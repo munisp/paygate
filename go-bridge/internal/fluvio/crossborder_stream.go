@@ -89,7 +89,12 @@ func ProduceFXRateEvent(p *Producer, sourceCurrency, targetCurrency, rate, rail,
 		"pair", key,
 		"rate", rate,
 	)
-	return p.Produce(context.Background(), FluvioTopicFXRates, key, payload)
+	// Produce accepts (ctx, topic, event any) — combine key into the event
+	evtWithKey := struct {
+		Key     string          `json:"key"`
+		Payload json.RawMessage `json:"payload"`
+	}{Key: key, Payload: payload}
+	return p.Produce(context.Background(), FluvioTopicFXRates, evtWithKey)
 }
 
 // ProduceCrossBorderFraudEvent sends a cross-border fraud alert to Fluvio.
@@ -126,7 +131,12 @@ func produceRailEvent(p *Producer, topic, rail, eventType, transferID, merchantI
 		"event_type", eventType,
 		"transfer_id", transferID,
 	)
-	return p.Produce(context.Background(), topic, transferID, data)
+	// Produce accepts (ctx, topic, event any) — combine transferID into the event
+	evtWithKey := struct {
+		Key  string          `json:"key"`
+		Data json.RawMessage `json:"data"`
+	}{Key: transferID, Data: data}
+	return p.Produce(context.Background(), topic, evtWithKey)
 }
 
 // AllCrossBorderFluvioTopics returns all cross-border Fluvio topic names.

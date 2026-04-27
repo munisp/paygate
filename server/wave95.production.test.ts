@@ -135,7 +135,7 @@ describe("WAF Alert Dashboard Page", () => {
 
   it("WAFAlertDashboard has SSE connection logic", () => {
     const content = fs.readFileSync(path.resolve(__dirname, "../client/src/pages/WAFAlertDashboard.tsx"), "utf-8");
-    expect(content).toContain("EventSource");
+    expect(content).toMatch(/(EventSource|useResilientSSE)/);
   });
 
   it("WAFAlertDashboard shows attack type breakdown", () => {

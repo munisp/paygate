@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import { useResilientSSE } from "@/lib/resilientSSE";
 import {
   AlertTriangle,
   Bell,
@@ -31,16 +32,19 @@ import { useLocation } from "wouter";
 
 // ─── SSE Hook for real-time notifications ───────────────────────────────────
 function useNotificationSSE(onEvent: (event: any) => void) {
-  const esRef = useRef<EventSource | null>(null);
-  useEffect(() => {
-    const es = new EventSource("/api/notifications/stream");
-    esRef.current = es;
-    es.onmessage = (e) => {
-      try { onEvent(JSON.parse(e.data)); } catch {}
-    };
-    es.onerror = () => { es.close(); };
-    return () => { es.close(); };
-  }, [onEvent]);
+  useResilientSSE<unknown>({
+    url: "/api/notifications/stream",
+    pollUrl: "/api/trpc/notifications.list",
+    pollIntervalMs: 20_000,
+    onMessage: (data) => {
+      try {
+        const parsed = typeof data === "string" ? JSON.parse(data) : data;
+        onEvent(parsed);
+      } catch {}
+    },
+    heartbeatTimeoutSec: 60,
+    pauseOnHidden: false,
+  });
 }
 
 const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {

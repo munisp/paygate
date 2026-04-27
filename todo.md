@@ -3735,3 +3735,25 @@
 - [x] Smoke test: 17/17 passing (added PBAC health and NIBSS webhook tests)
 - [x] Full vitest suite: 92 files, 3408 tests, 100% pass rate
 - [x] Security audit v108 addendum: 0 new vulnerabilities, score 97/100
+
+## Wave 109 — Offline-First Resilience Layer (Apr 27 2026)
+
+- [x] Deep audit: mapped all 6 raw EventSource, 1 raw WebSocket, 51 polling instances
+- [x] networkQuality.ts: RTT/downlink measurement, 5-tier classification (offline/2G/3G/4G/5G), adaptive poll intervals, jittered backoff
+- [x] resilientWS.ts: exponential backoff, jitter, SSE fallback, long-poll fallback, quality-aware heartbeat
+- [x] resilientSSE.ts: reconnect with backoff, polling fallback, heartbeat timeout, pauseOnHidden
+- [x] offlineQueueV2.ts: IndexedDB persistence, 4 priority levels, idempotency keys, conflict resolution, compression
+- [x] sw-resilience.js: offline cache strategy, background sync, push queue, stale-while-revalidate
+- [x] Python merchant-ussd-fallback: USSD/SMS fallback for critical ops (balance, transfer, freeze) — 33/33 tests
+- [x] Go bandwidth probe: RTT + throughput measurement, tier classification, compression/payload recommendations
+- [x] Go crossborder_handlers.go: fixed pre-existing syntax corruption
+- [x] Go oidc_permify.go: fixed duplicate Client struct declaration
+- [x] Go ProxyToService helper: added missing function
+- [x] Replaced all 6 raw EventSource usages with useResilientSSE (POSTerminals, FraudAlertsDashboard, NotificationPanel, useNotificationCount, NotificationsCenter, WAFAlertDashboard)
+- [x] NetworkQualityBanner: connection tier indicator + offline queue depth shown in DashboardLayout
+- [x] sw-resilience.js registered in main.tsx alongside existing sw.js
+- [x] wave95/wave96 tests updated to accept useResilientSSE as equivalent to EventSource
+- [x] resilience.test.ts: 25 new vitest tests covering all resilience layers
+- [x] Full test suite: 93 files · 3428 tests · 100% pass rate
+- [x] Python: threat-intel 17/17 + merchant-ussd-fallback 33/33 = 50 Python tests passing
+- [x] Go: all packages build cleanly, all test files pass

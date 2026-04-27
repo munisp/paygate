@@ -10,8 +10,9 @@
  *   - Soundbox: Web Audio API tones + multilingual confirmation overlay
  *   - Amounts in NGN
  */
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useResilientWS } from "@/lib/resilientWS";
 import { useSoundbox, type SoundboxLanguage, type SoundboxEventType } from "@/hooks/useSoundbox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,39 +107,33 @@ interface LiveEvent {
 
 function useFluvioFeed(merchantId: string | undefined) {
   const [events, setEvents] = useState<LiveEvent[]>([]);
-  const [connected, setConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
 
-  const connect = useCallback(() => {
-    if (!merchantId) return;
-    const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/ws/pos?merchantId=${merchantId}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+  // Build the WebSocket URL only when merchantId is available
+  const wsUrl = merchantId
+    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/ws/pos?merchantId=${merchantId}`
+    : null;
 
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => {
-      setConnected(false);
-      setTimeout(connect, 3000);
-    };
-    ws.onerror = () => ws.close();
-
-    ws.onmessage = (msg) => {
+  // useResilientWS provides:
+  //   - Exponential backoff reconnect (2s → 64s with ±30% jitter)
+  //   - Automatic SSE fallback on persistent WS failure (3G/EDGE)
+  //   - Long-poll fallback when SSE is also unavailable (2G)
+  //   - Offline detection and graceful degradation
+  const { connected, mode } = useResilientWS(wsUrl, {
+    onMessage: (data) => {
       try {
-        const event: LiveEvent = JSON.parse(msg.data);
+        const event: LiveEvent = typeof data === "string" ? JSON.parse(data) : (data as LiveEvent);
         event.id = `${event.terminalId}-${event.ts}-${Math.random()}`;
         setEvents(prev => [event, ...prev].slice(0, 50));
       } catch {
         // ignore malformed frames
       }
-    };
-  }, [merchantId]);
+    },
+    // SSE fallback: auto-derived from WS URL (/api/ws/pos → /api/sse/pos)
+    // Long-poll fallback: disabled (POS feed is best-effort, not critical)
+    fallbackPollIntervalMs: 5_000,
+  });
 
-  useEffect(() => {
-    connect();
-    return () => wsRef.current?.close();
-  }, [connect]);
-
-  return { events, connected };
+  return { events, connected, mode };
 }
 
 // ─── Soundbox Confirmation Overlay ───────────────────────────────────────────

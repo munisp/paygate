@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useResilientSSE } from "@/lib/resilientSSE";
 import { trpc } from "@/lib/trpc";
+import { useResilientSSE } from "@/lib/resilientSSE";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,23 +69,19 @@ export default function WAFAlertDashboard() {
   const [filterAttackType, setFilterAttackType] = useState("all");
   const [searchIp, setSearchIp] = useState("");
   const [blockedIps, setBlockedIps] = useState<Set<string>>(new Set());
-  const eventSourceRef = useRef<EventSource | null>(null);
   const liveEventsRef = useRef<any[]>([]);
 
   // Connect to SSE stream for real-time fraud alerts (reuses fraud SSE endpoint)
-  const startLiveStream = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-    const es = new EventSource("/api/events/fraud-stream");
-    eventSourceRef.current = es;
-    setIsStreaming(true);
-
-    es.onmessage = (e) => {
+  // ─── SSE Connection (resilient: backoff + polling fallback for 2G/EDGE) ────
+  useResilientSSE<{ type?: string; riskScore?: number; [key: string]: unknown }>({
+    url: "/api/events/fraud-stream",
+    pollUrl: "/api/trpc/security.wafAlerts",
+    pollIntervalMs: 15_000,
+    onConnected: setIsStreaming,
+    onMessage: (payload) => {
       try {
-        const data = JSON.parse(e.data);
+        const data = typeof payload === "string" ? JSON.parse(payload) : payload as any;
         if (data.type === "heartbeat") return;
-        // Map fraud alert to WAF event format
         const wafEvent = {
           id: `live-${Date.now()}`,
           timestamp: new Date().toISOString(),
@@ -98,25 +96,11 @@ export default function WAFAlertDashboard() {
         };
         liveEventsRef.current = [wafEvent, ...liveEventsRef.current].slice(0, 20);
         setLiveEvents([...liveEventsRef.current]);
-        toast.error(`WAF Block: ${wafEvent.attackType.toUpperCase()} from ${wafEvent.sourceIp}`, {
-          duration: 3000,
-        });
       } catch {}
-    };
-
-    es.onerror = () => {
-      setIsStreaming(false);
-    };
-  };
-
-  const stopLiveStream = () => {
-    eventSourceRef.current?.close();
-    setIsStreaming(false);
-  };
-
-  useEffect(() => {
-    return () => eventSourceRef.current?.close();
-  }, []);
+    },
+    heartbeatTimeoutSec: 60,
+    pauseOnHidden: true,
+  });
 
   const blockIp = (ip: string) => {
     setBlockedIps(prev => new Set([...prev, ip]));

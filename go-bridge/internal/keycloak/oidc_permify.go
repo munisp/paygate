@@ -99,7 +99,7 @@ type PermifyCheckResponse struct {
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
-type Client struct {
+type OIDCPermifyClient struct {
 	cfg    Config
 	http   *http.Client
 	cache  map[string]*cachedToken
@@ -110,8 +110,8 @@ type cachedToken struct {
 	expiresAt time.Time
 }
 
-func NewClient(cfg Config) *Client {
-	return &Client{
+func NewOIDCPermifyClient(cfg Config) *OIDCPermifyClient {
+	return &OIDCPermifyClient{
 		cfg:   cfg,
 		http:  &http.Client{Timeout: 10 * time.Second},
 		cache: make(map[string]*cachedToken),
@@ -121,7 +121,7 @@ func NewClient(cfg Config) *Client {
 // ─── Token Introspection ──────────────────────────────────────────────────────
 
 // IntrospectToken validates a Bearer token against Keycloak.
-func (c *Client) IntrospectToken(ctx context.Context, token string) (*TokenIntrospectResponse, error) {
+func (c *OIDCPermifyClient) IntrospectToken(ctx context.Context, token string) (*TokenIntrospectResponse, error) {
 	// Check cache
 	if cached, ok := c.cache[token]; ok && time.Now().Before(cached.expiresAt) {
 		return cached.data, nil
@@ -167,7 +167,7 @@ func (c *Client) IntrospectToken(ctx context.Context, token string) (*TokenIntro
 }
 
 // GetUserInfo fetches user info from Keycloak using an access token.
-func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
+func (c *OIDCPermifyClient) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
 	userInfoURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/userinfo",
 		c.cfg.KeycloakURL, c.cfg.Realm)
 
@@ -227,7 +227,7 @@ func HasRole(token *TokenIntrospectResponse, role string) bool {
 // ─── Permify RBAC ─────────────────────────────────────────────────────────────
 
 // CheckPermission checks if a subject has permission on an entity via Permify.
-func (c *Client) CheckPermission(ctx context.Context, tenantID, entityType, entityID, permission, subjectType, subjectID string) (bool, error) {
+func (c *OIDCPermifyClient) CheckPermission(ctx context.Context, tenantID, entityType, entityID, permission, subjectType, subjectID string) (bool, error) {
 	checkURL := fmt.Sprintf("%s/v1/tenants/%s/permissions/check", c.cfg.PermifyURL, tenantID)
 
 	reqBody := map[string]interface{}{
@@ -271,7 +271,7 @@ func (c *Client) CheckPermission(ctx context.Context, tenantID, entityType, enti
 // ─── PayGate-specific permission checks ──────────────────────────────────────
 
 // CanInitiateCrossBorderTransfer checks if a merchant can initiate a cross-border transfer.
-func (c *Client) CanInitiateCrossBorderTransfer(ctx context.Context, merchantID, userID, rail string) (bool, error) {
+func (c *OIDCPermifyClient) CanInitiateCrossBorderTransfer(ctx context.Context, merchantID, userID, rail string) (bool, error) {
 	permission := fmt.Sprintf("initiate_%s_transfer", rail) // e.g. initiate_cips_transfer
 	allowed, err := c.CheckPermission(ctx, "paygate", "merchant", merchantID, permission, "user", userID)
 	if err != nil {
@@ -282,17 +282,17 @@ func (c *Client) CanInitiateCrossBorderTransfer(ctx context.Context, merchantID,
 }
 
 // CanViewLedger checks if a user can view the TigerBeetle ledger.
-func (c *Client) CanViewLedger(ctx context.Context, merchantID, userID string) (bool, error) {
+func (c *OIDCPermifyClient) CanViewLedger(ctx context.Context, merchantID, userID string) (bool, error) {
 	return c.CheckPermission(ctx, "paygate", "merchant", merchantID, "view_ledger", "user", userID)
 }
 
 // CanManageWebhooks checks if a user can manage webhooks.
-func (c *Client) CanManageWebhooks(ctx context.Context, merchantID, userID string) (bool, error) {
+func (c *OIDCPermifyClient) CanManageWebhooks(ctx context.Context, merchantID, userID string) (bool, error) {
 	return c.CheckPermission(ctx, "paygate", "merchant", merchantID, "manage_webhooks", "user", userID)
 }
 
 // CanApprovePayouts checks if a user can approve payouts.
-func (c *Client) CanApprovePayouts(ctx context.Context, merchantID, userID string) (bool, error) {
+func (c *OIDCPermifyClient) CanApprovePayouts(ctx context.Context, merchantID, userID string) (bool, error) {
 	return c.CheckPermission(ctx, "paygate", "merchant", merchantID, "approve_payouts", "user", userID)
 }
 
@@ -300,7 +300,7 @@ func (c *Client) CanApprovePayouts(ctx context.Context, merchantID, userID strin
 
 // Handler returns an http.Handler for Keycloak/Permify endpoints.
 func Handler(cfg Config) http.Handler {
-	client := NewClient(cfg)
+	client := NewOIDCPermifyClient(cfg)
 	mux := http.NewServeMux()
 
 	// GET /v1/keycloak/health

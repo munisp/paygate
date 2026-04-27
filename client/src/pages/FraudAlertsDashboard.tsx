@@ -6,6 +6,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
+import { useResilientSSE } from "@/lib/resilientSSE";
+import { useResilientSSE } from "@/lib/resilientSSE";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,7 +120,6 @@ export default function FraudAlertsDashboard() {
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAlert, setSelectedAlert] = useState<FraudAlert | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const liveAlertRef = useRef<HTMLDivElement>(null);
 
   // ─── tRPC Queries ───────────────────────────────────────────────────────────
@@ -162,52 +163,30 @@ export default function FraudAlertsDashboard() {
 
   // ─── SSE Connection ─────────────────────────────────────────────────────────
 
-  const connectSSE = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-
-    const es = new EventSource("/api/events/fraud", { withCredentials: true });
-    eventSourceRef.current = es;
-
-    es.addEventListener("initial", (e) => {
+  // ─── SSE Connection (resilient: auto-reconnect + polling fallback for 2G) ───
+  useResilientSSE<{ type: string; data: unknown }>({
+    url: "/api/events/fraud",
+    pollUrl: "/api/trpc/fraudRisk.list",
+    pollIntervalMs: 20_000,
+    onConnected: setIsConnected,
+    onMessage: (payload) => {
       try {
-        const data = JSON.parse(e.data);
-        if (Array.isArray(data)) {
-          setLiveAlerts(data.slice(0, 10));
+        const raw = typeof payload === "string" ? JSON.parse(payload) : payload;
+        if (Array.isArray(raw)) {
+          setLiveAlerts(raw.slice(0, 10));
+          return;
         }
-      } catch {}
-    });
-
-    es.addEventListener("fraud_alert", (e) => {
-      try {
-        const alert = JSON.parse(e.data) as FraudAlert;
+        const alert = raw as FraudAlert;
         setLiveAlerts((prev) => [alert, ...prev].slice(0, 20));
-        // Show toast for high-risk alerts
         if (alert.riskScore >= 75) {
-          toast.error(`🚨 High-Risk Alert: ${ALERT_TYPE_LABELS[alert.alertType] ?? alert.alertType} (score: ${alert.riskScore})`, {
-            duration: 8000,
-          });
+          toast.error(`🚨 High-Risk Alert: ${ALERT_TYPE_LABELS[alert.alertType] ?? alert.alertType} (score: ${alert.riskScore})`, { duration: 8000 });
         }
-        // Scroll to top of live feed
         liveAlertRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       } catch {}
-    });
-
-    es.onopen = () => setIsConnected(true);
-    es.onerror = () => {
-      setIsConnected(false);
-      // Reconnect after 5s
-      setTimeout(connectSSE, 5000);
-    };
-  }, []);
-
-  useEffect(() => {
-    connectSSE();
-    return () => {
-      eventSourceRef.current?.close();
-    };
-  }, [connectSSE]);
+    },
+    heartbeatTimeoutSec: 60,
+    pauseOnHidden: true,
+  });
 
   // ─── Filtered Alerts ────────────────────────────────────────────────────────
 

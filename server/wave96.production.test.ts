@@ -70,7 +70,7 @@ describe("Notification system", () => {
       path.join(ROOT, "client/src/pages/NotificationsCenter.tsx"),
       "utf-8"
     );
-    expect(content).toContain("EventSource");
+    expect(content).toMatch(/(EventSource|useResilientSSE)/);
   });
 
   it("notificationsRouter exists in routers.ts", () => {
@@ -118,7 +118,7 @@ describe("WAF Alert Dashboard", () => {
       path.join(ROOT, "client/src/pages/WAFAlertDashboard.tsx"),
       "utf-8"
     );
-    expect(content).toContain("EventSource");
+    expect(content).toMatch(/(EventSource|useResilientSSE)/);
   });
 });
 

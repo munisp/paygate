@@ -9,23 +9,28 @@ import {
   RefreshCw, TrendingUp, TrendingDown, Minus, ArrowUpRight, Wifi, WifiOff,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useResilientSSE } from "@/lib/resilientSSE";
 
 // SSE hook for real-time market data (falls back to polling if SSE fails)
 function useMarketSSE() {
   const [sseData, setSseData] = useState<any>(null);
   const [connected, setConnected] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
 
-  useEffect(() => {
-    const es = new EventSource("/api/market/stream");
-    esRef.current = es;
-    es.addEventListener("market", (e) => {
-      try { setSseData(JSON.parse(e.data)); setConnected(true); } catch { /* ignore */ }
-    });
-    es.onerror = () => setConnected(false);
-    es.onopen = () => setConnected(true);
-    return () => { es.close(); esRef.current = null; };
-  }, []);
+  useResilientSSE<unknown>({
+    url: "/api/market/stream",
+    pollUrl: "/api/trpc/market.prices",
+    pollIntervalMs: 30_000,
+    onMessage: (data) => {
+      try {
+        const parsed = typeof data === "string" ? JSON.parse(data) : data as any;
+        if (parsed.type === "price_update") {
+          setMarketData((prev: any) => ({ ...prev, ...parsed.data }));
+        }
+      } catch {}
+    },
+    heartbeatTimeoutSec: 90,
+    pauseOnHidden: true,
+  })
 
   return { sseData, connected };
 }
