@@ -185,3 +185,17 @@ export function adaptiveInterval(
     case "offline": return false;
   }
 }
+
+/**
+ * React hook: returns an adaptive refetch interval based on the current
+ * connection tier. Drop-in replacement for a static `refetchInterval` value.
+ *
+ * @example
+ *   const interval = useAdaptiveInterval(60_000);
+ *   // 4G → 60 s | 3G → 120 s | 2G → 300 s | offline → false (paused)
+ *   const { data } = trpc.foo.bar.useQuery(undefined, { refetchInterval: interval });
+ */
+export function useAdaptiveInterval(idealMs: number): number | false {
+  const { tier } = useNetworkQuality();
+  return adaptiveInterval(idealMs, tier);
+}

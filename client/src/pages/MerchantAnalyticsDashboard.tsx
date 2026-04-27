@@ -21,6 +21,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { useLocation } from "wouter";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
 import type { DateRange } from "react-day-picker";
@@ -357,6 +358,7 @@ function DateRangePicker({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MerchantAnalyticsDashboard() {
+  const analyticsInterval = useAdaptiveInterval(60_000);
   const [, setLocation] = useLocation();
   const [period, setPeriod] = useState<PeriodKey>("30d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -395,7 +397,7 @@ export default function MerchantAnalyticsDashboard() {
 
   const { data: recentFeed, isLoading: feedLoading } = trpc.merchantAnalytics.recentFeed.useQuery(
     { limit: 20 },
-    { staleTime: 30_000, refetchInterval: 60_000 },
+    { staleTime: 30_000, refetchInterval: analyticsInterval },
   );
 
   // ── Digest trigger ─────────────────────────────────────────────────────────

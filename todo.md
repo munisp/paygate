@@ -3766,3 +3766,15 @@
 - [x] Restore LiveChatWidget.tsx and carousel.tsx from HEAD (false positives)
 - [x] TypeScript: 0 errors confirmed
 - [x] Vitest: 93 files, 3428 tests, 100% pass rate
+
+## Wave 110 — GeoLite2, USSD i18n, Adaptive Polling
+- [ ] scripts/download-geoip.mjs: MaxMind GeoLite2 download + checksum verify
+- [ ] .github/workflows/ci.yml: add geoip download step
+- [ ] docker-compose.production.yml: mount GeoLite2 DB into threat-intel container
+- [ ] python-services/threat-intel: use real GeoIP2 DB when available, fallback to heuristic
+- [ ] python-services/merchant-ussd-fallback/locales/: EN/HA/YO/IG/FR JSON translation files
+- [ ] python-services/merchant-ussd-fallback/main.py: lang parameter + i18n helper
+- [ ] python-services/merchant-ussd-fallback/test_merchant_ussd.py: add i18n tests
+- [ ] client/src/hooks/useAdaptiveInterval.ts: hook that reads network tier and returns interval
+- [ ] Wire useAdaptiveInterval into top 10 polling pages
+- [ ] server/resilience.test.ts: add adaptive interval tests

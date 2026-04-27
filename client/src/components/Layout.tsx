@@ -32,6 +32,7 @@ import { usePWA } from "@/hooks/usePWA";
 import { Download, WifiOff, Moon, Sun, BellRing, BellOff } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ─── Grouped Navigation ──────────────────────────────────────────────────────
 type NavItem = { icon: React.ElementType; label: string; path: string; badge?: string };
@@ -345,6 +346,9 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
+  const layout60Interval = useAdaptiveInterval(60_000);
+  const layout300Interval = useAdaptiveInterval(300_000);
+  const layoutInterval = useAdaptiveInterval(30_000);
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -379,7 +383,7 @@ export default function Layout({ children }: LayoutProps) {
   // ─── Fraud Alert Banner ──────────────────────────────────────────────────
   const { data: fraudData, refetch: refetchAlerts } = trpc.fraudRisk.getAlerts.useQuery(
     undefined,
-    { refetchInterval: 30_000, staleTime: 20_000 }
+    { refetchInterval: layoutInterval, staleTime: 20_000 }
   );
   const acknowledgeMutation = trpc.fraudRisk.acknowledge.useMutation({
     onSuccess: (_, vars) => {
@@ -395,7 +399,7 @@ export default function Layout({ children }: LayoutProps) {
 
   // ─── Stripe Mode Banner ─────────────────────────────────────────────────
   const { data: checklistData } = trpc.system.goLiveChecklist.useQuery(undefined, {
-    refetchInterval: 300_000,
+    refetchInterval: layout300Interval,
     staleTime: 240_000,
   });
   const stripeItem = checklistData?.items.find((i: any) => i.id === "stripe_live_keys");
@@ -406,7 +410,7 @@ export default function Layout({ children }: LayoutProps) {
   const [dismissedSlaIds, setDismissedSlaIds] = useState<Set<string>>(new Set());
   const { data: slaData } = trpc.settlements.listBreached.useQuery(
     undefined,
-    { refetchInterval: 60_000, staleTime: 30_000 }
+    { refetchInterval: layout60Interval, staleTime: 30_000 }
   );
   const visibleSlaBreaches = (slaData?.breached ?? []).filter(
     (s: any) => !dismissedSlaIds.has(s.id)
@@ -415,7 +419,7 @@ export default function Layout({ children }: LayoutProps) {
   // ─── Reconciliation Alert Badge ──────────────────────────────────────────
   const { data: reconStats } = trpc.reconciliation.getStats.useQuery(
     { merchantId: undefined },
-    { refetchInterval: 60_000, staleTime: 50_000 }
+    { refetchInterval: layout60Interval, staleTime: 50_000 }
   );
   const { data: reconAlertSettings } = trpc.settings.getReconAlertSettings.useQuery(
     undefined,

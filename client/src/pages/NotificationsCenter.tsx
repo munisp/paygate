@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useResilientSSE } from "@/lib/resilientSSE";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   AlertTriangle,
   Bell,
@@ -115,6 +116,7 @@ function matchesFilter(notif: any, filter: FilterTab, search: string): boolean {
 }
 
 export default function NotificationsCenter() {
+  const notifInterval = useAdaptiveInterval(15_000);
   const [, navigate] = useLocation();
   const [filter, setFilter] = useState<FilterTab>("all");
   const [search, setSearch] = useState("");
@@ -163,10 +165,10 @@ export default function NotificationsCenter() {
 
   const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 100, unreadOnly: false },
-    { refetchInterval: 15_000 }
+    { refetchInterval: notifInterval }
   );
   const notifications = listData?.notifications;
-  const { data: countData } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 15_000 });
+  const { data: countData } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: notifInterval });
 
   const markReadMutation = trpc.notifications.markRead.useMutation({
     onSuccess: () => {

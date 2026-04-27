@@ -25,6 +25,7 @@ import RevenueForecast from "@/components/RevenueForecast";
 import { useTransactionStream, type StreamTransaction } from "@/hooks/useTransactionStream";
 import { usePWA } from "@/hooks/usePWA";
 import OfflineIndicator from "@/components/OfflineIndicator";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ResponsiveGridLayout = RGL as any;
 
@@ -380,8 +381,9 @@ function PlatformHealthPulse() {
 // ─── Wallet Balance Card ──────────────────────────────────────────────────────
 
 function WalletBalanceCard() {
+  const dashboardInterval = useAdaptiveInterval(60_000);
   const { data, isLoading } = trpc.wallet.getWallet.useQuery(undefined, {
-    staleTime: 30_000, refetchInterval: 60_000,
+    staleTime: 30_000, refetchInterval: dashboardInterval,
   });
   const balance = parseFloat((data?.wallet?.balance ?? "0") as string);
   const pending = parseFloat(((data?.wallet as any)?.pendingBalance ?? "0") as string);
@@ -433,8 +435,9 @@ function WalletBalanceCard() {
 // ─── Settlement Health Widget ─────────────────────────────────────────────────
 
 function SettlementHealthWidget() {
+  const dashboardInterval = useAdaptiveInterval(60_000);
   const { data, isLoading } = trpc.settlements.summary.useQuery(undefined, {
-    staleTime: 60_000, refetchInterval: 60_000,
+    staleTime: 60_000, refetchInterval: dashboardInterval,
   });
   const hasBreaches = (data?.slaBreachCount ?? 0) > 0;
 

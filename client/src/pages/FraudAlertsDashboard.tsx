@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   AlertTriangle,
   Shield,
@@ -112,6 +113,8 @@ function getStatusBadge(status: string) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function FraudAlertsDashboard() {
+  const fraudInterval = useAdaptiveInterval(60_000);
+  const fraudInterval30 = useAdaptiveInterval(30_000);
   const [alerts, setAlerts] = useState<FraudAlert[]>([]);
   const [liveAlerts, setLiveAlerts] = useState<FraudAlert[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -124,7 +127,7 @@ export default function FraudAlertsDashboard() {
   // ─── tRPC Queries ───────────────────────────────────────────────────────────
 
   const { data: statsData } = trpc.fraudRisk.stats.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: fraudInterval30,
   });
 
   const { data: alertsData, refetch: refetchAlerts } = trpc.fraudRisk.list.useQuery(
@@ -133,7 +136,7 @@ export default function FraudAlertsDashboard() {
       limit: 50,
       offset: 0,
     },
-    { refetchInterval: 60_000 }
+    { refetchInterval: fraudInterval }
   );
 
   useEffect(() => {

@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { toast } from "sonner";
 
 // ─── Corridor Comparison ─────────────────────────────────────────────────────
@@ -32,8 +33,10 @@ const SETTLEMENT_TIMES: Record<string, string> = {
 };
 
 function CorridorComparison() {
-  const { data: rates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: 30_000 });
-  const { data: volumes } = trpc.fx.corridorVolume.useQuery({}, { refetchInterval: 60_000 });
+  const crossBorder30Interval = useAdaptiveInterval(30_000);
+  const crossBorderInterval = useAdaptiveInterval(60_000);
+  const { data: rates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: crossBorder30Interval });
+  const { data: volumes } = trpc.fx.corridorVolume.useQuery({}, { refetchInterval: crossBorderInterval });
 
   const rateMap = useMemo(() => {
     const m: Record<string, number> = { USD: 1 };
@@ -194,17 +197,19 @@ function heatmapBg(normalised: number): string {
 // ─── Live FX Ticker with Volume Heatmap ──────────────────────────────────────
 
 function FxTicker() {
+  const crossBorder30Interval = useAdaptiveInterval(30_000);
+  const crossBorderInterval = useAdaptiveInterval(60_000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [prevRates, setPrevRates] = useState<Record<string, number>>({});
 
   const { data: ratesData, isLoading: ratesLoading, refetch } = trpc.fx.getRates.useQuery(
     { base: "USD" },
-    { refetchInterval: 30_000 }
+    { refetchInterval: crossBorder30Interval }
   );
 
   const { data: volumeData } = trpc.fx.corridorVolume.useQuery(
     { daysSince: 7 },
-    { refetchInterval: 60_000 }
+    { refetchInterval: crossBorderInterval }
   );
 
   const fetchAndStore = trpc.fx.fetchAndStore.useMutation();

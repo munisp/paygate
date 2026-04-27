@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { useResilientSSE } from "@/lib/resilientSSE";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { useEffect, useRef, useCallback, useState } from "react";
 import {
   AlertTriangle, Bell, CheckCheck, ChevronRight,
@@ -57,6 +58,7 @@ interface NotificationPanelProps {
 }
 
 export default function NotificationPanel({ open, onClose }: NotificationPanelProps) {
+  const notifPanelInterval = useAdaptiveInterval(60_000);
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
 
@@ -252,6 +254,7 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
  * Uses SSE for real-time updates + 60s polling fallback.
  */
 export function useNotificationCount(): number {
+  const notifPanelInterval = useAdaptiveInterval(60_000);
   const utils = trpc.useUtils();
   // Resilient SSE: auto-reconnect with backoff + polling fallback on 2G/offline
   useResilientSSE<unknown>({
@@ -265,7 +268,7 @@ export function useNotificationCount(): number {
     pauseOnHidden: false,
   });
   const { data } = trpc.notifications.unreadCount.useQuery(undefined, {
-    refetchInterval: 60_000,
+    refetchInterval: notifPanelInterval,
     retry: false,
   });
   return data?.count ?? 0;

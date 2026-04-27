@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import {
   Activity,
   AlertTriangle,
@@ -79,6 +80,7 @@ function formatTime(date: Date | string): string {
 const PAGE_SIZE = 25;
 
 export default function AuditLog() {
+  const auditInterval = useAdaptiveInterval(30_000);
   const { isAuthenticated } = useAuth();
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
@@ -105,7 +107,7 @@ export default function AuditLog() {
       from: fromMs,
       to: toMs,
     },
-    { enabled: isAuthenticated, refetchInterval: 30_000 }
+    { enabled: isAuthenticated, refetchInterval: auditInterval }
   );
 
   const events = data?.events ?? [];

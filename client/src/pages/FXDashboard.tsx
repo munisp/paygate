@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -113,6 +114,7 @@ function RateAlertDialog({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 export default function FXDashboard() {
+  const fxInterval = useAdaptiveInterval(60_000);
   const [fromCurrency, setFromCurrency] = useState("USD");
   const [toCurrency, setToCurrency] = useState("NGN");
   const [amount, setAmount] = useState("1000");
@@ -193,7 +195,7 @@ export default function FXDashboard() {
   }
 
   // Live FX rates from DB
-  const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? 60_000 : false });
+  const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false });
   const fetchAndStoreMutation = trpc.fx.fetchAndStore.useMutation({
     onSuccess: (d: any) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
     onError: () => toast.error("Failed to fetch live rates"),

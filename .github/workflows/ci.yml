@@ -93,6 +93,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://paygate:paygate_test@localhost:5432/paygate_test
 
+      - name: Download GeoLite2-City DB
+        run: node scripts/download-geoip.mjs
+        env:
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+        continue-on-error: true  # DB-IP mirror fallback handles failures
+
       - name: Run test suite
         run: pnpm test --reporter=verbose --coverage
         env:
@@ -191,6 +197,8 @@ jobs:
           - settlement-forecast
           - ai-insights
           - reconciliation-engine
+          - threat-intel
+          - merchant-ussd-fallback
     steps:
       - uses: actions/checkout@v4
 

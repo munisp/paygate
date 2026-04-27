@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { toast } from "sonner";
 import {
   Users, TrendingUp, Wallet, Plus, RefreshCw,
@@ -174,6 +175,7 @@ function AgentDetailDialog({ agent, onClose }: { agent: any; onClose: () => void
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AgentBanking() {
+  const agentInterval = useAdaptiveInterval(60_000);
   const utils = trpc.useUtils();
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<any>(null);
@@ -184,7 +186,7 @@ export default function AgentBanking() {
 
   const { data: agentsData, isLoading, refetch } = trpc.agentBanking.listSubAgents.useQuery(
     undefined,
-    { refetchInterval: 60_000 }
+    { refetchInterval: agentInterval }
   );
 
   const { data: healthData } = trpc.agentBanking.kioskHealth.useQuery(undefined, { staleTime: 30_000 });
