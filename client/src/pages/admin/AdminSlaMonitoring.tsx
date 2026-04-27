@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Activity, AlertTriangle, CheckCircle, Clock, Zap } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const STATUS_COLORS: Record<string, string> = {
   operational: "bg-green-100 text-green-800",
@@ -18,9 +19,10 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AdminSlaMonitoring() {
+  const adminslamonitoring_60s = useAdaptiveInterval(60_000);
   const { data: slaStats, refetch } = trpc.wave29.slaMonitoring.getStats.useQuery(
     {},
-    { refetchInterval: 60_000 }
+    { refetchInterval: adminslamonitoring_60s }
   );
 
   const { data: incidents } = trpc.wave29.slaMonitoring.getIncidents.useQuery({ limit: 20 });

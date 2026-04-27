@@ -227,6 +227,7 @@ export default function Settings() {
   });
   const [reconAlertForm, setReconAlertForm] = useState({ reconAlertBadgeEnabled: true, reconAlertThreshold: 1 });
   const [soundboxLang, setSoundboxLang] = useState<"en" | "yo" | "ha" | "ig">("en");
+  const [ussdLangPickerEnabled, setUssdLangPickerEnabled] = useState(true);
 
   const [settlementForm, setSettlementForm] = useState({
     settlementFrequency: "daily" as "daily" | "weekly" | "monthly",
@@ -264,6 +265,11 @@ export default function Settings() {
     onSuccess: () => { toast.success("Settlement schedule saved"); utils.settings.getSettlementSchedule.invalidate(); },
     onError: (e: any) => toast.error(e.message),
   });
+  const { data: ussdLangPickerData } = trpc.settings.getUssdLangPickerEnabled.useQuery(undefined, { staleTime: 60_000 });
+  const updateUssdLangPicker = trpc.settings.updateUssdLangPickerEnabled.useMutation({
+    onSuccess: () => { toast.success("USSD language picker setting saved"); utils.settings.getUssdLangPickerEnabled.invalidate(); },
+    onError: (e: any) => toast.error("Failed to save: " + e.message),
+  });
   const { data: reconAlertSettingsData } = trpc.settings.getReconAlertSettings.useQuery(undefined, { staleTime: 60_000 });
   const updateReconAlertSettings = trpc.settings.updateReconAlertSettings.useMutation({
     onSuccess: () => { toast.success("Reconciliation alert settings saved"); utils.settings.getReconAlertSettings.invalidate(); },
@@ -288,6 +294,9 @@ export default function Settings() {
   }, [data]);
 
   useEffect(() => {
+    if (ussdLangPickerData) {
+      setUssdLangPickerEnabled(ussdLangPickerData.ussdLangPickerEnabled ?? true);
+    }
     if (reconAlertSettingsData) {
       setReconAlertForm({
         reconAlertBadgeEnabled: reconAlertSettingsData.reconAlertBadgeEnabled ?? true,
@@ -648,6 +657,51 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* USSD Language Picker Toggle */}
+      <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Smartphone className="w-4 h-4 text-primary" />
+          <h3 className="font-semibold">USSD Language Picker</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          When enabled, customers dialling your USSD shortcode see a step-0 language selection menu
+          (English / Hausa / Yoruba / Igbo / Français) before the main menu.
+          Operators who pre-select a language via the <code className="text-xs bg-muted px-1 py-0.5 rounded">?lang=</code> query
+          parameter skip the picker entirely regardless of this setting.
+        </p>
+        <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+          <div>
+            <p className="text-sm font-medium">Show Language Picker</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {ussdLangPickerEnabled ? "Customers can choose their language on first dial" : "Picker hidden — operator-set language or default (English) is used"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !ussdLangPickerEnabled;
+              setUssdLangPickerEnabled(next);
+              updateUssdLangPicker.mutate({ ussdLangPickerEnabled: next });
+            }}
+            disabled={updateUssdLangPicker.isPending}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 ${
+              ussdLangPickerEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              ussdLangPickerEnabled ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+        {ussdLangPickerEnabled && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800">
+            <span className="text-xs mt-0.5">✓</span>
+            <p className="text-xs">
+              Language preference is persisted per phone number for 90 days — returning customers skip the picker automatically.
+            </p>
+          </div>
+        )}
+      </div>
       {/* Consumer Portal Launch Card */}
       <ConsumerPortalSection merchantName={form.businessName} merchantId={(data?.merchant as any)?.id ?? ''} />
     </div>

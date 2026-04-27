@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, Bell, BellOff, CheckCheck, ExternalLink, RefreshCw, ShieldAlert, Wifi } from "lucide-react";
 import { toast } from "sonner";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const SEVERITY_COLORS = {
   critical: "destructive" as const,
@@ -31,12 +32,13 @@ const SEVERITY_ICONS = {
 };
 
 export default function AdminWebhookAlerts() {
+  const adminwebhookalerts_30s = useAdaptiveInterval(30_000);
   const [, navigate] = useLocation();
   const [windowMinutes, setWindowMinutes] = useState(60);
 
   const { data: summary, isLoading, refetch, isFetching } = trpc.admin.webhookAlerts.summary.useQuery(
     { windowMinutes },
-    { refetchInterval: 30_000 }
+    { refetchInterval: adminwebhookalerts_30s }
   );
 
   const acknowledgeMutation = trpc.admin.webhookAlerts.acknowledge.useMutation({

@@ -3792,3 +3792,15 @@
 - [x] Run full test suites and confirm 0 TS errors
 - [x] Write WAVE111_CHANGE_MANIFEST.md
 - [x] Save checkpoint and generate archive
+
+## Wave 112
+
+- [ ] USSD: persist language preference in Redis keyed by phone number
+- [ ] USSD: load persisted language on fresh session (skip picker if preference exists)
+- [ ] USSD: add /v1/ussd/merchant/language-preference GET/DELETE endpoints
+- [ ] USSD: add Python tests for Redis language persistence
+- [ ] DashboardLayout: migrate sidebar notification badge counters to useAdaptiveInterval
+- [ ] Settings page: add LANG_PICKER_ENABLED toggle (UI + tRPC backend)
+- [ ] Run full test suites and confirm 0 TS errors
+- [ ] Write WAVE112_CHANGE_MANIFEST.md
+- [ ] Save checkpoint and generate archive

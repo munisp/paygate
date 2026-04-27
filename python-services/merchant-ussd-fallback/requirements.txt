@@ -4,3 +4,5 @@ httpx==0.28.1
 pytest==8.3.4
 pytest-asyncio==0.24.0
 httpx[asyncio]
+
+redis[asyncio]==5.2.1

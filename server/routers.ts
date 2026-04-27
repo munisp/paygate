@@ -2133,6 +2133,20 @@ const settingsRouter = router({
       const merchant = await requireMerchant(user.id);
       return updateMerchant(merchant.id, input);
     }),
+  // USSD language picker toggle — when enabled, fresh USSD sessions show a
+  // step-0 language selection menu; operators who pre-select via ?lang= skip it.
+  getUssdLangPickerEnabled: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.user.openId);
+    const merchant = await getMerchantByOwnerId(user.id);
+    return { ussdLangPickerEnabled: merchant?.ussdLangPickerEnabled ?? true };
+  }),
+  updateUssdLangPickerEnabled: protectedProcedure
+    .input(z.object({ ussdLangPickerEnabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return updateMerchant(merchant.id, { ussdLangPickerEnabled: input.ussdLangPickerEnabled });
+    }),
 });
 
 // ─── Analytics Router ─────────────────────────────────────────────────────────

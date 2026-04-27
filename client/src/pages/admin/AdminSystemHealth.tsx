@@ -17,9 +17,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const statusIcon = (status: string) => {
+  const adminsystemhealth_30s = useAdaptiveInterval(30_000);
+  const adminsystemhealth_60s = useAdaptiveInterval(60_000);
+  const adminsystemhealth_120s = useAdaptiveInterval(120_000);
   if (status === "healthy") return <CheckCircle className="w-4 h-4 text-green-400" />;
   if (status === "degraded") return <AlertTriangle className="w-4 h-4 text-amber-400" />;
   return <XCircle className="w-4 h-4 text-red-400" />;
@@ -44,7 +48,7 @@ const fmtDate = (d: any) => d ? new Date(d).toLocaleString("en-NG", { dateStyle:
 function DbHealthCard() {
   const { data, isLoading, refetch, isFetching } = trpc.admin.health.getIndexHealth.useQuery(
     undefined,
-    { staleTime: 60_000, refetchInterval: 120_000 }
+    { staleTime: 60_000, refetchInterval: adminsystemhealth_120s }
   );
 
   const summary = (data as any)?.summary ?? {};
@@ -285,7 +289,7 @@ function SlowQueriesCard() {
 
   const { data, isLoading, refetch, isFetching } = trpc.admin.health.getSlowQueries.useQuery(
     { minMeanMs: minMs, limit },
-    { staleTime: 30_000, refetchInterval: 60_000 }
+    { staleTime: 30_000, refetchInterval: adminsystemhealth_60s }
   );
 
   const resetMutation = trpc.admin.health.resetSlowQueryStats.useMutation({
@@ -496,8 +500,8 @@ function SlowQueriesCard() {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AdminSystemHealth() {
-  const healthQuery = trpc.admin.health.getOverview.useQuery(undefined, { refetchInterval: 30_000 });
-  const dbQuery = trpc.admin.health.getDatabaseStats.useQuery(undefined, { refetchInterval: 30_000 });
+  const healthQuery = trpc.admin.health.getOverview.useQuery(undefined, { refetchInterval: adminsystemhealth_30s });
+  const dbQuery = trpc.admin.health.getDatabaseStats.useQuery(undefined, { refetchInterval: adminsystemhealth_30s });
 
   const services: any[] = Array.isArray(healthQuery.data) ? healthQuery.data : [];
   const dbStats: any[] = Array.isArray(dbQuery.data) ? dbQuery.data : [];

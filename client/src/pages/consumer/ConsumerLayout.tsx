@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 // Primary bottom nav (always visible)
 const PRIMARY_TABS = [
@@ -97,12 +98,13 @@ const MORE_SECTIONS = [
 ];
 
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {
+  const consumerlayout_60s = useAdaptiveInterval(60_000);
   const [location, navigate] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const { data: unreadData } = trpc.notifications.unreadCount.useQuery(undefined, {
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: consumerlayout_60s,
   });
   const unreadCount = unreadData?.count ?? 0;
 

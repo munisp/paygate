@@ -723,3 +723,146 @@ def test_rate_limit_different_phones_independent():
         _check_rate_limit(phone_a)
     assert _check_rate_limit(phone_a) is False
     assert _check_rate_limit(phone_b) is True
+
+# ─── Redis language preference persistence (Wave 112) ─────────────────────────
+# These tests exercise the in-memory fallback path (Redis not available in CI).
+# The _lang_prefs_fallback dict is the source of truth when Redis is offline.
+
+from main import _lang_prefs_fallback, _get_lang_pref, _set_lang_pref, _delete_lang_pref
+import asyncio
+
+def _run(coro):
+    """Helper to run async helpers synchronously in tests."""
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def test_lang_pref_get_returns_none_when_no_preference():
+    """GET /v1/ussd/merchant/language-preference returns has_preference=false when no pref set."""
+    phone = "+2348111000001"
+    _lang_prefs_fallback.pop(phone, None)
+    r = client.get(
+        "/v1/ussd/merchant/language-preference",
+        params={"phone": phone},
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["has_preference"] is False
+    assert data["language"] is None
+    assert data["phone"] == phone
+
+
+def test_lang_pref_set_and_get():
+    """Setting a preference via helper and retrieving via GET endpoint."""
+    phone = "+2348111000002"
+    _lang_prefs_fallback.pop(phone, None)
+    _run(_set_lang_pref(phone, "ha"))
+    r = client.get(
+        "/v1/ussd/merchant/language-preference",
+        params={"phone": phone},
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["has_preference"] is True
+    assert data["language"] == "ha"
+
+
+def test_lang_pref_delete():
+    """DELETE /v1/ussd/merchant/language-preference removes the preference."""
+    phone = "+2348111000003"
+    _lang_prefs_fallback[phone] = "yo"
+    r = client.delete(
+        "/v1/ussd/merchant/language-preference",
+        params={"phone": phone},
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["deleted"] is True
+    assert _lang_prefs_fallback.get(phone) is None
+
+
+def test_lang_pref_delete_nonexistent_returns_false():
+    """DELETE for a phone with no preference returns deleted=false."""
+    phone = "+2348111000004"
+    _lang_prefs_fallback.pop(phone, None)
+    r = client.delete(
+        "/v1/ussd/merchant/language-preference",
+        params={"phone": phone},
+        headers=AUTH,
+    )
+    assert r.status_code == 200
+    assert r.json()["deleted"] is False
+
+
+def test_lang_pref_requires_auth():
+    """GET/DELETE language-preference endpoints require internal key."""
+    phone = "+2348111000005"
+    r = client.get("/v1/ussd/merchant/language-preference", params={"phone": phone})
+    assert r.status_code == 401
+    r2 = client.delete("/v1/ussd/merchant/language-preference", params={"phone": phone})
+    assert r2.status_code == 401
+
+
+def test_lang_pref_persists_after_picker_selection():
+    """After selecting language in picker, preference is stored in fallback dict."""
+    phone = "+2348111000006"
+    _lang_prefs_fallback.pop(phone, None)
+    _sessions.pop("sess-redis-001", None)
+    # Step 1: fresh session — shows picker
+    r1 = client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-redis-001",
+        "phoneNumber": phone,
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    assert r1.status_code == 200
+    assert "Select language" in r1.text or "English" in r1.text
+    # Step 2: select Hausa (option 2)
+    r2 = client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-redis-001",
+        "phoneNumber": phone,
+        "text": "2",
+        "serviceCode": "*737*PG#",
+    })
+    assert r2.status_code == 200
+    assert "CON" in r2.text
+    # Verify preference was persisted to fallback dict
+    assert _lang_prefs_fallback.get(phone) == "ha"
+
+
+def test_lang_pref_skips_picker_on_return_visit():
+    """A phone with a stored preference skips the picker and shows main menu directly."""
+    phone = "+2348111000007"
+    _lang_prefs_fallback[phone] = "ig"  # Pre-set Igbo preference
+    _sessions.pop("sess-redis-002", None)
+    r = client.post("/v1/ussd/merchant/callback", data={
+        "sessionId": "sess-redis-002",
+        "phoneNumber": phone,
+        "text": "",
+        "serviceCode": "*737*PG#",
+    })
+    assert r.status_code == 200
+    # Should show main menu (not the language picker)
+    assert "Select language" not in r.text
+    assert "CON" in r.text
+
+
+def test_lang_pref_helper_set_get_delete():
+    """Unit test for _set_lang_pref / _get_lang_pref / _delete_lang_pref helpers."""
+    phone = "+2348111000008"
+    _lang_prefs_fallback.pop(phone, None)
+    assert _run(_get_lang_pref(phone)) is None
+    _run(_set_lang_pref(phone, "fr"))
+    assert _run(_get_lang_pref(phone)) == "fr"
+    deleted = _run(_delete_lang_pref(phone))
+    assert deleted is True
+    assert _run(_get_lang_pref(phone)) is None
+
+
+def test_lang_pref_invalid_lang_not_returned():
+    """_get_lang_pref returns None for unsupported language codes (e.g. Redis corruption)."""
+    phone = "+2348111000009"
+    _lang_prefs_fallback[phone] = "xx"  # Simulate corrupted value
+    assert _run(_get_lang_pref(phone)) is None

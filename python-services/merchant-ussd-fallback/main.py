@@ -34,6 +34,12 @@ from typing import Optional
 
 import httpx
 import uvicorn
+try:
+    import redis.asyncio as aioredis
+    _REDIS_AVAILABLE = True
+except ImportError:
+    aioredis = None  # type: ignore
+    _REDIS_AVAILABLE = False
 from fastapi import FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
@@ -114,6 +120,12 @@ _rate_limits: dict[str, list[float]] = {}
 SESSION_TTL = 300
 RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
+# ─── Language preference persistence ─────────────────────────────────────────
+LANG_PREF_TTL = int(os.getenv("LANG_PREF_TTL", str(90 * 24 * 3600)))  # 90 days
+LANG_PREF_KEY_PREFIX = "ussd:lang_pref:"
+_redis_client = None  # initialised in lifespan
+# In-memory fallback when Redis is unavailable
+_lang_prefs_fallback: dict[str, str] = {}
 
 # ─── Metrics ──────────────────────────────────────────────────────────────────
 _metrics: dict[str, int] = {
@@ -156,6 +168,48 @@ def _set_session(session_id: str, data: dict) -> None:
 
 def _clear_session(session_id: str) -> None:
     _sessions.pop(session_id, None)
+
+# ─── Language preference helpers ──────────────────────────────────────────────
+async def _get_lang_pref(phone: str) -> Optional[str]:
+    """Return the persisted language preference for a phone number, or None."""
+    key = f"{LANG_PREF_KEY_PREFIX}{phone}"
+    if _redis_client is not None:
+        try:
+            val = await _redis_client.get(key)
+            if val:
+                lang = val.decode() if isinstance(val, bytes) else val
+                if lang in SUPPORTED_LANGS:
+                    return lang
+        except Exception as exc:
+            logger.debug("Redis get lang_pref failed: %s", exc)
+    # Fallback to in-memory store — validate lang before returning
+    lang = _lang_prefs_fallback.get(phone)
+    if lang and lang in SUPPORTED_LANGS:
+        return lang
+    return None
+
+async def _set_lang_pref(phone: str, lang: str) -> None:
+    """Persist a language preference for a phone number."""
+    key = f"{LANG_PREF_KEY_PREFIX}{phone}"
+    _lang_prefs_fallback[phone] = lang  # always update fallback
+    if _redis_client is not None:
+        try:
+            await _redis_client.set(key, lang, ex=LANG_PREF_TTL)
+        except Exception as exc:
+            logger.debug("Redis set lang_pref failed: %s", exc)
+
+async def _delete_lang_pref(phone: str) -> bool:
+    """Delete the persisted language preference for a phone number. Returns True if deleted."""
+    key = f"{LANG_PREF_KEY_PREFIX}{phone}"
+    deleted = phone in _lang_prefs_fallback
+    _lang_prefs_fallback.pop(phone, None)
+    if _redis_client is not None:
+        try:
+            result = await _redis_client.delete(key)
+            return bool(result) or deleted
+        except Exception as exc:
+            logger.debug("Redis delete lang_pref failed: %s", exc)
+    return deleted
 
 
 async def bridge_get(path: str, params: dict = None) -> Optional[dict]:
@@ -254,15 +308,21 @@ async def handle_merchant_ussd(
     is_fresh_session = not session or "menu" not in session
     operator_preselected = lang_explicitly_set  # operator passed ?lang=xx explicitly
     if depth == 0 and LANG_PICKER_ENABLED and is_fresh_session and not operator_preselected:
-        _set_session(session_id, {"phone": phone, "menu": "lang_select", "lang": session_lang})
-        return (
-            f"CON {t('en', 'lang_select_header', default='PayGate Merchant - Select language:')}\n"
-            f"1. {t('en', 'lang_select_1', default='English')}\n"
-            f"2. {t('ha', 'lang_select_2', default='Hausa')}\n"
-            f"3. {t('yo', 'lang_select_3', default='Yoruba')}\n"
-            f"4. {t('ig', 'lang_select_4', default='Igbo')}\n"
-            f"5. {t('fr', 'lang_select_5', default='Français')}"
-        )
+        # Check Redis for a persisted language preference — skip picker if found
+        persisted_lang = await _get_lang_pref(phone)
+        if persisted_lang:
+            session_lang = persisted_lang
+            logger.info("Loaded persisted lang pref for %s: %s", phone, persisted_lang)
+        else:
+            _set_session(session_id, {"phone": phone, "menu": "lang_select", "lang": session_lang})
+            return (
+                f"CON {t('en', 'lang_select_header', default='PayGate Merchant - Select language:')}\n"
+                f"1. {t('en', 'lang_select_1', default='English')}\n"
+                f"2. {t('ha', 'lang_select_2', default='Hausa')}\n"
+                f"3. {t('yo', 'lang_select_3', default='Yoruba')}\n"
+                f"4. {t('ig', 'lang_select_4', default='Igbo')}\n"
+                f"5. {t('fr', 'lang_select_5', default='Français')}"
+            )
 
     # ── Root menu ──────────────────────────────────────────────────────────────
     if depth == 0:
@@ -294,8 +354,9 @@ async def handle_merchant_ussd(
                 f"4. {t('ig', 'lang_select_4', default='Igbo')}\n"
                 f"5. {t('fr', 'lang_select_5', default='Français')}"
             )
-        # Language selected — update session and show main menu
+        # Language selected — persist to Redis and update session
         session_lang = selected_code
+        await _set_lang_pref(phone, session_lang)
         _set_session(session_id, {"phone": phone, "menu": "main", "lang": session_lang})
         return (
             f"CON {t(session_lang, 'app_name', default='PayGate Merchant')}\n"
@@ -515,12 +576,26 @@ def _verify_otp(phone: str, otp: str) -> bool:
 # ─── App ──────────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _redis_client
     _load_locales()
+    # Initialise Redis client (graceful fallback if unavailable)
+    if _REDIS_AVAILABLE and REDIS_URL:
+        try:
+            _redis_client = aioredis.from_url(REDIS_URL, decode_responses=False, socket_connect_timeout=2)
+            await _redis_client.ping()
+            logger.info("Redis connected: %s", REDIS_URL)
+        except Exception as exc:
+            logger.warning("Redis unavailable (%s) — using in-memory fallback for lang prefs", exc)
+            _redis_client = None
+    else:
+        logger.info("Redis not configured — using in-memory fallback for lang prefs")
     logger.info(
         "Merchant USSD Fallback Service v2.0 starting on port %d (locales: %s)",
         PORT, ", ".join(sorted(_LOCALES.keys())),
     )
     yield
+    if _redis_client is not None:
+        await _redis_client.aclose()
     logger.info("Merchant USSD Fallback Service shutting down")
 
 
@@ -678,6 +753,33 @@ async def list_locales():
                 result[lang] = {"name": lang, "loaded": False, "key_count": 0}
     return result
 
+
+@app.get("/v1/ussd/merchant/language-preference")
+async def get_language_preference(
+    phone: str = Query(..., description="Phone number in E.164 format"),
+    x_internal_key: Optional[str] = Header(default=None),
+):
+    """Get the persisted language preference for a phone number."""
+    _check_internal_key(x_internal_key)
+    lang = await _get_lang_pref(phone)
+    return {
+        "phone": phone,
+        "language": lang,
+        "has_preference": lang is not None,
+    }
+
+@app.delete("/v1/ussd/merchant/language-preference")
+async def delete_language_preference(
+    phone: str = Query(..., description="Phone number in E.164 format"),
+    x_internal_key: Optional[str] = Header(default=None),
+):
+    """Delete the persisted language preference for a phone number (resets to picker)."""
+    _check_internal_key(x_internal_key)
+    deleted = await _delete_lang_pref(phone)
+    return {
+        "phone": phone,
+        "deleted": deleted,
+    }
 
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics(x_internal_key: Optional[str] = Header(default=None)):

@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 export default function GrpcHealthCheck() {
-  const { data, isLoading, refetch, isFetching } = trpc.wave80.grpcHealthCheck.checkAllServices.useQuery(undefined, { refetchInterval: 30_000 });
+  const grpchealthcheck_30s = useAdaptiveInterval(30_000);
+  const { data, isLoading, refetch, isFetching } = trpc.wave80.grpcHealthCheck.checkAllServices.useQuery(undefined, { refetchInterval: grpchealthcheck_30s });
 
   const services = data?.services ?? [];
   const healthy = services.filter(s => s.status === "healthy").length;

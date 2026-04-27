@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 type NotifType = "all" | "unread" | "payment" | "alert";
 
@@ -123,12 +124,13 @@ function PushSubscriptionBanner() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ConsumerNotifications() {
+  const consumernotifications_30s = useAdaptiveInterval(30_000);
   const [filter, setFilter] = useState<NotifType>("all");
   const utils = trpc.useUtils();
 
   const { data, isLoading } = trpc.notifications.list.useQuery(
     { limit: 50 },
-    { refetchInterval: 30_000, staleTime: 15_000 }
+    { refetchInterval: consumernotifications_30s, staleTime: 15_000 }
   );
 
   const markRead = trpc.notifications.markRead.useMutation({
