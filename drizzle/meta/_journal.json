@@ -372,6 +372,13 @@
       "when": 1777324194510,
       "tag": "0052_parched_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1778343363891,
+      "tag": "0053_robust_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

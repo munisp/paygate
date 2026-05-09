@@ -4143,3 +4143,144 @@ export const corridorLiveStats = pgTable("corridor_live_stats", {
   index("corridor_live_pair_idx").on(t.sourceCurrency, t.destinationCurrency),
 ]);
 export type CorridorLiveStat = typeof corridorLiveStats.$inferSelect;
+
+
+// ─── Billing Engine Tables (Wave 115) ─────────────────────────────────────────
+// These tables back the real-time billing engine. The Rust billing core reads
+// billing_configs via PostgreSQL (cold path) or Redis (hot path).
+
+export const pricingModelEnum = pgEnum("pricing_model", [
+  "per_transaction",
+  "subscription",
+  "hybrid",
+]);
+
+export const billingConfigStatusEnum = pgEnum("billing_config_status", [
+  "draft",
+  "active",
+  "superseded",
+  "archived",
+]);
+
+// billing_configs: one active config per tenant at any time.
+// Version history is preserved (active=false rows are audit records).
+export const billingConfigs = pgTable("billing_configs", {
+  id: text("id").primaryKey(),                                  // UUID
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  status: billingConfigStatusEnum("status").default("draft").notNull(),
+  active: boolean("active").default(false).notNull(),
+  pricingModel: pricingModelEnum("pricing_model").default("per_transaction").notNull(),
+  // Per-transaction pricing
+  feeRate: real("fee_rate").default(0.015).notNull(),           // e.g. 0.015 = 1.5%
+  feeCapKobo: bigint("fee_cap_kobo", { mode: "number" }).default(200_000).notNull(), // ₦2,000
+  feeFloorKobo: bigint("fee_floor_kobo", { mode: "number" }).default(0).notNull(),
+  // Profit split
+  platformShare: real("platform_share").default(0.65).notNull(),  // 65%
+  resellerShare: real("reseller_share").default(0.35).notNull(),   // 35%
+  interchangeCostKobo: bigint("interchange_cost_kobo", { mode: "number" }).default(5_000).notNull(), // ₦50
+  // Sign-on fee
+  signOnFeeKobo: bigint("sign_on_fee_kobo", { mode: "number" }).default(0).notNull(),
+  signOnPlatformShare: real("sign_on_platform_share").default(0.70).notNull(),
+  // Subscription pricing
+  subscriptionFeeKobo: bigint("subscription_fee_kobo", { mode: "number" }).default(0).notNull(),
+  subscriptionPlatformShare: real("subscription_platform_share").default(0.65).notNull(),
+  // TigerBeetle ledger account IDs
+  tbMerchantPayableAccount: text("tb_merchant_payable_account"),
+  tbPlatformRevenueAccount: text("tb_platform_revenue_account"),
+  tbResellerPayableAccount: text("tb_reseller_payable_account"),
+  tbInterchangeCostAccount: text("tb_interchange_cost_account"),
+  tbSignOnRevenueAccount: text("tb_sign_on_revenue_account"),
+  // Overhead cost caps (for financial model integration)
+  monthlyOverheadCapKobo: bigint("monthly_overhead_cap_kobo", { mode: "number" }).default(0),
+  // Metadata
+  effectiveFrom: timestamp("effective_from").defaultNow().notNull(),
+  effectiveTo: timestamp("effective_to"),
+  createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  notes: text("notes"),
+  version: integer("version").default(1).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("billing_config_tenant_idx").on(t.tenantId),
+  index("billing_config_active_idx").on(t.tenantId, t.active),
+]);
+export type BillingConfig = typeof billingConfigs.$inferSelect;
+export type InsertBillingConfig = typeof billingConfigs.$inferInsert;
+
+// billing_audit_log: every change to billing_configs is recorded here.
+export const billingAuditLog = pgTable("billing_audit_log", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  billingConfigId: text("billing_config_id").references(() => billingConfigs.id),
+  actorId: text("actor_id").notNull(),
+  actorRole: text("actor_role").notNull(),
+  action: text("action").notNull(),   // "created" | "updated" | "activated" | "archived"
+  beforeState: jsonb("before_state"),
+  afterState: jsonb("after_state"),
+  reason: text("reason"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("billing_audit_tenant_idx").on(t.tenantId),
+  index("billing_audit_actor_idx").on(t.actorId),
+  index("billing_audit_config_idx").on(t.billingConfigId),
+]);
+export type BillingAuditLogEntry = typeof billingAuditLog.$inferSelect;
+
+// overhead_costs: operational cost entries for EBITDA calculation.
+export const overheadCostCategoryEnum = pgEnum("overhead_cost_category", [
+  "infrastructure",
+  "labor",
+  "travel",
+  "marketing",
+  "compliance",
+  "support",
+  "other",
+]);
+
+export const overheadCosts = pgTable("overhead_costs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  category: overheadCostCategoryEnum("category").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  description: text("description").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  recordedBy: text("recorded_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("overhead_tenant_idx").on(t.tenantId),
+  index("overhead_period_idx").on(t.tenantId, t.periodStart, t.periodEnd),
+  index("overhead_category_idx").on(t.tenantId, t.category),
+]);
+export type OverheadCost = typeof overheadCosts.$inferSelect;
+export type InsertOverheadCost = typeof overheadCosts.$inferInsert;
+
+// billing_events: real-time billing computation results (hot copy from lakehouse).
+// The lakehouse is the source of truth; this table holds the last 30 days for fast queries.
+export const billingEvents = pgTable("billing_events", {
+  id: text("id").primaryKey(),          // billing_id from Rust engine
+  tenantId: text("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  resellerId: text("reseller_id"),
+  transactionId: text("transaction_id").notNull().unique(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  grossFeeKobo: bigint("gross_fee_kobo", { mode: "number" }).notNull(),
+  platformRevenueKobo: bigint("platform_revenue_kobo", { mode: "number" }).notNull(),
+  resellerRevenueKobo: bigint("reseller_revenue_kobo", { mode: "number" }).notNull(),
+  interchangeCostKobo: bigint("interchange_cost_kobo", { mode: "number" }).notNull(),
+  netPlatformRevenueKobo: bigint("net_platform_revenue_kobo", { mode: "number" }).notNull(),
+  pricingModel: pricingModelEnum("pricing_model").notNull(),
+  channel: text("channel").notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  occurredAt: timestamp("occurred_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("billing_event_tenant_idx").on(t.tenantId),
+  index("billing_event_merchant_idx").on(t.merchantId),
+  index("billing_event_occurred_idx").on(t.tenantId, t.occurredAt),
+]);
+export type BillingEvent = typeof billingEvents.$inferSelect;

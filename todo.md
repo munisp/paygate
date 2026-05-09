@@ -3826,3 +3826,17 @@
 - [x] Run full test suites and confirm 0 TS errors
 - [x] Write WAVE114_CHANGE_MANIFEST.md
 - [x] Save checkpoint and generate archive
+
+## Wave 115 — Billing Engine
+- [x] Design billing engine architecture (ARCHITECTURE.md)
+- [x] Build Rust billing computation engine (rust-billing-core)
+- [x] Build Go event ingestor (Kafka/Fluvio consumer, Dapr, Redis)
+- [x] Build Go Temporal onboarding workflow (billing provisioning at tenant creation)
+- [x] Build Go audit & RBAC service (Keycloak, Permify, OpenSearch)
+- [x] Build Python Mojaloop settlement bridge and lakehouse streaming pipeline
+- [x] Add billing_configs, billing_audit_log, overhead_costs, billing_events tables to schema
+- [x] Create tRPC billing router (getActive, listVersions, create, update, activate, getAuditLog, recordOverheadCost, getMetricsSummary, getOverheadByCategory, listBillingEvents)
+- [x] Build React BillingConfig page (role-based, audited, versioned)
+- [x] Register /billing-engine route in App.tsx
+- [x] Write 30 vitest tests (wave115.billing.test.ts) — all passing
+- [x] Build standalone offline financial model tool (paygate-financial-model.html)

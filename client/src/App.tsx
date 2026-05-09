@@ -347,6 +347,7 @@ const WhiteLabelSDKPage = lz(() => import("./pages/WhiteLabelSDK"));
 const LoyaltyLedger = lz(() => import("./pages/LoyaltyLedger"));
 const CarbonCreditsLedger = lz(() => import("./pages/CarbonCreditsLedger"));
 const EscrowContractsPage = lz(() => import("./pages/EscrowContracts"));
+const BillingConfigPage = lz(() => import("./pages/BillingConfig"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -699,6 +700,7 @@ function Router() {
           <Route path="/admin/corridors" component={TenantCorridorsPage} />
           <Route path="/admin/plan-limits" component={PlanLimitsPage} />
           <Route path="/admin/billing-invoices" component={BillingInvoicesPage} />
+          <Route path="/billing-engine" component={BillingConfigPage} />
           <Route path="/admin/sso-config" component={SSOConfigPage} />
           <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
           <Route path="/subscriptions-v2" component={SubscriptionsPage} />
