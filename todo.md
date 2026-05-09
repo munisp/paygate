@@ -3840,3 +3840,31 @@
 - [x] Register /billing-engine route in App.tsx
 - [x] Write 30 vitest tests (wave115.billing.test.ts) — all passing
 - [x] Build standalone offline financial model tool (paygate-financial-model.html)
+
+## Wave 116 — Production Readiness Sprint
+- [x] Full 14-dimension platform audit (WAVE116_AUDIT_FINDINGS.md)
+- [x] Security hardening module (server/security116.ts) — PBAC, payload scanner, rate limiter, DDoS mitigation
+- [x] Wire payloadScanMiddleware into server index (financial path blocking)
+- [x] Upgrade billing router to use PBAC permission enforcement
+- [x] Docker Compose for all 5 billing engine services (docker/docker-compose.billing-engine.yml)
+- [x] Dockerfiles for all 5 billing engine services (Rust, Go x3, Python)
+- [x] Billing engine seed data (billing-engine/seed/billing_seed.sql)
+- [x] Billing engine smoke test script (billing-engine/tests/smoke_test.sh)
+- [x] Flutter billing engine screen (mobile/flutter/lib/screens/billing/)
+- [x] React Native billing engine screen (mobile/react-native/app/(tabs)/billing-engine.tsx)
+- [x] Add Billing Engine sidebar nav item in Layout.tsx
+- [x] Wave 116 security tests — 22 tests (PBAC, payload scan, auth logging, security score)
+
+## Wave 116 - Production Readiness Sprint
+- [x] Full 14-dimension platform audit (WAVE116_AUDIT_FINDINGS.md)
+- [x] Security hardening module (server/security116.ts) - PBAC, payload scanner, rate limiter
+- [x] Wire payloadScanMiddleware into server index (financial path blocking)
+- [x] Upgrade billing router to use PBAC permission enforcement
+- [x] Docker Compose for all 5 billing engine services
+- [x] Dockerfiles for all 5 billing engine services (Rust, Go x3, Python)
+- [x] Billing engine seed data (billing-engine/seed/billing_seed.sql)
+- [x] Billing engine smoke test script (billing-engine/tests/smoke_test.sh)
+- [x] Flutter billing engine screen (mobile/flutter/lib/screens/billing/)
+- [x] React Native billing engine screen (mobile/react-native/app/(tabs)/billing-engine.tsx)
+- [x] Add Billing Engine sidebar nav item in Layout.tsx
+- [x] Wave 116 security tests - 22 tests (PBAC, payload scan, auth logging, security score)

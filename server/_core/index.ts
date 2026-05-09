@@ -34,6 +34,7 @@ import { validateEnvironment } from "../security";
 import { installPrototypePollutionGuard, reDoSGuard, getWave29SecurityReport } from "../security29";
 import { securityHeadersMiddleware as wave30SecurityHeaders, getWave30SecurityReport, validateExternalUrl, validateWebhookNonce, generateSecureApiKey } from "../security30";
 import { getWave31SecurityReport } from "../security31";
+import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
 
@@ -603,8 +604,11 @@ async function startServer() {
     next();
   });
 
-  app.use(express.urlencoded({ limit: "10mb", extended: true }));
-
+   app.use(express.urlencoded({ limit: "10mb", extended: true }));
+  // ─── Wave 116: Payload Threat Scanner ────────────────────────────────────
+  // Scans request bodies for SQL injection, XSS, and ransomware file extensions.
+  // Blocks suspicious payloads on financial endpoints; logs on others.
+  app.use(payloadScanMiddleware);
   // ─── OAuth ─────────────────────────────────────────────────────────
   registerOAuthRoutes(app);
   registerKeycloakRoutes(app);

@@ -8,15 +8,21 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { randomUUID } from "crypto";
 import { notifyOwner } from "../_core/notification";
+import { assertBillingPermission, logAuthFailure } from "../security116";
 
 // ── Permission helpers ────────────────────────────────────────────────────────
 
-function assertBillingAdmin(role: string) {
-  if (role !== "admin") {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Only platform admins can manage billing configurations",
+function assertBillingAdmin(role: string, userId?: number, action?: string) {
+  try {
+    assertBillingPermission(role, "billing:write", { userId, action });
+  } catch (err) {
+    logAuthFailure({
+      userId,
+      action: action ?? "billing:write",
+      resource: "billing_config",
+      reason: `Role '${role}' lacks billing:write permission`,
     });
+    throw err;
   }
 }
 
