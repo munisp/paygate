@@ -477,3 +477,242 @@ export const billingRouter = router({
         .offset(input.offset);
     }),
 });
+
+// ─── Wave 117 additions ────────────────────────────────────────────────────────
+// These are appended as a separate export to avoid re-editing the main router.
+// They are merged into billingRouter via router merging in routers.ts.
+
+const BILLING_TIER_TEMPLATES = {
+  starter: {
+    pricingModel: "per_transaction" as const,
+    feeRate: 0.015,
+    feeCapKobo: 200_000,
+    feeFloorKobo: 0,
+    platformShare: 0.65,
+    resellerShare: 0.35,
+    interchangeCostKobo: 5_000,
+    signOnFeeKobo: 0,
+    signOnPlatformShare: 0.70,
+    subscriptionFeeKobo: 0,
+    subscriptionPlatformShare: 0.65,
+    notes: "Starter tier — free onboarding, 1.5% per transaction, ₦2,000 cap",
+  },
+  growth: {
+    pricingModel: "hybrid" as const,
+    feeRate: 0.012,
+    feeCapKobo: 150_000,
+    feeFloorKobo: 0,
+    platformShare: 0.65,
+    resellerShare: 0.35,
+    interchangeCostKobo: 5_000,
+    signOnFeeKobo: 5_000_000,  // ₦50,000 in kobo
+    signOnPlatformShare: 0.70,
+    subscriptionFeeKobo: 15_000_000, // ₦150,000/month in kobo
+    subscriptionPlatformShare: 0.65,
+    notes: "Growth tier — ₦50k sign-on, ₦150k/month + 1.2% per transaction",
+  },
+  enterprise: {
+    pricingModel: "hybrid" as const,
+    feeRate: 0.008,
+    feeCapKobo: 100_000,
+    feeFloorKobo: 0,
+    platformShare: 0.70,
+    resellerShare: 0.30,
+    interchangeCostKobo: 5_000,
+    signOnFeeKobo: 20_000_000, // ₦200,000 in kobo
+    signOnPlatformShare: 0.75,
+    subscriptionFeeKobo: 50_000_000, // ₦500,000/month in kobo
+    subscriptionPlatformShare: 0.70,
+    notes: "Enterprise tier — ₦200k sign-on, ₦500k/month + 0.8% per transaction",
+  },
+};
+
+export const billingExtRouter = router({
+  // Provisions a billing config from a named tier template during tenant onboarding.
+  // Triggers the Temporal ProvisionBillingWorkflow via the middleware bridge.
+  provisionBillingTier: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      tier: z.enum(["starter", "growth", "enterprise", "custom"]),
+      customFeeRate: z.number().min(0).max(0.05).optional(),
+      customSignOnFeeKobo: z.number().int().min(0).optional(),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertBillingAdmin(ctx.user.role);
+      const template = input.tier === "custom"
+        ? {
+            ...BILLING_TIER_TEMPLATES.starter,
+            pricingModel: "per_transaction" as const,
+            feeRate: input.customFeeRate ?? 0.015,
+            signOnFeeKobo: input.customSignOnFeeKobo ?? 0,
+            notes: `Custom tier configured during onboarding by ${ctx.user.openId}`,
+          }
+        : BILLING_TIER_TEMPLATES[input.tier];
+
+      const { billingConfigs } = await import("../../drizzle/schema");
+      const db = await requireDb();
+      const id = randomUUID();
+
+      const [config] = await db.insert(billingConfigs).values({
+        id,
+        tenantId: input.tenantId,
+        status: "active",
+        active: true,
+        ...template,
+        monthlyOverheadCapKobo: 0,
+        createdBy: String(ctx.user.id),
+        version: 1,
+      }).returning();
+
+      await logBillingAudit({
+        tenantId: input.tenantId,
+        billingConfigId: id,
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "provisioned_via_onboarding",
+        afterState: { tier: input.tier, ...config },
+        reason: input.reason ?? `Tier '${input.tier}' selected during tenant onboarding`,
+      });
+
+      // Trigger Temporal ProvisionBillingWorkflow via middleware bridge (fire-and-forget)
+      const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL;
+      if (bridgeUrl) {
+        fetch(`${bridgeUrl}/workflows/provision-billing`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Internal-Key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "",
+          },
+          body: JSON.stringify({
+            tenantId: input.tenantId,
+            billingConfigId: id,
+            tier: input.tier,
+            actorId: String(ctx.user.id),
+          }),
+        }).catch((e: Error) => {
+          console.warn("[billing] Temporal workflow trigger failed (non-fatal):", e.message);
+        });
+      }
+
+      await notifyOwner({
+        title: `New Tenant Billing Provisioned — ${input.tier} tier`,
+        content: `Tenant ${input.tenantId} provisioned with ${input.tier} billing tier. Fee rate: ${(template.feeRate * 100).toFixed(1)}%. Config ID: ${id}`,
+      });
+
+      return { config, tier: input.tier, provisioned: true };
+    }),
+
+  // Returns aggregated revenue, EBITDA, and split data for the billing analytics page.
+  getAnalytics: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      from: z.date().optional(),
+      to: z.date().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      assertBillingAdmin(ctx.user.role);
+      const { billingEvents, billingOverheadCosts } = await import("../../drizzle/schema");
+      const { sql, eq, and, gte, lte } = await import("drizzle-orm");
+      const db = await requireDb();
+
+      const to = input.to ?? new Date();
+      const from = input.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const [totals] = await db
+        .select({
+          totalTransactions: sql<number>`count(*)`,
+          totalAmountKobo: sql<number>`coalesce(sum(${billingEvents.amountKobo}), 0)`,
+          totalGrossFeeKobo: sql<number>`coalesce(sum(${billingEvents.grossFeeKobo}), 0)`,
+          totalPlatformRevenueKobo: sql<number>`coalesce(sum(${billingEvents.platformRevenueKobo}), 0)`,
+          totalResellerRevenueKobo: sql<number>`coalesce(sum(${billingEvents.resellerRevenueKobo}), 0)`,
+          totalInterchangeCostKobo: sql<number>`coalesce(sum(${billingEvents.interchangeCostKobo}), 0)`,
+          totalNetPlatformKobo: sql<number>`coalesce(sum(${billingEvents.netPlatformRevenueKobo}), 0)`,
+        })
+        .from(billingEvents)
+        .where(and(
+          eq(billingEvents.tenantId, input.tenantId),
+          gte(billingEvents.occurredAt, from),
+          lte(billingEvents.occurredAt, to),
+        ));
+
+      const [overheadTotals] = await db
+        .select({
+          totalOverheadKobo: sql<number>`coalesce(sum(amount_kobo), 0)`,
+        })
+        .from(billingOverheadCosts)
+        .where(and(
+          eq(billingOverheadCosts.tenantId, input.tenantId),
+          gte(billingOverheadCosts.periodStart, from),
+          lte(billingOverheadCosts.periodStart, to),
+        ));
+
+      const totalOverheadKobo = Number(overheadTotals?.totalOverheadKobo ?? 0);
+      const totalNetPlatformKobo = Number(totals?.totalNetPlatformKobo ?? 0);
+      const ebitdaKobo = totalNetPlatformKobo - totalOverheadKobo;
+      const grossFeeKobo = Number(totals?.totalGrossFeeKobo ?? 0);
+      const ebitdaMarginPct = grossFeeKobo > 0 ? (ebitdaKobo / grossFeeKobo) * 100 : 0;
+
+      return {
+        period: { from, to },
+        totals: {
+          transactions: Number(totals?.totalTransactions ?? 0),
+          amountKobo: Number(totals?.totalAmountKobo ?? 0),
+          grossFeeKobo,
+          platformRevenueKobo: Number(totals?.totalPlatformRevenueKobo ?? 0),
+          resellerRevenueKobo: Number(totals?.totalResellerRevenueKobo ?? 0),
+          interchangeCostKobo: Number(totals?.totalInterchangeCostKobo ?? 0),
+          netPlatformKobo: totalNetPlatformKobo,
+          overheadKobo: totalOverheadKobo,
+          ebitdaKobo,
+          ebitdaMarginPct: Math.round(ebitdaMarginPct * 100) / 100,
+        },
+      };
+    }),
+
+  // Returns daily/weekly/monthly revenue time series for billing analytics charts.
+  getRevenueTimeSeries: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      from: z.date().optional(),
+      to: z.date().optional(),
+      granularity: z.enum(["day", "week", "month"]).default("day"),
+    }))
+    .query(async ({ ctx, input }) => {
+      assertBillingAdmin(ctx.user.role);
+      const { billingEvents } = await import("../../drizzle/schema");
+      const { sql, eq, and, gte, lte } = await import("drizzle-orm");
+      const db = await requireDb();
+
+      const to = input.to ?? new Date();
+      const from = input.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const truncFn = input.granularity;
+
+      const rows = await db
+        .select({
+          period: sql<string>`date_trunc(${truncFn}, ${billingEvents.occurredAt})::date`,
+          transactions: sql<number>`count(*)`,
+          grossFeeKobo: sql<number>`coalesce(sum(${billingEvents.grossFeeKobo}), 0)`,
+          platformRevenueKobo: sql<number>`coalesce(sum(${billingEvents.platformRevenueKobo}), 0)`,
+          resellerRevenueKobo: sql<number>`coalesce(sum(${billingEvents.resellerRevenueKobo}), 0)`,
+          netPlatformKobo: sql<number>`coalesce(sum(${billingEvents.netPlatformRevenueKobo}), 0)`,
+        })
+        .from(billingEvents)
+        .where(and(
+          eq(billingEvents.tenantId, input.tenantId),
+          gte(billingEvents.occurredAt, from),
+          lte(billingEvents.occurredAt, to),
+        ))
+        .groupBy(sql`date_trunc(${truncFn}, ${billingEvents.occurredAt})`)
+        .orderBy(sql`date_trunc(${truncFn}, ${billingEvents.occurredAt})`);
+
+      return rows.map(r => ({
+        period: String(r.period),
+        transactions: Number(r.transactions),
+        grossFeeKobo: Number(r.grossFeeKobo),
+        platformRevenueKobo: Number(r.platformRevenueKobo),
+        resellerRevenueKobo: Number(r.resellerRevenueKobo),
+        netPlatformKobo: Number(r.netPlatformKobo),
+      }));
+    }),
+});

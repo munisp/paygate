@@ -27,7 +27,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertCircle, CheckCircle2, Clock, Plus, RefreshCw, ShieldCheck, TrendingUp } from "lucide-react";
+import { AlertCircle, BarChart2, CheckCircle2, Clock, Plus, RefreshCw, ShieldCheck, TrendingUp } from "lucide-react";
+import { Link } from "wouter";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -184,6 +185,13 @@ export default function BillingConfig() {
             Manage fee schedules, profit splits, and overhead tracking. All changes are audited and require admin approval.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Link href="/billing-engine/analytics">
+            <Button variant="outline" size="sm">
+              <BarChart2 className="w-4 h-4 mr-2" />
+              View Analytics
+            </Button>
+          </Link>
         {isAdmin && (
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
@@ -363,6 +371,7 @@ export default function BillingConfig() {
             </DialogContent>
           </Dialog>
         )}
+        </div>
       </div>
 
       {/* Active Config Summary */}

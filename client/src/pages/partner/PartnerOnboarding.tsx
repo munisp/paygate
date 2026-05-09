@@ -1,13 +1,14 @@
 // @ts-nocheck
 /**
- * PartnerOnboarding — 5-step wizard for partner/white-label tenant onboarding
+ * PartnerOnboarding — 6-step wizard for partner/white-label tenant onboarding
  *
  * Steps:
  *   1. Invite Code — validate the partner invite
  *   2. Company Details — name, RC number, address, industry
  *   3. Branding — logo URL, primary/secondary color, font family
  *   4. Fee Structure — settlement split, transaction fees, payout schedule
- *   5. Review & Submit — confirm all details and create tenant
+ *   5. Billing Tier — select pricing tier (Starter/Growth/Enterprise) and trigger Temporal workflow
+ *   6. Review & Submit — confirm all details and create tenant
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -29,6 +30,10 @@ import {
   ChevronLeft,
   Loader2,
   Key,
+  CreditCard,
+  Zap,
+  Star,
+  Rocket,
 } from "lucide-react";
 
 const STEPS = [
@@ -36,7 +41,47 @@ const STEPS = [
   { id: 2, label: "Company Details", icon: Building2 },
   { id: 3, label: "Branding", icon: Palette },
   { id: 4, label: "Fee Structure", icon: DollarSign },
-  { id: 5, label: "Review", icon: ClipboardCheck },
+  { id: 5, label: "Billing Tier", icon: CreditCard },
+  { id: 6, label: "Review", icon: ClipboardCheck },
+];
+
+const BILLING_TIERS = [
+  {
+    id: "starter",
+    label: "Starter",
+    icon: Zap,
+    color: "text-blue-600",
+    bg: "bg-blue-50 border-blue-200",
+    fee: "1.5%",
+    cap: "₦2,000",
+    split: "65% platform / 35% reseller",
+    overhead: "₦2M/mo",
+    description: "For new merchants and micro-businesses. Low volume, simple fee structure.",
+  },
+  {
+    id: "growth",
+    label: "Growth",
+    icon: Star,
+    color: "text-indigo-600",
+    bg: "bg-indigo-50 border-indigo-200",
+    fee: "1.4%",
+    cap: "₦1,500",
+    split: "70% platform / 30% reseller",
+    overhead: "₦5M/mo",
+    description: "For growing SMEs. Competitive rates with higher platform share.",
+  },
+  {
+    id: "enterprise",
+    label: "Enterprise",
+    icon: Rocket,
+    color: "text-purple-600",
+    bg: "bg-purple-50 border-purple-200",
+    fee: "1.2%",
+    cap: "₦1,000",
+    split: "75% platform / 25% reseller",
+    overhead: "₦12M/mo",
+    description: "For large merchants and white-label partners. Volume discounts and custom SLAs.",
+  },
 ];
 
 interface StepData {
@@ -55,6 +100,8 @@ interface StepData {
   transactionFeePct?: number;
   payoutSchedule?: string;
   minimumPayoutNGN?: number;
+  billingTier?: "starter" | "growth" | "enterprise";
+  billingProvisioned?: boolean;
 }
 
 export default function PartnerOnboarding() {
@@ -162,6 +209,30 @@ export default function PartnerOnboarding() {
   const handleComplete = async () => {
     if (!sessionId) return;
     completeMutation.mutate({ sessionId });
+  };
+
+  const provisionBillingMutation = trpc.billingExt.provisionBillingTier.useMutation({
+    onSuccess: () => {
+      toast.success("Billing tier provisioned via Temporal workflow");
+      setStepData(prev => ({ ...prev, billingProvisioned: true }));
+      setCurrentStep(6);
+    },
+    onError: (err) => {
+      toast.error(`Billing provisioning failed: ${err.message}`);
+    },
+  });
+
+  const handleStep5 = async () => {
+    if (!stepData.billingTier) {
+      toast.error("Please select a billing tier");
+      return;
+    }
+    if (!sessionId) return;
+    provisionBillingMutation.mutate({
+      tenantId: sessionId, // use sessionId as tenantId proxy until tenant is created
+      tier: stepData.billingTier,
+      createdBy: "onboarding-wizard",
+    });
   };
 
   const progress = ((currentStep - 1) / (STEPS.length - 1)) * 100;
@@ -610,8 +681,80 @@ export default function PartnerOnboarding() {
             </>
           )}
 
-          {/* Step 5: Review */}
+          {/* Step 5: Billing Tier */}
           {currentStep === 5 && (
+            <>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-indigo-600" />
+                  Billing Tier
+                </CardTitle>
+                <CardDescription>
+                  Select a pricing tier. This provisions the billing config via a Temporal workflow and cannot be changed without admin approval.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3">
+                  {BILLING_TIERS.map((tier) => {
+                    const Icon = tier.icon;
+                    const selected = stepData.billingTier === tier.id;
+                    return (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        onClick={() => setStepData(prev => ({ ...prev, billingTier: tier.id as StepData["billingTier"] }))}
+                        className={`w-full text-left rounded-xl border-2 p-4 transition-all ${
+                          selected ? `${tier.bg} border-current ring-2 ring-offset-1` : "border-gray-200 hover:border-gray-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`mt-0.5 ${tier.color}`}>
+                            <Icon className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className={`font-semibold ${selected ? tier.color : "text-gray-900"}`}>{tier.label}</span>
+                              {selected && <CheckCircle2 className={`w-4 h-4 ${tier.color}`} />}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{tier.description}</p>
+                            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                              <span className="text-gray-500">Fee Rate: <span className="font-medium text-gray-700">{tier.fee} (cap {tier.cap})</span></span>
+                              <span className="text-gray-500">Split: <span className="font-medium text-gray-700">{tier.split}</span></span>
+                              <span className="text-gray-500">Overhead: <span className="font-medium text-gray-700">{tier.overhead}</span></span>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {stepData.billingProvisioned && (
+                  <div className="flex items-center gap-2 text-green-600 bg-green-50 rounded-lg p-3 text-sm">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Billing tier provisioned successfully via Temporal workflow.
+                  </div>
+                )}
+                <div className="flex justify-between pt-2">
+                  <Button variant="outline" onClick={() => setCurrentStep(4)} className="gap-2">
+                    <ChevronLeft className="w-4 h-4" />
+                    Back
+                  </Button>
+                  <Button
+                    onClick={handleStep5}
+                    disabled={provisionBillingMutation.isPending || !stepData.billingTier}
+                    className="gap-2"
+                  >
+                    {provisionBillingMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Provision Billing & Continue
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </>
+          )}
+
+          {/* Step 6: Review */}
+          {currentStep === 6 && (
             <>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -643,9 +786,13 @@ export default function PartnerOnboarding() {
                     <ReviewRow label="Payout Schedule" value={stepData.payoutSchedule} />
                     <ReviewRow label="Minimum Payout" value={`NGN ${(stepData.minimumPayoutNGN ?? 0).toLocaleString()}`} />
                   </ReviewSection>
+                  <ReviewSection title="Billing Tier">
+                    <ReviewRow label="Selected Tier" value={stepData.billingTier ? stepData.billingTier.charAt(0).toUpperCase() + stepData.billingTier.slice(1) : "Not set"} />
+                    <ReviewRow label="Provisioned" value={stepData.billingProvisioned ? "Yes — Temporal workflow triggered" : "Pending"} />
+                  </ReviewSection>
                 </div>
                 <div className="flex justify-between pt-2">
-                  <Button variant="outline" onClick={() => setCurrentStep(4)} className="gap-2">
+                  <Button variant="outline" onClick={() => setCurrentStep(5)} className="gap-2">
                     <ChevronLeft className="w-4 h-4" />
                     Back
                   </Button>

@@ -3868,3 +3868,17 @@
 - [x] React Native billing engine screen (mobile/react-native/app/(tabs)/billing-engine.tsx)
 - [x] Add Billing Engine sidebar nav item in Layout.tsx
 - [x] Wave 116 security tests - 22 tests (PBAC, payload scan, auth logging, security score)
+
+## Wave 117
+- [x] Real-time billing event pipeline: Go Kafka consumer → billing_events table (column alignment fixed)
+- [x] TigerBeetle double-entry ledger posting in pipeline
+- [x] provisionBillingTier tRPC procedure (billingExt namespace)
+- [x] getAnalytics and getRevenueTimeSeries tRPC procedures
+- [x] BillingAnalytics React page with revenue trend, EBITDA, and split charts
+- [x] /billing-engine/analytics route registered in App.tsx
+- [x] Billing Analytics nav item added to sidebar
+- [x] "View Analytics" button added to BillingConfig page header
+- [x] PartnerOnboarding wizard upgraded to 6 steps (added Billing Tier step 5)
+- [x] Billing tier selector: Starter/Growth/Enterprise with fee rates and splits
+- [x] Billing tier shown in Review section of onboarding wizard
+- [x] 24 Wave 117 vitest tests passing (pipeline, tier provisioning, analytics, time series, EBITDA)

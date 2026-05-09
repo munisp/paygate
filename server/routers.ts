@@ -4,7 +4,7 @@ import { orphanedTablesRouter } from "./orphanedTablesCRUD";
 import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';
 import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
-import { billingRouter } from "./routers/billing";
+import { billingRouter, billingExtRouter } from "./routers/billing";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -7738,6 +7738,8 @@ export const appRouter = router({
   orphaned: orphanedTablesRouter,
   // Wave 115 — Billing Engine (real-time fee computation, profit split, overhead tracking)
   billing: billingRouter,
+  // Wave 117 — Billing Engine extensions (tier provisioning, analytics, time series)
+  billingExt: billingExtRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
