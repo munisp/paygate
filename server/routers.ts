@@ -11,6 +11,7 @@ import { splitBillRouter as splitBillV2Router, staffRouter as staffMgmtRouter, s
 import { feeSchedulesRouter, chargebackMgmtRouter, fraudRulesRouter, kybMgmtRouter, invoiceFinV2Router, loyaltyV3Router, openSearchAuditRouter, tenantProvisionRouter } from "./routers/wave121";
 import { fraudRuleEngineRouter, kybDocUploadRouter, loyaltyRedemptionRouter } from "./routers/wave122";
 import { aiModelAdminRouter, menuMgmtRouter, portalHealthRouter } from "./routers/wave123";
+import { billPaymentsRouter, carbonCreditsRouter, consumerFinanceLoansRouter, couponsRouter, devicePushTokensRouter, fraudAlertCommentsRouter, idempotencyRequestsRouter, insurancePoliciesRouter, loanRepaymentsRouter, posTerminalsRouter, posTransactionsRouter, purchaseOrdersRouter, qrPaymentsRouter, redEnvelopesRouter, referralsRouter, savedBeneficiariesRouter, subscriptionsRouter, ussdSessionsRouter, wafAlertsRouter, offlineResilienceRouter } from "./routers/wave124";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -7777,6 +7778,27 @@ export const appRouter = router({
   aiModelAdmin: aiModelAdminRouter,
   menuMgmt: menuMgmtRouter,
   portalHealth: portalHealthRouter,
+  // Wave 124
+  billPayments: billPaymentsRouter,
+  carbonCredits: carbonCreditsRouter,
+  consumerFinanceLoans: consumerFinanceLoansRouter,
+  coupons: couponsRouter,
+  devicePushTokens: devicePushTokensRouter,
+  fraudAlertComments: fraudAlertCommentsRouter,
+  idempotencyRequests: idempotencyRequestsRouter,
+  insurancePolicies: insurancePoliciesRouter,
+  loanRepayments: loanRepaymentsRouter,
+  posTerminals: posTerminalsRouter,
+  posTransactions: posTransactionsRouter,
+  purchaseOrders: purchaseOrdersRouter,
+  qrPayments: qrPaymentsRouter,
+  redEnvelopes: redEnvelopesRouter,
+  referrals: referralsRouter,
+  savedBeneficiaries: savedBeneficiariesRouter,
+  subscriptions: subscriptionsRouter,
+  ussdSessions: ussdSessionsRouter,
+  wafAlerts: wafAlertsRouter,
+  offlineResilience: offlineResilienceRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

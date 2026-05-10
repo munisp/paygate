@@ -224,6 +224,9 @@ const navGroups: NavGroup[] = [
       { icon: Brain, label: "AI Model Admin", path: "/ai-model-admin", badge: "New" },
       { icon: UtensilsCrossed, label: "Menu Management", path: "/menu-management", badge: "New" },
       { icon: Activity, label: "Portal Health", path: "/portal-health", badge: "New" },
+      // Wave 124
+      { icon: Receipt, label: "Bill Payments", path: "/bill-payments", badge: "New" },
+      { icon: Leaf, label: "Carbon Credits", path: "/carbon-credits", badge: "New" },
       { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards" },
       { icon: Gem, label: "NFT Badges", path: "/nft-badges" },
       { icon: BookOpen, label: "Open Banking", path: "/open-banking" },

@@ -3998,3 +3998,30 @@
 - [x] scripts/seed-wave123.sql: seed data for ai_model_registry, ai_audit_trail, gnn_training_jobs, menu_categories, menu_items
 - [x] docs/ENVIRONMENT_VARIABLES_WAVE123.md: comprehensive env var documentation for all Wave 123 services
 - [x] Wave 123 tests: 125/125 passing
+
+## Wave 124 — Uncovered DB Tables, Security, Middleware, Mobile Screens
+
+- [x] wave124.ts router — 20 new routers: billPayments, carbonCredits, consumerFinanceLoans, coupons, devicePushTokens, fraudAlertComments, idempotencyRequests, insurancePolicies, loanRepayments, posTerminals, posTransactions, purchaseOrders, qrPayments, redEnvelopes, referrals, savedBeneficiaries, subscriptions, ussdSessions, wafAlerts, offlineResilience
+- [x] All 20 wave124 routers registered in appRouter
+- [x] BillPayments.tsx PWA page (real tRPC wiring)
+- [x] CarbonCredits.tsx PWA page (real tRPC wiring)
+- [x] Wave 124 PWA pages registered in App.tsx routes
+- [x] Wave 124 nav items added to Layout.tsx
+- [x] BillPaymentsScreen.tsx React Native screen
+- [x] CarbonCreditsScreen.tsx React Native screen
+- [x] SubscriptionsScreen.tsx React Native screen
+- [x] CouponsScreen.tsx React Native screen
+- [x] Wave 124 RN screens registered in AppNavigator.tsx
+- [x] bill_payments_screen.dart Flutter screen
+- [x] carbon_credits_screen.dart Flutter screen
+- [x] subscriptions_screen.dart Flutter screen
+- [x] coupons_screen.dart Flutter screen
+- [x] security124.ts — PBAC for all 22 wave124 namespaces (incl. wafAlerts, offlineResilience)
+- [x] security124.ts — DDoS mitigation middleware (sliding window rate limiter)
+- [x] security124.ts — Ransomware detection middleware (bulk-delete anomaly detection)
+- [x] security124.ts — Offline resilience middleware
+- [x] 17 new wave124 middleware bridge functions in middlewareBridge.ts
+- [x] docker-compose.wave124.yml — 13 new services
+- [x] scripts/seed-wave124.sql — realistic data for all 17 wave124 tables
+- [x] docs/ENVIRONMENT_VARIABLES_WAVE124.md — all new env vars documented
+- [x] wave124.production-readiness.test.ts — 253/253 tests passing

@@ -21,6 +21,10 @@ import TeamRolesScreen from "../screens/TeamRolesScreen";
 import MobileMoneyReconScreen from "../screens/MobileMoneyReconScreen";
 import FXDashboardScreen from "../screens/FXDashboardScreen";
 import CheckoutScreen from "../screens/CheckoutScreen";
+import BillPaymentsScreen from "../screens/BillPaymentsScreen";
+import CarbonCreditsScreen from "../screens/CarbonCreditsScreen";
+import SubscriptionsScreen from "../screens/SubscriptionsScreen";
+import CouponsScreen from "../screens/CouponsScreen";
 import WebhooksScreen from "../screens/WebhooksScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
@@ -43,6 +47,10 @@ export type RootStackParamList = {
   MobileMoneyRecon: undefined;
   FXDashboard: undefined;
   Checkout: undefined;
+  BillPayments: undefined;
+  CarbonCredits: undefined;
+  Subscriptions: undefined;
+  Coupons: undefined;
 };
 
 export type MainTabParamList = {
@@ -259,6 +267,26 @@ export default function AppNavigator() {
           name="Checkout"
           component={CheckoutScreen}
           options={{ title: "Checkout Links" }}
+        />
+        <Stack.Screen
+          name="BillPayments"
+          component={BillPaymentsScreen}
+          options={{ title: "Bill Payments" }}
+        />
+        <Stack.Screen
+          name="CarbonCredits"
+          component={CarbonCreditsScreen}
+          options={{ title: "Carbon Credits" }}
+        />
+        <Stack.Screen
+          name="Subscriptions"
+          component={SubscriptionsScreen}
+          options={{ title: "Subscriptions" }}
+        />
+        <Stack.Screen
+          name="Coupons"
+          component={CouponsScreen}
+          options={{ title: "Coupons" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

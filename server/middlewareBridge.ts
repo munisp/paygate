@@ -1406,3 +1406,121 @@ export async function getPortalUptimeStatsViaMiddleware(
 ): Promise<{ uptimePercent: number; incidentCount: number; avgResponseMs: number } | null> {
   return safe("GET", `/v1/health/uptime?merchantId=${merchantId}&days=${days}`);
 }
+
+// ─── Wave 124 — Bill Payments bridge ─────────────────────────────────────────
+export async function processBillPaymentViaMiddleware(payment: {
+  billerCode: string; billerName: string; customerReference: string;
+  amountKobo: number; currency: string; category: string; merchantId: string;
+}): Promise<{ transactionRef: string; status: string; message?: string } | null> {
+  return safe("POST", "/v1/bill-payments/process", payment);
+}
+
+export async function getBillerListViaMiddleware(
+  category?: string
+): Promise<{ billers: Array<{ code: string; name: string; category: string }> } | null> {
+  const path = category ? `/v1/bill-payments/billers?category=${category}` : "/v1/bill-payments/billers";
+  return safe("GET", path);
+}
+
+// ─── Wave 124 — Carbon Credits bridge ────────────────────────────────────────
+export async function retireCarbonCreditsViaMiddleware(retirement: {
+  creditId: string; quantityTonnes: number; retirementReason: string; merchantId: string;
+}): Promise<{ retirementCertificateUrl: string; serialNumber: string } | null> {
+  return safe("POST", "/v1/carbon/retire", retirement);
+}
+
+export async function getCarbonMarketPriceViaMiddleware(
+  creditType: string
+): Promise<{ pricePerTonne: number; currency: string; updatedAt: string } | null> {
+  return safe("GET", `/v1/carbon/market-price?type=${creditType}`);
+}
+
+// ─── Wave 124 — Subscriptions bridge ─────────────────────────────────────────
+export async function syncSubscriptionWithStripeViaMiddleware(
+  subscriptionId: string, stripeSubscriptionId: string
+): Promise<{ synced: boolean; status: string } | null> {
+  return safe("POST", "/v1/subscriptions/stripe-sync", { subscriptionId, stripeSubscriptionId });
+}
+
+export async function sendSubscriptionRenewalReminderViaMiddleware(
+  subscriptionId: string, merchantId: string, daysUntilRenewal: number
+): Promise<{ sent: boolean; channel: string } | null> {
+  return safe("POST", "/v1/subscriptions/renewal-reminder", { subscriptionId, merchantId, daysUntilRenewal });
+}
+
+// ─── Wave 124 — QR Payments bridge ───────────────────────────────────────────
+export async function generateQrCodeViaMiddleware(payment: {
+  merchantId: string; amountKobo: number; currency: string;
+  reference: string; expiresInSeconds?: number;
+}): Promise<{ qrCodeUrl: string; qrCodeData: string; expiresAt: string } | null> {
+  return safe("POST", "/v1/qr-payments/generate", payment);
+}
+
+export async function validateQrPaymentViaMiddleware(
+  qrReference: string, merchantId: string
+): Promise<{ valid: boolean; status: string; amountKobo: number } | null> {
+  return safe("GET", `/v1/qr-payments/validate?ref=${qrReference}&merchantId=${merchantId}`);
+}
+
+// ─── Wave 124 — POS Terminals bridge ─────────────────────────────────────────
+export async function registerPosTerminalViaMiddleware(terminal: {
+  serialNumber: string; model: string; merchantId: string; locationId?: string;
+}): Promise<{ terminalId: string; activationCode: string; status: string } | null> {
+  return safe("POST", "/v1/pos/register", terminal);
+}
+
+export async function sendPosTerminalCommandViaMiddleware(
+  terminalId: string,
+  command: "reboot" | "update_firmware" | "print_test" | "lock" | "unlock"
+): Promise<{ acknowledged: boolean; commandId: string } | null> {
+  return safe("POST", `/v1/pos/${terminalId}/command`, { command });
+}
+
+// ─── Wave 124 — Referrals bridge ─────────────────────────────────────────────
+export async function processReferralRewardViaMiddleware(referral: {
+  referrerId: string; referredId: string; rewardType: string; rewardAmountKobo: number;
+}): Promise<{ processed: boolean; rewardId: string } | null> {
+  return safe("POST", "/v1/referrals/process-reward", referral);
+}
+
+// ─── Wave 124 — USSD Sessions bridge ─────────────────────────────────────────
+export async function terminateUssdSessionViaMiddleware(
+  sessionId: string, reason: string
+): Promise<{ terminated: boolean } | null> {
+  return safe("POST", `/v1/ussd/sessions/${sessionId}/terminate`, { reason });
+}
+
+export async function getUssdSessionMetricsViaMiddleware(
+  merchantId: string, dateRange: { from: string; to: string }
+): Promise<{ totalSessions: number; completedSessions: number; avgDurationSecs: number } | null> {
+  return safe("GET", `/v1/ussd/metrics?merchantId=${merchantId}&from=${dateRange.from}&to=${dateRange.to}`);
+}
+
+// ─── Wave 124 — Purchase Orders bridge ───────────────────────────────────────
+export async function approvePurchaseOrderViaMiddleware(
+  orderId: string, approverId: string, notes?: string
+): Promise<{ approved: boolean; workflowId: string } | null> {
+  return safe("POST", `/v1/purchase-orders/${orderId}/approve`, { approverId, notes });
+}
+
+export async function rejectPurchaseOrderViaMiddleware(
+  orderId: string, approverId: string, reason: string
+): Promise<{ rejected: boolean } | null> {
+  return safe("POST", `/v1/purchase-orders/${orderId}/reject`, { approverId, reason });
+}
+
+// ─── Wave 124 — Insurance Policies bridge ────────────────────────────────────
+export async function submitInsuranceClaimViaMiddleware(claim: {
+  policyId: string; claimType: string; claimAmountKobo: number;
+  description: string; merchantId: string;
+}): Promise<{ claimId: string; status: string; estimatedResolutionDate: string } | null> {
+  return safe("POST", "/v1/insurance/claims/submit", claim);
+}
+
+// ─── Wave 124 — Loan Repayments bridge ───────────────────────────────────────
+export async function processLoanRepaymentViaMiddleware(repayment: {
+  loanId: string; amountKobo: number; currency: string;
+  paymentMethod: string; merchantId: string;
+}): Promise<{ repaymentId: string; remainingBalance: number; status: string } | null> {
+  return safe("POST", "/v1/loans/repayments/process", repayment);
+}

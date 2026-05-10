@@ -378,6 +378,9 @@ const LoyaltyRedemptionPage = lz(() => import("./pages/LoyaltyRedemption"));
 const AIModelAdminPage = lz(() => import("./pages/AIModelAdmin"));
 const MenuManagementPage = lz(() => import("./pages/MenuManagement"));
 const PortalHealthDashboardPage = lz(() => import("./pages/PortalHealthDashboard"));
+// Wave 124
+const BillPaymentsPage = lz(() => import("./pages/BillPayments"));
+const CarbonCreditsPage = lz(() => import("./pages/CarbonCredits"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -775,6 +778,9 @@ function Router() {
           <Route path="/ai-model-admin" component={AIModelAdminPage} />
           <Route path="/menu-management" component={MenuManagementPage} />
           <Route path="/portal-health" component={PortalHealthDashboardPage} />
+          {/* Wave 124 */}
+          <Route path="/bill-payments" component={BillPaymentsPage} />
+          <Route path="/carbon-credits" component={CarbonCreditsPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
