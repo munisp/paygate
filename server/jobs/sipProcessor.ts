@@ -43,13 +43,41 @@ export interface SIPProcessorResult {
 
 // ─── Gold Price Oracle ────────────────────────────────────────────────────────
 
-const GOLD_PRICE_NGN_PER_GRAM = 98_500; // Updated daily from market data
+let _cachedGoldPriceNGN: number = 98_500; // Updated by fetchAndCacheGoldPrice()
+let _goldPriceLastFetched = 0;
+const GOLD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetch live gold price from the middleware bridge or metals-api.
+ * Falls back to the last known cached value (never returns a random number).
+ */
+export async function fetchAndCacheGoldPrice(): Promise<number> {
+  const now = Date.now();
+  if (now - _goldPriceLastFetched < GOLD_CACHE_TTL_MS) return _cachedGoldPriceNGN;
+  try {
+    const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL;
+    if (bridgeUrl) {
+      const res = await fetch(`${bridgeUrl}/market/gold-price-ngn`, {
+        headers: { "x-internal-key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "" },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json() as { priceNgnPerGram?: number };
+        if (data?.priceNgnPerGram && data.priceNgnPerGram > 0) {
+          _cachedGoldPriceNGN = data.priceNgnPerGram;
+          _goldPriceLastFetched = now;
+        }
+      }
+    }
+  } catch {
+    // Network error — keep last cached value
+  }
+  return _cachedGoldPriceNGN;
+}
 
 export function getGoldPriceNGN(): number {
-  // In production: fetch from market data API or middleware
-  // For now: use a realistic static price with small random variation
-  const variation = (Math.random() - 0.5) * 1000; // ±₦500 variation
-  return Math.round(GOLD_PRICE_NGN_PER_GRAM + variation);
+  // Returns the last cached price; call fetchAndCacheGoldPrice() before use
+  return _cachedGoldPriceNGN;
 }
 
 // ─── SIP Due Date Calculator ──────────────────────────────────────────────────

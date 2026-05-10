@@ -5,6 +5,7 @@ import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } f
 import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
 import { billingRouter, billingExtRouter } from "./routers/billing";
+import { crud119Router } from "./routers/crud119";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -7740,6 +7741,8 @@ export const appRouter = router({
   billing: billingRouter,
   // Wave 117 — Billing Engine extensions (tier provisioning, analytics, time series)
   billingExt: billingExtRouter,
+  // Wave 119 — Comprehensive CRUD for all 59 uncovered tables
+  crud: crud119Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

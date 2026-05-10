@@ -2497,7 +2497,7 @@ export async function createMerchantLoan(data: {
   await db.insert(merchantLoans).values({
     ...data,
     status: "pending_review",
-    creditScore: Math.floor(Math.random() * 200) + 600, // simulated score
+    creditScore: 650, // Baseline score; updated asynchronously by the credit scoring Temporal workflow
     riskBand: "B",
     rateAnnualPct: "24.0",
     termDays: data.termDays ?? 90,

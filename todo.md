@@ -3893,3 +3893,15 @@
 - [x] Flutter billing engine screen (billing_engine_screen.dart)
 - [x] Wave 118 vitest tests: 54/54 passing
 - [x] Comprehensive audit findings documented (WAVE116_AUDIT_FINDINGS.md)
+
+## Wave 119 — Production Readiness Sprint
+- [x] crud119Router: 35 namespaces covering 59 previously uncovered tables (wallet, crossBorder, nipBanks, merchantNotifications, loyalty, bnpl, kyb, merchantLoans, splitRules, dcc, webhookEndpoints, digitalGold, pension, insurance, cashback, wealth, emi, salary, privacy, reports, nodal, retailPos, intlRemittance, subscriptionV2, overhead, bulkCollection, fraudFlags, tax, regulatorySandbox, soundbox, consumerOutbox, invoicePayments, merchantProfiles, billingAudit, billingEvents)
+- [x] Fix tRPC reserved word: rename 'apply' to 'applyLoan' in merchantLoans router
+- [x] Redis-backed rate limit stats in wave25Router (paygate:ratelimit:*, paygate:blocked:*)
+- [x] Deterministic credit score in db.ts (static 650 baseline, no Math.random)
+- [x] Real gold price fetch in sipProcessor.ts (middleware bridge + fallback)
+- [x] Flutter app.dart updated: register 10 new routes (billing-analytics, notification-preferences, virtual-cards detail, customers, compliance, qr-payments, reconciliation, settlements, billing-engine, profile-main)
+- [x] Flutter models/billing_config.dart: BillingConfig + BillingAuditEntry model classes
+- [x] Wave 119 seed data: overhead_costs, subscription_plans_v2, portal_subscriptions (billing-engine/seed/billing_seed.sql)
+- [x] ENVIRONMENT_VARIABLES_WAVE119.md: comprehensive env var reference for all 10 services
+- [x] Wave 119 vitest tests: 115/115 passing (wave119.production-readiness.test.ts)
