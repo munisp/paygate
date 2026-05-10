@@ -3905,3 +3905,36 @@
 - [x] Wave 119 seed data: overhead_costs, subscription_plans_v2, portal_subscriptions (billing-engine/seed/billing_seed.sql)
 - [x] ENVIRONMENT_VARIABLES_WAVE119.md: comprehensive env var reference for all 10 services
 - [x] Wave 119 vitest tests: 115/115 passing (wave119.production-readiness.test.ts)
+
+## Wave 120 — Comprehensive Production Readiness Sprint
+- [ ] crud120Router: CRUD procedures for all 98 remaining uncovered tables
+- [ ] Security hardening: expand PBAC to all financial routers, ransomware/DDoS mitigations
+- [ ] Resilience: WebSocket reconnect, offline queue, low-bandwidth optimizations
+- [ ] Flutter: wire notification_preferences_screen.dart to real API
+- [ ] Flutter: wire virtual_cards_full_screen.dart to real API
+- [ ] Flutter: wire profile/profile_screen.dart to real API
+- [ ] Middleware: wire OpenSearch audit log viewer in PWA
+- [ ] Middleware: wire Temporal workflow status in PWA
+- [ ] Middleware: wire Kafka event stream in PWA
+- [ ] Seed data: cover all 98 new tables
+- [ ] Docker Compose: add OpenSearch, Keycloak, Permify services
+- [ ] Wave 120 vitest tests: 100+ tests
+- [ ] Comprehensive archive with change manifest
+
+## Wave 120 — Comprehensive Production Readiness Sprint
+
+- [x] crud120Router: 35+ namespaces covering 98 previously uncovered tables
+- [x] crud120b Router: staffMgmt, insuranceClaims, supportChat, usdcV3, webhookSimV2, taxFilingV2, txReceipts, splitBillV2, tenantMgmt
+- [x] All crud120/crud120b routes registered in appRouter and verified live
+- [x] PWA pages: StaffManagement, InsuranceClaims, SupportChat, UsdcV3, WebhookSimulatorV2, TaxFilingV2, TransactionReceiptsV2, SplitBillV2
+- [x] All 8 new pages registered in App.tsx with routes
+- [x] All 8 new nav items added to Layout.tsx
+- [x] Flutter screens: staff_management, insurance_claims, support_chat, usdc_v3, webhook_sim_v2, tax_filing_v2, transaction_receipts, split_bill_v2
+- [x] Flutter app.dart updated with all Wave 120 routes
+- [x] React Native screens: StaffManagementScreen, InsuranceClaimsScreen, SupportChatScreen, UsdcV3Screen, WebhookSimV2Screen, TaxFilingV2Screen, TransactionReceiptsScreen, SplitBillV2Screen
+- [x] security120.ts: PBAC, DDoS burst-window detection, magic bytes file validation, offline JWT grace period, OpenAppSec WAF integration, SQL injection detection, audit trail helpers
+- [x] middlewareBridge.ts: 30 new Wave 120 bridge functions for all 9 new feature domains
+- [x] docker/docker-compose.wave120.yml: 8 new microservices + OpenAppSec WAF
+- [x] billing-engine/seed/billing_seed.sql: Wave 120 seed data
+- [x] docs/ENVIRONMENT_VARIABLES_WAVE120.md: comprehensive env var documentation
+- [x] 82/82 Wave 120 tests passing

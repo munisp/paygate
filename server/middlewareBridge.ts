@@ -1190,3 +1190,134 @@ export async function pushSuperAppUpdateViaMiddleware(merchantId: string, versio
 export async function bridgeFetch(path: string, method: "GET" | "POST" | "PUT" | "DELETE", body?: unknown): Promise<unknown> {
   return safe<unknown>(method, path, body);
 }
+
+// ─── Wave 120 — Staff Management middleware ───────────────────────────────────
+export async function createStaffMemberViaMiddleware(merchantId: string, name: string, role: string, department: string, phone: string): Promise<{ memberId: string; status: string; employeeId: string } | null> {
+  return safe("POST", "/staff/members", { merchantId, name, role, department, phone });
+}
+export async function clockInStaffViaMiddleware(memberId: string, location: string): Promise<{ shiftId: string; clockIn: string } | null> {
+  return safe("POST", "/staff/clock-in", { memberId, location });
+}
+export async function clockOutStaffViaMiddleware(shiftId: string, location: string): Promise<{ clockOut: string; durationMinutes: number } | null> {
+  return safe("POST", "/staff/clock-out", { shiftId, location });
+}
+export async function getStaffPayrollSummaryViaMiddleware(merchantId: string, period: string): Promise<{ totalPayroll: number; headcount: number; avgHours: number } | null> {
+  return safe("GET", `/staff/payroll-summary?merchantId=${merchantId}&period=${period}`);
+}
+
+// ─── Wave 120 — Insurance Claims middleware ───────────────────────────────────
+export async function submitInsuranceClaimViaMiddleware(policyId: string, claimType: string, amount: number, description: string, documents: string[]): Promise<{ claimId: string; status: string; caseNumber: string } | null> {
+  return safe("POST", "/insurance/claims/submit", { policyId, claimType, amount, description, documents });
+}
+export async function getInsuranceClaimStatusViaMiddleware(claimId: string): Promise<{ status: string; assessedAmount: number; payoutDate: string | null } | null> {
+  return safe("GET", `/insurance/claims/${claimId}/status`);
+}
+export async function approveInsuranceClaimViaMiddleware(claimId: string, approvedAmount: number, notes: string): Promise<{ success: boolean; payoutScheduled: string } | null> {
+  return safe("POST", `/insurance/claims/${claimId}/approve`, { approvedAmount, notes });
+}
+
+// ─── Wave 120 — Support Chat middleware ──────────────────────────────────────
+export async function createSupportSessionViaMiddleware(merchantId: string, subject: string, priority: string): Promise<{ sessionId: string; agentId: string; estimatedWait: number } | null> {
+  return safe("POST", "/support/sessions", { merchantId, subject, priority });
+}
+export async function sendSupportMessageViaMiddleware(sessionId: string, senderId: string, message: string, attachments: string[]): Promise<{ messageId: string; deliveredAt: string } | null> {
+  return safe("POST", `/support/sessions/${sessionId}/messages`, { senderId, message, attachments });
+}
+export async function escalateSupportSessionViaMiddleware(sessionId: string, reason: string, targetTeam: string): Promise<{ success: boolean; newAgentId: string } | null> {
+  return safe("POST", `/support/sessions/${sessionId}/escalate`, { reason, targetTeam });
+}
+export async function closeSupportSessionViaMiddleware(sessionId: string, resolution: string, rating: number): Promise<{ success: boolean; closedAt: string } | null> {
+  return safe("POST", `/support/sessions/${sessionId}/close`, { resolution, rating });
+}
+
+// ─── Wave 120 — USDC V3 middleware ────────────────────────────────────────────
+export async function initiateUSDCTransferViaMiddleware(merchantId: string, amount: number, recipientAddress: string, network: string, memo: string): Promise<{ txHash: string; status: string; estimatedConfirmation: string } | null> {
+  return safe("POST", "/usdc/v3/transfer", { merchantId, amount, recipientAddress, network, memo });
+}
+export async function getUSDCWalletBalanceViaMiddleware(merchantId: string, network: string): Promise<{ balance: number; pendingInbound: number; pendingOutbound: number } | null> {
+  return safe("GET", `/usdc/v3/balance?merchantId=${merchantId}&network=${network}`);
+}
+export async function getUSDCTransactionStatusViaMiddleware(txHash: string): Promise<{ status: string; confirmations: number; blockNumber: number } | null> {
+  return safe("GET", `/usdc/v3/tx/${txHash}`);
+}
+export async function convertUSDCToFiatViaMiddleware(merchantId: string, amount: number, targetCurrency: string): Promise<{ convertedAmount: number; rate: number; fee: number; settlementTime: string } | null> {
+  return safe("POST", "/usdc/v3/convert", { merchantId, amount, targetCurrency });
+}
+
+// ─── Wave 120 — Tax Filing V2 middleware ─────────────────────────────────────
+export async function submitTaxFilingViaMiddleware(merchantId: string, taxType: string, period: string, taxableAmount: number, taxAmount: number, documents: string[]): Promise<{ filingId: string; referenceNumber: string; submittedAt: string } | null> {
+  return safe("POST", "/tax/v2/file", { merchantId, taxType, period, taxableAmount, taxAmount, documents });
+}
+export async function getTaxFilingStatusViaMiddleware(filingId: string): Promise<{ status: string; assessedAmount: number | null; penaltyAmount: number | null } | null> {
+  return safe("GET", `/tax/v2/filings/${filingId}/status`);
+}
+export async function getTaxSummaryViaMiddleware(merchantId: string, year: number): Promise<{ totalTaxPaid: number; pendingFilings: number; nextDeadline: string } | null> {
+  return safe("GET", `/tax/v2/summary?merchantId=${merchantId}&year=${year}`);
+}
+
+// ─── Wave 120 — Split Bill V2 middleware ─────────────────────────────────────
+export async function createSplitBillSessionViaMiddleware(merchantId: string, title: string, totalAmount: number, participants: { userId: string; share: number }[]): Promise<{ sessionId: string; paymentLinks: Record<string, string> } | null> {
+  return safe("POST", "/split-bill/v2/sessions", { merchantId, title, totalAmount, participants });
+}
+export async function recordSplitBillPaymentViaMiddleware(sessionId: string, participantId: string, amount: number, paymentMethod: string): Promise<{ success: boolean; remainingBalance: number; allPaid: boolean } | null> {
+  return safe("POST", `/split-bill/v2/sessions/${sessionId}/pay`, { participantId, amount, paymentMethod });
+}
+export async function settleSplitBillSessionViaMiddleware(sessionId: string): Promise<{ success: boolean; settledAt: string; totalCollected: number } | null> {
+  return safe("POST", `/split-bill/v2/sessions/${sessionId}/settle`, {});
+}
+
+// ─── Wave 120 — Webhook Simulator V2 middleware ───────────────────────────────
+export async function simulateWebhookEventViaMiddleware(merchantId: string, eventType: string, payload: Record<string, unknown>, targetUrl: string): Promise<{ simulationId: string; status: string; responseCode: number; latencyMs: number } | null> {
+  return safe("POST", "/webhook-sim/v2/simulate", { merchantId, eventType, payload, targetUrl });
+}
+export async function getWebhookSimulationLogsViaMiddleware(merchantId: string, limit: number): Promise<{ logs: unknown[]; total: number } | null> {
+  return safe("GET", `/webhook-sim/v2/logs?merchantId=${merchantId}&limit=${limit}`);
+}
+export async function replayWebhookEventViaMiddleware(simulationId: string): Promise<{ success: boolean; newSimulationId: string } | null> {
+  return safe("POST", `/webhook-sim/v2/replay/${simulationId}`, {});
+}
+
+// ─── Wave 120 — Tenant Management middleware ─────────────────────────────────
+export async function provisionTenantViaMiddleware(tenantName: string, plan: string, adminEmail: string, region: string): Promise<{ tenantId: string; status: string; adminPortalUrl: string } | null> {
+  return safe("POST", "/tenants/provision", { tenantName, plan, adminEmail, region });
+}
+export async function suspendTenantViaMiddleware(tenantId: string, reason: string): Promise<{ success: boolean; suspendedAt: string } | null> {
+  return safe("POST", `/tenants/${tenantId}/suspend`, { reason });
+}
+export async function getTenantUsageViaMiddleware(tenantId: string): Promise<{ apiCalls: number; storage: number; activeUsers: number; monthlySpend: number } | null> {
+  return safe("GET", `/tenants/${tenantId}/usage`);
+}
+
+// ─── Wave 120 — OpenSearch integration ───────────────────────────────────────
+export async function searchTransactionsViaOpenSearch(merchantId: string, query: string, filters: Record<string, unknown>): Promise<{ hits: unknown[]; total: number; took: number } | null> {
+  return safe("POST", "/opensearch/transactions/search", { merchantId, query, filters });
+}
+export async function indexAuditEventViaOpenSearch(event: Record<string, unknown>): Promise<{ indexed: boolean; id: string } | null> {
+  return safe("POST", "/opensearch/audit/index", event);
+}
+export async function searchAuditTrailViaOpenSearch(merchantId: string, query: string, dateRange: { from: string; to: string }): Promise<{ events: unknown[]; total: number } | null> {
+  return safe("POST", "/opensearch/audit/search", { merchantId, query, dateRange });
+}
+
+// ─── Wave 120 — TigerBeetle ledger for new accounts ─────────────────────────
+export async function createStaffFloatAccountViaMiddleware(merchantId: string, staffMemberId: string, currency: string): Promise<{ accountId: string; ledgerId: string } | null> {
+  return safe("POST", "/tigerbeetle/staff-accounts", { merchantId, staffMemberId, currency });
+}
+export async function createInsurancePremiumAccountViaMiddleware(merchantId: string, policyId: string, currency: string): Promise<{ accountId: string; ledgerId: string } | null> {
+  return safe("POST", "/tigerbeetle/insurance-accounts", { merchantId, policyId, currency });
+}
+export async function createUSDCCustodyAccountViaMiddleware(merchantId: string, network: string): Promise<{ accountId: string; walletAddress: string } | null> {
+  return safe("POST", "/tigerbeetle/usdc-accounts", { merchantId, network });
+}
+
+// ─── Wave 120 — Lakehouse compliance events ───────────────────────────────────
+export async function writeLakehouseComplianceEventViaMiddleware(event: {
+  eventType: string; merchantId: string; userId?: string;
+  resource: string; action: string; outcome: string;
+  metadata: Record<string, unknown>;
+}): Promise<{ written: boolean; eventId: string } | null> {
+  return safe("POST", "/lakehouse/compliance/events", event);
+}
+export async function queryLakehouseComplianceViaMiddleware(merchantId: string, filters: Record<string, unknown>): Promise<{ events: unknown[]; total: number } | null> {
+  return safe("POST", "/lakehouse/compliance/query", { merchantId, filters });
+}

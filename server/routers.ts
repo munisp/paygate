@@ -6,6 +6,8 @@ import { logger } from './logger';
 import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ during tsx hot-reload
 import { billingRouter, billingExtRouter } from "./routers/billing";
 import { crud119Router } from "./routers/crud119";
+import { crud120Router } from "./routers/crud120";
+import { splitBillRouter as splitBillV2Router, staffRouter as staffMgmtRouter, stripeSubscriptionsRouter, superAgentV2Router as superAgentV2MgmtRouter, supportRouter as supportChatRouter, taxFilingRouter as taxFilingV2Router, tenantMgmtRouter, transactionReceiptsRouter as txReceiptsRouter, usdcRouter as usdcV3Router, insuranceClaimsRouter, webhookSimulatorRouter as webhookSimV2Router } from "./routers/crud120b";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -7743,6 +7745,18 @@ export const appRouter = router({
   billingExt: billingExtRouter,
   // Wave 119 — Comprehensive CRUD for all 59 uncovered tables
   crud: crud119Router,
+  crud120: crud120Router,
+  splitBillV2: splitBillV2Router,
+  staffMgmt: staffMgmtRouter,
+  stripeSubscriptions: stripeSubscriptionsRouter,
+  superAgentV2Mgmt: superAgentV2MgmtRouter,
+  supportChat: supportChatRouter,
+  taxFilingV2: taxFilingV2Router,
+  tenantMgmt: tenantMgmtRouter,
+  txReceipts: txReceiptsRouter,
+  usdcV3: usdcV3Router,
+  insuranceClaims: insuranceClaimsRouter,
+  webhookSimV2: webhookSimV2Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

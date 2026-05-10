@@ -229,3 +229,57 @@ UNION ALL
 SELECT 'subscription_plans_v2', COUNT(*) FROM subscription_plans_v2
 UNION ALL
 SELECT 'portal_subscriptions', COUNT(*) FROM portal_subscriptions;
+
+-- ─── Wave 120 Seed Data ───────────────────────────────────────────────────────
+
+-- Staff members seed
+INSERT IGNORE INTO staff_members (id, merchant_id, name, role, department, phone, status, hire_date, created_at) VALUES
+  ('staff-001', 'merchant-001', 'Amara Okafor', 'cashier', 'operations', '+2348012345678', 'active', '2024-01-15', NOW()),
+  ('staff-002', 'merchant-001', 'Emeka Nwosu', 'supervisor', 'operations', '+2348023456789', 'active', '2023-06-01', NOW()),
+  ('staff-003', 'merchant-001', 'Fatima Bello', 'accountant', 'finance', '+2348034567890', 'active', '2024-03-10', NOW());
+
+-- Staff shifts seed
+INSERT IGNORE INTO staff_shifts (id, staff_member_id, clock_in, clock_out, duration_minutes, location, status, created_at) VALUES
+  ('shift-001', 'staff-001', DATE_SUB(NOW(), INTERVAL 8 HOUR), DATE_SUB(NOW(), INTERVAL 0 HOUR), 480, 'Main Branch', 'completed', NOW()),
+  ('shift-002', 'staff-002', DATE_SUB(NOW(), INTERVAL 9 HOUR), DATE_SUB(NOW(), INTERVAL 1 HOUR), 480, 'Main Branch', 'completed', NOW());
+
+-- Insurance claims seed
+INSERT IGNORE INTO insurance_claims (id, merchant_id, policy_id, claim_type, amount, status, description, submitted_at, created_at) VALUES
+  ('claim-001', 'merchant-001', 'policy-001', 'fire', 500000, 'under_review', 'Equipment damaged in electrical fire', DATE_SUB(NOW(), INTERVAL 5 DAY), NOW()),
+  ('claim-002', 'merchant-001', 'policy-002', 'theft', 250000, 'approved', 'POS terminal stolen', DATE_SUB(NOW(), INTERVAL 10 DAY), NOW());
+
+-- Support sessions seed
+INSERT IGNORE INTO support_sessions (id, merchant_id, subject, priority, status, agent_id, created_at) VALUES
+  ('session-001', 'merchant-001', 'Unable to process refunds', 'high', 'resolved', 'agent-001', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+  ('session-002', 'merchant-001', 'API integration question', 'medium', 'open', 'agent-002', DATE_SUB(NOW(), INTERVAL 1 DAY));
+
+-- Support messages seed
+INSERT IGNORE INTO support_messages (id, session_id, sender_id, sender_type, message, created_at) VALUES
+  ('msg-001', 'session-001', 'merchant-001', 'merchant', 'I cannot process refunds for transactions older than 7 days', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+  ('msg-002', 'session-001', 'agent-001', 'agent', 'Refund window is configurable. I will update your settings now.', DATE_SUB(NOW(), INTERVAL 2 DAY));
+
+-- USDC wallets seed
+INSERT IGNORE INTO usdc_wallets (id, merchant_id, network, wallet_address, balance, status, created_at) VALUES
+  ('usdc-wallet-001', 'merchant-001', 'ethereum', '0x742d35Cc6634C0532925a3b844Bc454e4438f44e', 10000.00, 'active', NOW()),
+  ('usdc-wallet-002', 'merchant-001', 'polygon', '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199', 5000.00, 'active', NOW());
+
+-- Tax filing records seed
+INSERT IGNORE INTO tax_filing_records (id, merchant_id, tax_type, period, taxable_amount, tax_amount, status, reference_number, submitted_at, created_at) VALUES
+  ('tax-001', 'merchant-001', 'VAT', '2025-Q1', 5000000, 375000, 'submitted', 'FIRS-2025-001234', DATE_SUB(NOW(), INTERVAL 30 DAY), NOW()),
+  ('tax-002', 'merchant-001', 'WHT', '2025-Q1', 2000000, 100000, 'approved', 'FIRS-2025-005678', DATE_SUB(NOW(), INTERVAL 25 DAY), NOW());
+
+-- Split bill sessions seed
+INSERT IGNORE INTO split_bill_sessions (id, merchant_id, title, total_amount, currency, status, participant_count, created_at) VALUES
+  ('split-001', 'merchant-001', 'Team Lunch - April 2025', 45000, 'NGN', 'settled', 5, DATE_SUB(NOW(), INTERVAL 7 DAY)),
+  ('split-002', 'merchant-001', 'Office Supplies Q2', 120000, 'NGN', 'active', 3, DATE_SUB(NOW(), INTERVAL 1 DAY));
+
+-- Webhook simulator logs seed
+INSERT IGNORE INTO webhook_simulator_logs (id, merchant_id, event_type, target_url, payload, response_code, latency_ms, status, created_at) VALUES
+  ('wsim-001', 'merchant-001', 'payment.completed', 'https://webhook.site/test-123', '{"amount":50000,"currency":"NGN"}', 200, 145, 'success', DATE_SUB(NOW(), INTERVAL 3 DAY)),
+  ('wsim-002', 'merchant-001', 'payout.initiated', 'https://webhook.site/test-123', '{"payoutId":"po-001","amount":25000}', 404, 89, 'failed', DATE_SUB(NOW(), INTERVAL 2 DAY));
+
+-- Transaction receipts seed
+INSERT IGNORE INTO transaction_receipts (id, transaction_id, merchant_id, receipt_number, amount, currency, customer_email, customer_phone, items, issued_at, created_at) VALUES
+  ('rcpt-001', 'txn-001', 'merchant-001', 'RCP-2025-000001', 50000, 'NGN', 'customer@example.com', '+2348011111111', '[{"name":"Product A","qty":2,"price":25000}]', DATE_SUB(NOW(), INTERVAL 5 DAY), NOW()),
+  ('rcpt-002', 'txn-002', 'merchant-001', 'RCP-2025-000002', 75000, 'NGN', 'buyer@example.com', '+2348022222222', '[{"name":"Service B","qty":1,"price":75000}]', DATE_SUB(NOW(), INTERVAL 3 DAY), NOW());
+

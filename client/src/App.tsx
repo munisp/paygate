@@ -350,6 +350,16 @@ const EscrowContractsPage = lz(() => import("./pages/EscrowContracts"));
 const BillingConfigPage = lz(() => import("./pages/BillingConfig"));
 const BillingAnalyticsPage = lz(() => import("./pages/BillingAnalytics"));
 
+// ── Wave 120 new pages ──────────────────────────────────────────────────────
+const StaffManagementPage = lz(() => import("./pages/StaffManagement"));
+const InsuranceClaimsPage = lz(() => import("./pages/InsuranceClaims"));
+const SupportChatPage = lz(() => import("./pages/SupportChat"));
+const UsdcV3Page = lz(() => import("./pages/UsdcV3"));
+const WebhookSimulatorV2Page = lz(() => import("./pages/WebhookSimulatorV2"));
+const TaxFilingV2Page = lz(() => import("./pages/TaxFilingV2"));
+const TransactionReceiptsV2Page = lz(() => import("./pages/TransactionReceiptsV2"));
+const SplitBillV2Page = lz(() => import("./pages/SplitBillV2"));
+
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -721,6 +731,14 @@ function Router() {
           <Route path="/consumer/loyalty-app" component={ConsumerLoyaltyApp} />
           <Route path="/webhook-live" component={WebhookLiveStream} />
           <Route path="/admin/middleware-dashboard" component={MiddlewareDashboard} />
+          <Route path="/staff-management" component={StaffManagementPage} />
+          <Route path="/insurance-claims" component={InsuranceClaimsPage} />
+          <Route path="/support-chat" component={SupportChatPage} />
+          <Route path="/usdc-v3" component={UsdcV3Page} />
+          <Route path="/webhook-simulator-v2" component={WebhookSimulatorV2Page} />
+          <Route path="/tax-filing-v2" component={TaxFilingV2Page} />
+          <Route path="/transaction-receipts" component={TransactionReceiptsV2Page} />
+          <Route path="/split-bill-v2" component={SplitBillV2Page} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

@@ -29,6 +29,12 @@ import 'screens/reconciliation/reconciliation_screen.dart';
 import 'screens/settlements/settlements_screen.dart';
 import 'screens/billing/billing_engine_screen.dart';
 import 'screens/billing/billing_analytics_screen.dart';
+import 'screens/staff_management/staff_management_screen.dart';
+import 'screens/insurance_claims/insurance_claims_screen.dart';
+import 'screens/support_chat/support_chat_screen.dart';
+import 'screens/usdc_v3/usdc_v3_screen.dart';
+import 'screens/tax_filing_v2/tax_filing_v2_screen.dart';
+import 'screens/split_bill_v2/split_bill_v2_screen.dart';
 import 'widgets/main_shell.dart';
 
 class PayGateApp extends StatelessWidget {
@@ -74,6 +80,12 @@ class PayGateApp extends StatelessWidget {
           '/settlements': (_) => const MainShell(child: SettlementsScreen()),
           '/billing-engine': (_) => const MainShell(child: BillingEngineScreen()),
           '/billing-analytics': (_) => const MainShell(child: BillingAnalyticsScreen()),
+          '/staff-management': (_) => const MainShell(child: StaffManagementScreen()),
+          '/insurance-claims': (_) => const MainShell(child: InsuranceClaimsScreen()),
+          '/support-chat': (_) => const MainShell(child: SupportChatScreen()),
+          '/usdc-v3': (_) => const MainShell(child: UsdcV3Screen()),
+          '/tax-filing-v2': (_) => const MainShell(child: TaxFilingV2Screen()),
+          '/split-bill-v2': (_) => const MainShell(child: SplitBillV2Screen()),
         },
         onGenerateRoute: (settings) {
           if (settings.name?.startsWith('/transaction/') == true) {
