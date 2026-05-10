@@ -3882,3 +3882,14 @@
 - [x] Billing tier selector: Starter/Growth/Enterprise with fee rates and splits
 - [x] Billing tier shown in Review section of onboarding wizard
 - [x] 24 Wave 117 vitest tests passing (pipeline, tier provisioning, analytics, time series, EBITDA)
+
+## Wave 118 — Production Readiness Sprint
+- [x] Write all 15 missing React Native screens (compliance, fx, reconciliation, customers, billing_config_list, bnpl, cross-border, fraud-risk, payment-links, qr-payments, settlements, virtual-cards-full, webhooks, auth_login, dashboard)
+- [x] Fix billing.ts overheadCosts alias (billingOverheadCosts → overheadCosts: billingOverheadCosts)
+- [x] Security116 PBAC enforcement wired into billing router
+- [x] Billing analytics procedures (getAnalytics, getRevenueTimeSeries, provisionBillingTier)
+- [x] Docker Compose + Dockerfiles for all 5 billing engine services
+- [x] Billing seed SQL and smoke test script
+- [x] Flutter billing engine screen (billing_engine_screen.dart)
+- [x] Wave 118 vitest tests: 54/54 passing
+- [x] Comprehensive audit findings documented (WAVE116_AUDIT_FINDINGS.md)

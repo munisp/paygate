@@ -612,7 +612,7 @@ export const billingExtRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       assertBillingAdmin(ctx.user.role);
-      const { billingEvents, billingOverheadCosts } = await import("../../drizzle/schema");
+      const { billingEvents, overheadCosts: billingOverheadCosts } = await import("../../drizzle/schema");
       const { sql, eq, and, gte, lte } = await import("drizzle-orm");
       const db = await requireDb();
 
