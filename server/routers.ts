@@ -8,6 +8,7 @@ import { billingRouter, billingExtRouter } from "./routers/billing";
 import { crud119Router } from "./routers/crud119";
 import { crud120Router } from "./routers/crud120";
 import { splitBillRouter as splitBillV2Router, staffRouter as staffMgmtRouter, stripeSubscriptionsRouter, superAgentV2Router as superAgentV2MgmtRouter, supportRouter as supportChatRouter, taxFilingRouter as taxFilingV2Router, tenantMgmtRouter, transactionReceiptsRouter as txReceiptsRouter, usdcRouter as usdcV3Router, insuranceClaimsRouter, webhookSimulatorRouter as webhookSimV2Router } from "./routers/crud120b";
+import { feeSchedulesRouter, chargebackMgmtRouter, fraudRulesRouter, kybMgmtRouter, invoiceFinV2Router, loyaltyV3Router, openSearchAuditRouter, tenantProvisionRouter } from "./routers/wave121";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -7757,6 +7758,15 @@ export const appRouter = router({
   usdcV3: usdcV3Router,
   insuranceClaims: insuranceClaimsRouter,
   webhookSimV2: webhookSimV2Router,
+  // Wave 121 — Fee Schedules, Chargebacks, Fraud Rules, KYB, Invoice Financing V2, Loyalty V3, OpenSearch Audit, Tenant Provisioning
+  feeSchedules: feeSchedulesRouter,
+  chargebackMgmt: chargebackMgmtRouter,
+  fraudRules: fraudRulesRouter,
+  kybMgmt: kybMgmtRouter,
+  invoiceFinV2: invoiceFinV2Router,
+  loyaltyV3: loyaltyV3Router,
+  openSearchAudit: openSearchAuditRouter,
+  tenantProvision: tenantProvisionRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

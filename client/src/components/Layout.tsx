@@ -150,6 +150,9 @@ const navGroups: NavGroup[] = [
       { icon: AlertTriangle, label: "Disputes", path: "/disputes" },
       { icon: AlertOctagon, label: "Dispute Automation", path: "/dispute-automation" },
       { icon: ShieldCheck, label: "Chargeback Auto", path: "/chargeback-automation" },
+      { icon: ShieldAlert, label: "Chargeback Cases", path: "/chargeback-cases", badge: "New" },
+      { icon: ShieldAlert, label: "Fraud Rules", path: "/fraud-rules", badge: "New" },
+      { icon: DollarSign, label: "Fee Schedules", path: "/fee-schedules", badge: "New" },
     ],
   },
   {
@@ -168,6 +171,7 @@ const navGroups: NavGroup[] = [
       { icon: Scale, label: "Regulatory Reporting", path: "/regulatory-reporting", badge: "New" },
       { icon: FlaskConical, label: "Reg Sandbox", path: "/regulatory-sandbox" },
       { icon: ScrollText, label: "Audit Log", path: "/audit-log" },
+      { icon: Building2, label: "KYB Verifications", path: "/kyb-verifications", badge: "New" },
     ],
   },
   {
@@ -178,6 +182,7 @@ const navGroups: NavGroup[] = [
       { icon: Landmark, label: "Merchant Lending v2", path: "/merchant-lending" },
       { icon: FilePlus2, label: "Invoice Builder", path: "/invoice-builder" },
       { icon: FilePlus2, label: "Invoice Financing V2", path: "/invoice-financing-v2", badge: "New" },
+      { icon: FilePlus2, label: "Invoice Financing", path: "/invoice-financing", badge: "New" },
       { icon: Shield, label: "Escrow", path: "/escrow" },
       { icon: Shield, label: "Escrow V2", path: "/escrow-v2", badge: "New" },
       { icon: Shield, label: "Escrow Contracts", path: "/escrow-contracts", badge: "New" },
@@ -316,6 +321,7 @@ const navGroups: NavGroup[] = [
       { icon: Building2, label: "Partner Onboarding", path: "/admin/partner-onboarding", badge: "Admin" },
       { icon: Building2, label: "Partner Admin", path: "/partner/admin", badge: "Admin" },
       { icon: Palette, label: "Tenant Branding", path: "/tenant/branding", badge: "Admin" },
+      { icon: Rocket, label: "Tenant Provisioning", path: "/admin/tenant-provisioning", badge: "New" },
       { icon: Globe, label: "FX Corridors", path: "/admin/corridors", badge: "Admin" },
       { icon: DollarSign, label: "Plan Limits", path: "/admin/plan-limits", badge: "Admin" },
       { icon: FileText, label: "Billing Invoices", path: "/admin/billing-invoices", badge: "Admin" },

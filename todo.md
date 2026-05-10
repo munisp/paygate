@@ -3938,3 +3938,24 @@
 - [x] billing-engine/seed/billing_seed.sql: Wave 120 seed data
 - [x] docs/ENVIRONMENT_VARIABLES_WAVE120.md: comprehensive env var documentation
 - [x] 82/82 Wave 120 tests passing
+
+## Wave 121 — Suggested Next Steps Implementation
+
+- [x] Audit existing crud120 procedures and identify 6 new UI pages needed
+- [x] Create wave121.ts router with 8 tRPC namespaces (feeSchedules, chargebackMgmt, fraudRules, kybMgmt, invoiceFinV2, loyaltyV3, tenantProvision, openSearchAudit)
+- [x] Register wave121 routers in appRouter
+- [x] Build FeeSchedules.tsx PWA page wired to feeSchedules tRPC router
+- [x] Build ChargebackCases.tsx PWA page wired to chargebackMgmt tRPC router
+- [x] Build FraudRules.tsx PWA page wired to fraudRules tRPC router
+- [x] Build KYBVerifications.tsx PWA page wired to kybMgmt tRPC router
+- [x] Build InvoiceFinancing.tsx PWA page wired to invoiceFinV2 tRPC router
+- [x] Build LoyaltyV3.tsx PWA page wired to loyaltyV3 tRPC router
+- [x] Build TenantProvisioning.tsx page with Temporal workflow multi-step wizard
+- [x] Build AuditLogViewer.tsx page with OpenSearch full-text search, date-range filters, actor search, action-type facets
+- [x] Register all 8 new pages in App.tsx with lazy loading
+- [x] Add nav items to Layout.tsx for all 8 new pages
+- [x] Add 8 Flutter parity screens for Wave 121 features
+- [x] Register Flutter Wave 121 routes in app.dart
+- [x] Add 8 React Native parity screens for Wave 121 features
+- [x] Add Wave 121 middleware bridge functions (provisionTenantViaMiddleware, searchAuditTrailViaOpenSearch)
+- [x] Write 78 Wave 121 production readiness tests — all passing

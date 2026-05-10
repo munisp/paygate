@@ -360,6 +360,16 @@ const TaxFilingV2Page = lz(() => import("./pages/TaxFilingV2"));
 const TransactionReceiptsV2Page = lz(() => import("./pages/TransactionReceiptsV2"));
 const SplitBillV2Page = lz(() => import("./pages/SplitBillV2"));
 
+// ── Wave 121 new pages ──────────────────────────────────────────────────────
+const FeeSchedulesPage = lz(() => import("./pages/FeeSchedules"));
+const ChargebackCasesPage = lz(() => import("./pages/ChargebackCases"));
+const FraudRulesPage = lz(() => import("./pages/FraudRules"));
+const KYBVerificationsPage = lz(() => import("./pages/KYBVerifications"));
+const InvoiceFinancingPage = lz(() => import("./pages/InvoiceFinancing"));
+const LoyaltyV3Page = lz(() => import("./pages/LoyaltyV3"));
+const TenantProvisioningPage = lz(() => import("./pages/TenantProvisioning"));
+const AuditLogViewerPage = lz(() => import("./pages/AuditLogViewer"));
+
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -739,6 +749,15 @@ function Router() {
           <Route path="/tax-filing-v2" component={TaxFilingV2Page} />
           <Route path="/transaction-receipts" component={TransactionReceiptsV2Page} />
           <Route path="/split-bill-v2" component={SplitBillV2Page} />
+          {/* Wave 121 routes */}
+          <Route path="/fee-schedules" component={FeeSchedulesPage} />
+          <Route path="/chargeback-cases" component={ChargebackCasesPage} />
+          <Route path="/fraud-rules" component={FraudRulesPage} />
+          <Route path="/kyb-verifications" component={KYBVerificationsPage} />
+          <Route path="/invoice-financing" component={InvoiceFinancingPage} />
+          <Route path="/loyalty-v3" component={LoyaltyV3Page} />
+          <Route path="/admin/tenant-provisioning" component={TenantProvisioningPage} />
+          <Route path="/audit-log" component={AuditLogViewerPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

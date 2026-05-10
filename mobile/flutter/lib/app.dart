@@ -35,6 +35,15 @@ import 'screens/support_chat/support_chat_screen.dart';
 import 'screens/usdc_v3/usdc_v3_screen.dart';
 import 'screens/tax_filing_v2/tax_filing_v2_screen.dart';
 import 'screens/split_bill_v2/split_bill_v2_screen.dart';
+// Wave 121 imports
+import 'screens/fee_schedules/fee_schedules_screen.dart';
+import 'screens/chargeback_cases/chargeback_cases_screen.dart';
+import 'screens/fraud_rules/fraud_rules_screen.dart';
+import 'screens/kyb_verifications/kyb_verifications_screen.dart';
+import 'screens/invoice_financing/invoice_financing_screen.dart';
+import 'screens/loyalty_v3/loyalty_v3_screen.dart';
+import 'screens/tenant_provisioning/tenant_provisioning_screen.dart';
+import 'screens/audit_log_viewer/audit_log_viewer_screen.dart';
 import 'widgets/main_shell.dart';
 
 class PayGateApp extends StatelessWidget {
@@ -86,6 +95,15 @@ class PayGateApp extends StatelessWidget {
           '/usdc-v3': (_) => const MainShell(child: UsdcV3Screen()),
           '/tax-filing-v2': (_) => const MainShell(child: TaxFilingV2Screen()),
           '/split-bill-v2': (_) => const MainShell(child: SplitBillV2Screen()),
+          // Wave 121 routes
+          '/fee-schedules': (_) => const MainShell(child: FeeSchedulesScreen()),
+          '/chargeback-cases': (_) => const MainShell(child: ChargebackCasesScreen()),
+          '/fraud-rules': (_) => const MainShell(child: FraudRulesScreen()),
+          '/kyb-verifications': (_) => const MainShell(child: KybVerificationsScreen()),
+          '/invoice-financing': (_) => const MainShell(child: InvoiceFinancingScreen()),
+          '/loyalty-v3': (_) => const MainShell(child: LoyaltyV3Screen()),
+          '/tenant-provisioning': (_) => const MainShell(child: TenantProvisioningScreen()),
+          '/audit-log': (_) => const MainShell(child: AuditLogViewerScreen()),
         },
         onGenerateRoute: (settings) {
           if (settings.name?.startsWith('/transaction/') == true) {

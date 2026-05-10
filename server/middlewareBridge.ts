@@ -1251,9 +1251,7 @@ export async function submitTaxFilingViaMiddleware(merchantId: string, taxType: 
 export async function getTaxFilingStatusViaMiddleware(filingId: string): Promise<{ status: string; assessedAmount: number | null; penaltyAmount: number | null } | null> {
   return safe("GET", `/tax/v2/filings/${filingId}/status`);
 }
-export async function getTaxSummaryViaMiddleware(merchantId: string, year: number): Promise<{ totalTaxPaid: number; pendingFilings: number; nextDeadline: string } | null> {
-  return safe("GET", `/tax/v2/summary?merchantId=${merchantId}&year=${year}`);
-}
+// Note: getTaxSummaryViaMiddleware already exported above (original signature at line 777)
 
 // ─── Wave 120 — Split Bill V2 middleware ─────────────────────────────────────
 export async function createSplitBillSessionViaMiddleware(merchantId: string, title: string, totalAmount: number, participants: { userId: string; share: number }[]): Promise<{ sessionId: string; paymentLinks: Record<string, string> } | null> {
