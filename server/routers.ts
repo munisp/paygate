@@ -10,6 +10,7 @@ import { crud120Router } from "./routers/crud120";
 import { splitBillRouter as splitBillV2Router, staffRouter as staffMgmtRouter, stripeSubscriptionsRouter, superAgentV2Router as superAgentV2MgmtRouter, supportRouter as supportChatRouter, taxFilingRouter as taxFilingV2Router, tenantMgmtRouter, transactionReceiptsRouter as txReceiptsRouter, usdcRouter as usdcV3Router, insuranceClaimsRouter, webhookSimulatorRouter as webhookSimV2Router } from "./routers/crud120b";
 import { feeSchedulesRouter, chargebackMgmtRouter, fraudRulesRouter, kybMgmtRouter, invoiceFinV2Router, loyaltyV3Router, openSearchAuditRouter, tenantProvisionRouter } from "./routers/wave121";
 import { fraudRuleEngineRouter, kybDocUploadRouter, loyaltyRedemptionRouter } from "./routers/wave122";
+import { aiModelAdminRouter, menuMgmtRouter, portalHealthRouter } from "./routers/wave123";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -7772,6 +7773,10 @@ export const appRouter = router({
   fraudRuleEngine: fraudRuleEngineRouter,
   kybDocUpload: kybDocUploadRouter,
   loyaltyRedemption: loyaltyRedemptionRouter,
+  // Wave 123
+  aiModelAdmin: aiModelAdminRouter,
+  menuMgmt: menuMgmtRouter,
+  portalHealth: portalHealthRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

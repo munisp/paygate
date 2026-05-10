@@ -3976,3 +3976,25 @@
 - [x] Flutter app.dart: fraud-rule-engine, kyb-document-upload, loyalty-redemption routes registered
 - [x] middlewareBridge.ts: publishKafkaEventViaMiddleware added
 - [x] Wave 122 tests: 59/59 passing
+## Wave 123 — AI Model Admin, Menu Management, Portal Health
+- [x] wave123.ts router: aiModelAdminRouter (listModels, getModel, registerModel, updateModelStatus, deleteModel, listAuditTrail, overrideDecision, listTrainingJobs, cancelTrainingJob, getModelStats, getHealthStatus, getGoLiveChecklist, getRateLimitDashboard, getDependencyGraph, runHealthCheck)
+- [x] wave123.ts router: menuMgmtRouter (listCategories, createCategory, updateCategory, deleteCategory, listItems, createItem, updateItem, deleteItem, toggleItemAvailability, bulkUpdateAvailability, getMenuStats, getPublicMenuV2)
+- [x] wave123.ts router: portalHealthRouter (getHealthStatus, getGoLiveChecklist, getRateLimitDashboard, getDependencyGraph, runHealthCheck, getSystemHealth, getRateLimitStats, getDependencyMap, getErrorSummary)
+- [x] wave123 routers registered in appRouter (aiModelAdmin, menuMgmt, portalHealth)
+- [x] PWA page: AIModelAdmin.tsx — model registry, audit trail, GNN training jobs, register model dialog
+- [x] PWA page: MenuManagement.tsx — category CRUD, item CRUD, bulk availability toggle, price in kobo
+- [x] PWA page: PortalHealthDashboard.tsx — health status, go-live checklist, rate limit dashboard, dependency graph
+- [x] App.tsx: ai-model-admin, menu-management, portal-health-dashboard routes registered
+- [x] Layout.tsx: nav items added for all 3 new Wave 123 pages
+- [x] React Native: PayrollScreen.tsx — wired to payroll tRPC namespace
+- [x] React Native: TeamRolesScreen.tsx — wired to team tRPC namespace
+- [x] React Native: MobileMoneyReconScreen.tsx — wired to mobileMoneyRecon tRPC namespace
+- [x] React Native: FXDashboardScreen.tsx — wired to fx tRPC namespace
+- [x] React Native: CheckoutScreen.tsx — wired to paymentLinks tRPC namespace
+- [x] AppNavigator.tsx: all 5 new RN screens registered in RootStackParamList
+- [x] security123.ts: PBAC for aiModelAdmin, menuMgmt, portalHealth namespaces
+- [x] middlewareBridge.ts: 7 Wave 123 bridge functions (syncAiModelToRegistry, triggerGnnTrainingJob, getAiModelInferenceMetrics, invalidateMenuCache, publishMenuUpdateEvent, runExternalHealthCheck, getPortalUptimeStats)
+- [x] docker-compose.wave123.yml: MLflow, MinIO, Feast, Uptime Kuma, OTel Collector, GNN worker services
+- [x] scripts/seed-wave123.sql: seed data for ai_model_registry, ai_audit_trail, gnn_training_jobs, menu_categories, menu_items
+- [x] docs/ENVIRONMENT_VARIABLES_WAVE123.md: comprehensive env var documentation for all Wave 123 services
+- [x] Wave 123 tests: 125/125 passing

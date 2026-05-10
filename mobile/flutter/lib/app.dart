@@ -48,6 +48,13 @@ import 'screens/audit_log_viewer/audit_log_viewer_screen.dart';
 import 'screens/fraud_rule_engine/fraud_rule_engine_screen.dart';
 import 'screens/kyb_document_upload/kyb_document_upload_screen.dart';
 import 'screens/loyalty_redemption/loyalty_redemption_screen.dart';
+// Wave 123 imports
+import 'screens/payroll/payroll_screen.dart';
+import 'screens/fx_dashboard/fx_dashboard_screen.dart';
+import 'screens/checkout/checkout_screen.dart';
+import 'screens/api_keys/api_keys_screen.dart';
+import 'screens/team_roles/team_roles_screen.dart';
+import 'screens/mobile_money_recon/mobile_money_recon_screen.dart';
 import 'widgets/main_shell.dart';
 
 class PayGateApp extends StatelessWidget {
@@ -112,6 +119,13 @@ class PayGateApp extends StatelessWidget {
           '/fraud-rule-engine': (_) => const MainShell(child: FraudRuleEngineScreen()),
           '/kyb-document-upload': (_) => const MainShell(child: KYBDocumentUploadScreen()),
           '/loyalty-redemption': (_) => const MainShell(child: LoyaltyRedemptionScreen()),
+          // Wave 123 routes
+          '/payroll': (_) => const MainShell(child: PayrollScreen()),
+          '/fx-dashboard': (_) => const MainShell(child: FxDashboardScreen()),
+          '/checkout': (_) => const MainShell(child: CheckoutScreen()),
+          '/api-keys': (_) => const MainShell(child: ApiKeysScreen()),
+          '/team-roles': (_) => const MainShell(child: TeamRolesScreen()),
+          '/mobile-money-recon': (_) => const MainShell(child: MobileMoneyReconScreen()),
         },
         onGenerateRoute: (settings) {
           if (settings.name?.startsWith('/transaction/') == true) {

@@ -220,6 +220,10 @@ const navGroups: NavGroup[] = [
       { icon: Star, label: "Loyalty V3", path: "/loyalty-v3", badge: "New" },
       { icon: Gift, label: "Loyalty Ledger", path: "/loyalty-ledger", badge: "New" },
       { icon: Coins, label: "Loyalty Redemption", path: "/loyalty-redemption", badge: "New" },
+      // Wave 123
+      { icon: Brain, label: "AI Model Admin", path: "/ai-model-admin", badge: "New" },
+      { icon: UtensilsCrossed, label: "Menu Management", path: "/menu-management", badge: "New" },
+      { icon: Activity, label: "Portal Health", path: "/portal-health", badge: "New" },
       { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards" },
       { icon: Gem, label: "NFT Badges", path: "/nft-badges" },
       { icon: BookOpen, label: "Open Banking", path: "/open-banking" },

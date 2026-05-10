@@ -16,6 +16,11 @@ import CustomersScreen from "../screens/CustomersScreen";
 import PayoutsScreen from "../screens/PayoutsScreen";
 import AnalyticsScreen from "../screens/AnalyticsScreen";
 import APIKeysScreen from "../screens/APIKeysScreen";
+import PayrollScreen from "../screens/PayrollScreen";
+import TeamRolesScreen from "../screens/TeamRolesScreen";
+import MobileMoneyReconScreen from "../screens/MobileMoneyReconScreen";
+import FXDashboardScreen from "../screens/FXDashboardScreen";
+import CheckoutScreen from "../screens/CheckoutScreen";
 import WebhooksScreen from "../screens/WebhooksScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
@@ -33,6 +38,11 @@ export type RootStackParamList = {
   Disputes: undefined;
   VirtualCards: undefined;
   Settings: undefined;
+  Payroll: undefined;
+  TeamRoles: undefined;
+  MobileMoneyRecon: undefined;
+  FXDashboard: undefined;
+  Checkout: undefined;
 };
 
 export type MainTabParamList = {
@@ -224,6 +234,31 @@ export default function AppNavigator() {
           name="Settings"
           component={SettingsScreen}
           options={{ title: "Settings" }}
+        />
+        <Stack.Screen
+          name="Payroll"
+          component={PayrollScreen}
+          options={{ title: "Payroll" }}
+        />
+        <Stack.Screen
+          name="TeamRoles"
+          component={TeamRolesScreen}
+          options={{ title: "Team & Roles" }}
+        />
+        <Stack.Screen
+          name="MobileMoneyRecon"
+          component={MobileMoneyReconScreen}
+          options={{ title: "Mobile Money Recon" }}
+        />
+        <Stack.Screen
+          name="FXDashboard"
+          component={FXDashboardScreen}
+          options={{ title: "FX Dashboard" }}
+        />
+        <Stack.Screen
+          name="Checkout"
+          component={CheckoutScreen}
+          options={{ title: "Checkout Links" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

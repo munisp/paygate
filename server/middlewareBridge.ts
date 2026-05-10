@@ -1343,3 +1343,66 @@ export async function publishKafkaEventViaMiddleware(event: {
 
 // ─── Kafka Direct Event Publishing (Wave 122) ─────────────────────────────────
 
+
+// ─── Wave 123 — AI Model Registry sync ───────────────────────────────────────
+export async function syncAiModelToRegistryViaMiddleware(model: {
+  modelId: string;
+  name: string;
+  version: string;
+  framework: string;
+  merchantId: string;
+  status: string;
+  accuracyScore?: number;
+}): Promise<{ synced: boolean; registryId: string; endpoint?: string } | null> {
+  return safe("POST", "/v1/ai/models/register", model);
+}
+
+export async function triggerGnnTrainingJobViaMiddleware(job: {
+  jobId: string;
+  merchantId: string;
+  modelId: string;
+  datasetPath: string;
+  hyperparams?: Record<string, unknown>;
+}): Promise<{ jobId: string; status: string; estimatedDurationMs: number } | null> {
+  return safe("POST", "/v1/ai/gnn/train", job);
+}
+
+export async function getAiModelInferenceMetricsViaMiddleware(
+  modelId: string,
+  merchantId: string,
+  windowHours: number
+): Promise<{ p50Ms: number; p99Ms: number; errorRate: number; requestCount: number } | null> {
+  return safe("GET", `/v1/ai/models/${modelId}/metrics?merchantId=${merchantId}&windowHours=${windowHours}`);
+}
+
+// ─── Wave 123 — Menu Management CDN invalidation ─────────────────────────────
+export async function invalidateMenuCacheViaMiddleware(
+  merchantId: string,
+  categoryId?: string
+): Promise<{ invalidated: boolean; paths: string[] } | null> {
+  return safe("POST", "/v1/menu/cache/invalidate", { merchantId, categoryId });
+}
+
+export async function publishMenuUpdateEventViaMiddleware(event: {
+  merchantId: string;
+  action: "category.created" | "category.updated" | "category.deleted" | "item.created" | "item.updated" | "item.deleted";
+  resourceId: string;
+  payload: Record<string, unknown>;
+}): Promise<{ published: boolean; eventId: string } | null> {
+  return safe("POST", "/v1/menu/events/publish", event);
+}
+
+// ─── Wave 123 — Portal Health external checks ────────────────────────────────
+export async function runExternalHealthCheckViaMiddleware(
+  service: string,
+  endpoint: string
+): Promise<{ healthy: boolean; latencyMs: number; statusCode: number; message?: string } | null> {
+  return safe("POST", "/v1/health/external-check", { service, endpoint });
+}
+
+export async function getPortalUptimeStatsViaMiddleware(
+  merchantId: string,
+  days: number
+): Promise<{ uptimePercent: number; incidentCount: number; avgResponseMs: number } | null> {
+  return safe("GET", `/v1/health/uptime?merchantId=${merchantId}&days=${days}`);
+}

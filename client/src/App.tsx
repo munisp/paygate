@@ -374,6 +374,10 @@ const AuditLogViewerPage = lz(() => import("./pages/AuditLogViewer"));
 const FraudRuleEnginePage = lz(() => import("./pages/FraudRuleEngine"));
 const KYBDocumentUploadPage = lz(() => import("./pages/KYBDocumentUpload"));
 const LoyaltyRedemptionPage = lz(() => import("./pages/LoyaltyRedemption"));
+// Wave 123
+const AIModelAdminPage = lz(() => import("./pages/AIModelAdmin"));
+const MenuManagementPage = lz(() => import("./pages/MenuManagement"));
+const PortalHealthDashboardPage = lz(() => import("./pages/PortalHealthDashboard"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -767,6 +771,10 @@ function Router() {
           <Route path="/fraud-rule-engine" component={FraudRuleEnginePage} />
           <Route path="/kyb-document-upload" component={KYBDocumentUploadPage} />
           <Route path="/loyalty-redemption" component={LoyaltyRedemptionPage} />
+          {/* Wave 123 */}
+          <Route path="/ai-model-admin" component={AIModelAdminPage} />
+          <Route path="/menu-management" component={MenuManagementPage} />
+          <Route path="/portal-health" component={PortalHealthDashboardPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
