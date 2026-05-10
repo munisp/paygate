@@ -3959,3 +3959,20 @@
 - [x] Add 8 React Native parity screens for Wave 121 features
 - [x] Add Wave 121 middleware bridge functions (provisionTenantViaMiddleware, searchAuditTrailViaOpenSearch)
 - [x] Write 78 Wave 121 production readiness tests — all passing
+
+## Wave 122 — Fraud Rule Engine, KYB Document Upload, Loyalty V3 Redemption
+
+- [x] wave122.ts router: fraudRuleEngineRouter (list, get, create, update, delete, toggleStatus, getAlerts, getStats, simulate)
+- [x] wave122.ts router: kybDocUploadRouter (listDocuments, getUploadUrl, reviewDocument, deleteDocument, getVerificationProgress)
+- [x] wave122.ts router: loyaltyRedemptionRouter (getBalance, initiateRedemption, confirmWithPin, listRedemptions, cancelRedemption, getRedemptionStats)
+- [x] DB schema: fraudRules, kybDocuments, loyaltyV3Redemptions tables created
+- [x] PWA page: FraudRuleEngine.tsx — drag-and-drop condition builder, rule actions, enable/disable toggle
+- [x] PWA page: KYBDocumentUpload.tsx — multi-file drag-and-drop, S3 upload, document checklist, per-type verification status
+- [x] PWA page: LoyaltyRedemption.tsx — redemption modal, points balance, PIN confirmation, Kafka event trigger
+- [x] App.tsx: fraud-rule-engine, kyb-document-upload, loyalty-redemption routes registered
+- [x] Layout.tsx: nav items added to Fraud & Risk, KYB, and Loyalty sections
+- [x] Flutter: fraud_rule_engine_screen.dart, kyb_document_upload_screen.dart, loyalty_redemption_screen.dart
+- [x] React Native: FraudRuleEngineScreen.tsx, KYBDocumentUploadScreen.tsx, LoyaltyRedemptionScreen.tsx
+- [x] Flutter app.dart: fraud-rule-engine, kyb-document-upload, loyalty-redemption routes registered
+- [x] middlewareBridge.ts: publishKafkaEventViaMiddleware added
+- [x] Wave 122 tests: 59/59 passing

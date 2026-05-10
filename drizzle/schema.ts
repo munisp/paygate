@@ -4284,3 +4284,81 @@ export const billingEvents = pgTable("billing_events", {
   index("billing_event_occurred_idx").on(t.tenantId, t.occurredAt),
 ]);
 export type BillingEvent = typeof billingEvents.$inferSelect;
+
+// ─── Wave 122: Fraud Rule Engine ─────────────────────────────────────────────
+export const fraudRules = pgTable("fraud_rules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  conditionTree: text("condition_tree").notNull().default("{}"),
+  actions: text("actions").notNull().default("[]"),
+  priority: integer("priority").notNull().default(100),
+  status: text("status").notNull().default("active"),
+  hitCount: integer("hit_count").notNull().default(0),
+  lastHitAt: timestamp("last_hit_at"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("fraud_rule_merchant_idx").on(t.merchantId),
+  index("fraud_rule_status_idx").on(t.merchantId, t.status),
+]);
+export type FraudRule = typeof fraudRules.$inferSelect;
+export type InsertFraudRule = typeof fraudRules.$inferInsert;
+
+// ─── Wave 122: KYB Documents ─────────────────────────────────────────────────
+export const kybDocuments = pgTable("kyb_documents", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  verificationId: text("verification_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  documentType: text("document_type").notNull(),
+  fileName: text("file_name").notNull(),
+  fileKey: text("file_key").notNull(),
+  fileUrl: text("file_url").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSizeBytes: integer("file_size_bytes").notNull(),
+  status: text("status").notNull().default("pending"),
+  reviewNotes: text("review_notes"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  uploadedBy: text("uploaded_by").notNull(),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("kyb_doc_verification_idx").on(t.verificationId),
+  index("kyb_doc_merchant_idx").on(t.merchantId),
+]);
+export type KYBDocument = typeof kybDocuments.$inferSelect;
+export type InsertKYBDocument = typeof kybDocuments.$inferInsert;
+
+// ─── Wave 122: Loyalty V3 Redemptions ────────────────────────────────────────
+export const loyaltyV3Redemptions = pgTable("loyalty_v3_redemptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  programId: text("program_id").notNull(),
+  memberId: text("member_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  rewardTier: text("reward_tier").notNull(),
+  pointsRedeemed: integer("points_redeemed").notNull(),
+  pointsBalanceBefore: integer("points_balance_before").notNull(),
+  pointsBalanceAfter: integer("points_balance_after").notNull(),
+  nairaValue: integer("naira_value").notNull().default(0),
+  redemptionCode: text("redemption_code").notNull().unique(),
+  pinVerified: integer("pin_verified", { mode: "boolean" }).notNull().default(false),
+  kafkaEventId: text("kafka_event_id"),
+  kafkaEventStatus: text("kafka_event_status").notNull().default("pending"),
+  status: text("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at").notNull(),
+  confirmedAt: timestamp("confirmed_at"),
+  fulfilledAt: timestamp("fulfilled_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("loyalty_v3_redemption_program_idx").on(t.programId),
+  index("loyalty_v3_redemption_member_idx").on(t.memberId),
+  index("loyalty_v3_redemption_merchant_idx").on(t.merchantId),
+]);
+export type LoyaltyV3Redemption = typeof loyaltyV3Redemptions.$inferSelect;
+export type InsertLoyaltyV3Redemption = typeof loyaltyV3Redemptions.$inferInsert;

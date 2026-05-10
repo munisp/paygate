@@ -152,6 +152,7 @@ const navGroups: NavGroup[] = [
       { icon: ShieldCheck, label: "Chargeback Auto", path: "/chargeback-automation" },
       { icon: ShieldAlert, label: "Chargeback Cases", path: "/chargeback-cases", badge: "New" },
       { icon: ShieldAlert, label: "Fraud Rules", path: "/fraud-rules", badge: "New" },
+      { icon: Zap, label: "Fraud Rule Engine", path: "/fraud-rule-engine", badge: "New" },
       { icon: DollarSign, label: "Fee Schedules", path: "/fee-schedules", badge: "New" },
     ],
   },
@@ -172,6 +173,7 @@ const navGroups: NavGroup[] = [
       { icon: FlaskConical, label: "Reg Sandbox", path: "/regulatory-sandbox" },
       { icon: ScrollText, label: "Audit Log", path: "/audit-log" },
       { icon: Building2, label: "KYB Verifications", path: "/kyb-verifications", badge: "New" },
+      { icon: FileCheck, label: "KYB Doc Upload", path: "/kyb-document-upload", badge: "New" },
     ],
   },
   {
@@ -217,6 +219,7 @@ const navGroups: NavGroup[] = [
       { icon: Gift, label: "Loyalty Engine", path: "/loyalty-engine" },
       { icon: Star, label: "Loyalty V3", path: "/loyalty-v3", badge: "New" },
       { icon: Gift, label: "Loyalty Ledger", path: "/loyalty-ledger", badge: "New" },
+      { icon: Coins, label: "Loyalty Redemption", path: "/loyalty-redemption", badge: "New" },
       { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards" },
       { icon: Gem, label: "NFT Badges", path: "/nft-badges" },
       { icon: BookOpen, label: "Open Banking", path: "/open-banking" },

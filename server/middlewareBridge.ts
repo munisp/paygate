@@ -1319,3 +1319,27 @@ export async function writeLakehouseComplianceEventViaMiddleware(event: {
 export async function queryLakehouseComplianceViaMiddleware(merchantId: string, filters: Record<string, unknown>): Promise<{ events: unknown[]; total: number } | null> {
   return safe("POST", "/lakehouse/compliance/query", { merchantId, filters });
 }
+
+// ─── Kafka Direct Event Publishing (Wave 122) ─────────────────────────────────
+
+export async function publishKafkaEventViaMiddleware(event: {
+  topic: string;
+  key: string;
+  value: string;
+  headers?: Record<string, string>;
+}): Promise<{ eventId: string; status: string; partition: number; offset: number } | null> {
+  return safe<{ eventId: string; status: string; partition: number; offset: number }>(
+    "POST",
+    "/v1/kafka/publish",
+    {
+      topic: event.topic,
+      key: event.key,
+      value: event.value,
+      headers: event.headers ?? {},
+    }
+  );
+}
+
+
+// ─── Kafka Direct Event Publishing (Wave 122) ─────────────────────────────────
+

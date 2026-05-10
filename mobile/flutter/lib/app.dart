@@ -44,6 +44,10 @@ import 'screens/invoice_financing/invoice_financing_screen.dart';
 import 'screens/loyalty_v3/loyalty_v3_screen.dart';
 import 'screens/tenant_provisioning/tenant_provisioning_screen.dart';
 import 'screens/audit_log_viewer/audit_log_viewer_screen.dart';
+// Wave 122 imports
+import 'screens/fraud_rule_engine/fraud_rule_engine_screen.dart';
+import 'screens/kyb_document_upload/kyb_document_upload_screen.dart';
+import 'screens/loyalty_redemption/loyalty_redemption_screen.dart';
 import 'widgets/main_shell.dart';
 
 class PayGateApp extends StatelessWidget {
@@ -104,6 +108,10 @@ class PayGateApp extends StatelessWidget {
           '/loyalty-v3': (_) => const MainShell(child: LoyaltyV3Screen()),
           '/tenant-provisioning': (_) => const MainShell(child: TenantProvisioningScreen()),
           '/audit-log': (_) => const MainShell(child: AuditLogViewerScreen()),
+          // Wave 122 routes
+          '/fraud-rule-engine': (_) => const MainShell(child: FraudRuleEngineScreen()),
+          '/kyb-document-upload': (_) => const MainShell(child: KYBDocumentUploadScreen()),
+          '/loyalty-redemption': (_) => const MainShell(child: LoyaltyRedemptionScreen()),
         },
         onGenerateRoute: (settings) {
           if (settings.name?.startsWith('/transaction/') == true) {

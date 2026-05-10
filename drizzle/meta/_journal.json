@@ -379,6 +379,13 @@
       "when": 1778343363891,
       "tag": "0053_robust_imperial_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1778411679683,
+      "tag": "0054_faulty_doorman",
+      "breakpoints": true
     }
   ]
 }

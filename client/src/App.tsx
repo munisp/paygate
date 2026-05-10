@@ -370,6 +370,11 @@ const LoyaltyV3Page = lz(() => import("./pages/LoyaltyV3"));
 const TenantProvisioningPage = lz(() => import("./pages/TenantProvisioning"));
 const AuditLogViewerPage = lz(() => import("./pages/AuditLogViewer"));
 
+// ── Wave 122 new pages ──────────────────────────────────────────────────────
+const FraudRuleEnginePage = lz(() => import("./pages/FraudRuleEngine"));
+const KYBDocumentUploadPage = lz(() => import("./pages/KYBDocumentUpload"));
+const LoyaltyRedemptionPage = lz(() => import("./pages/LoyaltyRedemption"));
+
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -758,6 +763,10 @@ function Router() {
           <Route path="/loyalty-v3" component={LoyaltyV3Page} />
           <Route path="/admin/tenant-provisioning" component={TenantProvisioningPage} />
           <Route path="/audit-log" component={AuditLogViewerPage} />
+          {/* Wave 122 routes */}
+          <Route path="/fraud-rule-engine" component={FraudRuleEnginePage} />
+          <Route path="/kyb-document-upload" component={KYBDocumentUploadPage} />
+          <Route path="/loyalty-redemption" component={LoyaltyRedemptionPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
