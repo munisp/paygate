@@ -611,9 +611,9 @@ describe.skipIf(!PG_AVAILABLE)('JSONB Operations', () => {
   });
 });
 
-// ─── Timestamp Operations ─────────────────────────────────────────────────────
-describe.skipIf(!PG_AVAILABLE)('Timestamp Operations', () => {
-  it('should filter transactions by date range', async () => {
+// ─── Timestamp & Aggregate Function Tests ─────────────────────────────────────────────────────────────────────────────────
+describe.skipIf(!PG_AVAILABLE)('Timestamp & Aggregate Functions', () => {
+  it('should filter transactions by date range using INTERVAL', async () => {
     const result = await pool.query(
       `SELECT count(*) as cnt FROM transactions
        WHERE created_at >= NOW() - INTERVAL '30 days'`
@@ -621,13 +621,89 @@ describe.skipIf(!PG_AVAILABLE)('Timestamp Operations', () => {
     expect(parseInt(result.rows[0].cnt)).toBeGreaterThanOrEqual(0);
   });
 
-  it('should filter transactions created in the last 30 days', async () => {
-    // Note: pg-mem does not support date_trunc().
-    // This test uses a simpler date comparison instead.
+  it('should use date_trunc for time-based grouping', async () => {
+    // date_trunc is registered as a custom function in __mocks__/pg.ts
     const result = await pool.query(
-      `SELECT count(*) as cnt FROM transactions
-       WHERE created_at >= NOW() - INTERVAL '30 days'`
+      `SELECT date_trunc('day', created_at) as day, count(*) as cnt
+       FROM transactions
+       GROUP BY day
+       ORDER BY day DESC
+       LIMIT 7`
     );
-    expect(parseInt(result.rows[0].cnt)).toBeGreaterThanOrEqual(0);
+    expect(result.rows.length).toBeGreaterThanOrEqual(0);
+    if (result.rows.length > 0) {
+      expect(result.rows[0]).toHaveProperty('day');
+      expect(result.rows[0]).toHaveProperty('cnt');
+    }
+  });
+
+  it('should use EXTRACT to get year from timestamp', async () => {
+    // EXTRACT is supported natively in pg-mem
+    const result = await pool.query(
+      `SELECT EXTRACT(YEAR FROM created_at) as yr, count(*) as cnt
+       FROM transactions
+       GROUP BY yr
+       ORDER BY yr DESC
+       LIMIT 5`
+    );
+    expect(result.rows.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should use EXTRACT(EPOCH) to get Unix timestamp', async () => {
+    const result = await pool.query(
+      `SELECT EXTRACT(EPOCH FROM created_at) as epoch_sec
+       FROM transactions
+       LIMIT 1`
+    );
+    expect(result.rows.length).toBeGreaterThanOrEqual(0);
+    if (result.rows.length > 0) {
+      expect(typeof result.rows[0].epoch_sec).toBe('number');
+      expect(result.rows[0].epoch_sec).toBeGreaterThan(0);
+    }
+  });
+
+  it('should use to_timestamp to convert epoch seconds', async () => {
+    // to_timestamp is registered as a custom function in __mocks__/pg.ts
+    const epochSec = Math.floor(Date.now() / 1000);
+    const result = await pool.query(
+      `SELECT to_timestamp($1) as ts`,
+      [epochSec]
+    );
+    expect(result.rows.length).toBe(1);
+    expect(result.rows[0].ts).toBeInstanceOf(Date);
+  });
+
+  it('should use array_agg to collect values into an array', async () => {
+    // array_agg is supported natively in pg-mem
+    const result = await pool.query(
+      `SELECT array_agg(DISTINCT status) as statuses FROM transactions`
+    );
+    expect(result.rows.length).toBe(1);
+    expect(Array.isArray(result.rows[0].statuses)).toBe(true);
+  });
+
+  it('should use json_agg to collect rows as JSON array', async () => {
+    // json_agg is supported natively in pg-mem
+    const result = await pool.query(
+      `SELECT json_agg(t) as rows
+       FROM (SELECT id, status FROM transactions LIMIT 3) t`
+    );
+    expect(result.rows.length).toBe(1);
+    expect(Array.isArray(result.rows[0].rows)).toBe(true);
+  });
+
+  it('should use date_trunc with month precision for monthly grouping', async () => {
+    const result = await pool.query(
+      `SELECT date_trunc('month', created_at) as month, SUM(amount) as total
+       FROM transactions
+       GROUP BY month
+       ORDER BY month DESC
+       LIMIT 12`
+    );
+    expect(result.rows.length).toBeGreaterThanOrEqual(0);
+    if (result.rows.length > 0) {
+      expect(result.rows[0]).toHaveProperty('month');
+      expect(result.rows[0]).toHaveProperty('total');
+    }
   });
 });

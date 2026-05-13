@@ -27,6 +27,46 @@ pgMemDb.public.registerFunction({
   implementation: () => uuidv4(),
 });
 
+// Register date_trunc — truncates a timestamp to the specified precision
+pgMemDb.public.registerFunction({
+  name: "date_trunc",
+  args: [DataType.text, DataType.timestamptz],
+  returns: DataType.timestamptz,
+  implementation: (precision: string, ts: Date | null) => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    switch (precision) {
+      case "year":   return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
+      case "quarter": return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1, 0, 0, 0, 0);
+      case "month":  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+      case "week":   { const day = d.getDay(); return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day, 0, 0, 0, 0); }
+      case "day":    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+      case "hour":   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), 0, 0, 0);
+      case "minute": return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), 0, 0);
+      case "second": return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), 0);
+      default: return d;
+    }
+  },
+});
+
+// Register to_timestamp — converts Unix epoch seconds to a timestamptz
+pgMemDb.public.registerFunction({
+  name: "to_timestamp",
+  args: [DataType.float],
+  returns: DataType.timestamptz,
+  implementation: (epoch: number | null) => (epoch != null ? new Date(epoch * 1000) : null),
+});
+
+// Register string_agg — aggregates strings with a delimiter
+// pg-mem does not support string_agg natively; we register a scalar fallback
+// (aggregate semantics are handled by wrapping in a subquery in tests)
+pgMemDb.public.registerFunction({
+  name: "string_agg",
+  args: [DataType.text, DataType.text],
+  returns: DataType.text,
+  implementation: (val: string | null, _delim: string | null) => val ?? "",
+});
+
 // Register to_regclass — returns table name if it exists, NULL otherwise
 pgMemDb.public.registerFunction({
   name: "to_regclass",

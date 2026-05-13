@@ -9,9 +9,11 @@ const sharedAlias = {
   "@assets": path.resolve(templateRoot, "attached_assets"),
 };
 
-// The PG test files that require pg-mem (in-memory PostgreSQL emulator)
+// The PG test files that require pg-mem (in-memory PostgreSQL emulator).
+// wave25.test.ts is replaced by wave25.pg.test.ts (pg-mem tests) +
+// wave25.health.test.ts (server-health tests, handled by server-health-tests project).
 const PG_TEST_FILES = [
-  "server/wave25.test.ts",
+  "server/wave25.pg.test.ts",
   "server/wave27.test.ts",
   "server/wave81.multitenant.test.ts",
   "server/wave82.security29.test.ts",
@@ -19,6 +21,19 @@ const PG_TEST_FILES = [
   "server/wave84.security31.test.ts",
   "server/smoke.test.ts",
   "server/db.pg.test.ts",
+];
+
+// Server health test files that require a running HTTP server
+const HEALTH_TEST_FILES = [
+  "server/wave25.health.test.ts",
+];
+
+// Files excluded from standard-tests (handled by other projects)
+const NON_STANDARD_FILES = [
+  ...PG_TEST_FILES,
+  ...HEALTH_TEST_FILES,
+  // Keep original wave25.test.ts excluded (replaced by the two split files above)
+  "server/wave25.test.ts",
 ];
 
 export default defineConfig({
@@ -50,13 +65,26 @@ export default defineConfig({
           alias: sharedAlias,
         },
       },
-      // ── Project 2: All other test files — normal execution without pg-mem ──
+      // ── Project 2: Server health tests — start a mock HTTP server ──────────
+      {
+        test: {
+          name: "server-health-tests",
+          environment: "node",
+          include: HEALTH_TEST_FILES,
+          // Global setup: starts a minimal mock Express server on port 3000
+          globalSetup: ["./server/serverHealthGlobalSetup.ts"],
+        },
+        resolve: {
+          alias: sharedAlias,
+        },
+      },
+      // ── Project 3: All other test files — normal execution without pg-mem ──
       {
         test: {
           name: "standard-tests",
           environment: "node",
           include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
-          exclude: PG_TEST_FILES,
+          exclude: NON_STANDARD_FILES,
         },
         resolve: {
           alias: sharedAlias,
