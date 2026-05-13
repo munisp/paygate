@@ -9,8 +9,9 @@ const sharedAlias = {
   "@assets": path.resolve(templateRoot, "attached_assets"),
 };
 
-// The 8 PG test files that require pg-mem (in-memory PostgreSQL emulator)
+// The PG test files that require pg-mem (in-memory PostgreSQL emulator)
 const PG_TEST_FILES = [
+  "server/wave25.test.ts",
   "server/wave27.test.ts",
   "server/wave81.multitenant.test.ts",
   "server/wave82.security29.test.ts",

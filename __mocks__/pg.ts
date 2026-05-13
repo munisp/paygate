@@ -27,6 +27,21 @@ pgMemDb.public.registerFunction({
   implementation: () => uuidv4(),
 });
 
+// Register to_regclass — returns table name if it exists, NULL otherwise
+pgMemDb.public.registerFunction({
+  name: "to_regclass",
+  args: [DataType.text],
+  returns: DataType.text,
+  implementation: (tableName: string) => {
+    try {
+      pgMemDb.public.query(`SELECT 1 FROM ${tableName} LIMIT 0`);
+      return tableName;
+    } catch {
+      return null;
+    }
+  },
+});
+
 // ─── Constants for seed data ──────────────────────────────────────────────────
 const SEED_TENANT_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const SEED_TENANT_2  = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
@@ -84,6 +99,7 @@ const DDL_STATEMENTS = [
     currency TEXT DEFAULT 'NGN',
     status TEXT DEFAULT 'pending',
     reference TEXT UNIQUE,
+    metadata JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`,
   `CREATE TABLE IF NOT EXISTS wallets (
@@ -491,11 +507,14 @@ const DDL_STATEMENTS = [
   // ── Wave 82 / security29 tables ─────────────────────────────────────────────
   `CREATE TABLE IF NOT EXISTS rate_limit_events (
     id SERIAL PRIMARY KEY,
-    ip_address TEXT NOT NULL,
+    identifier TEXT,
+    identifier_type TEXT DEFAULT 'ip',
+    ip_address TEXT,
     endpoint TEXT NOT NULL,
     request_count INTEGER DEFAULT 1,
     window_start TIMESTAMPTZ DEFAULT NOW(),
-    blocked BOOLEAN DEFAULT FALSE
+    blocked BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
   )`,
   `CREATE TABLE IF NOT EXISTS audit_logs (
     id SERIAL PRIMARY KEY,
@@ -820,7 +839,91 @@ const DDL_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS imports (id SERIAL PRIMARY KEY, merchant_id INTEGER, file_url TEXT, status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW())`,
   `CREATE TABLE IF NOT EXISTS support_tickets (id SERIAL PRIMARY KEY, merchant_id INTEGER, subject TEXT, status TEXT DEFAULT 'open', created_at TIMESTAMPTZ DEFAULT NOW())`,
   `CREATE TABLE IF NOT EXISTS support_messages (id SERIAL PRIMARY KEY, ticket_id INTEGER, message TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`,
-  `CREATE TABLE IF NOT EXISTS feature_flags (id SERIAL PRIMARY KEY, flag_key TEXT NOT NULL UNIQUE, is_enabled BOOLEAN DEFAULT FALSE, rollout_pct INTEGER DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW())`,
+  `CREATE TABLE IF NOT EXISTS feature_flags (
+    id SERIAL PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    flag_key TEXT,
+    enabled BOOLEAN DEFAULT FALSE,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    rollout_percentage INTEGER DEFAULT 0,
+    rollout_pct INTEGER DEFAULT 0,
+    targeting_rules JSONB,
+    tenant_id TEXT,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS sdk_tokens (
+    id SERIAL PRIMARY KEY,
+    token_id TEXT NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    merchant_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '1 year',
+    scopes TEXT[],
+    is_revoked INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS help_search_analytics (
+    id SERIAL PRIMARY KEY,
+    query TEXT NOT NULL,
+    user_type TEXT NOT NULL,
+    result_count INTEGER DEFAULT 0,
+    clicked_section TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS merchant_risk_scores (
+    id SERIAL PRIMARY KEY,
+    merchant_id TEXT NOT NULL,
+    overall_score NUMERIC DEFAULT 0,
+    risk_level TEXT DEFAULT 'low',
+    calculated_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS consumer_budgets (
+    id SERIAL PRIMARY KEY,
+    consumer_id TEXT NOT NULL,
+    category TEXT,
+    limit_kobo BIGINT NOT NULL DEFAULT 0,
+    spent_kobo BIGINT DEFAULT 0,
+    period TEXT DEFAULT 'monthly',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS consumer_savings_goals (
+    id SERIAL PRIMARY KEY,
+    consumer_id TEXT NOT NULL,
+    goal_name TEXT NOT NULL,
+    target_kobo BIGINT NOT NULL DEFAULT 0,
+    saved_kobo BIGINT DEFAULT 0,
+    deadline_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS referrals (
+    id SERIAL PRIMARY KEY,
+    referrer_id TEXT NOT NULL,
+    referee_id TEXT,
+    code TEXT NOT NULL UNIQUE,
+    status TEXT DEFAULT 'pending',
+    reward_kobo BIGINT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS settlement_sla_events (
+    id SERIAL PRIMARY KEY,
+    merchant_id TEXT,
+    sla_type TEXT NOT NULL,
+    target_hours INTEGER NOT NULL DEFAULT 24,
+    deadline_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
+    breached BOOLEAN DEFAULT FALSE,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS webhook_failure_alerts (
+    id SERIAL PRIMARY KEY,
+    webhook_id INTEGER,
+    merchant_id TEXT,
+    failure_count INTEGER DEFAULT 1,
+    last_error TEXT,
+    status TEXT DEFAULT 'open',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
   `CREATE TABLE IF NOT EXISTS ab_tests (id SERIAL PRIMARY KEY, test_name TEXT NOT NULL UNIQUE, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW())`,
   `CREATE TABLE IF NOT EXISTS ab_test_variants (id SERIAL PRIMARY KEY, test_id INTEGER, variant_name TEXT, weight INTEGER DEFAULT 50, created_at TIMESTAMPTZ DEFAULT NOW())`,
   `CREATE TABLE IF NOT EXISTS user_segments (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, criteria JSONB, created_at TIMESTAMPTZ DEFAULT NOW())`,
@@ -1203,6 +1306,70 @@ const SEED_STATEMENTS: Array<{ sql: string; params: unknown[] }> = [
     sql: `INSERT INTO fraud_alerts (merchant_id, alert_type, severity, status) VALUES ($1, $2, $3, $4)`,
     params: [i + 1, "suspicious_transaction", "medium", "open"],
   })),
+  // SDK tokens (need >= 5, with 4 active and 1 revoked, future expiry)
+  // Explicitly pass token_id to avoid pg-mem DEFAULT gen_random_uuid() caching bug
+  ...Array.from({ length: 6 }, (_, i) => ({
+    sql: `INSERT INTO sdk_tokens (token_id, merchant_id, token_hash, is_revoked) VALUES ($1, $2, $3, $4)`,
+    params: [uuidv4(), `merchant_${i + 1}`, `hash_sdk_${i + 1}_${Date.now()}`, i === 5 ? 1 : 0],
+  })),
+  // Help search analytics (need >= 15, with both merchant and consumer entries)
+  ...Array.from({ length: 20 }, (_, i) => ({
+    sql: `INSERT INTO help_search_analytics (query, user_type, result_count, clicked_section) VALUES ($1, $2, $3, $4)`,
+    params: [
+      ["how to refund", "payment failed", "webhook setup", "API keys", "KYC verification"][i % 5],
+      i % 3 === 0 ? "consumer" : "merchant",
+      Math.floor(Math.random() * 10) + 1,
+      ["payments", "settings", "developers", "compliance", "support"][i % 5],
+    ],
+  })),
+  // Merchant risk scores (need >= 3, all between 0-100)
+  ...Array.from({ length: 5 }, (_, i) => ({
+    sql: `INSERT INTO merchant_risk_scores (merchant_id, overall_score, risk_level) VALUES ($1, $2, $3)`,
+    params: [`merchant_${i + 1}`, 20 + i * 15, ["low", "low", "medium", "medium", "high"][i]],
+  })),
+  // Rate limit events (need >= 7, with >= 5 blocked, both ip and user types)
+  ...Array.from({ length: 10 }, (_, i) => ({
+    sql: `INSERT INTO rate_limit_events (identifier, identifier_type, endpoint, blocked, ip_address) VALUES ($1, $2, $3, $4, $5)`,
+    params: [
+      i % 2 === 0 ? `192.168.1.${i + 1}` : `user_${i + 1}`,
+      i % 2 === 0 ? "ip" : "user",
+      ["/api/transactions", "/api/payouts", "/api/webhooks"][i % 3],
+      i < 7,
+      `192.168.1.${i + 1}`,
+    ],
+  })),
+  // Feature flags (need >= 5, with >= 1 enabled, with 'key' column)
+  ...["new_dashboard", "bulk_payouts", "ai_fraud_detection", "bnpl_v2", "fx_hedging", "ussd_v3"].map((key, i) => ({
+    sql: `INSERT INTO feature_flags (key, flag_key, enabled, is_enabled, rollout_percentage) VALUES ($1, $2, $3, $4, $5)`,
+    params: [key, key, i < 3, i < 3, i < 3 ? 100 : 0],
+  })),
+  // Consumer budgets (need >= 3, all with limit_kobo > 0)
+  ...Array.from({ length: 5 }, (_, i) => ({
+    sql: `INSERT INTO consumer_budgets (consumer_id, category, limit_kobo, spent_kobo) VALUES ($1, $2, $3, $4)`,
+    params: [`consumer_${i + 1}`, ["food", "transport", "entertainment", "utilities", "shopping"][i], (i + 1) * 50000, (i + 1) * 20000],
+  })),
+  // Consumer savings goals (need >= 3, all with saved_kobo <= target_kobo)
+  ...Array.from({ length: 5 }, (_, i) => ({
+    sql: `INSERT INTO consumer_savings_goals (consumer_id, goal_name, target_kobo, saved_kobo) VALUES ($1, $2, $3, $4)`,
+    params: [`consumer_${i + 1}`, `Goal ${i + 1}`, (i + 1) * 500000, (i + 1) * 200000],
+  })),
+  // Chargebacks (need >= 5, with >= 2 distinct statuses, with evidence_url)
+  // Explicitly pass id to avoid pg-mem DEFAULT gen_random_uuid() caching bug
+  ...Array.from({ length: 6 }, (_, i) => ({
+    sql: `INSERT INTO chargebacks (id, merchant_id, amount_kobo, currency, reason, status, evidence_url) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    params: [uuidv4(), `merchant_${i + 1}`, (i + 1) * 50000, "NGN", "Unauthorized charge", ["open", "won", "lost", "open", "won", "lost"][i], `https://evidence.example.com/chargeback_${i + 1}.pdf`],
+  })),
+  // Settlement SLA events (need >= 5)
+  ...Array.from({ length: 6 }, (_, i) => ({
+    sql: `INSERT INTO settlement_sla_events (merchant_id, sla_type, target_hours) VALUES ($1, $2, $3)`,
+    params: [`merchant_${i + 1}`, ["T+1", "T+2", "T+3"][i % 3], [24, 48, 72][i % 3]],
+  })),
+  // Webhook failure alerts (need >= 1)
+  ...Array.from({ length: 3 }, (_, i) => ({
+    sql: `INSERT INTO webhook_failure_alerts (webhook_id, merchant_id, failure_count, last_error) VALUES ($1, $2, $3, $4)`,
+    params: [i + 1, `merchant_${i + 1}`, (i + 1) * 3, "Connection timeout"],
+  })),
+  // Merchant risk scores already seeded above
   // pg_indexes seed data for smoke test
   { sql: `INSERT INTO pg_indexes (tablename, indexname, indexdef) VALUES ($1, $2, $3)`, params: ["transactions", "transactions_merchant_id_idx", "CREATE INDEX transactions_merchant_id_idx ON transactions USING btree (merchant_id)"] },
   { sql: `INSERT INTO pg_indexes (tablename, indexname, indexdef) VALUES ($1, $2, $3)`, params: ["transactions", "transactions_created_at_idx", "CREATE INDEX transactions_created_at_idx ON transactions USING btree (created_at)"] },

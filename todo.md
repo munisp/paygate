@@ -4125,3 +4125,9 @@
 - [x] Update vitest.config.ts to use Vitest projects (pg-tests vs standard-tests)
 - [x] All 345 PG tests passing across 7 test files (wave27, wave81, wave82, wave83, wave84, smoke, db.pg)
 - [x] Full test suite: 4254 passed | 66 skipped (no regressions from baseline 3909 passed | 411 skipped)
+
+## Round 7 — pg-mem Expansion (Suggested Next Steps)
+- [x] Add wave25 to pg-tests project (48/50 tests now passing; 2 server-health integration tests require live server)
+- [x] Extend __mocks__/pg.ts with sdk_tokens, help_search_analytics, rate_limit_events, merchant_risk_scores, consumer_budgets, consumer_savings_goals, referrals, settlement_sla_events, webhook_failure_alerts tables + seed data
+- [x] Extend __mocks__/pg.ts with richer seed data (more merchants, transactions, fraud alerts)
+- [x] Extend db.pg.test.ts with 46 CRUD operation tests (insert/select/update/delete) across 9 describe blocks — 51 total tests all passing
