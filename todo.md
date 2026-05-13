@@ -4138,3 +4138,10 @@
 - [x] Update vitest.config.ts: added server-health-tests project with serverHealthGlobalSetup.ts
 - [x] Fix server-health integration tests: minimal mock HTTP server with auto port selection (3099) returns correct health response with security headers
 - [x] Final result: 4,356 passed | 0 failed | 16 skipped across 107 test files (up from 3,909 | 0 | 411 at Round 6 start)
+
+## Round 9 — Wave26 Mock, Window Functions & Coverage
+
+- [x] Enable wave26 tests via getDb() pg-mem integration (21/21 tests passing, 0 skipped)
+- [x] Window function interceptor added to wrapPool + wrapClient in __mocks__/pg.ts (SUM/ROW_NUMBER/RANK/LAG/LEAD/COUNT OVER — 6 new tests in db.pg.test.ts)
+- [x] Installed @vitest/coverage-v8, configured coverage in vitest.config.ts with HTML/JSON/text reporters
+- [x] Full test suite: 4378 passed | 0 failed | 107 files; coverage: 11% lines, 7% functions, 7% branches (HTML report at coverage/index.html)

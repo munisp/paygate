@@ -14,6 +14,7 @@ const sharedAlias = {
 // wave25.health.test.ts (server-health tests, handled by server-health-tests project).
 const PG_TEST_FILES = [
   "server/wave25.pg.test.ts",
+  "server/wave26.test.ts",
   "server/wave27.test.ts",
   "server/wave81.multitenant.test.ts",
   "server/wave82.security29.test.ts",
@@ -43,6 +44,30 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
+      reportsDirectory: "./coverage",
+      include: ["server/**/*.ts"],
+      exclude: [
+        "server/**/*.test.ts",
+        "server/**/*.spec.ts",
+        "server/_core/**",
+        "server/pgGlobalSetup.ts",
+        "server/pgSetupFile.ts",
+        "server/serverHealthGlobalSetup.ts",
+      ],
+      // Current baseline coverage (as of Round 9):
+      // lines: ~11%, functions: ~7%, branches: ~7%, statements: ~11%
+      // These thresholds are intentionally set at current levels to prevent regression.
+      // Increase them incrementally as more tests are added.
+      thresholds: {
+        lines: 10,
+        functions: 6,
+        branches: 6,
+        statements: 10,
+      },
+    },
     projects: [
       // ── Project 1: PG test files — use pg-mem via globalSetup + vi.mock('pg') ──
       {

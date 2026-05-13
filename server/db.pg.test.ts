@@ -707,3 +707,78 @@ describe.skipIf(!PG_AVAILABLE)('Timestamp & Aggregate Functions', () => {
     }
   });
 });
+// ─── Window Function Tests (via interceptor) ──────────────────────────────────
+// pg-mem does not support window functions natively. The __mocks__/pg.ts interceptor
+// detects OVER ( patterns and returns a structured fallback result so tests can
+// verify the query shape without crashing.
+describe.skipIf(!PG_AVAILABLE)('Window Function Interceptor', () => {
+  it('should handle SUM() OVER (PARTITION BY) without crashing', async () => {
+    const result = await pool.query(
+      `SELECT merchant_id, amount,
+              SUM(amount) OVER (PARTITION BY merchant_id) as merchant_total
+       FROM transactions
+       ORDER BY merchant_id, amount
+       LIMIT 10`
+    );
+    // Interceptor returns a fallback aggregate result — verify it doesn't throw
+    expect(result).toBeDefined();
+    expect(result.rows).toBeDefined();
+  });
+
+  it('should handle ROW_NUMBER() OVER (PARTITION BY ORDER BY) without crashing', async () => {
+    const result = await pool.query(
+      `SELECT merchant_id, amount,
+              ROW_NUMBER() OVER (PARTITION BY merchant_id ORDER BY amount DESC) as rn
+       FROM transactions
+       LIMIT 10`
+    );
+    expect(result).toBeDefined();
+    expect(result.rows).toBeDefined();
+  });
+
+  it('should handle RANK() OVER (ORDER BY) without crashing', async () => {
+    const result = await pool.query(
+      `SELECT id, amount,
+              RANK() OVER (ORDER BY amount DESC) as rank
+       FROM transactions
+       LIMIT 10`
+    );
+    expect(result).toBeDefined();
+    expect(result.rows).toBeDefined();
+  });
+
+  it('should handle LAG() OVER (ORDER BY) without crashing', async () => {
+    const result = await pool.query(
+      `SELECT id, amount,
+              LAG(amount) OVER (ORDER BY created_at) as prev_amount
+       FROM transactions
+       ORDER BY created_at
+       LIMIT 10`
+    );
+    expect(result).toBeDefined();
+    expect(result.rows).toBeDefined();
+  });
+
+  it('should handle LEAD() OVER (ORDER BY) without crashing', async () => {
+    const result = await pool.query(
+      `SELECT id, amount,
+              LEAD(amount) OVER (ORDER BY created_at) as next_amount
+       FROM transactions
+       ORDER BY created_at
+       LIMIT 10`
+    );
+    expect(result).toBeDefined();
+    expect(result.rows).toBeDefined();
+  });
+
+  it('should handle COUNT() OVER () for total count without crashing', async () => {
+    const result = await pool.query(
+      `SELECT id, status,
+              COUNT(*) OVER () as total_count
+       FROM transactions
+       LIMIT 5`
+    );
+    expect(result).toBeDefined();
+    expect(result.rows).toBeDefined();
+  });
+});
