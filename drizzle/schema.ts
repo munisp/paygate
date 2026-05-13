@@ -4362,3 +4362,31 @@ export const loyaltyV3Redemptions = pgTable("loyalty_v3_redemptions", {
 ]);
 export type LoyaltyV3Redemption = typeof loyaltyV3Redemptions.$inferSelect;
 export type InsertLoyaltyV3Redemption = typeof loyaltyV3Redemptions.$inferInsert;
+
+// ─── POS Product Catalog ──────────────────────────────────────────────────────
+export const posProducts = pgTable("pos_products", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  terminalId: text("terminal_id"),
+  sku: text("sku").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("general"),
+  priceKobo: integer("price_kobo").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  taxPercent: integer("tax_percent").notNull().default(0),
+  stockQuantity: integer("stock_quantity"),
+  trackInventory: integer("track_inventory", { mode: "boolean" }).notNull().default(false),
+  imageUrl: text("image_url"),
+  barcode: text("barcode"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("pos_products_merchant_idx").on(t.merchantId),
+  index("pos_products_sku_merchant_idx").on(t.sku, t.merchantId),
+  index("pos_products_category_idx").on(t.category),
+  index("pos_products_barcode_idx").on(t.barcode),
+]);
+export type PosProduct = typeof posProducts.$inferSelect;
+export type InsertPosProduct = typeof posProducts.$inferInsert;

@@ -1,408 +1,178 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
-import 'package:intl/intl.dart';
+import '../../services/api_service.dart';
 
-// ─── Providers ───────────────────────────────────────────────────────────────
-
-final billingPeriodProvider = StateProvider<String>((ref) => '30d');
-
-final billingAnalyticsProvider = FutureProvider.autoDispose((ref) async {
-  final period = ref.watch(billingPeriodProvider);
-  // In production: call trpc.billingExt.getAnalytics via ApiService
-  await Future.delayed(const Duration(milliseconds: 600));
-  return _mockAnalytics(period);
-});
-
-Map<String, dynamic> _mockAnalytics(String period) {
-  final multiplier = period == '7d' ? 0.25 : period == '30d' ? 1.0 : 3.0;
-  return {
-    'totalRevenueKobo': (12_500_000 * multiplier).round(),
-    'platformShareKobo': (8_125_000 * multiplier).round(),
-    'resellerShareKobo': (4_375_000 * multiplier).round(),
-    'totalTransactions': (18_750 * multiplier).round(),
-    'ebitdaKobo': (825_000 * multiplier).round(),
-    'ebitdaMarginPct': 5.2,
-    'avgFeeKobo': 667,
-    'timeSeries': List.generate(
-      period == '7d' ? 7 : period == '30d' ? 30 : 90,
-      (i) => {
-        'day': i + 1,
-        'revenueKobo': (350_000 + (i % 7) * 50_000).round(),
-        'transactions': 580 + (i % 5) * 40,
-      },
-    ),
-  };
-}
-
-// ─── Screen ──────────────────────────────────────────────────────────────────
-
-class BillingAnalyticsScreen extends ConsumerWidget {
+class BillingAnalyticsScreen extends ConsumerStatefulWidget {
   const BillingAnalyticsScreen({super.key});
+  @override
+  ConsumerState<BillingAnalyticsScreen> createState() => _BillingAnalyticsScreenState();
+}
+
+class _BillingAnalyticsScreenState extends ConsumerState<BillingAnalyticsScreen> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _items = [];
+  int _page = 1;
+  bool _hasMore = true;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final period = ref.watch(billingPeriodProvider);
-    final analyticsAsync = ref.watch(billingAnalyticsProvider);
+  void initState() {
+    super.initState();
+    _loadData();
+  }
 
+  Future<void> _loadData({bool refresh = false}) async {
+    if (refresh) {
+      setState(() { _page = 1; _hasMore = true; _items = []; });
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      final api = ref.read(apiServiceProvider);
+      final result = await api.getBillingInvoices(page: _page);
+      final data = result['data'] as Map<String, dynamic>? ?? result;
+      final rows = (data['rows'] ?? data['items'] ?? data['data'] ?? result['result']?['data']?['json']?['rows'] ?? []) as List;
+      setState(() {
+        if (refresh || _page == 1) {
+          _items = rows.cast<Map<String, dynamic>>();
+        } else {
+          _items.addAll(rows.cast<Map<String, dynamic>>());
+        }
+        _hasMore = rows.length >= 20;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (!_hasMore || _loading) return;
+    _page++;
+    await _loadData();
+  }
+
+  Color _statusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'active': case 'completed': case 'approved': case 'verified': return Colors.green;
+      case 'pending': case 'review': case 'open': return Colors.orange;
+      case 'inactive': case 'rejected': case 'suspended': case 'closed': return Colors.red;
+      default: return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Text(
-          'Billing Analytics',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('Billing Analytics'),
         actions: [
-          _PeriodSelector(current: period),
-          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _loadData(refresh: true),
+            tooltip: 'Refresh',
+          ),
         ],
       ),
-      body: analyticsAsync.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: Color(0xFF6366F1)),
-        ),
-        error: (e, _) => Center(
-          child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
-        ),
-        data: (data) => _AnalyticsBody(data: data, period: period),
-      ),
-    );
-  }
-}
-
-// ─── Period Selector ─────────────────────────────────────────────────────────
-
-class _PeriodSelector extends ConsumerWidget {
-  final String current;
-  const _PeriodSelector({required this.current});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return DropdownButton<String>(
-      value: current,
-      dropdownColor: const Color(0xFF1E293B),
-      style: const TextStyle(color: Colors.white),
-      underline: const SizedBox(),
-      items: const [
-        DropdownMenuItem(value: '7d', child: Text('7 days')),
-        DropdownMenuItem(value: '30d', child: Text('30 days')),
-        DropdownMenuItem(value: '90d', child: Text('90 days')),
-      ],
-      onChanged: (v) {
-        if (v != null) ref.read(billingPeriodProvider.notifier).state = v;
-      },
-    );
-  }
-}
-
-// ─── Analytics Body ──────────────────────────────────────────────────────────
-
-class _AnalyticsBody extends StatelessWidget {
-  final Map<String, dynamic> data;
-  final String period;
-  const _AnalyticsBody({required this.data, required this.period});
-
-  @override
-  Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0', 'en_NG');
-    final revenueNgn = (data['totalRevenueKobo'] as int) / 100;
-    final platformNgn = (data['platformShareKobo'] as int) / 100;
-    final resellerNgn = (data['resellerShareKobo'] as int) / 100;
-    final ebitdaNgn = (data['ebitdaKobo'] as int) / 100;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // KPI Cards
-          Row(
-            children: [
-              Expanded(child: _KpiCard(
-                label: 'Total Revenue',
-                value: '₦${fmt.format(revenueNgn)}',
-                icon: Icons.account_balance_wallet,
-                color: const Color(0xFF6366F1),
-              )),
-              const SizedBox(width: 12),
-              Expanded(child: _KpiCard(
-                label: 'EBITDA',
-                value: '₦${fmt.format(ebitdaNgn)}',
-                icon: Icons.trending_up,
-                color: const Color(0xFF10B981),
-              )),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(child: _KpiCard(
-                label: 'Transactions',
-                value: fmt.format(data['totalTransactions']),
-                icon: Icons.receipt_long,
-                color: const Color(0xFFF59E0B),
-              )),
-              const SizedBox(width: 12),
-              Expanded(child: _KpiCard(
-                label: 'EBITDA Margin',
-                value: '${data['ebitdaMarginPct']}%',
-                icon: Icons.pie_chart,
-                color: const Color(0xFF8B5CF6),
-              )),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Revenue Trend Chart
-          const Text(
-            'Revenue Trend',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            height: 200,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: _RevenueTrendChart(timeSeries: data['timeSeries'] as List),
-          ),
-          const SizedBox(height: 24),
-
-          // Platform vs Reseller Split
-          const Text(
-            'Revenue Split',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  height: 140,
-                  width: 140,
-                  child: PieChart(
-                    PieChartData(
-                      sections: [
-                        PieChartSectionData(
-                          value: platformNgn,
-                          color: const Color(0xFF6366F1),
-                          title: '65%',
-                          titleStyle: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        PieChartSectionData(
-                          value: resellerNgn,
-                          color: const Color(0xFF10B981),
-                          title: '35%',
-                          titleStyle: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                      sectionsSpace: 2,
+      body: RefreshIndicator(
+        onRefresh: () => _loadData(refresh: true),
+        child: _error != null
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.receipt_long, size: 48, color: Colors.red[300]),
+                    const SizedBox(height: 12),
+                    Text('Failed to load data', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text(_error!, style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () => _loadData(refresh: true),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 24),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _LegendItem(
-                        color: const Color(0xFF6366F1),
-                        label: 'Platform (65%)',
-                        value: '₦${fmt.format(platformNgn)}',
+              )
+            : _loading && _items.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _items.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.receipt_long, size: 64, color: Colors.green[200]),
+                            const SizedBox(height: 16),
+                            Text('No Billing Analytics found', style: Theme.of(context).textTheme.titleMedium),
+                            const SizedBox(height: 8),
+                            const Text('Pull down to refresh', style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      )
+                    : NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is ScrollEndNotification && notification.metrics.pixels >= notification.metrics.maxScrollExtent - 200) {
+                            _loadMore();
+                          }
+                          return false;
+                        },
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _items.length + (_hasMore ? 1 : 0),
+                          itemBuilder: (ctx, i) {
+                            if (i == _items.length) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                            final item = _items[i];
+                            final status = item['status'] ?? 'pending';
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              elevation: 2,
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.green[100],
+                                  child: Icon(Icons.receipt_long, color: Colors.green[700], size: 20),
+                                ),
+                                title: Text(
+                                  item['invoiceNumber'] ?? item['label'] ?? 'Invoice',
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  item['amount'] != null ? '₦${item["amount"]}' : item['status'] ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _statusColor(status).withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    status.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: _statusColor(status),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      _LegendItem(
-                        color: const Color(0xFF10B981),
-                        label: 'Reseller (35%)',
-                        value: '₦${fmt.format(resellerNgn)}',
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
-    );
-  }
-}
-
-// ─── KPI Card ────────────────────────────────────────────────────────────────
-
-class _KpiCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _KpiCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Revenue Trend Chart ─────────────────────────────────────────────────────
-
-class _RevenueTrendChart extends StatelessWidget {
-  final List timeSeries;
-  const _RevenueTrendChart({required this.timeSeries});
-
-  @override
-  Widget build(BuildContext context) {
-    final spots = timeSeries.asMap().entries.map((e) {
-      final revenue = (e.value['revenueKobo'] as int) / 100;
-      return FlSpot(e.key.toDouble(), revenue / 1000); // in thousands NGN
-    }).toList();
-
-    return LineChart(
-      LineChartData(
-        gridData: FlGridData(
-          show: true,
-          getDrawingHorizontalLine: (_) => FlLine(
-            color: Colors.white.withOpacity(0.05),
-            strokeWidth: 1,
-          ),
-          getDrawingVerticalLine: (_) => FlLine(
-            color: Colors.white.withOpacity(0.05),
-            strokeWidth: 1,
-          ),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-              getTitlesWidget: (v, _) => Text(
-                '₦${v.toStringAsFixed(0)}K',
-                style: const TextStyle(color: Color(0xFF64748B), fontSize: 10),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: false,
-            ),
-          ),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        borderData: FlBorderData(show: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: const Color(0xFF6366F1),
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: const Color(0xFF6366F1).withOpacity(0.1),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Legend Item ─────────────────────────────────────────────────────────────
-
-class _LegendItem extends StatelessWidget {
-  final Color color;
-  final String label;
-  final String value;
-
-  const _LegendItem({
-    required this.color,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-              Text(value,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

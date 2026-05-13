@@ -36,16 +36,16 @@ interface CartItem {
   qty: number;
 }
 
-// Local product catalog — works offline (no network required for browsing)
-const SAMPLE_PRODUCTS = [
-  { id: "p1", name: "Indomie Noodles", price: 350 },
-  { id: "p2", name: "Peak Milk (tin)", price: 1800 },
-  { id: "p3", name: "Coca-Cola 60cl", price: 400 },
-  { id: "p4", name: "Bread (Loaf)", price: 700 },
-  { id: "p5", name: "Milo 200g", price: 1200 },
-  { id: "p6", name: "Airtime ₦500", price: 500 },
-  { id: "p7", name: "Paracetamol (strip)", price: 150 },
-  { id: "p8", name: "Bottled Water 75cl", price: 200 },
+// Fallback offline catalog — used when network is unavailable
+const OFFLINE_PRODUCTS = [
+  { id: "p1", name: "Indomie Noodles", priceKobo: 35000, category: "food" },
+  { id: "p2", name: "Peak Milk (tin)", priceKobo: 180000, category: "food" },
+  { id: "p3", name: "Coca-Cola 60cl", priceKobo: 40000, category: "beverages" },
+  { id: "p4", name: "Bread (Loaf)", priceKobo: 70000, category: "food" },
+  { id: "p5", name: "Milo 200g", priceKobo: 120000, category: "beverages" },
+  { id: "p6", name: "Airtime ₦500", priceKobo: 50000, category: "airtime" },
+  { id: "p7", name: "Paracetamol (strip)", priceKobo: 15000, category: "pharmacy" },
+  { id: "p8", name: "Bottled Water 75cl", priceKobo: 20000, category: "beverages" },
 ];
 
 const PAYMENT_CHANNELS = [
@@ -71,6 +71,22 @@ export default function MobilePOS() {
     { staleTime: 60_000 }
   );
   const terminals = terminalsData?.rows ?? [];
+
+  // Load product catalog from DB (falls back to offline catalog when unavailable)
+  const { data: productsData, isLoading: productsLoading } = trpc.pos["products.list"].useQuery(
+    { isActive: true, limit: 200 },
+    {
+      staleTime: 5 * 60_000,
+      onError: () => {
+        // Silently fall back to offline catalog
+      },
+    }
+  );
+  const dbProducts = productsData?.products ?? [];
+  // Use DB products when available, fall back to offline catalog
+  const products = dbProducts.length > 0
+    ? dbProducts.map(p => ({ id: p.id, name: p.name, priceKobo: p.priceKobo, category: p.category }))
+    : OFFLINE_PRODUCTS;
 
   // Auto-select first terminal when loaded
   useEffect(() => {
@@ -98,13 +114,13 @@ export default function MobilePOS() {
     };
   }, [flush]);
 
-  const addToCart = useCallback((product: typeof SAMPLE_PRODUCTS[0]) => {
+  const addToCart = useCallback((product: { id: string; name: string; priceKobo: number; category?: string }) => {
     setCart(prev => {
       const existing = prev.find(i => i.id === product.id);
       if (existing) {
         return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
       }
-      return [...prev, { ...product, qty: 1 }];
+      return [...prev, { id: product.id, name: product.name, price: Math.round(product.priceKobo / 100), qty: 1 }];
     });
   }, []);
 
@@ -284,7 +300,13 @@ export default function MobilePOS() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-2">
-            {SAMPLE_PRODUCTS.map(product => (
+            {productsLoading && dbProducts.length === 0 && (
+              <div className="col-span-2 flex items-center justify-center py-8 text-muted-foreground text-sm">
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Loading catalog…
+              </div>
+            )}
+            {!productsLoading && products.map(product => (
               <button
                 key={product.id}
                 onClick={() => addToCart(product)}
@@ -292,7 +314,7 @@ export default function MobilePOS() {
               >
                 <div className="text-xs font-medium text-gray-800 truncate">{product.name}</div>
                 <div className="text-sm font-bold text-indigo-600 mt-1">
-                  ₦{product.price.toLocaleString()}
+                  ₦{(product.priceKobo / 100).toLocaleString()}
                 </div>
               </button>
             ))}

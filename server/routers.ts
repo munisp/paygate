@@ -5461,6 +5461,198 @@ const posRouter = router({
       });
       return { success: true, batchId: input.batchId, status: input.status };
     }),
+  // ─── POS Product Catalog ─────────────────────────────────────────────────────
+  /**
+   * List products for the authenticated merchant's POS catalog.
+   * Supports filtering by category, active status, and barcode lookup.
+   */
+  "products.list": protectedProcedure
+    .input(z.object({
+      category: z.string().optional(),
+      isActive: z.boolean().optional(),
+      barcode: z.string().optional(),
+      search: z.string().optional(),
+      limit: z.number().min(1).max(200).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { products: [], total: 0 };
+      const { posProducts } = await import('../drizzle/schema');
+      const { eq, and, ilike, or } = await import('drizzle-orm');
+      const conds: any[] = [eq(posProducts.merchantId, merchant.id)];
+      if (input.category) conds.push(eq(posProducts.category, input.category));
+      if (input.isActive !== undefined) conds.push(eq(posProducts.isActive, input.isActive));
+      if (input.barcode) conds.push(eq(posProducts.barcode, input.barcode));
+      if (input.search) {
+        conds.push(or(
+          ilike(posProducts.name, `%${input.search}%`),
+          ilike(posProducts.sku, `%${input.search}%`),
+          ilike(posProducts.description, `%${input.search}%`),
+        ));
+      }
+      const [products, countResult] = await Promise.all([
+        db.select().from(posProducts).where(and(...conds)).limit(input.limit).offset(input.offset),
+        db.select({ cnt: (await import('drizzle-orm')).count() }).from(posProducts).where(and(...conds)),
+      ]);
+      return { products, total: Number(countResult[0]?.cnt ?? 0) };
+    }),
+
+  /**
+   * Get a single product by ID.
+   */
+  "products.get": protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Database unavailable' });
+      const { posProducts } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [product] = await db.select().from(posProducts)
+        .where(and(eq(posProducts.id, input.id), eq(posProducts.merchantId, merchant.id)));
+      if (!product) throw new TRPCError({ code: 'NOT_FOUND', message: 'Product not found' });
+      return product;
+    }),
+
+  /**
+   * Create a new product in the POS catalog.
+   */
+  "products.create": protectedProcedure
+    .input(z.object({
+      sku: z.string().min(1).max(64),
+      name: z.string().min(1).max(255),
+      description: z.string().optional(),
+      category: z.string().default('general'),
+      priceKobo: z.number().int().min(0),
+      currency: z.string().default('NGN'),
+      taxPercent: z.number().int().min(0).max(100).default(0),
+      stockQuantity: z.number().int().min(0).optional(),
+      trackInventory: z.boolean().default(false),
+      imageUrl: z.string().url().optional(),
+      barcode: z.string().optional(),
+      terminalId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Database unavailable' });
+      const { posProducts } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      // Enforce unique SKU per merchant
+      const [existing] = await db.select({ id: posProducts.id }).from(posProducts)
+        .where(and(eq(posProducts.merchantId, merchant.id), eq(posProducts.sku, input.sku)));
+      if (existing) throw new TRPCError({ code: 'CONFLICT', message: `SKU "${input.sku}" already exists` });
+      const [product] = await db.insert(posProducts).values({
+        merchantId: merchant.id,
+        ...input,
+        isActive: true,
+      }).returning();
+      return product;
+    }),
+
+  /**
+   * Update an existing product.
+   */
+  "products.update": protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      sku: z.string().min(1).max(64).optional(),
+      name: z.string().min(1).max(255).optional(),
+      description: z.string().optional(),
+      category: z.string().optional(),
+      priceKobo: z.number().int().min(0).optional(),
+      taxPercent: z.number().int().min(0).max(100).optional(),
+      stockQuantity: z.number().int().min(0).optional(),
+      trackInventory: z.boolean().optional(),
+      imageUrl: z.string().url().optional(),
+      barcode: z.string().optional(),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Database unavailable' });
+      const { posProducts } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const { id, ...updates } = input;
+      const [updated] = await db.update(posProducts)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(and(eq(posProducts.id, id), eq(posProducts.merchantId, merchant.id)))
+        .returning();
+      if (!updated) throw new TRPCError({ code: 'NOT_FOUND', message: 'Product not found' });
+      return updated;
+    }),
+
+  /**
+   * Delete (soft-deactivate) a product.
+   */
+  "products.delete": protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Database unavailable' });
+      const { posProducts } = await import('../drizzle/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [deleted] = await db.update(posProducts)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(and(eq(posProducts.id, input.id), eq(posProducts.merchantId, merchant.id)))
+        .returning();
+      if (!deleted) throw new TRPCError({ code: 'NOT_FOUND', message: 'Product not found' });
+      return { success: true, id: input.id };
+    }),
+
+  /**
+   * Bulk upsert products (import from CSV / sync from inventory system).
+   */
+  "products.bulkUpsert": protectedProcedure
+    .input(z.object({
+      products: z.array(z.object({
+        sku: z.string().min(1).max(64),
+        name: z.string().min(1).max(255),
+        description: z.string().optional(),
+        category: z.string().default('general'),
+        priceKobo: z.number().int().min(0),
+        taxPercent: z.number().int().min(0).max(100).default(0),
+        stockQuantity: z.number().int().min(0).optional(),
+        trackInventory: z.boolean().default(false),
+        barcode: z.string().optional(),
+        isActive: z.boolean().default(true),
+      })).min(1).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Database unavailable' });
+      const { posProducts } = await import('../drizzle/schema');
+      const { sql: sqlFn } = await import('drizzle-orm');
+      const rows = input.products.map(p => ({ merchantId: merchant.id, ...p }));
+      await db.insert(posProducts).values(rows).onConflictDoUpdate({
+        target: [posProducts.merchantId, posProducts.sku],
+        set: {
+          name: sqlFn`excluded.name`,
+          description: sqlFn`excluded.description`,
+          category: sqlFn`excluded.category`,
+          priceKobo: sqlFn`excluded.price_kobo`,
+          taxPercent: sqlFn`excluded.tax_percent`,
+          stockQuantity: sqlFn`excluded.stock_quantity`,
+          trackInventory: sqlFn`excluded.track_inventory`,
+          barcode: sqlFn`excluded.barcode`,
+          isActive: sqlFn`excluded.is_active`,
+          updatedAt: sqlFn`NOW()`,
+        },
+      });
+      return { upserted: rows.length };
+    }),
+
 });
 // --- Root Router ---
 // ═══════════════════════════════════════════════════════════════════════════════
