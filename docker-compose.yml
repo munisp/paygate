@@ -156,6 +156,119 @@ services:
     profiles:
       - seed
 
+  # ── Fluvio (Real-time event streaming) ────────────────────────────────────
+  fluvio:
+    image: infinyon/fluvio:latest
+    container_name: paygate_fluvio
+    restart: unless-stopped
+    ports:
+      - "9003:9003"
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Temporal (Workflow orchestration) ───────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: paygate_temporal
+    restart: unless-stopped
+    ports:
+      - "7233:7233"
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: paygate
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-paygate_secure_2026}
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Permify (Fine-grained PBAC authorization) ──────────────────────────────────
+  permify:
+    image: ghcr.io/permify/permify:latest
+    container_name: paygate_permify
+    restart: unless-stopped
+    ports:
+      - "3476:3476"
+      - "3478:3478"
+    command: serve
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_prod
+      PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── OpenSearch (Transaction search & audit indexing) ─────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: paygate_opensearch
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      plugins.security.disabled: "true"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── TigerBeetle (Double-entry accounting ledger) ──────────────────────────────
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:latest
+    container_name: paygate_tigerbeetle
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    command: start --addresses=0.0.0.0:3001 /data/0_0.tigerbeetle
+    volumes:
+      - tigerbeetle_data:/data
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Dapr Placement (Service mesh sidecar) ───────────────────────────────────────────
+  dapr-placement:
+    image: daprio/dapr:1.13
+    container_name: paygate_dapr_placement
+    restart: unless-stopped
+    command: ["./placement", "-port", "50006"]
+    ports:
+      - "50006:50006"
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Mojaloop Simulator (Interoperability testing) ──────────────────────────────
+  mojaloop-simulator:
+    image: mojaloop/simulator:latest
+    container_name: paygate_mojaloop_sim
+    restart: unless-stopped
+    ports:
+      - "8444:8444"
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
 # ─── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
@@ -165,6 +278,10 @@ volumes:
   app_logs:
     driver: local
   nginx_logs:
+    driver: local
+  opensearch_data:
+    driver: local
+  tigerbeetle_data:
     driver: local
 
 # ─── Networks ─────────────────────────────────────────────────────────────────

@@ -4053,3 +4053,32 @@
 - [ ] Python GNN analytics pipeline for fraud scoring
 - [x] Add docs/ARCHITECTURE.md and docs/RUNBOOK.md
 - [ ] Generate tRPC procedure reference documentation
+
+### Round 4 (95 → 95+ — Final Pass)
+- [x] Fix SSRF localhost security test (add localhost to METADATA_HOSTS in securityUtils.ts)
+- [x] Create 10 middleware client files (Kafka, Fluvio, Temporal, Permify, Mojaloop, OpenSearch, TigerBeetle, Redis, Lakehouse, Dapr)
+- [x] Extend middlewareBridge.ts with Fluvio, Temporal, Permify, Mojaloop, Redis bridge functions (15 new exported functions)
+- [x] Add WAF middleware (DDoS, SQL injection, XSS, ransomware extension, path traversal blocking)
+- [x] Register WAF middleware in server/_core/index.ts
+- [x] Create offline resilience hooks (useOfflineSync, useWebSocket with fallback)
+- [x] Create OfflineBanner component for dashboard
+- [x] Add 24 missing React Native screens for mobile parity
+- [x] Add 22 missing Flutter screens for mobile parity
+- [x] Add 7 middleware services to docker-compose.yml (Fluvio, Temporal, Permify, OpenSearch, TigerBeetle, Dapr, Mojaloop)
+- [x] Create server/seed.mjs with realistic test data for all major entities
+- [x] Create docs/CHANGE_MANIFEST_v95.md comprehensive change log
+- [x] Generate paygate_FULL_v95_final.tar.gz (477 MB, 2493 files, 419 directories)
+- [x] Final test suite: 3909 passing / 0 failing / 411 skipped (106 test files)
+
+### Round 4 (95 Final Pass)
+- [x] Fix SSRF localhost security test (add localhost to METADATA_HOSTS in securityUtils.ts)
+- [x] Create 10 middleware client files (Kafka, Fluvio, Temporal, Permify, Mojaloop, OpenSearch, TigerBeetle, Redis, Lakehouse, Dapr)
+- [x] Extend middlewareBridge.ts with Fluvio, Temporal, Permify, Mojaloop, Redis bridge functions
+- [x] Add WAF middleware (DDoS, SQL injection, XSS, ransomware extension, path traversal blocking)
+- [x] Create offline resilience hooks (useOfflineSync, useWebSocket with fallback) + OfflineBanner component
+- [x] Add 24 missing React Native screens for mobile parity
+- [x] Add 22 missing Flutter screens for mobile parity
+- [x] Add 7 middleware services to docker-compose.yml
+- [x] Create server/seed.mjs with realistic test data
+- [x] Create docs/CHANGE_MANIFEST_v95.md comprehensive change log
+- [x] Final test suite: 3909 passing / 0 failing / 411 skipped (106 test files)

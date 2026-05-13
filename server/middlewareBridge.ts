@@ -1524,3 +1524,111 @@ export async function processLoanRepaymentViaMiddleware(repayment: {
 }): Promise<{ repaymentId: string; remainingBalance: number; status: string } | null> {
   return safe("POST", "/v1/loans/repayments/process", repayment);
 }
+
+// ─── Fluvio Streaming ─────────────────────────────────────────────────────────
+export async function publishFluvioEventViaMiddleware(event: {
+  topic: string; key: string; value: string; partition?: number;
+}): Promise<{ offset: number; partition: number; timestamp: string } | null> {
+  return safe("POST", "/v1/fluvio/produce", event);
+}
+export async function createFluvioTopicViaMiddleware(
+  topic: string, partitions = 1, retentionHours = 24
+): Promise<{ created: boolean; topic: string } | null> {
+  return safe("POST", "/v1/fluvio/topics", { topic, partitions, retentionHours });
+}
+export async function getFluvioTopicStatsViaMiddleware(
+  topic: string
+): Promise<{ messageCount: number; bytesIn: number; bytesOut: number; partitions: number } | null> {
+  return safe("GET", `/v1/fluvio/topics/${topic}/stats`);
+}
+
+// ─── Temporal Workflow Engine ─────────────────────────────────────────────────
+export async function startTemporalWorkflowViaMiddleware(workflow: {
+  workflowType: string; workflowId: string; taskQueue: string;
+  input?: unknown; executionTimeout?: number;
+}): Promise<{ runId: string; workflowId: string; status: string } | null> {
+  return safe("POST", "/v1/temporal/workflows/start", workflow);
+}
+export async function getTemporalWorkflowStatusViaMiddleware(
+  workflowId: string, runId?: string
+): Promise<{ status: string; startTime: string; closeTime?: string; result?: unknown } | null> {
+  const qs = runId ? `?runId=${runId}` : "";
+  return safe("GET", `/v1/temporal/workflows/${workflowId}/status${qs}`);
+}
+export async function signalTemporalWorkflowViaMiddleware(
+  workflowId: string, signalName: string, input?: unknown
+): Promise<{ signaled: boolean } | null> {
+  return safe("POST", `/v1/temporal/workflows/${workflowId}/signal`, { signalName, input });
+}
+export async function cancelTemporalWorkflowViaMiddleware(
+  workflowId: string
+): Promise<{ cancelled: boolean } | null> {
+  return safe("POST", `/v1/temporal/workflows/${workflowId}/cancel`, {});
+}
+
+// ─── Permify PBAC ─────────────────────────────────────────────────────────────
+export async function checkPermifyPermissionViaMiddleware(check: {
+  tenantId: string; subject: { type: string; id: string };
+  permission: string; resource: { type: string; id: string };
+}): Promise<{ allowed: boolean; reason?: string } | null> {
+  return safe("POST", "/v1/permify/check", check);
+}
+export async function writePermifyRelationshipViaMiddleware(rel: {
+  tenantId: string; entity: { type: string; id: string };
+  relation: string; subject: { type: string; id: string };
+}): Promise<{ written: boolean; snapToken: string } | null> {
+  return safe("POST", "/v1/permify/relationships/write", rel);
+}
+export async function deletePermifyRelationshipViaMiddleware(rel: {
+  tenantId: string; entity: { type: string; id: string };
+  relation: string; subject: { type: string; id: string };
+}): Promise<{ deleted: boolean } | null> {
+  return safe("DELETE", "/v1/permify/relationships", rel);
+}
+export async function expandPermifyPermissionsViaMiddleware(params: {
+  tenantId: string; entity: { type: string; id: string }; permission: string;
+}): Promise<{ subjects: Array<{ type: string; id: string }> } | null> {
+  return safe("POST", "/v1/permify/permissions/expand", params);
+}
+
+// ─── Mojaloop Interoperability ────────────────────────────────────────────────
+export async function lookupMojaloopPartyViaMiddleware(
+  idType: string, idValue: string
+): Promise<{ found: boolean; party?: unknown; fspId?: string } | null> {
+  return safe("GET", `/v1/mojaloop/parties/${idType}/${idValue}`);
+}
+export async function initiateMojaloopTransferViaMiddleware(transfer: {
+  transferId: string; payerFsp: string; payeeFsp: string;
+  amount: { currency: string; amount: string };
+  ilpPacket: string; condition: string; expiration: string;
+}): Promise<{ transferId: string; transferState: string } | null> {
+  return safe("POST", "/v1/mojaloop/transfers", transfer);
+}
+export async function getMojaloopTransferStatusViaMiddleware(
+  transferId: string
+): Promise<{ transferId: string; transferState: string; completedTimestamp?: string } | null> {
+  return safe("GET", `/v1/mojaloop/transfers/${transferId}`);
+}
+export async function requestMojaloopQuoteViaMiddleware(quote: {
+  quoteId: string; transactionId: string; payee: unknown; payer: unknown;
+  amountType: string; amount: { currency: string; amount: string }; transactionType: unknown;
+}): Promise<{ quoteId: string; transferAmount: unknown; payeeReceiveAmount: unknown } | null> {
+  return safe("POST", "/v1/mojaloop/quotes", quote);
+}
+
+// ─── Redis Cache Bridge ───────────────────────────────────────────────────────
+export async function setCacheViaMiddleware(
+  key: string, value: unknown, ttlSeconds?: number
+): Promise<{ set: boolean } | null> {
+  return safe("POST", "/v1/cache/set", { key, value, ttlSeconds });
+}
+export async function getCacheViaMiddleware(
+  key: string
+): Promise<{ found: boolean; value?: unknown } | null> {
+  return safe("GET", `/v1/cache/${encodeURIComponent(key)}`);
+}
+export async function invalidateCacheViaMiddleware(
+  pattern: string
+): Promise<{ deleted: number } | null> {
+  return safe("DELETE", "/v1/cache/invalidate", { pattern });
+}

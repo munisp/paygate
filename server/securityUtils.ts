@@ -32,6 +32,8 @@ const METADATA_HOSTS = new Set([
   "169.254.169.254",   // AWS / GCP / Azure instance metadata
   "metadata.google.internal",
   "metadata.internal",
+  "localhost",          // loopback by name — must be blocked for SSRF
+  "ip6-localhost",      // IPv6 loopback by name
 ]);
 
 /**

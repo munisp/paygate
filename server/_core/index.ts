@@ -325,6 +325,10 @@ async function startServer() {
 
   // ─── Security Guards ─────────────────────────────────────────────────────────
   app.use(reDoSGuard); // VULN-022: Block suspiciously long URL paths (ReDoS mitigation)
+  // ─── WAF (SQLi, XSS, path traversal, ransomware, bot detection) ──────────────
+  const { wafMiddleware: wafMw, securityHeadersMiddleware: secHdrsMw } = await import("../wafMiddleware");
+  app.use(secHdrsMw);
+  app.use(wafMw);
 
   // ─── Rate Limiting ─────────────────────────────────────────────────────────
   app.use(globalLimiter);
