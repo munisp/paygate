@@ -1,5 +1,6 @@
 /**
  * MobilePOS — Offline-capable Point of Sale screen (Wave 75)
+ * Uses trpc.pos.processPayment for real payment processing.
  * Uses useOfflineQueue for mutation queuing when offline.
  */
 import { useState, useEffect, useCallback } from "react";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
   ShoppingCart,
@@ -21,6 +23,8 @@ import {
   RefreshCw,
   CheckCircle2,
   Clock,
+  Terminal,
+  Receipt,
 } from "lucide-react";
 import { useOfflineQueue } from "@/hooks/useOfflineQueue";
 import { trpc } from "@/lib/trpc";
@@ -32,6 +36,7 @@ interface CartItem {
   qty: number;
 }
 
+// Local product catalog — works offline (no network required for browsing)
 const SAMPLE_PRODUCTS = [
   { id: "p1", name: "Indomie Noodles", price: 350 },
   { id: "p2", name: "Peak Milk (tin)", price: 1800 },
@@ -43,16 +48,36 @@ const SAMPLE_PRODUCTS = [
   { id: "p8", name: "Bottled Water 75cl", price: 200 },
 ];
 
-export default function MobilePOS() {
-  const isLoading = false; // Data loaded synchronously
+const PAYMENT_CHANNELS = [
+  { value: "qr", label: "QR Code" },
+  { value: "card", label: "Card" },
+  { value: "nip", label: "NIP Transfer" },
+  { value: "ussd", label: "USSD" },
+] as const;
 
+export default function MobilePOS() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerPhone, setCustomerPhone] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [lastTxId, setLastTxId] = useState<string | null>(null);
-
+  const [lastReceipt, setLastReceipt] = useState<{ txId: string; posId: string; receiptUrl: string } | null>(null);
+  const [selectedTerminalId, setSelectedTerminalId] = useState<string>("");
+  const [channel, setChannel] = useState<"qr" | "card" | "nip" | "ussd">("qr");
   const { pendingCount, flush, isFlushing } = useOfflineQueue();
+
+  // Load registered POS terminals for this merchant
+  const { data: terminalsData, isLoading } = trpc.pos.list.useQuery(
+    { status: "active", limit: 20 },
+    { staleTime: 60_000 }
+  );
+  const terminals = terminalsData?.rows ?? [];
+
+  // Auto-select first terminal when loaded
+  useEffect(() => {
+    if (!selectedTerminalId && terminals.length > 0) {
+      setSelectedTerminalId(terminals[0].id);
+    }
+  }, [terminals, selectedTerminalId]);
 
   // Monitor online/offline status
   useEffect(() => {
@@ -95,20 +120,26 @@ export default function MobilePOS() {
   }, []);
 
   const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const totalKobo = total * 100; // Convert NGN to kobo
 
-  const createTestTxMutation = trpc.transactions.createTest.useMutation({
-    onSuccess: (data: any) => {
-      setLastTxId(data?.id ?? `TX-${Date.now()}`);
+  // Real POS payment mutation using trpc.pos.processPayment
+  const processPaymentMutation = trpc.pos.processPayment.useMutation({
+    onSuccess: (data) => {
+      setLastReceipt({
+        txId: data.transactionId,
+        posId: data.posTransactionId,
+        receiptUrl: data.receiptUrl,
+      });
       setCart([]);
       setCustomerPhone("");
-      toast.success("Payment recorded successfully!");
+      toast.success(`Payment of ₦${total.toLocaleString()} processed! TX: ${data.transactionId}`);
     },
-    onError: (_err: any, variables: any) => {
+    onError: (err: any) => {
       if (!navigator.onLine) {
         toast.info("Queued offline — will sync when back online");
         setCart([]);
       } else {
-        toast.error("Payment failed — please retry");
+        toast.error(`Payment failed: ${err.message}`);
       }
     },
   });
@@ -118,14 +149,17 @@ export default function MobilePOS() {
       toast.error("Cart is empty");
       return;
     }
+    if (!selectedTerminalId) {
+      toast.error("No POS terminal selected. Please register a terminal first.");
+      return;
+    }
     setProcessing(true);
     try {
-      await createTestTxMutation.mutateAsync({
-        amount: total,
-        currency: "NGN",
-        description: cart.map(i => `${i.name} x${i.qty}`).join(", "),
-        customerPhone: customerPhone || undefined,
-      } as any);
+      await processPaymentMutation.mutateAsync({
+        terminalId: selectedTerminalId,
+        amountKobo: totalKobo,
+        channel,
+      });
     } finally {
       setProcessing(false);
     }
@@ -158,6 +192,52 @@ export default function MobilePOS() {
         </div>
       </div>
 
+      {/* Terminal & Channel Selector */}
+      <Card className="mb-4">
+        <CardContent className="p-3 space-y-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground flex items-center gap-1">
+              <Terminal className="h-3 w-3" /> POS Terminal
+            </label>
+            {isLoading ? (
+              <div className="h-9 bg-muted rounded animate-pulse" />
+            ) : terminals.length === 0 ? (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+                No active terminals found. Register a terminal in POS Terminals settings.
+              </p>
+            ) : (
+              <Select value={selectedTerminalId} onValueChange={setSelectedTerminalId}>
+                <SelectTrigger className="text-sm">
+                  <SelectValue placeholder="Select terminal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {terminals.map((t: any) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.label ?? t.serialNumber} ({t.model})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground flex items-center gap-1">
+              <CreditCard className="h-3 w-3" /> Payment Channel
+            </label>
+            <Select value={channel} onValueChange={(v) => setChannel(v as typeof channel)}>
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAYMENT_CHANNELS.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Sync button when offline queue has items */}
       {pendingCount > 0 && isOnline && (
         <Card className="mb-4 border-amber-200 bg-amber-50">
@@ -174,15 +254,24 @@ export default function MobilePOS() {
       )}
 
       {/* Last transaction success */}
-      {lastTxId && (
+      {lastReceipt && (
         <Card className="mb-4 border-green-200 bg-green-50">
           <CardContent className="p-3 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-            <span className="text-sm text-green-700">
-              Transaction {lastTxId} recorded
-            </span>
-            <Button size="sm" variant="ghost" className="ml-auto h-6 text-xs" onClick={() => setLastTxId(null)}>
-              Dismiss
+            <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-green-700 font-medium">Payment successful!</p>
+              <p className="text-xs text-green-600 font-mono truncate">TX: {lastReceipt.txId}</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs border-green-300 text-green-700"
+              onClick={() => window.open(lastReceipt.receiptUrl, "_blank")}
+            >
+              <Receipt className="h-3 w-3 mr-1" /> Receipt
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setLastReceipt(null)}>
+              ✕
             </Button>
           </CardContent>
         </Card>
@@ -277,12 +366,17 @@ export default function MobilePOS() {
       <Button
         className="w-full h-14 text-lg font-bold bg-indigo-600 hover:bg-indigo-700"
         onClick={handleCharge}
-        disabled={processing || cart.length === 0}
+        disabled={processing || cart.length === 0 || !selectedTerminalId}
       >
         <CreditCard className="h-5 w-5 mr-2" />
         {processing ? "Processing…" : `Charge ₦${total.toLocaleString()}`}
         {!isOnline && " (Offline)"}
       </Button>
+      {!selectedTerminalId && terminals.length === 0 && !isLoading && (
+        <p className="text-xs text-center text-amber-600 mt-2">
+          Register a POS terminal in Settings → POS Terminals to enable payments
+        </p>
+      )}
     </div>
   );
 }

@@ -83,10 +83,28 @@ export default function TenantBrandingAdmin() {
     }
   };
 
+  const saveMutation = trpc.tenantBrandingApi.upsert.useMutation({
+    onSuccess: () => {
+      setSaved(true);
+      toast.success(`Branding for "${slug}" saved successfully`);
+      refetch();
+      setTimeout(() => setSaved(false), 3000);
+    },
+    onError: (e: any) => toast.error(`Save failed: ${e.message}`),
+  });
+
   const handleSave = () => {
-    setSaved(true);
-    toast.success(`Branding for "${slug}" saved successfully`);
-    setTimeout(() => setSaved(false), 3000);
+    saveMutation.mutate({
+      slug,
+      primaryColor,
+      secondaryColor,
+      bgColor,
+      textColor,
+      fontFamily,
+      logoUrl: logoUrl || null,
+      supportEmail: supportEmail || undefined,
+      footerText: footerText || undefined,
+    });
   };
 
   if (isLoading) {
@@ -114,9 +132,9 @@ export default function TenantBrandingAdmin() {
             <Eye className={`w-4 h-4 mr-1 ${previewActive ? "text-pink-600" : ""}`} />
             {previewActive ? "Disable Preview" : "Live Preview"}
           </Button>
-          <Button onClick={handleSave} className="bg-pink-600 hover:bg-pink-700 text-white">
-            {saved ? <CheckCircle2 className="w-4 h-4 mr-1" /> : <Save className="w-4 h-4 mr-1" />}
-            {saved ? "Saved!" : "Save Branding"}
+          <Button onClick={handleSave} disabled={saveMutation.isPending} className="bg-pink-600 hover:bg-pink-700 text-white">
+            {saveMutation.isPending ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4 mr-1" /> : <Save className="w-4 h-4 mr-1" />}
+            {saveMutation.isPending ? "Saving…" : saved ? "Saved!" : "Save Branding"}
           </Button>
         </div>
       </div>

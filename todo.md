@@ -4082,3 +4082,20 @@
 - [x] Create server/seed.mjs with realistic test data
 - [x] Create docs/CHANGE_MANIFEST_v95.md comprehensive change log
 - [x] Final test suite: 3909 passing / 0 failing / 411 skipped (106 test files)
+
+### Round 5 — Orphan/Stub Full Implementation
+- [ ] Fix middlewareDashboard.ts: replace 4 null-returning stubs with real Kafka/Temporal/Fluvio/Redis client calls
+- [ ] Fix WAFAlertDashboard.tsx: replace Math.random() calls with real tRPC wiring to WAF alert procedures
+- [ ] Fix WebhookLiveStream.tsx: replace Math.random() calls with real SSE/WebSocket streaming from DB
+- [ ] Fix FraudRisk.tsx: replace Math.random() calls with real fraud score data from tRPC
+- [ ] Fix MobileMoneyRecon.tsx: replace Math.random() calls with real reconciliation data
+- [ ] Fully implement MobilePOS.tsx: add POS session management, receipt printing, inventory lookup
+- [ ] Fully implement PartnerAdminDashboard.tsx: add partner list, revenue share, sub-merchant management
+- [ ] Fully implement POSReconciliation.tsx: add batch settlement, discrepancy flagging, export
+- [ ] Fully implement AuditLogViewer.tsx: add filtering by actor/action/resource, export
+- [ ] Fully implement TenantBrandingAdmin.tsx: add logo upload, color picker save, preview publish
+- [ ] Fully implement GoLiveChecklist.tsx: add per-item completion tracking, KYB status integration
+- [ ] Fully implement PricingPage.tsx: add plan comparison, feature matrix, upgrade flow
+- [ ] Fully implement WhiteLabelPreview.tsx: add theme save, domain binding, preview iframe
+- [ ] Fully implement MicroserviceHealth.tsx: add per-service drill-down, restart action, alert thresholds
+- [ ] Add domain validation and event emission to crud120.ts pure-CRUD sections

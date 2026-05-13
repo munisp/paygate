@@ -6158,6 +6158,69 @@ const auditLogRouter = router({
       });
       return { csv: header + csvRows.join('\n'), count: rows.length };
     }),
+  // OpenSearch-style full-text search alias — used by AuditLogViewer.tsx
+  search: protectedProcedure
+    .input(z.object({
+      page: z.number().int().min(1).default(1),
+      limit: z.number().int().min(1).max(200).default(50),
+      search: z.string().optional(),
+      actorId: z.string().optional(),
+      actionType: z.string().optional(),
+      resourceType: z.string().optional(),
+      dateFrom: z.number().optional(),
+      dateTo: z.number().optional(),
+      useOpenSearch: z.boolean().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb: _getDb2 } = await import('./db');
+      const { sql: _sql2 } = await import('drizzle-orm');
+      const db = await _getDb2();
+      if (!db) return { logs: [], total: 0, facets: {} };
+      const offset = (input.page - 1) * input.limit;
+      const fromTs = input.dateFrom ? new Date(input.dateFrom) : new Date(Date.now() - 30 * 86400_000);
+      const toTs = input.dateTo ? new Date(input.dateTo) : new Date();
+      const searchLike = input.search ? '%' + input.search + '%' : null;
+      const rows = await db.execute(
+        _sql2`SELECT id, merchant_id, actor_id, actor_name, actor_email, action, resource, resource_id, metadata, ip_address, created_at
+            FROM audit_events
+            WHERE merchant_id = ${merchant.id}
+            AND created_at BETWEEN ${fromTs} AND ${toTs}
+            ORDER BY created_at DESC
+            LIMIT ${input.limit} OFFSET ${offset}`
+      );
+      const countRows = await db.execute(
+        _sql2`SELECT COUNT(*) as total FROM audit_events WHERE merchant_id = ${merchant.id} AND created_at BETWEEN ${fromTs} AND ${toTs}`
+      );
+      const logs = (rows.rows ?? [])
+        .filter((r: any) => {
+          if (input.actionType && r.action !== input.actionType) return false;
+          if (input.resourceType && r.resource !== input.resourceType) return false;
+          if (input.actorId && r.actor_id !== input.actorId) return false;
+          if (searchLike) {
+            const s = searchLike.replace(/%/g, '').toLowerCase();
+            if (!((r.actor_name ?? '').toLowerCase().includes(s) || (r.action ?? '').toLowerCase().includes(s) || (r.resource ?? '').toLowerCase().includes(s))) return false;
+          }
+          return true;
+        })
+        .map((r: any) => ({
+          id: r.id,
+          merchantId: r.merchant_id,
+          actorId: r.actor_id,
+          actorName: r.actor_name,
+          actorEmail: r.actor_email,
+          actionType: r.action,
+          resourceType: r.resource,
+          resourceId: r.resource_id,
+          metadata: r.metadata,
+          ipAddress: r.ip_address,
+          status: 'success',
+          createdAt: r.created_at,
+        }));
+      const total = Number((countRows.rows?.[0] as any)?.total ?? 0);
+      return { logs, total, facets: { actions: [], resources: [] } };
+    }),
 });
 
 // ─── Vendor Router ───────────────────────────────────────────────────────────

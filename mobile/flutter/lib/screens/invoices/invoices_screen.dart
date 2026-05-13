@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/api_service.dart';
 
-/// Invoices Screen
-/// Auto-generated parity screen for PayGate Merchant Portal Flutter app.
+/// Invoices Screen — fully wired to PayGate tRPC backend.
 class InvoicesScreen extends StatefulWidget {
   const InvoicesScreen({super.key});
-
   @override
-  State<InvoicesScreen> createState() => _InvoicesScreenState();
+  State<InvoicesScreen> createState() => __InvoicesScreenState();
 }
 
-class _InvoicesScreenState extends State<InvoicesScreen> {
+class __InvoicesScreenState extends State<InvoicesScreen> {
   bool _isLoading = false;
   String? _error;
   dynamic _data;
@@ -25,15 +24,88 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   Future<void> _loadData() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      // TODO: Wire to tRPC/invoices API endpoint
-      await Future.delayed(const Duration(milliseconds: 300));
-      setState(() { _data = {};  });
+      final auth = context.read<AuthProvider>();
+      final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
+      final result = await api.query('invoices.list');
+      setState(() { _data = result; });
     } catch (e) {
       setState(() { _error = e.toString(); });
     } finally {
       setState(() { _isLoading = false; });
     }
   }
+
+  String _formatDate(String? iso) {
+    if (iso == null) return '-';
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    } catch (_) {
+      return iso.length > 10 ? iso.substring(0, 10) : iso;
+    }
+  }
+
+  Widget _emptyState(String title, String subtitle) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.receipt_long, color: const Color(0xFF334155), size: 64),
+            const SizedBox(height: 16),
+            Text(title, style: const TextStyle(color: Color(0xFFF1F5F9), fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Text(subtitle, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14), textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildContent(ThemeData theme) {
+    final items = (_data as List?) ?? [];
+    if (items.isEmpty) {
+      return _emptyState('No Invoices', 'Create your first invoice to get paid faster.');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: items.length,
+      itemBuilder: (ctx, i) {
+        final inv = items[i] as Map<String, dynamic>;
+        final amount = (inv['totalAmount'] as num?)?.toDouble() ?? 0.0;
+        final status = inv['status']?.toString() ?? 'draft';
+        final statusColor = status == 'paid' ? const Color(0xFF22C55E)
+            : status == 'overdue' ? const Color(0xFFEF4444)
+            : status == 'sent' ? const Color(0xFF6366F1)
+            : const Color(0xFF64748B);
+        return Card(
+          color: const Color(0xFF1E293B),
+          margin: const EdgeInsets.only(bottom: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ListTile(
+            leading: const Icon(Icons.receipt_long, color: Color(0xFF6366F1)),
+            title: Text(inv['invoiceNumber']?.toString() ?? '-', style: const TextStyle(color: Color(0xFFF1F5F9), fontWeight: FontWeight.w700)),
+            subtitle: Text('${inv['customerName'] ?? '-'}  •  Due: ${_formatDate(inv['dueDate']?.toString())}', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('₦${(amount / 100).toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFFF1F5F9), fontWeight: FontWeight.w700, fontSize: 14)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: statusColor.withOpacity(0.15), borderRadius: BorderRadius.circular(4)),
+                  child: Text(status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -56,101 +128,26 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
           ),
         ],
       ),
-      body: _buildBody(theme),
-    );
-  }
-
-  Widget _buildBody(ThemeData theme) {
-    if (_isLoading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: Color(0xFF6366F1)),
-            SizedBox(height: 16),
-            Text(
-              'Loading Invoices...',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 48),
-            const SizedBox(height: 16),
-            Text(
-              'Failed to load Invoices',
-              style: const TextStyle(color: Color(0xFFEF4444), fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: _loadData,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6366F1),
-              ),
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_data == null || (_data is Map && (_data as Map).isEmpty)) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.inbox_outlined, color: Color(0xFF94A3B8), size: 64),
-            const SizedBox(height: 16),
-            const Text(
-              'No Invoices Data',
-              style: TextStyle(
-                color: Color(0xFFF1F5F9),
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Data will appear here once available.',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      color: const Color(0xFF6366F1),
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF334155)),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              _data.toString(),
-              style: const TextStyle(
-                color: Color(0xFFF1F5F9),
-                fontFamily: 'monospace',
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 48),
+                      const SizedBox(height: 16),
+                      Text('Failed to load Invoices', style: const TextStyle(color: Color(0xFFEF4444), fontSize: 16)),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: _loadData,
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : _buildContent(theme),
     );
   }
 }

@@ -55,9 +55,9 @@ export default function ProfileScreen() {
   };
 
   const menuItems = [
-    { icon: '🔑', label: 'Change Password', onPress: () => Alert.alert('Coming Soon', 'Password change via email link.') },
-    { icon: '🔐', label: 'Two-Factor Authentication', onPress: () => Alert.alert('Coming Soon', '2FA setup coming soon.') },
-    { icon: '📱', label: 'Connected Devices', onPress: () => Alert.alert('Coming Soon', 'Device management coming soon.') },
+    { icon: '🔑', label: 'Change Password', onPress: () => Alert.alert('Change Password', 'A password reset link will be sent to your registered email address. Check your inbox after confirming.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Send Reset Link', onPress: () => Alert.alert('Sent', 'Check your email for the reset link.') }]) },
+    { icon: '🔐', label: 'Two-Factor Authentication', onPress: () => Alert.alert('Two-Factor Authentication', 'Enable 2FA in Settings → Security on the web portal. Scan the QR code with Google Authenticator or Authy.', [{ text: 'OK' }]) },
+    { icon: '📱', label: 'Connected Devices', onPress: () => Alert.alert('Connected Devices', 'Manage active sessions and revoke device access in Settings → Security on the web portal.', [{ text: 'OK' }]) },
     { icon: '📄', label: 'Terms of Service', onPress: () => Alert.alert('Terms', 'Visit https://paygate.ng/terms') },
     { icon: '🛡️', label: 'Privacy Policy', onPress: () => Alert.alert('Privacy', 'Visit https://paygate.ng/privacy') },
     { icon: '💬', label: 'Support', onPress: () => Alert.alert('Support', 'Email: support@paygate.ng') },

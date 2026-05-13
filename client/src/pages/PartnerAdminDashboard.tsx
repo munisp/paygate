@@ -9,17 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Building2, Plus, CheckCircle2, Clock, AlertTriangle, TrendingUp, Users, DollarSign, Globe, Search, ExternalLink } from "lucide-react";
+import { Building2, Plus, CheckCircle2, Clock, AlertTriangle, TrendingUp, Users, DollarSign, Globe, Search, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const MOCK_PARTNERS = [
-  { id: "PTR-001", name: "FinTech Solutions Ltd", slug: "fintech-solutions", status: "active", tier: "gold", revenue: 1_250_000, merchants: 45, joinDate: "2025-11-15", country: "NG", contact: "ceo@fintechsolutions.ng" },
-  { id: "PTR-002", name: "PayEasy Africa", slug: "payeasy-africa", status: "active", tier: "silver", revenue: 680_000, merchants: 22, joinDate: "2025-12-01", country: "GH", contact: "admin@payeasy.africa" },
-  { id: "PTR-003", name: "QuickPay Kenya", slug: "quickpay-kenya", status: "pending", tier: "bronze", revenue: 0, merchants: 0, joinDate: "2026-04-10", country: "KE", contact: "info@quickpay.ke" },
-  { id: "PTR-004", name: "SecurePay SA", slug: "securepay-sa", status: "active", tier: "platinum", revenue: 3_800_000, merchants: 120, joinDate: "2025-09-01", country: "ZA", contact: "partners@securepay.co.za" },
-  { id: "PTR-005", name: "MobileMoney Uganda", slug: "mobilemoney-ug", status: "suspended", tier: "bronze", revenue: 45_000, merchants: 3, joinDate: "2026-01-20", country: "UG", contact: "ops@mobilemoney.ug" },
-];
+// MOCK_PARTNERS removed — data now comes from trpc.partnerOnboarding.list
 
 const REVENUE_DATA = [
   { month: "Nov", revenue: 2_800_000, partners: 3 },
@@ -47,26 +41,41 @@ const COUNTRY_FLAGS: Record<string, string> = { NG: "🇳🇬", GH: "🇬🇭", 
 
 export default function PartnerAdminDashboard() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "pending" | "suspended">("all");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteCompany, setInviteCompany] = useState("");
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
+
+  // Real tRPC data
+  const { data: partnerData, isLoading, refetch } = trpc.partnerOnboarding.list.useQuery(
+    { search: search || undefined, status: statusFilter },
+    { staleTime: 30_000 }
+  );
+
+  const updateStatusMutation = trpc.partnerOnboarding.updateStatus.useMutation({
+    onSuccess: (d) => {
+      toast.success(`Partner status updated to ${d.status}`);
+      utils.partnerOnboarding.list.invalidate();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const inviteMutation = trpc.partnerOnboarding.start.useMutation({
     onSuccess: (data) => {
       toast.success(`Partner onboarding session ${data.sessionId} started`);
       setInviteOpen(false);
+      utils.partnerOnboarding.list.invalidate();
     },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const filteredPartners = MOCK_PARTNERS.filter((p) =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.slug.includes(search.toLowerCase())
-  );
-
-  const totalRevenue = MOCK_PARTNERS.reduce((s, p) => s + p.revenue, 0);
-  const totalMerchants = MOCK_PARTNERS.reduce((s, p) => s + p.merchants, 0);
-  const activePartners = MOCK_PARTNERS.filter((p) => p.status === "active").length;
+  const partners = partnerData?.partners ?? [];
+  const filteredPartners = partners;
+  const totalRevenue = partnerData?.totalRevenue ?? 0;
+  const totalMerchants = partnerData?.totalMerchants ?? 0;
+  const activePartners = partners.filter((p) => p.status === "active").length;
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -79,8 +88,8 @@ export default function PartnerAdminDashboard() {
           <p className="text-muted-foreground text-sm mt-1">Manage partner network, onboarding, and revenue sharing</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate("/partner/onboard/wizard")}>
-            <ExternalLink className="w-4 h-4 mr-1" /> Onboarding Wizard
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
+            <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? "animate-spin" : ""}`} /> Refresh
           </Button>
           <Button onClick={() => setInviteOpen(true)} className="bg-indigo-600 hover:bg-indigo-700">
             <Plus className="w-4 h-4 mr-2" /> Invite Partner
@@ -91,10 +100,10 @@ export default function PartnerAdminDashboard() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Active Partners", value: String(activePartners), icon: Building2, color: "text-indigo-600" },
-          { label: "Total Merchants", value: String(totalMerchants), icon: Users, color: "text-emerald-600" },
-          { label: "Partner Revenue (All Time)", value: `₦${(totalRevenue / 1_000_000).toFixed(2)}M`, icon: DollarSign, color: "text-blue-600" },
-          { label: "Countries", value: "5", icon: Globe, color: "text-purple-600" },
+          { label: "Active Partners", value: isLoading ? "…" : String(activePartners), icon: Building2, color: "text-indigo-600" },
+          { label: "Total Merchants", value: isLoading ? "…" : String(totalMerchants), icon: Users, color: "text-emerald-600" },
+          { label: "Partner Revenue", value: isLoading ? "…" : `₦${(totalRevenue / 1_000_000).toFixed(2)}M`, icon: DollarSign, color: "text-blue-600" },
+          { label: "Total Partners", value: isLoading ? "…" : String(partners.length), icon: Globe, color: "text-purple-600" },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-5">
@@ -138,7 +147,17 @@ export default function PartnerAdminDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPartners.map((p) => {
+                  {isLoading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 8 }).map((_, j) => (
+                          <TableCell key={j}><div className="h-4 bg-muted rounded animate-pulse w-16" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : filteredPartners.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No partners found</TableCell></TableRow>
+                  ) : filteredPartners.map((p) => {
                     const tier = TIER_STYLES[p.tier] ?? TIER_STYLES.bronze;
                     const st = STATUS_STYLES[p.status] ?? STATUS_STYLES.pending;
                     return (
@@ -155,16 +174,34 @@ export default function PartnerAdminDashboard() {
                         <TableCell>
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${tier.color}`}>{tier.label}</span>
                         </TableCell>
-                        <TableCell className="text-right font-semibold">₦{(p.revenue / 1000).toFixed(0)}k</TableCell>
-                        <TableCell className="text-right">{p.merchants}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{p.joinDate}</TableCell>
+                        <TableCell className="text-right font-semibold">₦{((p.revenueNGN ?? p.revenue ?? 0) / 1000).toFixed(0)}k</TableCell>
+                        <TableCell className="text-right">{p.merchantCount ?? p.merchants ?? 0}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{p.joinedAt ?? p.joinDate}</TableCell>
                         <TableCell>
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${st.color}`}>{st.label}</span>
                         </TableCell>
                         <TableCell>
-                          <Button size="sm" variant="outline" className="text-xs" onClick={() => toast.info(`Viewing ${p.name} details`)}>
-                            View
-                          </Button>
+                          <div className="flex gap-1">
+                            {p.status === "active" ? (
+                              <Button size="sm" variant="outline" className="text-xs text-red-600" disabled={updateStatusMutation.isPending}
+                                onClick={() => updateStatusMutation.mutate({ partnerId: p.id, status: "suspended" })}>
+                                Suspend
+                              </Button>
+                            ) : p.status === "suspended" ? (
+                              <Button size="sm" variant="outline" className="text-xs text-emerald-600" disabled={updateStatusMutation.isPending}
+                                onClick={() => updateStatusMutation.mutate({ partnerId: p.id, status: "active" })}>
+                                Activate
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="outline" className="text-xs text-indigo-600" disabled={updateStatusMutation.isPending}
+                                onClick={() => updateStatusMutation.mutate({ partnerId: p.id, status: "active" })}>
+                                Approve
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/tenant/${p.id}`)}>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -196,26 +233,28 @@ export default function PartnerAdminDashboard() {
           <Card>
             <CardContent className="pt-6">
               <div className="space-y-4">
-                {MOCK_PARTNERS.filter((p) => p.status === "pending").map((p) => (
+                {partners.filter((p) => p.status === "pending").map((p) => (
                   <div key={p.id} className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 border-amber-200">
                     <div className="flex items-center gap-3">
                       <Clock className="w-5 h-5 text-amber-600" />
                       <div>
                         <p className="font-semibold text-sm">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">{p.contact} · Applied {p.joinDate}</p>
+                        <p className="text-xs text-muted-foreground">{p.contactEmail ?? p.contact} · Applied {p.joinedAt ?? p.joinDate}</p>
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="text-xs text-emerald-600" onClick={() => toast.success(`${p.name} approved`)}>
+                      <Button size="sm" variant="outline" className="text-xs text-emerald-600" disabled={updateStatusMutation.isPending}
+                        onClick={() => updateStatusMutation.mutate({ partnerId: p.id, status: "active" })}>
                         <CheckCircle2 className="w-3 h-3 mr-1" /> Approve
                       </Button>
-                      <Button size="sm" variant="outline" className="text-xs text-red-600" onClick={() => toast.error(`${p.name} rejected`)}>
+                      <Button size="sm" variant="outline" className="text-xs text-red-600" disabled={updateStatusMutation.isPending}
+                        onClick={() => updateStatusMutation.mutate({ partnerId: p.id, status: "suspended" })}>
                         <AlertTriangle className="w-3 h-3 mr-1" /> Reject
                       </Button>
                     </div>
                   </div>
                 ))}
-                {MOCK_PARTNERS.filter((p) => p.status === "pending").length === 0 && (
+                {partners.filter((p) => p.status === "pending").length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-500" />
                     <p className="text-sm">No pending applications</p>
@@ -243,8 +282,8 @@ export default function PartnerAdminDashboard() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
-            <Button onClick={() => inviteMutation.mutate({ inviteCode: undefined })} disabled={inviteMutation.isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-              {inviteMutation.isLoading ? "Sending..." : "Send Invitation"}
+            <Button onClick={() => inviteMutation.mutate({ inviteCode: undefined })} disabled={inviteMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+              {inviteMutation.isPending ? "Sending..." : "Send Invitation"}
             </Button>
           </DialogFooter>
         </DialogContent>

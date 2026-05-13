@@ -61,6 +61,29 @@ export default function WebhookLiveStream() {
   const [stats, setStats] = useState({ success: 0, failed: 0, total: 0 });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const seededRef = useRef(false);
+
+  // Seed initial events from real DB deliveries once loaded
+  useEffect(() => {
+    if (seededRef.current || !realDeliveries?.deliveries?.length) return;
+    seededRef.current = true;
+    const dbEvents: WebhookEvent[] = (realDeliveries.deliveries as any[]).map((d) => ({
+      id: d.id,
+      type: d.eventType ?? "unknown",
+      status: d.status === "delivered" ? "success" : d.status === "failed" ? "failed" : "pending",
+      timestamp: d.createdAt ? new Date(d.createdAt).toISOString() : new Date().toISOString(),
+      source: d.merchantId ? `merchant:${d.merchantId}` : "internal",
+      payload: (d.payload as Record<string, unknown>) ?? {},
+      retries: d.attemptCount ?? 0,
+      latencyMs: d.latencyMs ?? 0,
+    }));
+    setEvents((prev) => [...dbEvents, ...prev].slice(0, 100));
+    setStats((s) => ({
+      total: s.total + dbEvents.length,
+      success: s.success + dbEvents.filter((e) => e.status === "success").length,
+      failed: s.failed + dbEvents.filter((e) => e.status === "failed").length,
+    }));
+  }, [realDeliveries]);
 
   const addEvent = useCallback(() => {
     const evt = generateMockEvent();
