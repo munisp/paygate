@@ -22,6 +22,9 @@ const PG_TEST_FILES = [
   "server/wave84.security31.test.ts",
   "server/smoke.test.ts",
   "server/db.pg.test.ts",
+  // Round 10: router/db coverage tests + white-label branding tests
+  "server/router.coverage.test.ts",
+  "server/wave26.branding.test.ts",
 ];
 
 // Server health test files that require a running HTTP server

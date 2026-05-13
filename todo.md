@@ -4145,3 +4145,14 @@
 - [x] Window function interceptor added to wrapPool + wrapClient in __mocks__/pg.ts (SUM/ROW_NUMBER/RANK/LAG/LEAD/COUNT OVER — 6 new tests in db.pg.test.ts)
 - [x] Installed @vitest/coverage-v8, configured coverage in vitest.config.ts with HTML/JSON/text reporters
 - [x] Full test suite: 4378 passed | 0 failed | 107 files; coverage: 11% lines, 7% functions, 7% branches (HTML report at coverage/index.html)
+
+## Round 10 — Router/DB Coverage Tests & White-Label Branding Tests
+
+- [x] Add server/router.coverage.test.ts — 50 CRUD tests for db.ts helpers via pg-mem Pool (transactions, customers, payouts, API keys, webhooks, analytics, tenants, execRaw)
+- [x] Add server/wave26.branding.test.ts — 31 white-label branding tests (schema validation, default values, INSERT/SELECT, UPDATE, per-tenant isolation, custom domain, serialization logic)
+- [x] Update vitest.config.ts PG_TEST_FILES to include both new test files in pg-tests project
+- [x] Fix BIGINT type mismatch: pg-mem returns BIGINT as JS number; use Number() wrapper in assertions
+- [x] Fix gen_random_uuid() collision: use explicit string IDs for all tenant INSERTs in new tests
+- [x] Note: deterministic NOW() override reverted — pg-mem's gen_random_uuid() is seeded from the same RNG as NOW(), so fixing NOW() breaks UUID uniqueness
+- [x] Final result: 4459 passed | 0 failed | 109 test files (up from 4378 | 0 | 107 at Round 9)
+- [x] New test count: +81 tests (50 router.coverage + 31 wave26.branding)
