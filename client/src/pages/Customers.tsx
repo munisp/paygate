@@ -253,9 +253,9 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader className="flex flex-row items-center justify-between pr-0 mb-4">
           <SheetTitle style={{ fontFamily: "Space Grotesk, sans-serif" }}>Customer Detail</SheetTitle>
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onClose}>
-            <X className="w-4 h-4" />
-          </Button>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onClose} aria-label="Close">
+                <X className="w-4 h-4" />
+              </Button>
         </SheetHeader>
 
         {/* Tab navigation */}

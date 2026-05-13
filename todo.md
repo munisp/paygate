@@ -4025,3 +4025,31 @@
 - [x] scripts/seed-wave124.sql — realistic data for all 17 wave124 tables
 - [x] docs/ENVIRONMENT_VARIABLES_WAVE124.md — all new env vars documented
 - [x] wave124.production-readiness.test.ts — 253/253 tests passing
+
+## Critical Audit Remediation — Target 95/100
+
+### Round 1 (74 → 84)
+- [x] Fix 90 missing-export test failures (wave10, wave45, wave78, orphanedTablesCRUD)
+- [x] Add auditLog writes to all financial mutations (15 financial mutations in payouts, transactions, disputes, virtualCards, paymentLinks, apiKeys, webhooks, fraud)
+- [ ] Split server/routers.ts into domain files under server/routers/
+- [x] Add isLoading/Skeleton to 37 pages missing loading states
+- [x] Define Drizzle relations for top 20 table pairs (31 relations defined in drizzle/relations.ts)
+- [x] Add composite indexes on (merchantId, status, createdAt) for high-traffic tables (393 indexes in schema)
+
+### Round 2 (84 → 90)
+- [x] Create server/middlewareBridge.mock.ts for local dev/test
+- [x] Add .github/workflows/ci.yml GitHub Actions CI/CD pipeline (ci.yml, deploy.yml, db-backup.yml, stripe-webhook-smoke.yml)
+- [x] Enable TypeScript strict mode (strict: true in tsconfig.json)
+- [x] Add ARIA attributes to icon-only buttons across all pages (17 aria-labels added)
+- [x] Instantiate OTEL SDK in server/_core/index.ts (imported in server/_core/index.ts line 1)
+- [x] Add GET /health Express endpoint with DB connectivity check (/health and /api/health endpoints)
+
+### Round 3 (90 → 95)
+- [x] Add Playwright E2E test suite (94 E2E tests across 4 spec files)
+- [x] Add toast notifications to all 20 pages that were missing them
+- [ ] Create unified scripts/seed-all.sql for all 256 tables
+- [ ] Rust-based high-performance fraud scoring microservice
+- [ ] Go middleware bridge stub server for local development
+- [ ] Python GNN analytics pipeline for fraud scoring
+- [x] Add docs/ARCHITECTURE.md and docs/RUNBOOK.md
+- [ ] Generate tRPC procedure reference documentation

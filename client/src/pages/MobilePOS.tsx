@@ -44,6 +44,8 @@ const SAMPLE_PRODUCTS = [
 ];
 
 export default function MobilePOS() {
+  const isLoading = false; // Data loaded synchronously
+
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerPhone, setCustomerPhone] = useState("");

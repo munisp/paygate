@@ -26,7 +26,7 @@ const TIER_ICONS: Record<string, string> = {
 export default function LoyaltyAutoPromotion() {
   const userId = 1;
 
-  const { data: account } = trpc.wave29.loyalty.getConsumerPoints.useQuery({ userId });
+  const { data: account, isLoading } = trpc.wave29.loyalty.getConsumerPoints.useQuery({ userId });
   const { data: history } = trpc.wave29.loyalty.getPromotionHistory.useQuery({ userId });
 
   const runPromotion = trpc.wave29.loyalty.runPromotion.useMutation({
@@ -47,6 +47,16 @@ export default function LoyaltyAutoPromotion() {
     onError: (err) => toast.error(err.message),
   });
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

@@ -20,7 +20,7 @@ export default function BnplRepaymentTracker() {
     startDate: new Date().toISOString().split("T")[0],
   });
 
-  const { data: schedule, refetch: refetchSchedule } = trpc.wave29.bnplRepayment.getSchedule.useQuery(
+  const { data: schedule, refetch: refetchSchedule, isLoading } = trpc.wave29.bnplRepayment.getSchedule.useQuery(
     { applicationId },
     { enabled: !!applicationId }
   );
@@ -44,6 +44,16 @@ export default function BnplRepaymentTracker() {
   const pending = (schedule ?? []).filter((s: any) => s.status === "pending").length;
   const overdueCount = (schedule ?? []).filter((s: any) => s.status === "pending" && new Date(s.due_date) < new Date()).length;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div>

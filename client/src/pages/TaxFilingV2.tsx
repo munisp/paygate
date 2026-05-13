@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,16 +21,22 @@ export default function TaxFilingV2() {
   const { data, isLoading } = trpc.taxFilingV2.list.useQuery({ page });
 
   const create = trpc.taxFilingV2.create.useMutation({
-    onSuccess: () => { utils.taxFilingV2.list.invalidate(); setAddOpen(false); toast({ title: "Tax filing created" }); },
+    onSuccess: () => { utils.taxFilingV2.list.invalidate(); setAddOpen(false); toast({ title: "Tax filing created",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const file = trpc.taxFilingV2.file.useMutation({
-    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Filing submitted" }); },
+    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Filing submitted",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const markPaid = trpc.taxFilingV2.markPaid.useMutation({
-    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Marked as paid" }); },
+    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Marked as paid",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const filings = data?.filings ?? [];

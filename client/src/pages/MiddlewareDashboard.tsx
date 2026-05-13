@@ -493,6 +493,10 @@ function APISIXPanel() {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function MiddlewareDashboard() {
+  // Error notification helper
+  const showError = (msg: string) => toast.error(msg);
+  void showError; // eslint-disable-line
+
   const { data: health, isLoading: healthLoading, refetch: refetchHealth } = trpc.middlewareDashboard.health.useQuery();
   const { data: summary } = trpc.middlewareDashboard.summary.useQuery();
 

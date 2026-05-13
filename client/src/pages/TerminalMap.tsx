@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+import { toast } from "sonner";
 import { MapView } from "@/components/Map";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,7 +95,7 @@ export default function TerminalMap() {
     { refetchInterval: terminalMapInterval }
   );
 
-  const updateLocation = trpc.pos.updateLocation.useMutation();
+  const updateLocation = trpc.pos.updateLocation.useMutation({ onError: (e) => toast.error(e.message) });
 
   const terminals: Terminal[] = (data?.rows ?? []) as Terminal[];
 

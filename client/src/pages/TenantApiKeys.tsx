@@ -40,7 +40,7 @@ export default function TenantApiKeys() {
     expiresInDays: undefined as number | undefined,
   });
 
-  const { data: keys, refetch } = trpc.wave29.tenantApiKey.list.useQuery({ tenantId });
+  const { data: keys, refetch, isLoading } = trpc.wave29.tenantApiKey.list.useQuery({ tenantId });
 
   const createKey = trpc.wave29.tenantApiKey.create.useMutation({
     onSuccess: (data) => {
@@ -64,6 +64,16 @@ export default function TenantApiKeys() {
     }));
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

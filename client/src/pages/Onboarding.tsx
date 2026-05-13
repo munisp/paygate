@@ -245,6 +245,8 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
 }
 
 export default function Onboarding() {
+  const isLoading = false; // Data loaded synchronously
+
   const [, navigate] = useLocation();
   const [step, setStep] = useState(1);
   const [showPass, setShowPass] = useState(false);

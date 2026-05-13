@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +13,15 @@ function formatNGN(kobo: number) {
 export default function SettlementForecast() {
   const [days, setDays] = useState(30);
 
-  const { data: forecast, isLoading } = trpc.tier6to8.settlementForecast.getForecast.useQuery({ days });
+  const { data: forecast, isLoading, error } = trpc.tier6to8.settlementForecast.getForecast.useQuery({ days });
 
   const TrendIcon = forecast?.trend === "up" ? TrendingUp : forecast?.trend === "down" ? TrendingDown : Minus;
   const trendColor = forecast?.trend === "up" ? "text-green-600" : forecast?.trend === "down" ? "text-red-600" : "text-yellow-600";
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,7 @@ export default function AIInsightsV2() {
   const [period, setPeriod] = useState<"today" | "week" | "month" | "quarter">("week");
   const [forecastDays, setForecastDays] = useState(30);
 
-  const { data: summary, isLoading: summaryLoading } = trpc.newFeatures.aiInsightsV2.getSmartSummary.useQuery({ period });
+  const { data: summary, isLoading: summaryLoading, error } = trpc.newFeatures.aiInsightsV2.getSmartSummary.useQuery({ period });
   const { data: anomalies } = trpc.newFeatures.aiInsightsV2.getAnomalyDetection.useQuery();
   const { data: forecast } = trpc.newFeatures.aiInsightsV2.getRevenueForecasting.useQuery({ days: forecastDays });
   const { data: segments } = trpc.newFeatures.aiInsightsV2.getCustomerSegmentation.useQuery();
@@ -18,6 +19,10 @@ export default function AIInsightsV2() {
   const severityColors: Record<string, string> = { high: "bg-red-100 text-red-700", medium: "bg-yellow-100 text-yellow-700", low: "bg-blue-100 text-blue-700" };
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 0 })}`;
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

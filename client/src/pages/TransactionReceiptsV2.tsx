@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,12 +17,16 @@ export default function TransactionReceiptsV2() {
   const { data, isLoading } = trpc.txReceipts.list.useQuery({ page, search: search || undefined });
 
   const generate = trpc.txReceipts.generate.useMutation({
-    onSuccess: () => { utils.txReceipts.list.invalidate(); toast({ title: "Receipt generated" }); },
+    onSuccess: () => { utils.txReceipts.list.invalidate(); toast({ title: "Receipt generated",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const resend = trpc.txReceipts.resend.useMutation({
-    onSuccess: () => toast({ title: "Receipt resent" }),
+    onSuccess: () => toast({ title: "Receipt resent",
+      onError: (e) => toast.error(e.message),
+    }),
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 

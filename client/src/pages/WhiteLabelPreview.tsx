@@ -331,7 +331,7 @@ export default function WhiteLabelPreview() {
   const [previewHtml, setPreviewHtml] = useState("");
 
   // Load tenant data if tenantId provided
-  const { data: tenantData } = trpc.wave28.tenantAdmin.getOverview.useQuery(
+  const { data: tenantData, isLoading } = trpc.wave28.tenantAdmin.getOverview.useQuery(
     { tenantId },
     { enabled: !!tenantId }
   );
@@ -392,6 +392,16 @@ export default function WhiteLabelPreview() {
 
   const screenIdx = PREVIEW_SCREENS.findIndex((s) => s.id === screen);
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
       {/* Top Toolbar */}

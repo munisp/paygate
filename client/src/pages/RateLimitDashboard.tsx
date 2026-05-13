@@ -19,7 +19,7 @@ const PLAN_COLORS: Record<string, string> = {
 
 export default function RateLimitDashboard() {
   const rateLimitInterval = useAdaptiveInterval(60000);
-  const { data: stats, refetch } = trpc.wave29.rateLimitDashboard.getStats.useQuery(
+  const { data: stats, refetch, isLoading } = trpc.wave29.rateLimitDashboard.getStats.useQuery(
     {},
     { refetchInterval: rateLimitInterval }
   );
@@ -32,6 +32,16 @@ export default function RateLimitDashboard() {
   const critical = (stats ?? []).filter((s: any) => Number(s.usage_pct) >= 90);
   const warning = (stats ?? []).filter((s: any) => Number(s.usage_pct) >= 70 && Number(s.usage_pct) < 90);
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div>

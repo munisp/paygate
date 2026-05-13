@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,14 +31,18 @@ export default function SupportChat() {
       setStartOpen(false);
       setSubject("");
       setSelectedSession(data.session?.id ?? null);
-      toast({ title: "Support session started" });
+      toast({ title: "Support session started",
+      onError: (e) => toast.error(e.message),
+    });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const sendMessage = trpc.supportChat.sendMessage.useMutation({
     onSuccess: () => {
-      utils.supportChat.getSession.invalidate({ id: selectedSession! });
+      utils.supportChat.getSession.invalidate({ id: selectedSession!,
+      onError: (e) => toast.error(e.message),
+    });
       setNewMessage("");
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -47,7 +52,9 @@ export default function SupportChat() {
     onSuccess: () => {
       utils.supportChat.listSessions.invalidate();
       setSelectedSession(null);
-      toast({ title: "Session closed" });
+      toast({ title: "Session closed",
+      onError: (e) => toast.error(e.message),
+    });
     },
   });
 

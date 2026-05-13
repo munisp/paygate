@@ -3,6 +3,7 @@
  * Tests for all new Wave 26 capabilities
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { PG_AVAILABLE } from "./testHelpers";
 import { getDb } from "./db";
 
 let db: Awaited<ReturnType<typeof getDb>>;
@@ -12,7 +13,7 @@ beforeAll(async () => {
 });
 
 // ─── Feature Flags ────────────────────────────────────────────────────────────
-describe("Feature Flags — Targeting Rules", () => {
+describe.skipIf(!PG_AVAILABLE)("Feature Flags — Targeting Rules", () => {
   it("feature_flags table has targeting_rules column", async () => {
     const result = await db.execute(
       `SELECT column_name FROM information_schema.columns
@@ -65,7 +66,7 @@ describe("Feature Flags — Targeting Rules", () => {
 });
 
 // ─── Tenant Management ────────────────────────────────────────────────────────
-describe("Tenant Management", () => {
+describe.skipIf(!PG_AVAILABLE)("Tenant Management", () => {
   it("tenants table exists with required columns", async () => {
     const result = await db.execute(`
       SELECT column_name FROM information_schema.columns
@@ -111,7 +112,7 @@ describe("Tenant Management", () => {
 });
 
 // ─── White-Label Branding ─────────────────────────────────────────────────────
-describe("White-Label Branding", () => {
+describe.skipIf(!PG_AVAILABLE)("White-Label Branding", () => {
   it("can update tenant branding fields", async () => {
     // Get any existing tenant
     const tenants = await db.execute(`SELECT id FROM tenants LIMIT 1`);
@@ -157,7 +158,7 @@ describe("White-Label Branding", () => {
 });
 
 // ─── Chargeback Evidence Upload ───────────────────────────────────────────────
-describe("Chargeback Evidence Upload", () => {
+describe.skipIf(!PG_AVAILABLE)("Chargeback Evidence Upload", () => {
   it("chargebacks table has evidence_url column", async () => {
     const result = await db.execute(`
       SELECT column_name FROM information_schema.columns
@@ -253,7 +254,7 @@ describe("Revenue Analytics Export", () => {
 
 // ─── Feature Flag SDK Endpoint ────────────────────────────────────────────────
 describe("Feature Flag SDK Endpoint", () => {
-  it("feature_flags table has rollout_percentage column", async () => {
+  it.skipIf(!PG_AVAILABLE)("feature_flags table has rollout_percentage column", async () => {
     const result = await db.execute(`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'feature_flags' AND column_name = 'rollout_percentage'

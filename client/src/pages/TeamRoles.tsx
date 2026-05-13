@@ -76,7 +76,9 @@ function PermissionsMatrix({ onClose }: { onClose: () => void }) {
             <Shield className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-bold">Permissions Matrix</h2>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}><X className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+                <X className="w-4 h-4" />
+              </Button>
         </div>
         <div className="p-6 overflow-x-auto">
           <table className="w-full text-sm">

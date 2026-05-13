@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,17 +27,23 @@ export default function UsdcV3() {
   const { data: txData } = trpc.usdcV3.listV2Transactions.useQuery({ page: 1 });
 
   const createDeposit = trpc.usdcV3.createDeposit.useMutation({
-    onSuccess: () => { utils.usdcV3.listDeposits.invalidate(); setDepositOpen(false); toast({ title: "Deposit initiated" }); },
+    onSuccess: () => { utils.usdcV3.listDeposits.invalidate(); setDepositOpen(false); toast({ title: "Deposit initiated",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const createPayout = trpc.usdcV3.createPayout.useMutation({
-    onSuccess: () => { utils.usdcV3.listPayouts.invalidate(); setPayoutOpen(false); toast({ title: "Payout initiated" }); },
+    onSuccess: () => { utils.usdcV3.listPayouts.invalidate(); setPayoutOpen(false); toast({ title: "Payout initiated",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const createWallet = trpc.usdcV3.createV2Wallet.useMutation({
-    onSuccess: () => { utils.usdcV3.listV2Wallets.invalidate(); setWalletOpen(false); toast({ title: "Wallet created" }); },
+    onSuccess: () => { utils.usdcV3.listV2Wallets.invalidate(); setWalletOpen(false); toast({ title: "Wallet created",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 

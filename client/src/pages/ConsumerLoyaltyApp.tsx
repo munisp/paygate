@@ -32,7 +32,7 @@ const offers = [
 
 export default function ConsumerLoyaltyApp() {
   // Real loyalty data from DB
-  const { data: loyaltyAccounts } = trpc.wave99.loyalty.listAccounts.useQuery({ limit: 10 });
+  const { data: loyaltyAccounts, isLoading } = trpc.wave99.loyalty.listAccounts.useQuery({ limit: 10 });
   const { data: loyaltyTransactions } = trpc.wave99.loyalty.listTransactions.useQuery({ limit: 20 });
   const [points, setPoints] = useState(3_750);
   const [cashbackBalance, setCashbackBalance] = useState(3_750); // kobo → naira
@@ -57,6 +57,16 @@ export default function ConsumerLoyaltyApp() {
     toast.success(`₦${amount.toLocaleString()} redeemed to your wallet!`);
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}

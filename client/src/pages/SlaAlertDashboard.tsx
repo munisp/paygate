@@ -26,7 +26,7 @@ export default function SlaAlertDashboard() {
   const [filterSeverity, setFilterSeverity] = useState("");
   const [filterStatus, setFilterStatus] = useState("open");
 
-  const { data: incidents, refetch } = trpc.wave30.slaAlerting.listIncidents.useQuery({
+  const { data: incidents, refetch, isLoading } = trpc.wave30.slaAlerting.listIncidents.useQuery({
     severity: filterSeverity || undefined,
     status: filterStatus || undefined,
     limit: 50,
@@ -65,6 +65,16 @@ export default function SlaAlertDashboard() {
     ? Math.round(metrics.reduce((a: number, m: any) => a + parseFloat(m.avg_latency_ms ?? 0), 0) / metrics.length)
     : 0;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">

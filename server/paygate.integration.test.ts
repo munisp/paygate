@@ -173,6 +173,11 @@ vi.mock("./db", () => ({
     payouts: { total: 3000000, change: -2.1 },
   })),
   getRevenueTimeSeries: vi.fn(async () => []),
+  getDb: vi.fn(async () => ({
+    insert: vi.fn().mockReturnThis(),
+    values: vi.fn().mockReturnThis(),
+    onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
+  })),
 }));
 
 // ─── Context factory ──────────────────────────────────────────────────────────

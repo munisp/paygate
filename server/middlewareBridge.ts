@@ -1510,7 +1510,7 @@ export async function rejectPurchaseOrderViaMiddleware(
 }
 
 // ─── Wave 124 — Insurance Policies bridge ────────────────────────────────────
-export async function submitInsuranceClaimViaMiddleware(claim: {
+export async function submitInsurancePolicyClaimViaMiddleware(claim: {
   policyId: string; claimType: string; claimAmountKobo: number;
   description: string; merchantId: string;
 }): Promise<{ claimId: string; status: string; estimatedResolutionDate: string } | null> {

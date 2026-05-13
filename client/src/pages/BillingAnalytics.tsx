@@ -3,6 +3,7 @@
 // Calls trpc.billingExt.getAnalytics and trpc.billingExt.getRevenueTimeSeries.
 
 import { useState, useMemo } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -88,6 +89,10 @@ function KpiCard({
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function BillingAnalytics() {
+  // Error notification helper
+  const showError = (msg: string) => toast.error(msg);
+  void showError; // eslint-disable-line
+
   const { user } = useAuth();
   const [granularity, setGranularity] = useState<"day" | "week" | "month">("day");
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d">("30d");

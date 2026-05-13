@@ -479,9 +479,9 @@ export default function Vendors() {
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0">
-                        <MoreVertical className="h-3.5 w-3.5" />
-                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" aria-label="More options">
+                <MoreVertical className="h-3.5 w-3.5" />
+              </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => setQrVendor(vendor)}>

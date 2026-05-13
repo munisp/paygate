@@ -33,7 +33,7 @@ export default function CorridorManagement() {
     dailyLimitAmount: 5000000,
   });
 
-  const { data: corridors, refetch } = trpc.wave29.corridorManagement.list.useQuery({ tenantId });
+  const { data: corridors, refetch, isLoading } = trpc.wave29.corridorManagement.list.useQuery({ tenantId });
   const { data: heatmap } = trpc.wave29.corridorManagement.getHeatmap.useQuery({ days: 30 });
   const { data: dailyStats } = trpc.wave29.corridorManagement.getDailyStats.useQuery({ tenantId, days: 7 });
 
@@ -60,6 +60,16 @@ export default function CorridorManagement() {
     onError: (err) => toast.error(err.message),
   });
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

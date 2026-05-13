@@ -74,6 +74,11 @@ export const adminProcedure = t.procedure.use(loggingMiddleware).use(
 
 export const DEFAULT_TENANT_ID = "ten_default";
 
+// ─── auditedProtectedProcedure ────────────────────────────────────────────────
+// Import auditedProcedure directly from server/_core/auditMiddleware.ts.
+// NOT re-exported here to avoid circular dependency
+// (auditMiddleware imports protectedProcedure from this file).
+
 export const tenantProcedure = t.procedure.use(loggingMiddleware).use(
   t.middleware(async opts => {
     const { ctx, next } = opts;

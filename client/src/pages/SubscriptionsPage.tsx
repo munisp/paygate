@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +43,9 @@ export default function SubscriptionsPage() {
 
   const cancelMutation = trpc.wave32.stripeSubs.cancel.useMutation({
     onSuccess: () => {
-      toast({ title: "Subscription will cancel at period end" });
+      toast({ title: "Subscription will cancel at period end",
+      onError: (e) => toast.error(e.message),
+    });
       setCancelId(null);
       refetch();
     },

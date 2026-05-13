@@ -50,7 +50,7 @@ const generateMockEvent = (): WebhookEvent => {
 
 export default function WebhookLiveStream() {
   // Real webhook deliveries from DB
-  const { data: realDeliveries } = trpc.webhookDeliveries.list.useQuery({ limit: 20 });
+  const { data: realDeliveries, isLoading } = trpc.webhookDeliveries.list.useQuery({ limit: 20 });
   const [events, setEvents] = useState<WebhookEvent[]>(() =>
     Array.from({ length: 8 }, generateMockEvent)
   );
@@ -109,6 +109,16 @@ export default function WebhookLiveStream() {
 
   const successRate = stats.total > 0 ? ((stats.success / stats.total) * 100).toFixed(1) : "0.0";
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       {/* Header */}

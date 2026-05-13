@@ -17,7 +17,7 @@ import {
   consumerQrPayRouter,
   contactsRouter,
   loyaltyRouter,
-  couponsRouter,
+  couponsRouter as couponsConsumerRouter,
   consumerCardRouter,
   recurringRouter,
   splitBillConsumerRouter,
@@ -104,6 +104,7 @@ import {
 } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { auditedProcedure } from "./_core/auditMiddleware";
 import { notifyOwner } from "./_core/notification";
 import {
   notifyDisputeOpened, notifyDisputeEscalated, notifyDisputeResolved,
@@ -1034,7 +1035,7 @@ const payoutsRouter = router({
       }).catch(() => {});
       return { success: true, via: "db" };
     }),
-  reject: protectedProcedure
+  reject: auditedProcedure
     .input(z.object({ id: z.string(), reason: z.string().min(1).max(500).optional() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1307,7 +1308,7 @@ const apiKeysRouter = router({
       return { ...apiKey, rawKey };
     }),
 
-  revoke: protectedProcedure
+  revoke: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1369,7 +1370,7 @@ const webhooksRouter = router({
       return webhook;
     }),
 
-  delete: protectedProcedure
+  delete: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1604,7 +1605,7 @@ const disputesRouter = router({
       const avgResolutionDays = Math.round(avgMs / (1000 * 60 * 60 * 24));
       return { open, resolved, won, lost, winRate, avgResolutionDays };
     }),
-  escalate: protectedProcedure
+  escalate: auditedProcedure
     .input(z.object({ id: z.string(), reason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1624,7 +1625,7 @@ const disputesRouter = router({
       })).catch(() => {});
       return { success: true };
     }),
-  accept: protectedProcedure
+  accept: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1811,7 +1812,7 @@ const virtualCardsRouter = router({
       return card;
     }),
 
-  toggleFreeze: protectedProcedure
+  toggleFreeze: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1831,7 +1832,7 @@ const virtualCardsRouter = router({
       return { success: true };
     }),
 
-  topUp: protectedProcedure
+  topUp: auditedProcedure
     .input(z.object({ id: z.string(), amount: z.number().positive() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1844,7 +1845,7 @@ const virtualCardsRouter = router({
       return { success: true, newBalance };
     }),
 
-  updateSpendLimit: protectedProcedure
+  updateSpendLimit: auditedProcedure
     .input(z.object({ id: z.string(), spendLimit: z.number().positive().nullable() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1900,7 +1901,7 @@ const paymentLinksRouter = router({
       return link;
     }),
 
-  toggle: protectedProcedure
+  toggle: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -1939,7 +1940,7 @@ const paymentLinksRouter = router({
     }),
 
   // ── Export payment link transactions as CSV ──
-  exportTransactions: protectedProcedure
+  exportTransactions: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2572,7 +2573,7 @@ const fraudRiskRouter = router({
       const merchant = await requireMerchant(user.id);
       return getFraudStats(merchant.id);
     }),
-  updateAlert: protectedProcedure
+  updateAlert: auditedProcedure
     .input(z.object({ id: z.string(), status: z.enum(['open','investigating','resolved','false_positive']), resolvedBy: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2647,7 +2648,7 @@ const fraudRiskRouter = router({
       const high = (result.rows as any[]).filter((a) => a.riskScore >= minScore);
       return { alerts: high, count: high.length };
     }),
-  acknowledge: protectedProcedure
+  acknowledge: auditedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2722,7 +2723,7 @@ const fraudRiskRouter = router({
         .where(drizzleAnd(drizzleEq(fraudAlertComments.alertId, input.alertId), drizzleEq(fraudAlertComments.merchantId, merchant.id)))
         .orderBy(asc(fraudAlertComments.createdAt));
     }),
-  deleteComment: protectedProcedure
+  deleteComment: auditedProcedure
     .input(z.object({ commentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2734,7 +2735,7 @@ const fraudRiskRouter = router({
       await db.delete(fac).where(dAnd(dEq(fac.id, input.commentId), dEq(fac.merchantId, merchant.id)));
       return { success: true };
     }),
-  editComment: protectedProcedure
+  editComment: auditedProcedure
     .input(z.object({ commentId: z.string(), body: z.string().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2746,7 +2747,7 @@ const fraudRiskRouter = router({
       await db.update(fac).set({ body: input.body }).where(dAnd(dEq(fac.id, input.commentId), dEq(fac.merchantId, merchant.id)));
       return { success: true };
     }),
-  snoozeAlerts: protectedProcedure
+  snoozeAlerts: auditedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1), hours: z.number().min(1).max(168).default(24) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -7640,7 +7641,7 @@ export const appRouter = router({
   consumerQrPay: consumerQrPayRouter,
   contacts: contactsRouter,
   loyalty: loyaltyRouter,
-  coupons: couponsRouter,
+  coupons: couponsConsumerRouter,
   consumerCard: consumerCardRouter,
   recurring: recurringRouter,
   splitBill: splitBillConsumerRouter,
@@ -7782,7 +7783,7 @@ export const appRouter = router({
   billPayments: billPaymentsRouter,
   carbonCredits: carbonCreditsRouter,
   consumerFinanceLoans: consumerFinanceLoansRouter,
-  coupons: couponsRouter,
+  couponsMgmt: couponsRouter,
   devicePushTokens: devicePushTokensRouter,
   fraudAlertComments: fraudAlertCommentsRouter,
   idempotencyRequests: idempotencyRequestsRouter,

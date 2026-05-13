@@ -396,9 +396,9 @@ export default function ComponentsShowcase() {
                   <Button variant="link">Link</Button>
                   <Button size="sm">Small</Button>
                   <Button size="lg">Large</Button>
-                  <Button size="icon">
-                    <Check className="h-4 w-4" />
-                  </Button>
+                  <Button size="icon" aria-label="Confirm">
+                <Check className="h-4 w-4" />
+              </Button>
                 </div>
               </CardContent>
             </Card>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +41,9 @@ export default function BNPLRepaymentPage() {
 
   const markPaidMutation = trpc.wave32.bnplRepayment.markPaid.useMutation({
     onSuccess: () => {
-      toast({ title: "Instalment marked as paid" });
+      toast({ title: "Instalment marked as paid",
+      onError: (e) => toast.error(e.message),
+    });
       setPayingId(null);
       setPayAmount("");
       setPayRef("");

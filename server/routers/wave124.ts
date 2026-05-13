@@ -192,7 +192,7 @@ export const consumerFinanceLoansRouter = router({
       return row;
     }),
 
-  apply: protectedProcedure
+  applyLoan: protectedProcedure
     .input(z.object({
       customerId: z.string(),
       merchantId: z.string(),

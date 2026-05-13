@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ export default function TaxEngine() {
 
   const amountKobo = Math.round(parseFloat(amountNGN || "0") * 100);
 
-  const { data: taxCalc, isLoading: calcLoading } = trpc.tier6to8.taxEngine.calculateTax.useQuery(
+  const { data: taxCalc, isLoading: calcLoading, error } = trpc.tier6to8.taxEngine.calculateTax.useQuery(
     { amountKobo, transactionType: txType, includeWht },
     { enabled: amountKobo > 0 }
   );
@@ -33,6 +34,10 @@ export default function TaxEngine() {
   const { data: remittance, isLoading: remitLoading } = trpc.tier6to8.taxEngine.getMonthlyRemittance.useQuery({ month });
   const { data: rates } = trpc.tier6to8.taxEngine.getTaxRates.useQuery();
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <div className="p-6 space-y-6">
       <div>

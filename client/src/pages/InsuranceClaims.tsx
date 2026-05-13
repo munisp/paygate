@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,22 +36,30 @@ export default function InsuranceClaims() {
     onSuccess: () => {
       utils.insuranceClaims.list.invalidate();
       setAddOpen(false);
-      setForm({ policyId: "", claimType: "health", amount: "", description: "" });
+      setForm({ policyId: "", claimType: "health", amount: "", description: "",
+      onError: (e) => toast.error(e.message),
+    });
       toast({ title: "Claim submitted" });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const approveClaim = trpc.insuranceClaims.approve.useMutation({
-    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim approved" }); },
+    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim approved",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const rejectClaim = trpc.insuranceClaims.reject.useMutation({
-    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim rejected" }); },
+    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim rejected",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const payClaim = trpc.insuranceClaims.pay.useMutation({
-    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim paid" }); },
+    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim paid",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const claims = data?.claims ?? [];

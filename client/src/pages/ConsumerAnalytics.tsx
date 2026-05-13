@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +36,7 @@ function fmt(kobo: number) {
 }
 
 export default function ConsumerAnalytics() {
-  const { data: monthly, isLoading: loadingMonthly } = trpc.consumerAnalytics.spendByMonth.useQuery({ months: 6 });
+  const { data: monthly, isLoading: loadingMonthly, error } = trpc.consumerAnalytics.spendByMonth.useQuery({ months: 6 });
   const { data: categories, isLoading: loadingCat } = trpc.consumerAnalytics.spendByCategory.useQuery();
   const { data: split, isLoading: loadingSplit } = trpc.consumerAnalytics.creditDebitSplit.useQuery();
   const { data: daily, isLoading: loadingDaily } = trpc.consumerAnalytics.dailyUsage.useQuery({ days: 7 });
@@ -45,6 +46,10 @@ export default function ConsumerAnalytics() {
   const totalDebit = split?.debitKobo ?? 0;
   const netFlow = totalCredit - totalDebit;
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <div className="p-4 space-y-6 max-w-5xl mx-auto">
       <div>

@@ -233,7 +233,9 @@ export default function RestaurantOnlineOrdering() {
           ) : (
             <div className="flex items-center gap-2">
               <Input value={orderingUrl} readOnly className="font-mono text-sm bg-gray-50" />
-              <Button variant="outline" size="sm" onClick={copyLink}><Copy className="w-4 h-4" /></Button>
+              <Button variant="outline" size="sm" onClick={copyLink} aria-label="Copy">
+                <Copy className="w-4 h-4" />
+              </Button>
               <Button variant="outline" size="sm" onClick={() => window.open(orderingUrl, "_blank")}>
                 <ExternalLink className="w-4 h-4" />
               </Button>

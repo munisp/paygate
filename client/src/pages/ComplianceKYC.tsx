@@ -283,9 +283,9 @@ export default function ComplianceKYC() {
                                 )}
                                 {doc.documentUrl && (
                                   <a href={doc.documentUrl} download target="_blank" rel="noreferrer">
-                                    <Button size="sm" variant="ghost" className="h-7 text-zinc-400 hover:text-white px-2">
-                                      <Download className="w-3 h-3" />
-                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-7 text-zinc-400 hover:text-white px-2" aria-label="Download">
+                <Download className="w-3 h-3" />
+              </Button>
                                   </a>
                                 )}
                               </>

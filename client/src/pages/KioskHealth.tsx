@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ export default function KioskHealth() {
   const kioskInterval = useAdaptiveInterval(15000);
   const { isAuthenticated } = useAuth();
 
-  const { data, isLoading, refetch } = trpc.agentBanking.kioskHealth.useQuery(
+  const { data, isLoading, refetch, error } = trpc.agentBanking.kioskHealth.useQuery(
     undefined,
     { enabled: isAuthenticated, refetchInterval: kioskInterval }
   );
@@ -33,6 +34,10 @@ export default function KioskHealth() {
     return map[status] ?? "bg-gray-100 text-gray-800";
   };
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

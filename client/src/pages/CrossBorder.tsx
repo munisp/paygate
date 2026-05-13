@@ -303,9 +303,9 @@ function FxTicker() {
               onClick={handleRefresh}
               className="h-7 w-7 text-slate-400 hover:text-white"
               disabled={fetchAndStore.isPending}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${fetchAndStore.isPending ? "animate-spin" : ""}`} />
-            </Button>
+             aria-label="Refresh">
+                <RefreshCw className={`w-3.5 h-3.5 ${fetchAndStore.isPending ? "animate-spin" : ""}`} />
+              </Button>
           </div>
         </div>
       </CardHeader>

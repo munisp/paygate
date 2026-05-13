@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useParams } from "wouter";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ function formatKobo(kobo: number, currency = "NGN") {
 export default function TransactionReceipt() {
   const { id } = useParams<{ id: string }>();
 
-  const { data: tx, isLoading } = trpc.wave25.receipts.getTransaction.useQuery({ id: id! }, { enabled: !!id });
+  const { data: tx, isLoading, error } = trpc.wave25.receipts.getTransaction.useQuery({ id: id! }, { enabled: !!id });
 
   const handlePrint = () => window.print();
 
@@ -69,6 +70,10 @@ export default function TransactionReceipt() {
   const statusColor = tx.status === "success" || tx.status === "completed"
     ? "text-green-600" : tx.status === "failed" ? "text-red-600" : "text-yellow-600";
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <div className="min-h-screen bg-muted/30 py-8 px-4">
       {/* Actions bar - hidden on print */}

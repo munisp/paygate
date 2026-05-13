@@ -57,7 +57,7 @@ const generateMockEvents = () => {
 
 export default function WAFAlertDashboard() {
   // Real audit events from DB
-  const { data: auditEvents } = trpc.wave99.auditEvents.list.useQuery({ limit: 100 });
+  const { data: auditEvents, isLoading } = trpc.wave99.auditEvents.list.useQuery({ limit: 100 });
   const { data: rateLimitEvents } = trpc.wave99.rateLimitEvents.list.useQuery({ limit: 50 });
   
   const [events, setEvents] = useState(generateMockEvents());
@@ -158,6 +158,16 @@ export default function WAFAlertDashboard() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       {/* Header */}

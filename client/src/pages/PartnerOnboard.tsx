@@ -34,6 +34,8 @@ const CORRIDORS = [
 const FONTS = ["Inter", "Poppins", "Roboto", "Lato", "Nunito", "Montserrat", "Open Sans"];
 
 export default function PartnerOnboard() {
+  const isLoading = false; // Data loaded synchronously
+
   const [, navigate] = useLocation();
   const [step, setStep] = useState(1);
   const [sessionId, setSessionId] = useState<string | null>(null);

@@ -70,7 +70,7 @@ export default function GoldSIP() {
   const [form, setForm] = useState({ name: "", amountNGN: "", frequency: "monthly" as const });
 
   // tRPC data
-  const { data: priceData } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval });
+  const { data: priceData, isLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval });
   const { data: sipData, refetch: refetchSIPs } = trpc.newFeatures.digitalGold.listSIPs.useQuery();
   const plans = sipData?.plans ?? mockPlans; // fallback to mock while backend warms up
 
@@ -133,6 +133,16 @@ export default function GoldSIP() {
 
   const fmtNGN = (v: number) => `₦${v.toLocaleString("en-NG")}`;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       {/* Header */}

@@ -41,7 +41,7 @@ const RAIL_STATS = {
 };
 
 export default function MojaloopDashboard() {
-  const { data: crossBorderTransfers } = trpc.crossBorder.list.useQuery({ limit: 20 });
+  const { data: crossBorderTransfers, isLoading } = trpc.crossBorder.list.useQuery({ limit: 20 });
   const { data: middlewareHealth } = trpc.middlewareDashboard.kafkaTopics.useQuery();
   const [selectedRail, setSelectedRail] = useState("all");
   const [search, setSearch] = useState("");
@@ -55,6 +55,16 @@ export default function MojaloopDashboard() {
   const statusColor = (s: string) => s === "completed" ? "text-green-400" : s === "processing" ? "text-yellow-400" : "text-red-400";
   const statusIcon = (s: string) => s === "completed" ? <CheckCircle className="h-4 w-4 text-green-400" /> : s === "processing" ? <Clock className="h-4 w-4 text-yellow-400" /> : <XCircle className="h-4 w-4 text-red-400" />;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 bg-gray-950 min-h-screen text-white">
       {/* Header */}

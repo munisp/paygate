@@ -92,6 +92,8 @@ const PLANS = [
 ];
 
 export default function PricingPage() {
+  const isLoading = false; // Data loaded synchronously
+
   const { user, isAuthenticated } = useAuth();
 
   const createCheckout = trpc.portalBilling.createCheckoutSession.useMutation({

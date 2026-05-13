@@ -10,7 +10,7 @@ import { RefreshCw, Play, CheckCircle, XCircle, Clock, DollarSign, FileText, Tre
 export default function TenantBillingCron() {
   const [running, setRunning] = useState(false);
 
-  const { data: runsData, refetch: refetchRuns } = trpc.wave31.tenantBillingCron.listRuns.useQuery();
+  const { data: runsData, refetch: refetchRuns, isLoading } = trpc.wave31.tenantBillingCron.listRuns.useQuery();
   const { data: statsData } = trpc.wave31.tenantBillingCron.getStats.useQuery();
 
   const triggerRun = trpc.wave31.tenantBillingCron.triggerManualRun.useMutation({
@@ -42,6 +42,16 @@ export default function TenantBillingCron() {
     return <span className={`px-2 py-1 rounded-full text-xs font-medium ${variants[status] ?? "bg-gray-100 text-gray-800"}`}>{status}</span>;
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

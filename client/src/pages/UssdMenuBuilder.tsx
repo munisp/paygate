@@ -26,7 +26,7 @@ export default function UssdMenuBuilder() {
     sortOrder: 0,
   });
 
-  const { data: menuData, refetch } = trpc.wave31.ussdMenuBuilder.getMenuTree.useQuery();
+  const { data: menuData, refetch, isLoading } = trpc.wave31.ussdMenuBuilder.getMenuTree.useQuery();
   const { data: sessionsData } = trpc.wave31.ussdMenuBuilder.getSessions.useQuery({ status: "active" });
 
   const createMenu = trpc.wave31.ussdMenuBuilder.createMenu.useMutation({
@@ -56,6 +56,16 @@ export default function UssdMenuBuilder() {
   const rootMenus = menus.filter((m: any) => !m.parent_id);
   const childMenus = menus.filter((m: any) => m.parent_id);
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

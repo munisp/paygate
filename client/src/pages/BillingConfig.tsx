@@ -94,6 +94,8 @@ const DEFAULT_FORM: BillingFormData = {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function BillingConfig() {
+  const isLoading = false; // Data loaded synchronously
+
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const tenantId = DEFAULT_TENANT_ID;

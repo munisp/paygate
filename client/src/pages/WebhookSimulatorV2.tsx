@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,11 +46,15 @@ export default function WebhookSimulatorV2() {
   });
 
   const retry = trpc.webhookSimV2.retry.useMutation({
-    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Retried" }); },
+    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Retried",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const clear = trpc.webhookSimV2.clear.useMutation({
-    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Logs cleared" }); },
+    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Logs cleared",
+      onError: (e) => toast.error(e.message),
+    }); },
   });
 
   const logs = data?.logs ?? [];

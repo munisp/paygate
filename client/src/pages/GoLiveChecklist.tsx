@@ -1,4 +1,5 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,10 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
   const daysLeft = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   const isUrgent = daysLeft <= 14;
 
+  // Show error toast when queries fail
+  if (error) {
+    toast.error(error.message ?? "An error occurred");
+  }
   return (
     <span className={`text-xs font-medium ${isUrgent ? "text-red-600" : "text-amber-600"}`}>
       <Clock className="h-3 w-3 inline mr-1" />
@@ -58,7 +63,7 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
 
 export default function GoLiveChecklist() {
   const goLiveInterval = useAdaptiveInterval(60000);
-  const { data, isLoading, refetch } = trpc.system.goLiveChecklist.useQuery(undefined, {
+  const { data, isLoading, refetch, error } = trpc.system.goLiveChecklist.useQuery(undefined, {
     refetchInterval: goLiveInterval,
   });
 

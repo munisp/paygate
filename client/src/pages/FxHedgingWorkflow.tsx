@@ -20,7 +20,7 @@ export default function FxHedgingWorkflow() {
   const [newHedge, setNewHedge] = useState({ baseCurrency: "USD", quoteCurrency: "NGN", notionalAmount: "10000", hedgeRatio: "1580", expiryDays: "30" });
   const [showForm, setShowForm] = useState(false);
 
-  const { data: positions, refetch } = trpc.wave30.fxHedging.listPositions.useQuery({ limit: 50 });
+  const { data: positions, refetch, isLoading } = trpc.wave30.fxHedging.listPositions.useQuery({ limit: 50 });
   const { data: pnl } = trpc.wave30.fxHedging.getPnlSummary.useQuery();
   const { data: rates } = trpc.wave30.fxHedging.listPositions.useQuery({ status: "open" });
 
@@ -42,6 +42,16 @@ export default function FxHedgingWorkflow() {
   const totalPnl = pnl?.reduce((a: number, p: any) => a + parseFloat(p.unrealized_pnl ?? 0), 0) ?? 0;
   const openCount = positions?.filter((p: any) => p.status === 'open').length ?? 0;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">

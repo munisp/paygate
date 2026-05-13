@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,9 @@ export default function StaffManagement() {
     onSuccess: () => {
       utils.staffMgmt.listMembers.invalidate();
       setAddOpen(false);
-      setForm({ name: "", email: "", role: "cashier", phone: "" });
+      setForm({ name: "", email: "", role: "cashier", phone: "",
+      onError: (e) => toast.error(e.message),
+    });
       toast({ title: "Staff member added" });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -35,7 +38,9 @@ export default function StaffManagement() {
   const deleteMember = trpc.staffMgmt.deleteMember.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listMembers.invalidate();
-      toast({ title: "Staff member removed" });
+      toast({ title: "Staff member removed",
+      onError: (e) => toast.error(e.message),
+    });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -43,14 +48,18 @@ export default function StaffManagement() {
   const clockIn = trpc.staffMgmt.clockIn.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listShifts.invalidate();
-      toast({ title: "Clocked in" });
+      toast({ title: "Clocked in",
+      onError: (e) => toast.error(e.message),
+    });
     },
   });
 
   const clockOut = trpc.staffMgmt.clockOut.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listShifts.invalidate();
-      toast({ title: "Clocked out" });
+      toast({ title: "Clocked out",
+      onError: (e) => toast.error(e.message),
+    });
     },
   });
 

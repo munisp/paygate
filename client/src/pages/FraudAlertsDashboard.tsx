@@ -126,7 +126,7 @@ export default function FraudAlertsDashboard() {
 
   // ─── tRPC Queries ───────────────────────────────────────────────────────────
 
-  const { data: statsData } = trpc.fraudRisk.stats.useQuery(undefined, {
+  const { data: statsData, isLoading } = trpc.fraudRisk.stats.useQuery(undefined, {
     refetchInterval: fraudInterval30,
   });
 
@@ -214,6 +214,16 @@ export default function FraudAlertsDashboard() {
   const highRiskAlerts = alerts.filter((a) => a.riskScore >= 75).length;
   const resolvedToday = stats?.resolvedToday ?? 0;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       {/* Header */}

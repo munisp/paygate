@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,12 +25,16 @@ export default function SplitBillV2() {
   );
 
   const createSession = trpc.splitBillV2.createSession.useMutation({
-    onSuccess: () => { utils.splitBillV2.listSessions.invalidate(); setCreateOpen(false); toast({ title: "Split session created" }); },
+    onSuccess: () => { utils.splitBillV2.listSessions.invalidate(); setCreateOpen(false); toast({ title: "Split session created",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const payShare = trpc.splitBillV2.payShare.useMutation({
-    onSuccess: () => { utils.splitBillV2.listShares.invalidate(); toast({ title: "Share paid" }); },
+    onSuccess: () => { utils.splitBillV2.listShares.invalidate(); toast({ title: "Share paid",
+      onError: (e) => toast.error(e.message),
+    }); },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 

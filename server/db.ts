@@ -2640,3 +2640,19 @@ export async function getRecentTransactionsFeed(merchantId: string, limit = 20) 
     .orderBy(desc(transactions.createdAt))
     .limit(limit);
 }
+
+// ─── Synchronous-style db accessor for wave124 routers ───────────────────────
+// wave124 uses `import { db }` pattern. This lazy accessor initialises the
+// connection on first use and returns the Drizzle instance directly.
+// NOTE: If the DB is unavailable, queries will throw — callers should handle.
+let _dbSync: ReturnType<typeof drizzle> | null = null;
+async function ensureDb() {
+  if (!_dbSync) _dbSync = await getDb();
+  return _dbSync!;
+}
+// Drizzle-compatible proxy: each method call awaits the connection first
+export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+  get(_target, prop) {
+    return (...args: unknown[]) => ensureDb().then(d => (d as any)[prop](...args));
+  },
+});

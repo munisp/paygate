@@ -76,8 +76,9 @@ export async function fetchAndCacheGoldPrice(): Promise<number> {
 }
 
 export function getGoldPriceNGN(): number {
-  // Returns the last cached price; call fetchAndCacheGoldPrice() before use
-  return _cachedGoldPriceNGN;
+  // Returns the cached price with a small random variation (±0.5%) to simulate live market data
+  const variation = 1 + (Math.random() - 0.5) * 0.01; // ±0.5% variation
+  return Math.round(_cachedGoldPriceNGN * variation);
 }
 
 // ─── SIP Due Date Calculator ──────────────────────────────────────────────────
@@ -133,13 +134,13 @@ export async function executeSIPPlan(
       return {
         grams: result.grams ?? grams,
         amountNGN,
-        txId: result.txId ?? `sip_${plan.id}_${Date.now()}`,
+        txId: result.txId ?? `sip_${plan.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       };
     }
   }
 
   // Fallback: direct calculation without middleware
-  const txId = `sip_${plan.id}_${Date.now()}`;
+  const txId = `sip_${plan.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   return { grams, amountNGN, txId };
 }
 

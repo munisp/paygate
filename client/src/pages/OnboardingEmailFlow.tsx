@@ -27,7 +27,7 @@ export default function OnboardingEmailFlow() {
   const [filterTenant, setFilterTenant] = useState("");
   const [sendForm, setSendForm] = useState({ tenantId: "", email: "", tenantName: "", type: "welcome" });
 
-  const { data: emails, refetch } = trpc.wave30.onboardingEmail.listEmails.useQuery({
+  const { data: emails, refetch, isLoading } = trpc.wave30.onboardingEmail.listEmails.useQuery({
     status: filterStatus || undefined,
     tenantId: filterTenant || undefined,
     limit: 100,
@@ -60,6 +60,16 @@ export default function OnboardingEmailFlow() {
   const totalSent = stats?.filter((s: any) => s.status === 'sent').reduce((a: number, s: any) => a + parseInt(s.count), 0) ?? 0;
   const totalFailed = stats?.filter((s: any) => s.status === 'failed').reduce((a: number, s: any) => a + parseInt(s.count), 0) ?? 0;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">

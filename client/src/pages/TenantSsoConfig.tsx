@@ -12,7 +12,7 @@ import { Shield, Key, Globe, CheckCircle, AlertCircle, Save } from "lucide-react
 
 export default function TenantSsoConfig() {
   const tenantId = "3";
-  const { data: config, refetch } = trpc.wave29.tenantSso.getConfig.useQuery({ tenantId });
+  const { data: config, refetch, isLoading } = trpc.wave29.tenantSso.getConfig.useQuery({ tenantId });
 
   const [form, setForm] = useState({
     provider: "oidc" as "oidc" | "saml" | "oauth2",
@@ -34,6 +34,16 @@ export default function TenantSsoConfig() {
     onError: (err) => toast.error(err.message),
   });
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6 max-w-3xl">
       <div>
