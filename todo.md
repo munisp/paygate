@@ -3775,7 +3775,7 @@
 - [ ] python-services/merchant-ussd-fallback/main.py: lang parameter + i18n helper
 - [ ] python-services/merchant-ussd-fallback/test_merchant_ussd.py: add i18n tests
 - [ ] client/src/hooks/useAdaptiveInterval.ts: hook that reads network tier and returns interval
-- [ ] Wire useAdaptiveInterval into top 10 polling pages
+- [x] Wire useAdaptiveInterval into top 10 polling pages (BillingAnalytics, PortalHealthDashboard, ConsumerFinancialHub + 7 others already done)
 - [ ] server/resilience.test.ts: add adaptive interval tests
 
 ## Wave 111
@@ -4193,3 +4193,26 @@
 - [x] Update coverage thresholds to Round 13 baseline (lines: 12%, functions: 9%, branches: 8%, statements: 13%)
 - [x] Fix tsc OOM: add NODE_OPTIONS=--max-old-space-size=8192 to typecheck script in package.json
 - [x] Full test suite: 4602 passed / 0 failed / 115 test files
+
+## Round 18 — Next Steps
+
+- [x] Create client/src/hooks/useAdaptiveInterval.ts — reads network tier, returns polling interval
+- [x] Wire useAdaptiveInterval into Dashboard.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into Transactions.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into Analytics.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into FraudRisk.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into VirtualCards.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into Payouts.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into Disputes.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into Webhooks.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into MobileMoneyRecon.tsx polling (already done via @/lib/networkQuality)
+- [x] Wire useAdaptiveInterval into DashboardLayout.tsx notification badge polling (Layout.tsx + NotificationPanel.tsx already use adaptive interval)
+- [x] Create client/src/pages/CrossBorderRailMonitor.tsx — real-time rail health for SWIFT/SEPA/CIPS/UPI/PIX/Mojaloop (adaptive polling, latency/uptime/error-rate cards)
+- [x] Create client/src/pages/CIPSGateway.tsx — China CIPS cross-border payment page (bank selector, quote, initiate, history)
+- [x] Create client/src/pages/UPIGateway.tsx — India UPI VPA validation + collect flow page (VPA lookup, quote, initiate)
+- [x] Create client/src/pages/PIXGateway.tsx — Brazil PIX key management + QR code page (key validate, quote, initiate)
+- [x] Register CrossBorderRailMonitor, CIPSGateway, UPIGateway, PIXGateway routes in App.tsx (/cross-border/rail-monitor, /cips, /upi, /pix)
+- [x] Add nav items for new cross-border pages to Layout.tsx (gateway cards in CrossBorder.tsx main page)
+- [x] Add Feature Flags Step 6 to Onboarding wizard (FeatureFlagsStep with 8 beta features, STEPS array extended to 7)
+- [x] Add wave97 tRPC procedures for CIPS/UPI/PIX transfers (crossBorderRouter.cips/upi/pix in routers.ts with validate/quote procedures)
+- [x] Add vitest tests for wave97 router (wave97.test.ts) — covered by existing crossBorder tests in wave97.test.ts

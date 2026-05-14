@@ -1,4 +1,5 @@
 import { useState, ReactElement } from "react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,12 +35,15 @@ const CATEGORY_ICON: Record<string, ReactElement> = {
 export default function PortalHealthDashboard() {
   const [activeTab, setActiveTab] = useState<"health" | "golive" | "ratelimit" | "deps">("health");
 
+  const healthInterval = useAdaptiveInterval(30_000);
+  const rateLimitInterval = useAdaptiveInterval(60_000);
+
   const healthQuery = trpc.portalHealth.getSystemHealth.useQuery(undefined, {
-    refetchInterval: 30000,
+    refetchInterval: healthInterval,
   });
   const goLiveQuery = trpc.portalHealth.getGoLiveStatus.useQuery();
   const rateLimitQuery = trpc.portalHealth.getRateLimitStats.useQuery(undefined, {
-    refetchInterval: 60000,
+    refetchInterval: rateLimitInterval,
   });
   const depsQuery = trpc.portalHealth.getDependencyMap.useQuery();
 

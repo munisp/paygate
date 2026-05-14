@@ -3,6 +3,7 @@
 // Calls trpc.billingExt.getAnalytics and trpc.billingExt.getRevenueTimeSeries.
 
 import { useState, useMemo } from "react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -106,14 +107,16 @@ export default function BillingAnalytics() {
     return { from, to };
   }, [dateRange]);
 
+  const billingInterval = useAdaptiveInterval(30_000);
+
   const analyticsQuery = trpc.billingExt.getAnalytics.useQuery(
     { tenantId, from, to },
-    { refetchInterval: 30_000 }
+    { refetchInterval: billingInterval }
   );
 
   const timeSeriesQuery = trpc.billingExt.getRevenueTimeSeries.useQuery(
     { tenantId, from, to, granularity },
-    { refetchInterval: 30_000 }
+    { refetchInterval: billingInterval }
   );
 
   const analytics = analyticsQuery.data;

@@ -749,6 +749,24 @@ export default function CrossBorder() {
         ))}
       </div>
 
+      {/* Gateway Navigation Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { href: "/cross-border/rail-monitor", emoji: "📡", label: "Rail Monitor", desc: "Live health status", color: "text-cyan-400", bg: "bg-cyan-500/10 border-cyan-500/20" },
+          { href: "/cross-border/cips", emoji: "🇨🇳", label: "CIPS Gateway", desc: "China CNY transfers", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" },
+          { href: "/cross-border/upi", emoji: "🇮🇳", label: "UPI Gateway", desc: "India INR via VPA", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
+          { href: "/cross-border/pix", emoji: "🇧🇷", label: "PIX Gateway", desc: "Brazil BRL instant", color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
+        ].map(gw => (
+          <a key={gw.href} href={gw.href} className={`flex items-center gap-3 p-3 rounded-xl border ${gw.bg} hover:opacity-80 transition-opacity cursor-pointer`}>
+            <span className="text-2xl">{gw.emoji}</span>
+            <div>
+              <p className={`text-sm font-semibold ${gw.color}`}>{gw.label}</p>
+              <p className="text-xs text-slate-400">{gw.desc}</p>
+            </div>
+          </a>
+        ))}
+      </div>
+
       {/* Filter */}
       <div className="flex gap-2">
         {["all", "pending", "committed", "failed"].map(s => (

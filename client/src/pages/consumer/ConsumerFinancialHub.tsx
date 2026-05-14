@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useEffect, useRef, useState } from "react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -151,8 +152,9 @@ function ChangeIndicator({ pct }: { pct: number }) {
 export default function ConsumerFinancialHub() {
   const { sseData, connected } = useMarketSSE();
   // Fallback polling (used when SSE is not delivering data)
+  const marketInterval = useAdaptiveInterval(30_000);
   const { data: polledSummary, isLoading } = trpc.newFeatures.marketData.summary.useQuery(undefined, {
-    refetchInterval: sseData ? false : 30_000,
+    refetchInterval: sseData ? false : marketInterval,
     staleTime: 20_000,
   });
 

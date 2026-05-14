@@ -15,7 +15,8 @@ const STEPS = [
   { id: 3, label: "Documents", icon: FileText, desc: "Upload KYB documents" },
   { id: 4, label: "Liveness", icon: Camera, desc: "Identity verification" },
   { id: 5, label: "Bank", icon: CreditCard, desc: "Settlement account" },
-  { id: 6, label: "Complete", icon: CheckCircle2, desc: "You're all set!" },
+  { id: 6, label: "Features", icon: Zap, desc: "Enable beta features" },
+  { id: 7, label: "Complete", icon: CheckCircle2, desc: "You're all set!" },
 ];
 
 const COUNTRIES = ["Nigeria", "Kenya", "Ghana", "South Africa", "Senegal", "Tanzania", "Uganda", "Rwanda", "Côte d'Ivoire", "Cameroon"];
@@ -244,6 +245,153 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+// ─── Feature Flags Step Component ───────────────────────────────────────────
+const BETA_FEATURES = [
+  {
+    id: "cross_border_upi",
+    name: "UPI Gateway (India)",
+    desc: "Send payments directly to Indian UPI VPAs. Instant INR settlement.",
+    category: "cross-border",
+    emoji: "🇮🇳",
+    popular: true,
+  },
+  {
+    id: "cross_border_pix",
+    name: "PIX Gateway (Brazil)",
+    desc: "Instant BRL transfers using PIX keys. 24/7 availability.",
+    category: "cross-border",
+    emoji: "🇧🇷",
+    popular: true,
+  },
+  {
+    id: "cross_border_cips",
+    name: "CIPS Gateway (China)",
+    desc: "Cross-border CNY payments via China's interbank system.",
+    category: "cross-border",
+    emoji: "🇨🇳",
+    popular: false,
+  },
+  {
+    id: "bnpl_consumer",
+    name: "Buy Now Pay Later",
+    desc: "Offer installment plans to your customers at checkout.",
+    category: "payments",
+    emoji: "💳",
+    popular: true,
+  },
+  {
+    id: "digital_gold",
+    name: "Digital Gold",
+    desc: "Let customers buy, sell, and hold digital gold in their wallets.",
+    category: "investments",
+    emoji: "🥇",
+    popular: false,
+  },
+  {
+    id: "consumer_insurance",
+    name: "Embedded Insurance",
+    desc: "Offer micro-insurance products at the point of payment.",
+    category: "insurance",
+    emoji: "🛡️",
+    popular: false,
+  },
+  {
+    id: "ai_fraud_gnn",
+    name: "AI Fraud Detection (GNN)",
+    desc: "Graph Neural Network-powered fraud scoring for every transaction.",
+    category: "security",
+    emoji: "🤖",
+    popular: true,
+  },
+  {
+    id: "ussd_fallback",
+    name: "USSD Fallback Payments",
+    desc: "Accept payments from feature phones via USSD *737# style flows.",
+    category: "channels",
+    emoji: "📱",
+    popular: false,
+  },
+];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  "cross-border": "bg-blue-100 text-blue-700",
+  "payments": "bg-purple-100 text-purple-700",
+  "investments": "bg-amber-100 text-amber-700",
+  "insurance": "bg-emerald-100 text-emerald-700",
+  "security": "bg-red-100 text-red-700",
+  "channels": "bg-orange-100 text-orange-700",
+};
+
+function FeatureFlagsStep() {
+  const [enabled, setEnabled] = useState<Set<string>>(new Set(["ai_fraud_gnn"]));
+  const toggleMutation = trpc.wave26.featureFlags.toggle.useMutation();
+  const { data: flags } = trpc.wave26.featureFlags.list.useQuery({ category: "onboarding" });
+
+  const toggle = (id: string) => {
+    setEnabled(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    // Optimistically update — the flag may not exist yet in DB during onboarding
+    // so we fire-and-forget; errors are non-blocking
+    const flag = flags?.find(f => f.key === id);
+    if (flag) toggleMutation.mutate({ id: flag.id, enabled: !flag.enabled });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Enable beta features</h2>
+        <p className="text-muted-foreground text-sm mt-1">Select the features you'd like to activate for your account. You can change these anytime in Settings → Features.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3">
+        {BETA_FEATURES.map(feat => {
+          const on = enabled.has(feat.id);
+          return (
+            <button
+              key={feat.id}
+              onClick={() => toggle(feat.id)}
+              className={`flex items-start gap-4 p-4 rounded-xl border text-left transition-all ${
+                on
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border bg-card hover:border-primary/40"
+              }`}
+            >
+              <span className="text-2xl mt-0.5">{feat.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-sm">{feat.name}</span>
+                  {feat.popular && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">Popular</span>
+                  )}
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${CATEGORY_COLORS[feat.category] ?? "bg-muted text-muted-foreground"}`}>
+                    {feat.category}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{feat.desc}</p>
+              </div>
+              <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${
+                on ? "border-primary bg-primary" : "border-border"
+              }`}>
+                {on && <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="p-3 rounded-xl bg-muted/50 border border-border">
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{enabled.size} feature{enabled.size !== 1 ? "s" : ""} selected.</span>{" "}
+          Beta features are free during the first 90 days. Some may require additional KYB verification.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Onboarding() {
   const isLoading = false; // Data loaded synchronously
 
@@ -295,11 +443,11 @@ export default function Onboarding() {
       });
       return;
     }
-    // Steps 3-5: persist progress
-    if (step >= 3 && step <= 5) {
+    // Steps 3-6: persist progress
+    if (step >= 3 && step <= 6) {
       updateStepMutation.mutate({ step });
     }
-    if (step < 6) setStep(s => s + 1);
+    if (step < 7) setStep(s => s + 1);
   };
 
   return (
@@ -572,8 +720,13 @@ export default function Onboarding() {
               </div>
             )}
 
-            {/* Step 6: Complete */}
+            {/* Step 6: Feature Flags */}
             {step === 6 && (
+              <FeatureFlagsStep />
+            )}
+
+            {/* Step 7: Complete */}
+            {step === 7 && (
               <div className="text-center space-y-6 py-4">
                 <div className="w-24 h-24 rounded-full bg-emerald-50 flex items-center justify-center mx-auto">
                   <CheckCircle2 className="w-12 h-12 text-emerald-600" />
@@ -607,13 +760,13 @@ export default function Onboarding() {
             )}
 
             {/* Navigation */}
-            {step < 6 && step !== 4 && (
+            {step < 7 && step !== 4 && (
               <div className="flex items-center justify-between mt-8 pt-6 border-t border-border">
                 <Button variant="outline" onClick={() => step > 1 ? setStep(s => s - 1) : navigate("/")} disabled={step === 1}>
                   <ArrowLeft className="w-4 h-4 mr-2" />Back
                 </Button>
                 <Button onClick={handleNext} disabled={!canProceed()}>
-                  {step === 5 ? "Submit Application" : "Continue"}
+                  {step === 5 ? "Submit Application" : step === 6 ? "Finish Setup" : "Continue"}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>

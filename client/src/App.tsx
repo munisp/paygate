@@ -67,6 +67,10 @@ const ComplianceKYC = lz(() => import("./pages/ComplianceKYC"));
 const ComplianceSettings = lz(() => import("./pages/ComplianceSettings"));
 const QRPayments = lz(() => import("./pages/QRPayments"));
 const CrossBorder = lz(() => import("./pages/CrossBorder"));
+const CrossBorderRailMonitor = lz(() => import("./pages/CrossBorderRailMonitor"));
+const CIPSGateway = lz(() => import("./pages/CIPSGateway"));
+const UPIGateway = lz(() => import("./pages/UPIGateway"));
+const PIXGateway = lz(() => import("./pages/PIXGateway"));
 const DeveloperPortal = lz(() => import("./pages/DeveloperPortal"));
 const WorkflowObservability = lz(() => import("./pages/WorkflowObservability"));
 const KeycloakRoleSync = lz(() => import("./pages/KeycloakRoleSync"));
@@ -528,6 +532,10 @@ function Router() {
           <Route path="/settings" component={Settings} />
           <Route path="/qr-payments" component={QRPayments} />
           <Route path="/cross-border" component={CrossBorder} />
+          <Route path="/cross-border/rail-monitor" component={CrossBorderRailMonitor} />
+          <Route path="/cross-border/cips" component={CIPSGateway} />
+          <Route path="/cross-border/upi" component={UPIGateway} />
+          <Route path="/cross-border/pix" component={PIXGateway} />
           <Route path="/mojaloop" component={MojaloopDashboard} />
           <Route path="/developer" component={DeveloperPortal} />
           <Route path="/workflows" component={WorkflowObservability} />
