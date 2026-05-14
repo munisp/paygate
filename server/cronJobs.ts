@@ -217,8 +217,77 @@ async function checkSettlementSLA() {
   }
 }
 
-// ─── Cron Scheduler ──────────────────────────────────────────────────────────
+// ─── Loyalty Tier Auto-Promotion ─────────────────────────────────────────────
 
+async function runLoyaltyTierPromotion(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    // Tier thresholds: bronze < 500, silver 500–1999, gold 2000–9999, platinum 10000+
+    const result = await db.execute(sql`
+      UPDATE consumer_loyalty_accounts
+      SET tier = CASE
+            WHEN lifetime_points >= 10000 THEN 'platinum'
+            WHEN lifetime_points >= 2000 THEN 'gold'
+            WHEN lifetime_points >= 500 THEN 'silver'
+            ELSE 'bronze'
+          END,
+          updated_at = now()
+      WHERE tier != CASE
+            WHEN lifetime_points >= 10000 THEN 'platinum'
+            WHEN lifetime_points >= 2000 THEN 'gold'
+            WHEN lifetime_points >= 500 THEN 'silver'
+            ELSE 'bronze'
+          END
+      RETURNING id, user_id, tier
+    `);
+    const promoted = result.rows.length;
+    if (promoted > 0) {
+      logger.info(`[LoyaltyTier] Promoted/demoted ${promoted} accounts`);
+      notifyOwner({
+        title: `Loyalty Tier Update: ${promoted} accounts changed`,
+        content: `${promoted} consumer loyalty accounts were promoted or demoted based on lifetime points.`,
+      }).catch(() => {});
+    }
+  } catch (err: any) {
+    if (!isSuppressedWorkerError(err) && !err.message?.includes('does not exist') && !err.message?.includes('consumer_loyalty_accounts')) {
+      logger.warn(`[LoyaltyTier] Tier promotion error: ${err.message}`);
+    }
+  }
+}
+
+// ─── BNPL Overdue Alert ───────────────────────────────────────────────────────
+
+async function runBnplOverdueAlerts(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    // Mark overdue instalments (due_date < now and status = pending) and apply 2% late fee
+    const result = await db.execute(sql`
+      UPDATE bnpl_repayment_schedules
+      SET status = 'overdue',
+          late_fee_ngn = GREATEST(COALESCE(late_fee_ngn, 0), total_due_ngn * 0.02),
+          updated_at = now()
+      WHERE status = 'pending'
+        AND due_date < now()
+      RETURNING id, user_id, bnpl_loan_id, total_due_ngn
+    `);
+    const overdue = result.rows.length;
+    if (overdue > 0) {
+      logger.info(`[BNPL] Marked ${overdue} instalments as overdue`);
+      notifyOwner({
+        title: `BNPL Overdue: ${overdue} instalments past due`,
+        content: `${overdue} BNPL repayment instalments are now overdue. A 2% late fee has been applied.`,
+      }).catch(() => {});
+    }
+  } catch (err: any) {
+    if (!isSuppressedWorkerError(err) && !err.message?.includes('does not exist') && !err.message?.includes('bnpl_repayment_schedules')) {
+      logger.warn(`[BNPL] Overdue alert error: ${err.message}`);
+    }
+  }
+}
+
+// ─── Cron Scheduler ──────────────────────────────────────────────
 let cronStarted = false;
 
 export function startCronJobs() {
@@ -236,12 +305,20 @@ export function startCronJobs() {
   // Settlement SLA monitor — every 15 minutes
   setInterval(checkSettlementSLA, 15 * 60 * 1000);
 
+  // Loyalty tier auto-promotion — every 6 hours
+  setInterval(runLoyaltyTierPromotion, 6 * 60 * 60 * 1000);
+
+  // BNPL overdue alert — every hour
+  setInterval(runBnplOverdueAlerts, 60 * 60 * 1000);
+
   // Run immediately on startup (after a short delay to let DB connect)
   setTimeout(() => {
     executeDueSipPlans().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SIP initial run: ${e.message}`); });
     autoFreezeEscalatedRings().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] FraudRing initial run: ${e.message}`); });
     checkSettlementSLA().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SLA initial run: ${e.message}`); });
+    runLoyaltyTierPromotion().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] LoyaltyTier initial run: ${e.message}`); });
+    runBnplOverdueAlerts().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] BNPL initial run: ${e.message}`); });
   }, 15_000);
 
-  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m)");
+  logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m), LoyaltyTier(6h), BnplOverdue(1h)");
 }

@@ -314,4 +314,15 @@ export const ENV = {
   prometheusUrl: process.env.PROMETHEUS_URL ?? 'http://prometheus:9090',
   grafanaUrl: process.env.GRAFANA_URL ?? 'http://grafana:3000',
   alertmanagerUrl: process.env.ALERTMANAGER_URL ?? 'http://alertmanager:9093',
+
+  // ─── Cross-border payment rails (Wave 35) ────────────────────────────────────
+  // CIPS: China Interbank Payment System (CNY cross-border)
+  cipsUrl: process.env.CIPS_URL ?? 'https://sandbox.cips.com.cn/api/v1',
+  cipsApiKey: process.env.CIPS_API_KEY ?? '',
+  // UPI: Unified Payments Interface (India, via NPCI)
+  upiGatewayUrl: process.env.UPI_GATEWAY_URL ?? 'https://sandbox.npci.org.in/upi/v1',
+  upiApiKey: process.env.UPI_API_KEY ?? '',
+  // PIX: Brazil Instant Payment System (via BCB)
+  pixGatewayUrl: process.env.PIX_GATEWAY_URL ?? 'https://sandbox.bcb.gov.br/pix/v1',
+  pixApiKey: process.env.PIX_API_KEY ?? '',
 };

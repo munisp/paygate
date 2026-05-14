@@ -43,6 +43,8 @@ import { wave30Router } from './wave30Router';
 import { wave31Router } from './wave31Router';
 import { supportRouter } from './supportRouter';
 import { portalBillingRouter } from './portalBillingRouter';
+import { usageMeteringRouter } from './usageMeteringRouter';
+import { corridorRouter } from './corridorRouter';
 import { wave32Router } from './wave32Router';
 import { fraudRingRouter, gnnThresholdRouter, pricingRouter, consumerFinancialRouter, webhookEventRouter, adminCrudRouter } from './wave34Router';
 import { sipRouter } from './sipRouter';
@@ -3837,7 +3839,7 @@ const crossBorderRouter = router({
       sourceCurrency: z.string().length(3),
       targetCurrency: z.string().length(3),
       amount: z.string(),
-      rail: z.enum(["mojaloop", "brics_pay", "swift"]).default("mojaloop"),
+      rail: z.enum(["mojaloop", "brics_pay", "swift", "cips", "upi", "pix"]).default("mojaloop"),
     }))
     .query(async ({ input }) => {
       // Try the Go middleware bridge first for a live quote
@@ -3886,7 +3888,7 @@ const crossBorderRouter = router({
       targetCurrency: z.string(),
       amount: z.string(),
       corridor: z.string(),
-      rail: z.enum(["mojaloop", "brics_pay", "swift"]).default("mojaloop"),
+      rail: z.enum(["mojaloop", "brics_pay", "swift", "cips", "upi", "pix"]).default("mojaloop"),
       quoteId: z.string().optional(),
       senderName: z.string().optional(),
       receiverName: z.string().optional(),
@@ -4039,6 +4041,88 @@ const crossBorderRouter = router({
       await updateCrossBorderTransferStatusByTransferId(input.transferId, input.status);
       return { success: true };
     }),
+  // ── CIPS (China Interbank Payment System) dedicated procedures ──
+  cips: router({
+    getQuote: protectedProcedure
+      .input(z.object({
+        sourceCurrency: z.string().length(3),
+        amount: z.string(),
+        receiverBankCode: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        const { ENV } = await import("./_core/env");
+        try {
+          const resp = await fetch(`${ENV.cipsUrl}/quote`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-API-Key": ENV.cipsApiKey },
+            body: JSON.stringify({ source_currency: input.sourceCurrency, target_currency: "CNY", amount: input.amount }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (resp.ok) return await resp.json();
+        } catch { /* fall through to demo */ }
+        const rate = 0.0048;
+        const fee = (parseFloat(input.amount) * 0.012).toFixed(2);
+        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "cips", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+      }),
+    validateReceiver: protectedProcedure
+      .input(z.object({ bankCode: z.string(), accountNumber: z.string() }))
+      .query(async ({ input }) => {
+        return { valid: /^[0-9]{16,19}$/.test(input.accountNumber), bankCode: input.bankCode, accountNumber: input.accountNumber, rail: "cips" };
+      }),
+  }),
+  // ── UPI (Unified Payments Interface) dedicated procedures ──
+  upi: router({
+    validateVpa: protectedProcedure
+      .input(z.object({ vpa: z.string().min(3) }))
+      .query(async ({ input }) => {
+        const { ENV } = await import("./_core/env");
+        try {
+          const resp = await fetch(`${ENV.upiGatewayUrl}/vpa/validate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-API-Key": ENV.upiApiKey },
+            body: JSON.stringify({ vpa: input.vpa }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (resp.ok) return await resp.json();
+        } catch { /* fall through to demo */ }
+        const parts = input.vpa.split("@");
+        const handle = parts[0];
+        const bank = parts.length > 1 ? parts[1] : "upi";
+        return { valid: !!handle && !!bank, vpa: input.vpa, name: `${handle} (${bank})`, rail: "upi" };
+      }),
+    getQuote: protectedProcedure
+      .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
+      .query(async ({ input }) => {
+        const rate = 0.0047;
+        const fee = (parseFloat(input.amount) * 0.010).toFixed(2);
+        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "upi", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+      }),
+  }),
+  // ── PIX (Brazil Instant Payment System) dedicated procedures ──
+  pix: router({
+    validateKey: protectedProcedure
+      .input(z.object({ pixKey: z.string().min(3), keyType: z.enum(["cpf", "cnpj", "phone", "email", "random"]).default("random") }))
+      .query(async ({ input }) => {
+        const { ENV } = await import("./_core/env");
+        try {
+          const resp = await fetch(`${ENV.pixGatewayUrl}/keys/validate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-API-Key": ENV.pixApiKey },
+            body: JSON.stringify({ key: input.pixKey, key_type: input.keyType }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (resp.ok) return await resp.json();
+        } catch { /* fall through to demo */ }
+        return { valid: input.pixKey.length >= 3, key: input.pixKey, key_type: input.keyType, name: "PIX Receiver", rail: "pix" };
+      }),
+    getQuote: protectedProcedure
+      .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
+      .query(async ({ input }) => {
+        const rate = 0.0033;
+        const fee = (parseFloat(input.amount) * 0.011).toFixed(2);
+        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "pix", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+      }),
+  }),
 });
 
 /// ─── NIP Bank Directory Router ─────────────────────────────────────────────────────────────
@@ -8008,6 +8092,8 @@ export const appRouter = router({
   wave31: wave31Router,
   support: supportRouter,
   portalBilling: portalBillingRouter,
+  usageMetering: usageMeteringRouter,
+  corridors: corridorRouter,
   wave32: wave32Router,
   fraudRings: fraudRingRouter,
   gnnThreshold: gnnThresholdRouter,

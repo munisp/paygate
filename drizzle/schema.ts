@@ -3453,9 +3453,12 @@ export const featureFlags = pgTable("feature_flags", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),
+  targetingRules: jsonb("targeting_rules"), // { segments: string[], tiers: string[], countries: string[], customRules: object[] }
+  tenantId: text("tenant_id"), // null = global flag; set = per-tenant override
 }, (t) => [
   index("feature_flags_key_idx").on(t.key),
   index("feature_flags_enabled_idx").on(t.enabled),
+  index("feature_flags_tenant_idx").on(t.tenantId),
 ]);
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 
