@@ -393,6 +393,13 @@
       "when": 1778702832059,
       "tag": "0055_far_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1778760835293,
+      "tag": "0056_square_wraith",
+      "breakpoints": true
     }
   ]
 }

@@ -129,6 +129,8 @@ import {
   disburseAgentCommissions,
   getRestaurantTableTurnStats,
   logAuditEvent,
+  getTenantBySlug,
+  updateTenantBranding,
 } from "./db";
 import {
   isBridgeAvailable,
@@ -7829,8 +7831,60 @@ const onboardingGateRouter = router({
     }),
 });
 
+// ─── Tenants Router — White-Label Branding ────────────────────────────────────
+// Provides getBranding (read) and updateBranding (write) for the Settings UI.
+// Reads from and writes to the tenants table (accent_color, font_family, custom_domain).
+const tenantsRouter = router({
+  getBranding: protectedProcedure
+    .input(z.object({ slug: z.string().min(1).max(100) }))
+    .query(async ({ input }) => {
+      const tenant = await getTenantBySlug(input.slug);
+      if (!tenant) {
+        // Return defaults when tenant doesn't exist yet
+        return {
+          slug: input.slug,
+          logoUrl: null as string | null,
+          primaryColor: '#6366f1',
+          accentColor: '#8b5cf6',
+          fontFamily: 'Inter',
+          customDomain: null as string | null,
+        };
+      }
+      return {
+        slug: tenant.slug,
+        logoUrl: tenant.logoUrl ?? null,
+        primaryColor: tenant.primaryColor ?? '#6366f1',
+        accentColor: (tenant as any).accentColor ?? '#8b5cf6',
+        fontFamily: (tenant as any).fontFamily ?? 'Inter',
+        customDomain: (tenant as any).customDomain ?? null,
+      };
+    }),
+  updateBranding: protectedProcedure
+    .input(z.object({
+      slug: z.string().min(1).max(100),
+      logoUrl: z.string().url().optional().nullable(),
+      primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      fontFamily: z.string().max(100).optional(),
+      customDomain: z.string().max(253).optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const tenant = await getTenantBySlug(input.slug);
+      if (!tenant) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `Tenant '${input.slug}' not found` });
+      }
+      await updateTenantBranding(tenant.id, {
+        logoUrl: input.logoUrl,
+        primaryColor: input.primaryColor,
+        accentColor: input.accentColor,
+        fontFamily: input.fontFamily,
+        customDomain: input.customDomain,
+      });
+      logger.info(`[tenants.updateBranding] slug=${input.slug} updated by user=${ctx.user.openId}`);
+      return { slug: input.slug, saved: true, updatedAt: new Date() };
+    }),
+});
 // tier6to8Router now imported at top
-
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -8055,6 +8109,8 @@ export const appRouter = router({
   ussdSessions: ussdSessionsRouter,
   wafAlerts: wafAlertsRouter,
   offlineResilience: offlineResilienceRouter,
+  // Tenants — White-Label Branding (getBranding / updateBranding)
+  tenants: tenantsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

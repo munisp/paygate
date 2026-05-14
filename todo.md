@@ -4156,3 +4156,16 @@
 - [x] Note: deterministic NOW() override reverted — pg-mem's gen_random_uuid() is seeded from the same RNG as NOW(), so fixing NOW() breaks UUID uniqueness
 - [x] Final result: 4459 passed | 0 failed | 109 test files (up from 4378 | 0 | 107 at Round 9)
 - [x] New test count: +81 tests (50 router.coverage + 31 wave26.branding)
+
+## Round 11 — Production Hardening & Branding UI
+
+- [x] Fix 5 parallel-import timeout failures in wave54/55/56/57/114 by raising testTimeout to 15000ms in vitest.config.ts
+- [x] Raise coverage thresholds in vitest.config.ts to reflect new baseline (Round 10+)
+- [x] Add tenantsRouter with getBranding and updateBranding procedures to routers.ts
+- [x] Add accentColor, fontFamily, customDomain columns to tenants schema in drizzle/schema.ts
+- [x] Add getTenantBySlug and updateTenantBranding helpers to db.ts
+- [x] Add BrandingSection component to Settings.tsx (colour pickers, font selector, logo URL, custom domain, live preview, preset themes)
+- [x] Write tenants.branding.test.ts (16 tests: defaults, stored values, NOT_FOUND, updateBranding logic, Zod validation, serialization)
+- [x] Security audit: confirmed comprehensive middleware already in place (Helmet CSP, CORS allowlist, 10 rate limiters, HTML sanitization, Permissions-Policy, prototype pollution guard, ReDoS guard, payload scan)
+- [x] Full test suite: 4475 passed | 0 failed | 110 test files (up from 4459 | 0 | 109 at Round 10)
+- [x] New test count: +16 tests (tenants.branding.test.ts)

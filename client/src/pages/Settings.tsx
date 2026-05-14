@@ -702,8 +702,150 @@ export default function Settings() {
           </div>
         )}
       </div>
+      {/* White-Label Branding */}
+      <BrandingSection merchantSlug={
+        form.businessName
+          ? form.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30)
+          : ((data?.merchant as any)?.id ?? '').slice(0, 12)
+      } />
       {/* Consumer Portal Launch Card */}
       <ConsumerPortalSection merchantName={form.businessName} merchantId={(data?.merchant as any)?.id ?? ''} />
+    </div>
+  );
+}
+
+// ─── Branding Section ─────────────────────────────────────────────────────────
+const FONT_OPTIONS = ["Inter", "Roboto", "Poppins", "Montserrat", "Nunito", "DM Sans", "Plus Jakarta Sans"];
+const PRESET_THEMES = [
+  { name: "PayGate Default", primary: "#6366f1", accent: "#8b5cf6" },
+  { name: "Ocean Blue",      primary: "#0ea5e9", accent: "#38bdf8" },
+  { name: "Forest Green",   primary: "#16a34a", accent: "#22c55e" },
+  { name: "Sunset Orange",  primary: "#ea580c", accent: "#f97316" },
+  { name: "Royal Purple",   primary: "#7c3aed", accent: "#a855f7" },
+  { name: "Midnight Gold",  primary: "#f59e0b", accent: "#fbbf24" },
+];
+function BrandingSection({ merchantSlug }: { merchantSlug: string }) {
+  const [primaryColor, setPrimaryColor] = useState("#6366f1");
+  const [accentColor, setAccentColor] = useState("#8b5cf6");
+  const [fontFamily, setFontFamily] = useState("Inter");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [customDomain, setCustomDomain] = useState("");
+  const { data: branding, isLoading: brandingLoading } = trpc.tenants.getBranding.useQuery(
+    { slug: merchantSlug },
+    { enabled: merchantSlug.length >= 2, staleTime: 30_000 }
+  );
+  useEffect(() => {
+    if (branding) {
+      setPrimaryColor(branding.primaryColor ?? "#6366f1");
+      setAccentColor(branding.accentColor ?? "#8b5cf6");
+      setFontFamily(branding.fontFamily ?? "Inter");
+      setLogoUrl(branding.logoUrl ?? "");
+      setCustomDomain(branding.customDomain ?? "");
+    }
+  }, [branding]);
+  const updateBrandingMutation = trpc.tenants.updateBranding.useMutation({
+    onSuccess: () => toast.success("Branding saved successfully"),
+    onError: (e: any) => toast.error(`Failed to save branding: ${e.message}`),
+  });
+  const handleSave = () => {
+    updateBrandingMutation.mutate({
+      slug: merchantSlug,
+      primaryColor,
+      accentColor,
+      fontFamily,
+      logoUrl: logoUrl || null,
+      customDomain: customDomain || null,
+    });
+  };
+  if (brandingLoading) return <div className="bg-card rounded-xl border border-border p-6"><Skeleton className="h-40 w-full" /></div>;
+  return (
+    <div className="bg-card rounded-xl border border-border p-6 space-y-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Globe className="w-4 h-4 text-primary" />
+        <h3 className="font-semibold">White-Label Branding</h3>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Customise your portal's colours, typography, and domain for a fully white-labelled experience.
+      </p>
+      <div>
+        <p className="text-xs font-medium text-muted-foreground mb-2">Quick Presets</p>
+        <div className="flex flex-wrap gap-2">
+          {PRESET_THEMES.map(p => (
+            <button
+              key={p.name}
+              type="button"
+              onClick={() => { setPrimaryColor(p.primary); setAccentColor(p.accent); toast.success(`Applied "${p.name}" theme`); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs hover:border-primary transition-colors"
+            >
+              <span className="w-3 h-3 rounded-full inline-block" style={{ background: p.primary }} />
+              <span className="w-3 h-3 rounded-full inline-block" style={{ background: p.accent }} />
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Primary Colour</label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-10 h-10 rounded cursor-pointer border border-border" />
+            <input type="text" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-background" />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Accent Colour</label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={accentColor} onChange={e => setAccentColor(e.target.value)} className="w-10 h-10 rounded cursor-pointer border border-border" />
+            <input type="text" value={accentColor} onChange={e => setAccentColor(e.target.value)} className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-background" />
+          </div>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Font Family</label>
+        <Select value={fontFamily} onValueChange={setFontFamily}>
+          <SelectTrigger className="w-full sm:w-64">
+            <SelectValue placeholder="Select font" />
+          </SelectTrigger>
+          <SelectContent>
+            {FONT_OPTIONS.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Logo URL</label>
+        <input
+          type="url"
+          value={logoUrl}
+          onChange={e => setLogoUrl(e.target.value)}
+          placeholder="https://cdn.example.com/logo.png"
+          className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+        />
+        {logoUrl && <img src={logoUrl} alt="Logo preview" className="h-10 mt-1 rounded" onError={() => setLogoUrl('')} />}
+      </div>
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Custom Domain</label>
+        <input
+          type="text"
+          value={customDomain}
+          onChange={e => setCustomDomain(e.target.value)}
+          placeholder="pay.yourbrand.com"
+          className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+        />
+        <p className="text-xs text-muted-foreground">Point a CNAME record to <code>portal.paygate.ng</code> then enter your domain here.</p>
+      </div>
+      <div className="rounded-lg p-4 border border-border" style={{ fontFamily: `${fontFamily}, sans-serif` }}>
+        <div className="flex items-center gap-3">
+          {logoUrl
+            ? <img src={logoUrl} alt="Logo" className="h-8 rounded" onError={() => {}} />
+            : <div className="w-8 h-8 rounded" style={{ background: primaryColor }} />}
+          <span className="font-semibold text-sm" style={{ color: primaryColor }}>Your Brand</span>
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full text-white" style={{ background: accentColor }}>Live Preview</span>
+        </div>
+      </div>
+      <Button onClick={handleSave} disabled={updateBrandingMutation.isPending}>
+        <Save className="w-4 h-4 mr-1.5" />
+        {updateBrandingMutation.isPending ? "Saving..." : "Save Branding"}
+      </Button>
     </div>
   );
 }

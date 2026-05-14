@@ -1636,6 +1636,28 @@ export async function getTenant(id: string) {
   await pool.end();
   return r.rows[0] ?? null;
 }
+export async function getTenantBySlug(slug: string) {
+  const db = await getDb(); if (!db) return null;
+  const r = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+  return r[0] ?? null;
+}
+export async function updateTenantBranding(id: string, data: {
+  logoUrl?: string | null;
+  primaryColor?: string;
+  accentColor?: string;
+  fontFamily?: string;
+  customDomain?: string | null;
+}) {
+  const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  const updateSet: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.logoUrl !== undefined) updateSet.logoUrl = data.logoUrl;
+  if (data.primaryColor !== undefined) updateSet.primaryColor = data.primaryColor;
+  if (data.accentColor !== undefined) updateSet.accentColor = data.accentColor;
+  if (data.fontFamily !== undefined) updateSet.fontFamily = data.fontFamily;
+  if (data.customDomain !== undefined) updateSet.customDomain = data.customDomain;
+  await db.update(tenants).set(updateSet as any).where(eq(tenants.id, id));
+  return getTenant(id);
+}
 export async function upsertTenant(data: { id: string; name: string; plan?: string }) {
   const pool = pgPool();
   await pool.query(

@@ -60,15 +60,14 @@ export default defineConfig({
         "server/pgSetupFile.ts",
         "server/serverHealthGlobalSetup.ts",
       ],
-      // Current baseline coverage (as of Round 9):
-      // lines: ~11%, functions: ~7%, branches: ~7%, statements: ~11%
-      // These thresholds are intentionally set at current levels to prevent regression.
-      // Increase them incrementally as more tests are added.
+      // Current baseline coverage (as of Round 10 / Round 11):
+      // lines: ~10.65%, functions: ~7.09%, branches: ~7.39%, statements: ~11.4%
+      // These thresholds prevent regression; raise incrementally as more tests are added.
       thresholds: {
         lines: 10,
-        functions: 6,
-        branches: 6,
-        statements: 10,
+        functions: 7,
+        branches: 7,
+        statements: 11,
       },
     },
     projects: [
@@ -113,6 +112,10 @@ export default defineConfig({
           environment: "node",
           include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
           exclude: NON_STANDARD_FILES,
+          // Increase timeout: routers.ts dynamic import takes ~3.5s in isolation;
+          // under parallel load (109 files) it can exceed the default 5s limit.
+          testTimeout: 15000,
+          hookTimeout: 15000,
         },
         resolve: {
           alias: sharedAlias,
