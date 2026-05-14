@@ -4169,3 +4169,14 @@
 - [x] Security audit: confirmed comprehensive middleware already in place (Helmet CSP, CORS allowlist, 10 rate limiters, HTML sanitization, Permissions-Policy, prototype pollution guard, ReDoS guard, payload scan)
 - [x] Full test suite: 4475 passed | 0 failed | 110 test files (up from 4459 | 0 | 109 at Round 10)
 - [x] New test count: +16 tests (tenants.branding.test.ts)
+
+## Round 12 — Stub Fixes, Wave90 Tests & Coverage
+
+- [x] Wire tenantBrandingApiRouter.getBySlug to real DB (getTenantBySlug with fallback defaults)
+- [x] Wire tenantBrandingApiRouter.upsert to real DB (updateTenantBranding when tenant exists)
+- [x] Fix loyaltyMwRouter.evaluateTierPromotion: remove undefined merchant.id reference, use userId variable, add getDb/sql imports
+- [x] Confirm all 211 nav paths in Layout.tsx are covered by routes in App.tsx (no dead-ends)
+- [x] Confirm 332/344 pages already have tRPC wiring (only 10 Gated/static pages have no trpc calls)
+- [x] Add server/wave90.procedures.test.ts (37 tests: BNPL amortisation, loyalty fallbacks, tenant branding, gold, remittance, insurance, EMI, subscriptions, virtual cards, partner onboarding)
+- [x] Full test suite: 4512 passed | 0 failed | 111 test files (up from 4475 | 0 | 110 at Round 11)
+- [x] New test count: +37 tests (wave90.procedures.test.ts)

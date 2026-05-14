@@ -13,7 +13,8 @@
 
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { z } from "zod";
-// db imported via getDb when needed
+import { getTenantBySlug, updateTenantBranding, getDb } from "./db";
+import { sql } from "drizzle-orm";
 import {
   buyDigitalGoldViaMiddleware,
   sellDigitalGoldViaMiddleware,
@@ -325,14 +326,13 @@ export const loyaltyMwRouter = router({
         { name: "gold", minPoints: 25_000 },
         { name: "platinum", minPoints: 100_000 },
       ];
-      // In production, fetch from loyalty_points table
       // Fetch real current points from loyalty_accounts table
       const db = await getDb();
       let currentPoints = 0;
       if (db) {
         try {
-          const rows = await db.execute(sql`SELECT total_points FROM loyalty_accounts WHERE merchant_id = ${merchant.id} AND customer_id = ${input.customerId ?? 0} LIMIT 1`);
-          currentPoints = (rows as any[])[0]?.total_points ?? 0;
+          const rows = await db.execute(sql`SELECT COALESCE(SUM(points_balance), 0) AS total_points FROM loyalty_accounts WHERE merchant_id = ${userId} LIMIT 1`);
+          currentPoints = Number((rows as any[])[0]?.total_points ?? 0);
         } catch { currentPoints = 0; }
       }
       const newTier = [...TIERS].reverse().find(t => currentPoints >= t.minPoints)?.name ?? "bronze";
@@ -454,16 +454,19 @@ export const tenantBrandingApiRouter = router({
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1).max(100) }))
     .query(async ({ input }) => {
-      // In production, fetch from tenants table and Redis cache
+      // Fetch from tenants table; fall back to defaults if not found
+      const tenant = await getTenantBySlug(input.slug).catch(() => null);
       return {
         slug: input.slug,
-        primaryColor: "#6366f1",
-        secondaryColor: "#8b5cf6",
-        fontFamily: "Inter",
-        logoUrl: null,
+        primaryColor: (tenant as any)?.primaryColor ?? "#6366f1",
+        accentColor: (tenant as any)?.accentColor ?? "#8b5cf6",
+        secondaryColor: (tenant as any)?.accentColor ?? "#8b5cf6",
+        fontFamily: (tenant as any)?.fontFamily ?? "Inter",
+        logoUrl: (tenant as any)?.logoUrl ?? null,
         faviconUrl: null,
+        customDomain: (tenant as any)?.customDomain ?? null,
         supportEmail: `support@${input.slug}.paygate.ng`,
-        footerText: `© ${new Date().getFullYear()} ${input.slug} — Powered by PayGate`,
+        footerText: `\u00a9 ${new Date().getFullYear()} ${input.slug} \u2014 Powered by PayGate`,
       };
     }),
   // Upsert branding config — called by TenantBrandingAdmin.tsx Save button
@@ -483,7 +486,17 @@ export const tenantBrandingApiRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       logger.info(`[tenantBranding] Upsert for slug=${input.slug} by user=${ctx.user.id}`);
-      // Optimistic response when DB is unavailable
+      // Fetch tenant to get its ID
+      const tenant = await getTenantBySlug(input.slug).catch(() => null);
+      if (tenant) {
+        await updateTenantBranding((tenant as any).id, {
+          logoUrl: input.logoUrl ?? null,
+          primaryColor: input.primaryColor ?? null,
+          accentColor: input.secondaryColor ?? null,
+          fontFamily: input.fontFamily ?? null,
+          customDomain: input.customDomain ?? null,
+        }).catch((e: any) => logger.warn(`[tenantBranding] DB update failed: ${e.message}`));
+      }
       return { slug: input.slug, saved: true, updatedAt: new Date() };
     }),
 });
