@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import AdminLayout from "@/components/AdminLayout";
@@ -7,14 +6,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Plus, Flag, Trash2, Edit, Search, Filter } from "lucide-react";
+import { Plus, Flag, Trash2, Edit, Search, Filter, Target, X, ChevronDown } from "lucide-react";
 import { format } from "date-fns";
+
+type TargetingRule = {
+  attribute: string;
+  operator: "eq" | "neq" | "gt" | "lt" | "contains" | "in";
+  value: string | number | string[];
+};
+
+type TargetingRules = {
+  segments?: string[];
+  tiers?: string[];
+  countries?: string[];
+  userIds?: string[];
+  customRules?: TargetingRule[];
+};
 
 type FeatureFlag = {
   id: string;
@@ -29,6 +43,7 @@ type FeatureFlag = {
   expiresAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  targetingRules?: TargetingRules | null;
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -37,18 +52,213 @@ const CATEGORY_COLORS: Record<string, string> = {
   "kill-switch": "bg-red-100 text-red-700",
 };
 
+const SEGMENTS = ["beta_users", "premium_users", "enterprise", "internal", "early_adopters", "power_users"];
+const TIERS = ["free", "starter", "growth", "business", "enterprise"];
+const COUNTRIES = ["NG", "GH", "KE", "ZA", "US", "GB", "EU"];
+const OPERATORS = ["eq", "neq", "gt", "lt", "contains", "in"] as const;
+
+function TargetingRulesBuilder({
+  rules,
+  onChange,
+}: {
+  rules: TargetingRules;
+  onChange: (r: TargetingRules) => void;
+}) {
+  const [newCustomRule, setNewCustomRule] = useState<Partial<TargetingRule>>({ operator: "eq" });
+
+  const toggleItem = (field: "segments" | "tiers" | "countries", item: string) => {
+    const current = rules[field] ?? [];
+    onChange({
+      ...rules,
+      [field]: current.includes(item) ? current.filter((x) => x !== item) : [...current, item],
+    });
+  };
+
+  const addCustomRule = () => {
+    if (!newCustomRule.attribute || !newCustomRule.operator || newCustomRule.value === undefined) return;
+    onChange({
+      ...rules,
+      customRules: [...(rules.customRules ?? []), newCustomRule as TargetingRule],
+    });
+    setNewCustomRule({ operator: "eq" });
+  };
+
+  const removeCustomRule = (i: number) => {
+    onChange({ ...rules, customRules: (rules.customRules ?? []).filter((_, idx) => idx !== i) });
+  };
+
+  const addUserId = (id: string) => {
+    if (!id.trim()) return;
+    onChange({ ...rules, userIds: [...(rules.userIds ?? []), id.trim()] });
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Segments */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          <Target className="w-3.5 h-3.5" /> User Segments
+        </Label>
+        <div className="flex flex-wrap gap-1.5">
+          {SEGMENTS.map((seg) => (
+            <button
+              key={seg}
+              type="button"
+              onClick={() => toggleItem("segments", seg)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                (rules.segments ?? []).includes(seg)
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background border-border hover:border-primary/50"
+              }`}
+            >
+              {seg}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tiers */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Plan Tiers</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {TIERS.map((tier) => (
+            <button
+              key={tier}
+              type="button"
+              onClick={() => toggleItem("tiers", tier)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors capitalize ${
+                (rules.tiers ?? []).includes(tier)
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background border-border hover:border-primary/50"
+              }`}
+            >
+              {tier}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Countries */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Countries</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {COUNTRIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => toggleItem("countries", c)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors font-mono ${
+                (rules.countries ?? []).includes(c)
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background border-border hover:border-primary/50"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* User IDs */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Specific User IDs</Label>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter user ID and press Enter"
+            className="text-xs"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                addUserId((e.target as HTMLInputElement).value);
+                (e.target as HTMLInputElement).value = "";
+              }
+            }}
+          />
+        </div>
+        {(rules.userIds ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {(rules.userIds ?? []).map((uid) => (
+              <span key={uid} className="text-xs bg-muted px-2 py-0.5 rounded flex items-center gap-1">
+                <span className="font-mono">{uid}</span>
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...rules, userIds: (rules.userIds ?? []).filter((x) => x !== uid) })}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Custom Rules */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Custom Attribute Rules</Label>
+        {(rules.customRules ?? []).map((rule, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs bg-muted/50 rounded px-2 py-1.5">
+            <span className="font-mono font-medium">{rule.attribute}</span>
+            <Badge variant="outline" className="text-xs">{rule.operator}</Badge>
+            <span className="text-muted-foreground">{Array.isArray(rule.value) ? rule.value.join(", ") : String(rule.value)}</span>
+            <button type="button" onClick={() => removeCustomRule(i)} className="ml-auto text-destructive hover:text-destructive/80">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <div className="grid grid-cols-3 gap-2">
+          <Input
+            placeholder="attribute (e.g. plan)"
+            className="text-xs"
+            value={newCustomRule.attribute ?? ""}
+            onChange={(e) => setNewCustomRule((r) => ({ ...r, attribute: e.target.value }))}
+          />
+          <Select
+            value={newCustomRule.operator ?? "eq"}
+            onValueChange={(v) => setNewCustomRule((r) => ({ ...r, operator: v as TargetingRule["operator"] }))}
+          >
+            <SelectTrigger className="text-xs h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {OPERATORS.map((op) => (
+                <SelectItem key={op} value={op} className="text-xs">
+                  {op}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex gap-1">
+            <Input
+              placeholder="value"
+              className="text-xs"
+              value={typeof newCustomRule.value === "string" ? newCustomRule.value : ""}
+              onChange={(e) => setNewCustomRule((r) => ({ ...r, value: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && addCustomRule()}
+            />
+            <Button size="sm" variant="outline" onClick={addCustomRule} className="shrink-0 h-9 px-2">
+              <Plus className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminFeatureFlags() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
   const [editFlag, setEditFlag] = useState<FeatureFlag | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showTargeting, setShowTargeting] = useState(false);
 
   const [form, setForm] = useState({
     key: "", name: "", description: "", enabled: false,
     rolloutPercentage: 0, category: "feature" as const,
     environment: "production" as const, expiresAt: "",
   });
+
+  const [editTargeting, setEditTargeting] = useState<TargetingRules>({});
 
   const utils = trpc.useUtils();
 
@@ -92,6 +302,17 @@ export default function AdminFeatureFlags() {
   const filtered = (data ?? []).filter(f =>
     !search || f.key.includes(search.toLowerCase()) || f.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const openEdit = (flag: FeatureFlag) => {
+    setEditFlag(flag);
+    setEditTargeting((flag.targetingRules as TargetingRules) ?? {});
+  };
+
+  const hasTargeting = (flag: FeatureFlag) => {
+    const r = flag.targetingRules as TargetingRules | null;
+    if (!r) return false;
+    return (r.segments?.length ?? 0) + (r.tiers?.length ?? 0) + (r.countries?.length ?? 0) + (r.userIds?.length ?? 0) + (r.customRules?.length ?? 0) > 0;
+  };
 
   return (
     <AdminLayout>
@@ -155,6 +376,7 @@ export default function AdminFeatureFlags() {
                     <th className="text-left p-3 font-medium">Flag Key</th>
                     <th className="text-left p-3 font-medium">Category</th>
                     <th className="text-left p-3 font-medium">Rollout</th>
+                    <th className="text-left p-3 font-medium">Targeting</th>
                     <th className="text-left p-3 font-medium">Environment</th>
                     <th className="text-left p-3 font-medium">Expires</th>
                     <th className="text-left p-3 font-medium">Status</th>
@@ -182,6 +404,15 @@ export default function AdminFeatureFlags() {
                         </div>
                       </td>
                       <td className="p-3">
+                        {hasTargeting(flag as FeatureFlag) ? (
+                          <Badge variant="secondary" className="text-xs gap-1">
+                            <Target className="w-3 h-3" /> Targeted
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">All users</span>
+                        )}
+                      </td>
+                      <td className="p-3">
                         <Badge variant="outline" className="text-xs">{flag.environment}</Badge>
                       </td>
                       <td className="p-3 text-xs text-muted-foreground">
@@ -195,7 +426,7 @@ export default function AdminFeatureFlags() {
                       </td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditFlag(flag)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(flag as FeatureFlag)}>
                             <Edit className="w-3.5 h-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteId(flag.id)}>
@@ -293,27 +524,58 @@ export default function AdminFeatureFlags() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editFlag} onOpenChange={() => setEditFlag(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Feature Flag</DialogTitle>
             <DialogDescription className="font-mono text-xs">{editFlag?.key}</DialogDescription>
           </DialogHeader>
           {editFlag && (
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Display Name</Label>
-                <Input value={editFlag.name} onChange={e => setEditFlag(f => f ? { ...f, name: e.target.value } : null)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Description</Label>
-                <Textarea value={editFlag.description ?? ""} onChange={e => setEditFlag(f => f ? { ...f, description: e.target.value } : null)} rows={2} />
-              </div>
-              <div className="space-y-2">
-                <Label>Rollout Percentage: {editFlag.rolloutPercentage}%</Label>
-                <Slider min={0} max={100} step={5} value={[editFlag.rolloutPercentage]}
-                  onValueChange={([v]) => setEditFlag(f => f ? { ...f, rolloutPercentage: v } : null)} />
-              </div>
-            </div>
+            <Tabs defaultValue="general">
+              <TabsList className="grid grid-cols-2 w-full">
+                <TabsTrigger value="general">General</TabsTrigger>
+                <TabsTrigger value="targeting" className="flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5" /> Targeting Rules
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="general" className="space-y-4 mt-4">
+                <div className="space-y-1.5">
+                  <Label>Display Name</Label>
+                  <Input value={editFlag.name} onChange={e => setEditFlag(f => f ? { ...f, name: e.target.value } : null)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description</Label>
+                  <Textarea value={editFlag.description ?? ""} onChange={e => setEditFlag(f => f ? { ...f, description: e.target.value } : null)} rows={2} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Rollout Percentage: {editFlag.rolloutPercentage}%</Label>
+                  <Slider min={0} max={100} step={5} value={[editFlag.rolloutPercentage]}
+                    onValueChange={([v]) => setEditFlag(f => f ? { ...f, rolloutPercentage: v } : null)} />
+                  <p className="text-xs text-muted-foreground">
+                    {editFlag.rolloutPercentage === 0 ? "Disabled for all users" :
+                     editFlag.rolloutPercentage === 100 ? "Enabled for all eligible users" :
+                     `Enabled for ${editFlag.rolloutPercentage}% of eligible users (deterministic hash-based)`}
+                  </p>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="targeting" className="mt-4">
+                <Card className="border-dashed">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Target className="w-4 h-4" /> Targeting Rules Builder
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Restrict this flag to specific user segments, plan tiers, countries, or custom attributes.
+                      Leave all empty to target all users.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <TargetingRulesBuilder rules={editTargeting} onChange={setEditTargeting} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditFlag(null)}>Cancel</Button>
@@ -323,6 +585,7 @@ export default function AdminFeatureFlags() {
                 name: editFlag.name,
                 description: editFlag.description ?? undefined,
                 rolloutPercentage: editFlag.rolloutPercentage,
+                targetingRules: editTargeting,
               })}
               disabled={updateMutation.isPending}
             >

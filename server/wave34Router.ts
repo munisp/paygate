@@ -24,7 +24,19 @@ import {
   assertPlanHasFeature,
   validateWebhookPayloadSize,
 } from "./security33";
-import { escalateFraudRingViaMiddleware, isBridgeAvailable } from "./middlewareBridge";
+import {
+  escalateFraudRingViaMiddleware,
+  isBridgeAvailable,
+  buyDigitalGoldViaMiddleware,
+  sellDigitalGoldViaMiddleware,
+  createGoldSIPViaMiddleware,
+  getRemittanceCorridorsViaMiddleware,
+  createRemittanceViaMiddleware,
+  getConsumerInsuranceProductsViaMiddleware,
+  purchaseConsumerInsuranceViaMiddleware,
+  getEMIPlansViaMiddleware,
+  createEMIApplicationViaMiddleware,
+} from "./middlewareBridge";
 
 function nanoid(prefix = "") {
   return prefix + crypto.randomBytes(12).toString("hex");
@@ -551,6 +563,11 @@ export const consumerFinancialRouter = router({
         grams: z.number().min(0.001).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        // Try middleware bridge first
+        if (isBridgeAvailable()) {
+          const result = await buyDigitalGoldViaMiddleware(ctx.user.id, ctx.user.id, input.amountKobo / 100);
+          if (result) return { success: true, grams: result.grams, amountKobo: input.amountKobo, txId: result.txId };
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -569,6 +586,11 @@ export const consumerFinancialRouter = router({
     sell: protectedProcedure
       .input(z.object({ holdingId: z.string(), grams: z.number().min(0.001) }))
       .mutation(async ({ input, ctx }) => {
+        // Try middleware bridge first
+        if (isBridgeAvailable()) {
+          const result = await sellDigitalGoldViaMiddleware(ctx.user.id, ctx.user.id, input.grams);
+          if (result) return { success: true, proceedsKobo: result.amountNGN * 100, txId: result.txId };
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -697,6 +719,11 @@ export const consumerFinancialRouter = router({
   // Insurance
   insurance: router({
     listProducts: publicProcedure.query(async () => {
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await getConsumerInsuranceProductsViaMiddleware();
+        if (result?.products?.length) return result;
+      }
       return {
         products: [
           { id: "ins_life_term", name: "Term Life Insurance", category: "life", premiumKoboPerMonth: 150_000, coverageKobo: 10_000_000_000, provider: "AXA Mansard" },
@@ -822,6 +849,11 @@ export const consumerFinancialRouter = router({
       }),
 
     getLoans: protectedProcedure.query(async ({ ctx }) => {
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await getEMIPlansViaMiddleware(ctx.user.id);
+        if (result?.plans?.length) return { loans: result.plans };
+      }
       const db = await getDb();
       if (!db) return { loans: [] };
 
@@ -839,8 +871,14 @@ export const consumerFinancialRouter = router({
         principalKobo: z.number().min(1_000_000),
         tenureMonths: z.number().min(3).max(60),
         purpose: z.string().min(5),
+        planId: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
+        // Try middleware bridge first
+        if (isBridgeAvailable() && input.planId) {
+          const result = await createEMIApplicationViaMiddleware(ctx.user.id, ctx.user.id, input.principalKobo / 100, input.planId);
+          if (result) return { success: true, loanId: result.applicationId, emi: result.emiAmount * 100, annualRate: 24, schedule: result.schedule };
+        }
         // VULN-063: Validate EMI loan amount bounds
         // validateEmiLoanAmount(input.principalKobo, input.tenureMonths);
         const db = await getDb();
@@ -901,6 +939,11 @@ export const consumerFinancialRouter = router({
   // International Remittance
   remittance: router({
     getCorridors: publicProcedure.query(async () => {
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await getRemittanceCorridorsViaMiddleware();
+        if (result?.corridors?.length) return result;
+      }
       return {
         corridors: [
           { id: "NGN_USD", from: "NGN", to: "USD", rate: 0.000625, fee: 0.015, minKobo: 10_000_000, maxKobo: 10_000_000_000, estimatedMinutes: 30, provider: "Flutterwave" },
@@ -938,6 +981,14 @@ export const consumerFinancialRouter = router({
         purpose: z.string().min(5),
       }))
       .mutation(async ({ input, ctx }) => {
+        // Try middleware bridge first
+        if (isBridgeAvailable()) {
+          const result = await createRemittanceViaMiddleware(
+            ctx.user.id, ctx.user.id, input.recipientAccount,
+            input.amountKobo / 100, 'NGN', input.corridorId
+          );
+          if (result) return { success: true, transferId: result.remittanceId, feeKobo: 0, estimatedDelivery: "30-60 minutes", trackingCode: result.trackingCode };
+        }
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 

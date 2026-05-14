@@ -41,6 +41,10 @@ export const tenants = pgTable("tenants", {
   primaryColor: text("primary_color").default("#6366f1"),
   accentColor: text("accent_color").default("#8b5cf6"),
   fontFamily: text("font_family").default("Inter"),
+  faviconUrl: text("favicon_url"),
+  secondaryColor: text("secondary_color").default("#a78bfa"),
+  footerText: text("footer_text"),
+  supportEmail: text("support_email"),
   customDomain: text("custom_domain"),
   // Limits (set by admin, overridable per plan)
   maxMerchants: integer("max_merchants").default(10).notNull(),

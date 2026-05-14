@@ -183,12 +183,24 @@ export const featureFlagsRouter = router({
       description: z.string().optional(),
       rolloutPercentage: z.number().int().min(0).max(100).optional(),
       expiresAt: z.string().datetime().nullable().optional(),
+      targetingRules: z.object({
+        segments: z.array(z.string()).optional(),
+        tiers: z.array(z.string()).optional(),
+        countries: z.array(z.string()).optional(),
+        userIds: z.array(z.string()).optional(),
+        customRules: z.array(z.object({
+          attribute: z.string(),
+          operator: z.enum(["eq", "neq", "gt", "lt", "contains", "in"]),
+          value: z.union([z.string(), z.number(), z.array(z.string())]),
+        })).optional(),
+      }).nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       const d = await requireDb();
-      const { id, expiresAt, ...rest } = input;
+      const { id, expiresAt, targetingRules, ...rest } = input;
       const updateData: Record<string, unknown> = { ...rest, updatedAt: new Date() };
       if (expiresAt !== undefined) updateData.expiresAt = expiresAt ? new Date(expiresAt) : null;
+      if (targetingRules !== undefined) updateData.targetingRules = targetingRules;
       const [updated] = await d.update(featureFlags).set(updateData).where(eq(featureFlags.id, id)).returning();
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Feature flag not found" });
       return updated;

@@ -407,6 +407,13 @@
       "when": 1778766527315,
       "tag": "0057_unusual_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1778773562481,
+      "tag": "0058_serious_vision",
+      "breakpoints": true
     }
   ]
 }

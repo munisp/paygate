@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Users, Settings, Globe, DollarSign, RefreshCw, Plus, Trash2,
-  Edit, CheckCircle, XCircle, Eye, Building2, ArrowLeft
+  Edit, CheckCircle, XCircle, Eye, Building2, ArrowLeft, CreditCard, BarChart3
 } from "lucide-react";
 
 const ROLE_COLORS: Record<string, string> = {
@@ -49,6 +49,16 @@ export default function TenantAdminDashboard() {
 
   const { data: feeOverrides, refetch: refetchFees } =
     trpc.wave28.tenantAdmin.getFeeOverrides.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "fees" });
+
+  const currentPeriod = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const { data: usageData } =
+    trpc.usageMetering.getUsage.useQuery({ tenantId, period: currentPeriod }, { enabled: !!tenantId && activeTab === "billing" });
+
+  const { data: quotaData } =
+    trpc.usageMetering.checkQuota.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "billing" });
+
+  const { data: invoices } =
+    trpc.usageMetering.getInvoices.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "billing" });
 
   const inviteUserMutation = trpc.wave28.tenantAdmin.inviteUser.useMutation({
     onSuccess: () => { toast.success("User invited"); setShowInviteUser(false); refetchUsers(); },
@@ -138,6 +148,7 @@ export default function TenantAdminDashboard() {
             <TabsTrigger value="corridors"><Globe className="w-4 h-4 mr-2" />Corridors</TabsTrigger>
             <TabsTrigger value="fees"><DollarSign className="w-4 h-4 mr-2" />Fees</TabsTrigger>
             <TabsTrigger value="branding"><Settings className="w-4 h-4 mr-2" />Branding</TabsTrigger>
+            <TabsTrigger value="billing"><CreditCard className="w-4 h-4 mr-2" />Billing</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -553,6 +564,63 @@ export default function TenantAdminDashboard() {
                   </div>
                 </DialogContent>
               </Dialog>
+            </div>
+          </TabsContent>
+
+          {/* Billing Tab */}
+          <TabsContent value="billing">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">API Calls (This Month)</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{usageData?.apiCalls?.toLocaleString() ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Quota: {quotaData?.limits?.maxApiCalls?.toLocaleString() ?? "—"}</div>
+                    {quotaData && quotaData.limits.maxApiCalls > 0 && (
+                      <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(100, quotaData.quotaStatus.apiCallsPct)}%` }} />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Transaction Volume</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{usageData?.txVolume != null ? `₦${(usageData.txVolume / 100).toLocaleString()}` : "—"}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Transactions: {usageData?.txCount?.toLocaleString() ?? "—"}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Current Plan</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold capitalize">{overview?.tenant?.plan ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Webhooks: {(usageData as any)?.webhookDeliveries?.toLocaleString() ?? "—"}</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="w-4 h-4" />Invoice History</CardTitle></CardHeader>
+                <CardContent>
+                  {!invoices || invoices.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">No invoices yet.</div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b"><th className="text-left py-2">Period</th><th className="text-left py-2">Amount</th><th className="text-left py-2">Status</th><th className="text-left py-2">Due</th></tr></thead>
+                      <tbody>
+                        {invoices.map((inv: any) => (
+                          <tr key={inv.id} className="border-b last:border-0">
+                            <td className="py-2">{inv.billingPeriodStart ? new Date(inv.billingPeriodStart).toLocaleDateString() : "—"}</td>
+                            <td className="py-2">₦{((inv.totalAmountKobo ?? 0) / 100).toLocaleString()}</td>
+                            <td className="py-2"><Badge variant={inv.status === "paid" ? "default" : "secondary"} className="capitalize">{inv.status}</Badge></td>
+                            <td className="py-2">{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         </Tabs>

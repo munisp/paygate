@@ -92,6 +92,89 @@ export const DEFAULT_TENANT_ID = "ten_default";
 // NOT re-exported here to avoid circular dependency
 // (auditMiddleware imports protectedProcedure from this file).
 
+// ─── featureGatedProcedure ────────────────────────────────────────────────────
+// Factory that creates a protected procedure gated by a feature flag.
+// Usage: featureGatedProcedure('bnpl').query(...)
+// The feature flag is looked up in the feature_flags table for the user's tenant.
+// Falls back to enabled=true when the DB is unavailable (fail-open for availability).
+
+export function featureGatedProcedure(featureKey: string) {
+  return protectedProcedure.use(
+    t.middleware(async opts => {
+      const { ctx, next } = opts;
+      try {
+        // Lazy import to avoid circular deps
+        const { getDb } = await import('../db');
+        const { sql } = await import('drizzle-orm');
+        const db = await getDb();
+        if (db) {
+          const rows = await db.execute(sql`
+            SELECT enabled FROM feature_flags
+            WHERE key = ${featureKey}
+              AND (merchant_id IS NULL OR merchant_id = ${(ctx.user as any).merchantId ?? null})
+            LIMIT 1
+          `);
+          if (rows.rows.length > 0 && !(rows.rows[0] as any).enabled) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `Feature '${featureKey}' is not enabled for your account`,
+            });
+          }
+        }
+      } catch (err: any) {
+        // Re-throw TRPCErrors (feature disabled)
+        if (err instanceof TRPCError) throw err;
+        // Fail-open: if DB lookup fails, allow the request through
+      }
+      return next({ ctx });
+    }),
+  );
+}
+
+// ─── tenantPlanProcedure ──────────────────────────────────────────────────────
+// Factory that creates a protected procedure gated by a minimum tenant plan.
+// Plans: starter < growth < enterprise
+// Usage: tenantPlanProcedure('growth').query(...)
+
+const PLAN_RANK: Record<string, number> = { starter: 1, growth: 2, enterprise: 3 };
+
+export function tenantPlanProcedure(minimumPlan: 'starter' | 'growth' | 'enterprise') {
+  return protectedProcedure.use(
+    t.middleware(async opts => {
+      const { ctx, next } = opts;
+      try {
+        const { getDb } = await import('../db');
+        const { sql } = await import('drizzle-orm');
+        const db = await getDb();
+        if (db) {
+          const merchantId = (ctx.user as any).merchantId;
+          if (merchantId) {
+            const rows = await db.execute(sql`
+              SELECT plan FROM tenant_billing_invoices
+              WHERE merchant_id = ${merchantId}
+                AND status = 'paid'
+              ORDER BY created_at DESC LIMIT 1
+            `);
+            const currentPlan = (rows.rows[0] as any)?.plan ?? 'starter';
+            const currentRank = PLAN_RANK[currentPlan] ?? 1;
+            const requiredRank = PLAN_RANK[minimumPlan] ?? 1;
+            if (currentRank < requiredRank) {
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: `This feature requires the ${minimumPlan} plan or higher. Please upgrade your subscription.`,
+              });
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Fail-open: if DB lookup fails, allow the request through
+      }
+      return next({ ctx });
+    }),
+  );
+}
+
 export const tenantProcedure = t.procedure.use(loggingMiddleware).use(
   t.middleware(async opts => {
     const { ctx, next } = opts;

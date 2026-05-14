@@ -22,6 +22,14 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
+import {
+  getCashbackBalanceViaMiddleware,
+  redeemCashbackViaMiddleware,
+  issueVirtualCardViaMiddleware,
+  listSubscriptionPlansViaMiddleware,
+  cancelSubscriptionViaMiddleware,
+  isBridgeAvailable,
+} from "./middlewareBridge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function nanoid(prefix = "") {
@@ -618,6 +626,11 @@ export const contactsRouter = router({
 export const loyaltyRouter = router({
   getAccount: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
+    // Try middleware bridge first
+    if (isBridgeAvailable()) {
+      const result = await getCashbackBalanceViaMiddleware(user.id);
+      if (result) return { userId: user.id, pointsBalance: Math.round(result.balance * 100), lifetimePoints: Math.round(result.balance * 100), tier: 'bronze', pendingBalance: result.pendingBalance };
+    }
     const db = await getDb();
     if (!db) return null;
     const { consumerLoyaltyAccounts } = await import("../drizzle/schema");
@@ -658,9 +671,15 @@ export const loyaltyRouter = router({
     .input(z.object({
       points: z.number().int().positive(),
       currency: z.string().length(3).default("NGN"),
+      merchantId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await redeemCashbackViaMiddleware(user.id, input.points / 100, input.merchantId ?? user.id);
+        if (result) return { success: result.success, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerLoyaltyAccounts, consumerLoyaltyTxns } = await import("../drizzle/schema");
@@ -819,6 +838,16 @@ export const consumerCardRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await issueVirtualCardViaMiddleware({
+          userId: user.id,
+          currency: input.currency,
+          cardBrand: input.cardBrand,
+          spendingLimitKobo: input.spendingLimitKobo,
+        });
+        if (result) return result;
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerCards, consumerKycRecords } = await import("../drizzle/schema");
@@ -900,6 +929,11 @@ export const recurringRouter = router({
     .input(z.object({ active: z.boolean().optional() }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await listSubscriptionPlansViaMiddleware(user.id);
+        if (result?.plans?.length) return result.plans;
+      }
       const db = await getDb();
       if (!db) return [];
       const { consumerRecurringPayments } = await import("../drizzle/schema");
@@ -960,9 +994,14 @@ export const recurringRouter = router({
     }),
 
   cancel: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), reason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
+      // Try middleware bridge first
+      if (isBridgeAvailable()) {
+        const result = await cancelSubscriptionViaMiddleware(input.id, input.reason ?? 'user_cancelled');
+        if (result?.success) return { success: true };
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerRecurringPayments } = await import("../drizzle/schema");

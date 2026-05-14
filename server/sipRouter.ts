@@ -10,6 +10,7 @@ import { router, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { createGoldSIPViaMiddleware, isBridgeAvailable } from "./middlewareBridge";
 
 function nanoid(prefix = "") {
   return prefix + crypto.randomBytes(12).toString("hex");
@@ -40,15 +41,19 @@ export const sipRouter = router({
       fundId: z.string().optional(),
       notes: z.string().max(200).optional(),
     }))
-    .mutation(async ({ input, ctx }) => {
+     .mutation(async ({ input, ctx }) => {
+      // Try middleware bridge for gold SIPs
+      if (isBridgeAvailable() && input.assetType === "gold") {
+        const dayOfMonth = input.startDate ? new Date(input.startDate).getDate() : new Date().getDate();
+        const result = await createGoldSIPViaMiddleware(ctx.user.id, input.amountKobo / 100, dayOfMonth);
+        if (result) return { success: true, planId: result.sipId, nextExecutionAt: new Date().toISOString() };
+      }
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-
       const planId = nanoid("sip_");
       const startAt = input.startDate ? new Date(input.startDate) : new Date();
-
       // Compute next execution based on frequency (PostgreSQL interval)
-      const nextExec = new Date(startAt);
+      const nextExec = new Date(startAt);;
       if (input.frequency === "daily") nextExec.setDate(nextExec.getDate() + 1);
       else if (input.frequency === "weekly") nextExec.setDate(nextExec.getDate() + 7);
       else nextExec.setMonth(nextExec.getMonth() + 1);
