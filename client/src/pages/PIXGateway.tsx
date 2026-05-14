@@ -1,7 +1,8 @@
 // PIXGateway.tsx
 // Brazil PIX instant payment gateway — key validation, QR code display, and transfer initiation.
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import QRCode from "qrcode";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,28 +33,45 @@ const KEY_TYPE_PLACEHOLDERS: Record<PixKeyType, string> = {
 };
 
 function QRCodeDisplay({ pixKey, amount, currency }: { pixKey: string; amount: string; currency: string }) {
-  // Generate a deterministic-looking QR code placeholder using the key
-  const seed = pixKey.length + amount.length;
-  const cells = Array.from({ length: 21 }, (_, row) =>
-    Array.from({ length: 21 }, (_, col) => {
-      // Corner squares (finder patterns)
-      if ((row < 7 && col < 7) || (row < 7 && col > 13) || (row > 13 && col < 7)) return true;
-      return (row * 3 + col * 7 + seed) % 3 === 0;
-    })
-  );
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // EMV-style PIX payload (simplified BR Code format)
+  const pixPayload = [
+    "000201",                          // Payload Format Indicator
+    "010212",                          // Point of Initiation Method: dynamic
+    `26${String(pixKey.length + 14).padStart(2, "0")}0014BR.GOV.BCB.PIX01${String(pixKey.length).padStart(2, "0")}${pixKey}`,
+    "52040000",                        // Merchant Category Code
+    "5303986",                         // Transaction Currency: BRL
+    amount ? `54${String(parseFloat(amount).toFixed(2).length).padStart(2, "0")}${parseFloat(amount).toFixed(2)}` : "",
+    "5802BR",                          // Country Code
+    "5913PayGate PIX",                 // Merchant Name
+    "6009SAO PAULO",                   // Merchant City
+    "62070503***",                     // Additional Data
+    "6304",                            // CRC placeholder
+  ].join("");
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, pixPayload, {
+      width: 200,
+      margin: 2,
+      color: { dark: "#111827", light: "#ffffff" },
+    }).catch(err => setError(err.message));
+  }, [pixPayload]);
+
+  if (error) {
+    return <p className="text-xs text-destructive">QR generation failed: {error}</p>;
+  }
 
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="p-4 bg-white rounded-xl border border-border shadow-sm">
-        <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(21, 1fr)`, width: 168 }}>
-          {cells.flat().map((filled, i) => (
-            <div key={i} className={`w-2 h-2 rounded-sm ${filled ? "bg-gray-900" : "bg-white"}`} />
-          ))}
-        </div>
+        <canvas ref={canvasRef} />
       </div>
       <p className="text-xs text-muted-foreground text-center">
         Scan with any Brazilian banking app to pay<br />
-        <span className="font-mono font-semibold">{parseFloat(amount || "0").toLocaleString()} {currency}</span>
+        <span className="font-mono font-semibold">{parseFloat(amount || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2 })} {currency}</span>
       </p>
     </div>
   );

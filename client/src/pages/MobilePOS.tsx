@@ -75,12 +75,7 @@ export default function MobilePOS() {
   // Load product catalog from DB (falls back to offline catalog when unavailable)
   const { data: productsData, isLoading: productsLoading } = trpc.pos["products.list"].useQuery(
     { isActive: true, limit: 200 },
-    {
-      staleTime: 5 * 60_000,
-      onError: () => {
-        // Silently fall back to offline catalog
-      },
-    }
+    { staleTime: 5 * 60_000 }
   );
   const dbProducts = productsData?.products ?? [];
   // Use DB products when available, fall back to offline catalog

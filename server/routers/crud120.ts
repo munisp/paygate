@@ -131,7 +131,7 @@ function paginate(page: number, limit: number) {
 
 const adminNotifPrefsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(adminNotificationPrefs)
       .where(eq(adminNotificationPrefs.userId, ctx.user.id))
       .limit(1);
@@ -143,7 +143,7 @@ const adminNotifPrefsRouter = router({
     smsEnabled: z.boolean().optional(),
     inAppEnabled: z.boolean().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const existing = await db.select().from(adminNotificationPrefs)
       .where(eq(adminNotificationPrefs.userId, ctx.user.id)).limit(1);
     if (existing.length > 0) {
@@ -163,7 +163,7 @@ const agentBankingV4Router = router({
     status: z.string().optional(),
     search: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(agentBankingV4Agents)
       .where(eq(agentBankingV4Agents.merchantId, ctx.user.merchantId ?? ""))
@@ -172,7 +172,7 @@ const agentBankingV4Router = router({
     return { agents: rows, total: rows.length };
   }),
   getAgent: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(agentBankingV4Agents)
       .where(eq(agentBankingV4Agents.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
@@ -187,7 +187,7 @@ const agentBankingV4Router = router({
     address: z.string().optional(),
     terminalId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(agentBankingV4Agents).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -202,13 +202,13 @@ const agentBankingV4Router = router({
     phone: z.string().optional(),
     address: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(agentBankingV4Agents).set(rest).where(eq(agentBankingV4Agents.id, id));
     return { success: true };
   }),
   listNetworks: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(agentNetwork)
       .where(eq(agentNetwork.superAgentMerchantId, ctx.user.merchantId ?? ""))
@@ -227,7 +227,7 @@ const auditEventsRouter = router({
     from: z.number().optional(),
     to: z.number().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(auditEvents)
       .where(eq(auditEvents.merchantId, ctx.user.merchantId ?? ""))
@@ -236,7 +236,7 @@ const auditEventsRouter = router({
     return { events: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(auditEvents)
       .where(eq(auditEvents.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
@@ -253,7 +253,7 @@ const auditEventsRouter = router({
     ipAddress: z.string().optional(),
     userAgent: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(auditEvents).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -270,7 +270,7 @@ const bnplRepaymentRouter = router({
     bnplLoanId: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const conditions = [];
     if (input.bnplLoanId) conditions.push(eq(bnplRepaymentSchedules.bnplLoanId, input.bnplLoanId));
@@ -285,7 +285,7 @@ const bnplRepaymentRouter = router({
     id: z.string(),
     paidAt: z.number().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(bnplRepaymentSchedules)
       .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
       .where(eq(bnplRepaymentSchedules.id, input.id));
@@ -299,7 +299,7 @@ const carbonCreditsV2Router = router({
   list: protectedProcedure.input(paginationInput.extend({
     merchantId: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(carbonCreditTransactionsV2)
       .where(eq(carbonCreditTransactionsV2.merchantId, input.merchantId ?? ctx.user.merchantId ?? ""))
@@ -315,7 +315,7 @@ const carbonCreditsV2Router = router({
     txType: z.enum(["purchase", "retirement", "transfer"]),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(carbonCreditTransactionsV2).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -332,7 +332,7 @@ const complianceReportsRouter = router({
     reportType: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(complianceReports)
       .where(eq(complianceReports.merchantId, ctx.user.merchantId ?? ""))
@@ -341,7 +341,7 @@ const complianceReportsRouter = router({
     return { reports: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(complianceReports)
       .where(eq(complianceReports.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
@@ -353,7 +353,7 @@ const complianceReportsRouter = router({
     data: z.record(z.unknown()).optional(),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(complianceReports).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -363,7 +363,7 @@ const complianceReportsRouter = router({
     return row;
   }),
   submit: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(complianceReports).set({ status: "submitted", submittedAt: new Date() })
       .where(eq(complianceReports.id, input.id));
     return { success: true };
@@ -374,7 +374,7 @@ const complianceReportsRouter = router({
 
 const consumerFinanceRouter = router({
   listBudgets: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerBudgets)
       .where(eq(consumerBudgets.userId, String(ctx.user.id)))
@@ -387,7 +387,7 @@ const consumerFinanceRouter = router({
     period: z.enum(["weekly", "monthly", "yearly"]),
     alertThreshold: z.number().min(0).max(100).default(80),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(consumerBudgets).values({
       userId: String(ctx.user.id),
       ...input,
@@ -400,18 +400,18 @@ const consumerFinanceRouter = router({
     limitKobo: z.number().int().positive().optional(),
     alertThreshold: z.number().min(0).max(100).optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(consumerBudgets).set(rest).where(eq(consumerBudgets.id, id));
     return { success: true };
   }),
   deleteBudget: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(consumerBudgets).where(eq(consumerBudgets.id, input.id));
     return { success: true };
   }),
   listSavingsGoals: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSavingsGoals)
       .where(eq(consumerSavingsGoals.userId, String(ctx.user.id)))
@@ -426,7 +426,7 @@ const consumerFinanceRouter = router({
     autoSaveAmountKobo: z.number().int().optional(),
     autoSaveFrequency: z.enum(["daily", "weekly", "monthly"]).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(consumerSavingsGoals).values({
       userId: String(ctx.user.id),
       ...input,
@@ -437,7 +437,7 @@ const consumerFinanceRouter = router({
     return row;
   }),
   listRecurringPayments: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerRecurringPayments)
       .where(eq(consumerRecurringPayments.userId, String(ctx.user.id)))
@@ -454,7 +454,7 @@ const consumerFinanceRouter = router({
     beneficiaryName: z.string().optional(),
     narration: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(consumerRecurringPayments).values({
       userId: String(ctx.user.id),
       ...input,
@@ -464,7 +464,7 @@ const consumerFinanceRouter = router({
     return row;
   }),
   cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(consumerRecurringPayments).set({ status: "cancelled" })
       .where(eq(consumerRecurringPayments.id, input.id));
     return { success: true };
@@ -472,7 +472,7 @@ const consumerFinanceRouter = router({
   listContacts: protectedProcedure.input(paginationInput.extend({
     search: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerContacts)
       .where(eq(consumerContacts.userId, String(ctx.user.id)))
@@ -487,7 +487,7 @@ const consumerFinanceRouter = router({
     bankName: z.string().optional(),
     nickname: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(consumerContacts).values({
       userId: String(ctx.user.id),
       ...input,
@@ -495,12 +495,12 @@ const consumerFinanceRouter = router({
     return row;
   }),
   deleteContact: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(consumerContacts).where(eq(consumerContacts.id, input.id));
     return { success: true };
   }),
   listSplitSessions: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSplitSessions)
       .where(eq(consumerSplitSessions.initiatorId, String(ctx.user.id)))
@@ -517,7 +517,7 @@ const consumerFinanceRouter = router({
       shareKobo: z.number().int().positive(),
     })),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [session] = await db.insert(consumerSplitSessions).values({
       initiatorId: String(ctx.user.id),
       title: input.title,
@@ -538,7 +538,7 @@ const consumerFinanceRouter = router({
     return session;
   }),
   listKycRecords: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerKycRecords)
       .where(eq(consumerKycRecords.userId, String(ctx.user.id)))
@@ -546,7 +546,7 @@ const consumerFinanceRouter = router({
     return { records: rows, total: rows.length };
   }),
   listCards: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerCards)
       .where(eq(consumerCards.userId, String(ctx.user.id)))
@@ -554,7 +554,7 @@ const consumerFinanceRouter = router({
     return { cards: rows, total: rows.length };
   }),
   listLoyaltyAccounts: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerLoyaltyAccounts)
       .where(eq(consumerLoyaltyAccounts.userId, String(ctx.user.id)))
@@ -564,7 +564,7 @@ const consumerFinanceRouter = router({
   listLoyaltyTxns: protectedProcedure.input(paginationInput.extend({
     accountId: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerLoyaltyTxns)
       .orderBy(desc(consumerLoyaltyTxns.createdAt))
@@ -580,7 +580,7 @@ const couponRouter = router({
     couponCode: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(couponRedemptions)
       .where(eq(couponRedemptions.merchantId, ctx.user.merchantId ?? ""))
@@ -593,7 +593,7 @@ const couponRouter = router({
     transactionId: z.string(),
     discountKobo: z.number().int().positive(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(couponRedemptions).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -610,7 +610,7 @@ const cryptoOfframpRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(cryptoOfframpV2Transactions)
       .where(eq(cryptoOfframpV2Transactions.merchantId, ctx.user.merchantId ?? ""))
@@ -619,7 +619,7 @@ const cryptoOfframpRouter = router({
     return { transactions: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(cryptoOfframpV2Transactions)
       .where(eq(cryptoOfframpV2Transactions.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
@@ -635,7 +635,7 @@ const cryptoOfframpRouter = router({
     bankCode: z.string(),
     exchangeRate: z.number().positive(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(cryptoOfframpV2Transactions).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -652,7 +652,7 @@ const emiLoansRouter = router({
     status: z.string().optional(),
     merchantId: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(emiLoans)
       .where(eq(emiLoans.merchantId, input.merchantId ?? ctx.user.merchantId ?? ""))
@@ -661,7 +661,7 @@ const emiLoansRouter = router({
     return { loans: rows, total: rows.length };
   }),
   getLoan: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(emiLoans).where(eq(emiLoans.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -674,7 +674,7 @@ const emiLoansRouter = router({
     purpose: z.string().optional(),
     collateral: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const monthlyRate = input.interestRateBps / 10000 / 12;
     const emi = monthlyRate > 0
       ? Math.round(input.principalKobo * monthlyRate * Math.pow(1 + monthlyRate, input.tenureMonths) / (Math.pow(1 + monthlyRate, input.tenureMonths) - 1))
@@ -690,7 +690,7 @@ const emiLoansRouter = router({
     return row;
   }),
   approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(emiLoans).set({ status: "active", disbursedAt: new Date() })
       .where(eq(emiLoans.id, input.id));
     return { success: true };
@@ -698,7 +698,7 @@ const emiLoansRouter = router({
   listRepayments: protectedProcedure.input(paginationInput.extend({
     loanId: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const conditions = input.loanId ? [eq(emiRepayments.loanId, input.loanId)] : [];
     const rows = await db.select().from(emiRepayments)
@@ -714,7 +714,7 @@ const emiLoansRouter = router({
     paymentReference: z.string().optional(),
     channel: z.string().default("bank_transfer"),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(emiRepayments).values({
       ...input,
       status: "paid",
@@ -730,7 +730,7 @@ const escrowRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(escrowContracts)
       .where(eq(escrowContracts.merchantId, ctx.user.merchantId ?? ""))
@@ -739,7 +739,7 @@ const escrowRouter = router({
     return { contracts: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(escrowContracts).where(eq(escrowContracts.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -757,7 +757,7 @@ const escrowRouter = router({
     })).optional(),
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(escrowContracts).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -768,19 +768,19 @@ const escrowRouter = router({
     return row;
   }),
   release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
       .where(eq(escrowContracts.id, input.id));
     return { success: true };
   }),
   dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(escrowContracts).set({ status: "disputed" })
       .where(eq(escrowContracts.id, input.id));
     return { success: true };
   }),
   listV2: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(escrowContractsV2)
       .where(eq(escrowContractsV2.merchantId, ctx.user.merchantId ?? ""))
@@ -797,7 +797,7 @@ const featureFlagsRouter = router({
     enabled: z.boolean().optional(),
     search: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(featureFlags)
       .orderBy(featureFlags.key)
@@ -805,7 +805,7 @@ const featureFlagsRouter = router({
     return { flags: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ key: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(featureFlags).where(eq(featureFlags.key, input.key)).limit(1);
     return rows[0] ?? null;
   }),
@@ -818,7 +818,7 @@ const featureFlagsRouter = router({
     targetMerchantIds: z.string().optional(),
     targetingRules: z.record(z.unknown()).optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(featureFlags).values({
       ...input,
       targetingRules: input.targetingRules ? JSON.stringify(input.targetingRules) : null,
@@ -826,7 +826,7 @@ const featureFlagsRouter = router({
     return row;
   }),
   toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(featureFlags).set({ enabled: input.enabled }).where(eq(featureFlags.id, input.id));
     return { success: true };
   }),
@@ -836,7 +836,7 @@ const featureFlagsRouter = router({
     targetMerchantIds: z.string().optional(),
     targetingRules: z.record(z.unknown()).optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, targetingRules, ...rest } = input;
     await db.update(featureFlags).set({
       ...rest,
@@ -845,7 +845,7 @@ const featureFlagsRouter = router({
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(featureFlags).where(eq(featureFlags.id, input.id));
     return { success: true };
   }),
@@ -854,7 +854,7 @@ const featureFlagsRouter = router({
     merchantId: z.string(),
     flagKeys: z.array(z.string()).optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(featureFlags).where(eq(featureFlags.enabled, true));
     const result: Record<string, boolean> = {};
     for (const row of rows) {
@@ -876,7 +876,7 @@ const featureFlagsRouter = router({
 
 const geofenceRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(geofenceRules)
       .where(eq(geofenceRules.merchantId, ctx.user.merchantId ?? ""))
@@ -891,7 +891,7 @@ const geofenceRouter = router({
     action: z.enum(["allow", "block", "alert"]),
     description: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(geofenceRules).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -900,12 +900,12 @@ const geofenceRouter = router({
     return row;
   }),
   toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(geofenceRules).set({ enabled: input.enabled }).where(eq(geofenceRules.id, input.id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(geofenceRules).where(eq(geofenceRules.id, input.id));
     return { success: true };
   }),
@@ -919,7 +919,7 @@ const helpSearchRouter = router({
     from: z.number().optional(),
     to: z.number().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(helpSearchAnalytics)
       .orderBy(desc(helpSearchAnalytics.searchedAt))
@@ -934,7 +934,7 @@ const helpSearchRouter = router({
     clickedResultId: z.string().optional(),
     userType: z.enum(["merchant", "consumer", "admin"]).default("merchant"),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.insert(helpSearchAnalytics).values({
       ...input,
       searchedAt: new Date(),
@@ -942,7 +942,7 @@ const helpSearchRouter = router({
     return { success: true };
   }),
   topQueries: protectedProcedure.input(z.object({ limit: z.number().int().min(1).max(50).default(10) })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select({
       query: helpSearchAnalytics.query,
       count: sql<number>`count(*)::int`,
@@ -961,7 +961,7 @@ const inventoryRouter = router({
     productId: z.string().optional(),
     txType: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryTransactions)
       .where(eq(inventoryTransactions.merchantId, ctx.user.merchantId ?? ""))
@@ -977,7 +977,7 @@ const inventoryRouter = router({
     notes: z.string().optional(),
     referenceId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(inventoryTransactions).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -988,7 +988,7 @@ const inventoryRouter = router({
     productId: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryReservations)
       .where(eq(inventoryReservations.merchantId, ctx.user.merchantId ?? ""))
@@ -1001,7 +1001,7 @@ const inventoryRouter = router({
     orderId: z.string().optional(),
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(inventoryReservations).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1011,7 +1011,7 @@ const inventoryRouter = router({
     return row;
   }),
   listAuditLog: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryAuditLog)
       .where(eq(inventoryAuditLog.merchantId, ctx.user.merchantId ?? ""))
@@ -1027,7 +1027,7 @@ const inviteCodesRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inviteCodes)
       .where(eq(inviteCodes.merchantId, ctx.user.merchantId ?? ""))
@@ -1041,7 +1041,7 @@ const inviteCodesRouter = router({
     expiresInHours: z.number().int().min(1).max(720).default(72),
     maxUses: z.number().int().min(1).default(1),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const code = `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(inviteCodes).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -1056,12 +1056,12 @@ const inviteCodesRouter = router({
     return row;
   }),
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(inviteCodes).set({ status: "revoked" }).where(eq(inviteCodes.id, input.id));
     return { success: true };
   }),
   validate: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(inviteCodes)
       .where(and(eq(inviteCodes.code, input.code), eq(inviteCodes.status, "active")))
       .limit(1);
@@ -1079,7 +1079,7 @@ const invoiceFinancingRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(invoiceFinancingV2Applications)
       .where(eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? ""))
@@ -1088,7 +1088,7 @@ const invoiceFinancingRouter = router({
     return { applications: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(invoiceFinancingV2Applications)
       .where(eq(invoiceFinancingV2Applications.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1103,7 +1103,7 @@ const invoiceFinancingRouter = router({
     invoiceDueDate: z.number(),
     documents: z.array(z.string()).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(invoiceFinancingV2Applications).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1118,7 +1118,7 @@ const invoiceFinancingRouter = router({
     approvedAmountKobo: z.number().int().positive(),
     interestRateBps: z.number().int().min(0),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(invoiceFinancingV2Applications).set({
       status: "approved",
       approvedAmountKobo: input.approvedAmountKobo,
@@ -1137,7 +1137,7 @@ const invoicesRouter = router({
     customerId: z.string().optional(),
     search: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(invoices)
       .where(eq(invoices.merchantId, ctx.user.merchantId ?? ""))
@@ -1146,7 +1146,7 @@ const invoicesRouter = router({
     return { invoices: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(invoices).where(eq(invoices.invoiceId, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -1165,7 +1165,7 @@ const invoicesRouter = router({
     notes: z.string().optional(),
     currency: z.string().default("NGN"),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const subtotal = input.lineItems.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const tax = Math.round(subtotal * input.taxRateBps / 10000);
     const invoiceId = `INV-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -1187,24 +1187,24 @@ const invoicesRouter = router({
     return row;
   }),
   send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(invoices).set({ status: "sent", sentAt: new Date() })
       .where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
   markPaid: protectedProcedure.input(z.object({ id: z.string(), paidAt: z.number().optional() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
       .where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
   void: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(invoices).set({ status: "void" }).where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(invoices).where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
@@ -1214,7 +1214,7 @@ const invoicesRouter = router({
 
 const kdsRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(kdsStations)
       .where(eq(kdsStations.merchantId, ctx.user.merchantId ?? ""))
@@ -1227,7 +1227,7 @@ const kdsRouter = router({
     categories: z.array(z.string()).optional(),
     displayMode: z.enum(["grid", "list"]).default("grid"),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(kdsStations).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1241,13 +1241,13 @@ const kdsRouter = router({
     name: z.string().optional(),
     status: z.enum(["online", "offline", "maintenance"]).optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(kdsStations).set(rest).where(eq(kdsStations.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(kdsStations).where(eq(kdsStations.id, input.id));
     return { success: true };
   }),
@@ -1257,7 +1257,7 @@ const kdsRouter = router({
 
 const loyaltyProgramsRouter = router({
   listPrograms: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyPrograms)
       .where(eq(loyaltyPrograms.merchantId, ctx.user.merchantId ?? ""))
@@ -1271,7 +1271,7 @@ const loyaltyProgramsRouter = router({
     expiryDays: z.number().int().positive().optional(),
     tiers: z.array(z.object({ name: z.string(), minPoints: z.number() })).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(loyaltyPrograms).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1283,7 +1283,7 @@ const loyaltyProgramsRouter = router({
   listAccounts: protectedProcedure.input(paginationInput.extend({
     programId: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyAccounts)
       .orderBy(desc(loyaltyAccounts.totalPoints))
@@ -1294,7 +1294,7 @@ const loyaltyProgramsRouter = router({
     accountId: z.string().optional(),
     txType: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyTransactions)
       .orderBy(desc(loyaltyTransactions.createdAt))
@@ -1308,7 +1308,7 @@ const loyaltyProgramsRouter = router({
     referenceId: z.string().optional(),
     description: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(loyaltyTransactions).values({
       ...input,
       balanceBefore: 0,
@@ -1317,7 +1317,7 @@ const loyaltyProgramsRouter = router({
     return row;
   }),
   listV3Programs: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyV3Programs)
       .where(eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? ""))
@@ -1327,7 +1327,7 @@ const loyaltyProgramsRouter = router({
   listV3Members: protectedProcedure.input(paginationInput.extend({
     programId: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyV3Members)
       .orderBy(desc(loyaltyV3Members.totalPoints))
@@ -1344,7 +1344,7 @@ const marketplaceRouter = router({
     buyerId: z.string().optional(),
     sellerId: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(marketplaceOrders)
       .where(eq(marketplaceOrders.merchantId, ctx.user.merchantId ?? ""))
@@ -1353,7 +1353,7 @@ const marketplaceRouter = router({
     return { orders: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(marketplaceOrders).where(eq(marketplaceOrders.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -1369,7 +1369,7 @@ const marketplaceRouter = router({
     shippingAddressId: z.string().optional(),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const totalKobo = input.items.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const [row] = await db.insert(marketplaceOrders).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -1387,7 +1387,7 @@ const marketplaceRouter = router({
     status: z.enum(["pending", "confirmed", "shipped", "delivered", "cancelled", "refunded"]),
     trackingNumber: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(marketplaceOrders).set(rest).where(eq(marketplaceOrders.id, id));
     return { success: true };
@@ -1398,7 +1398,7 @@ const marketplaceRouter = router({
 
 const merchantRiskRouter = router({
   getRiskScore: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(merchantRiskScores)
       .where(eq(merchantRiskScores.merchantId, ctx.user.merchantId ?? ""))
       .orderBy(desc(merchantRiskScores.scoredAt))
@@ -1406,7 +1406,7 @@ const merchantRiskRouter = router({
     return rows[0] ?? null;
   }),
   listStatusLog: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(merchantStatusLog)
       .where(eq(merchantStatusLog.merchantId, ctx.user.merchantId ?? ""))
@@ -1415,7 +1415,7 @@ const merchantRiskRouter = router({
     return { logs: rows, total: rows.length };
   }),
   getSolanaWallet: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(merchantSolanaWallets)
       .where(eq(merchantSolanaWallets.merchantId, ctx.user.merchantId ?? "")).limit(1);
     return rows[0] ?? null;
@@ -1424,7 +1424,7 @@ const merchantRiskRouter = router({
     publicKey: z.string(),
     label: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(merchantSolanaWallets).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1441,7 +1441,7 @@ const moneyRequestsRouter = router({
     status: z.string().optional(),
     direction: z.enum(["sent", "received"]).optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(moneyRequests)
       .where(eq(moneyRequests.requesterId, ctx.user.merchantId ?? ""))
@@ -1456,7 +1456,7 @@ const moneyRequestsRouter = router({
     description: z.string(),
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(moneyRequests).values({
       requesterId: ctx.user.merchantId ?? "",
       ...input,
@@ -1466,13 +1466,13 @@ const moneyRequestsRouter = router({
     return row;
   }),
   approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(moneyRequests).set({ status: "approved", approvedAt: new Date() })
       .where(eq(moneyRequests.id, input.id));
     return { success: true };
   }),
   decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(moneyRequests).set({ status: "declined" }).where(eq(moneyRequests.id, input.id));
     return { success: true };
   }),
@@ -1482,7 +1482,7 @@ const moneyRequestsRouter = router({
 
 const multiCurrencyRouter = router({
   listAccounts: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(multiCurrencyLedgerAccounts)
       .where(eq(multiCurrencyLedgerAccounts.merchantId, ctx.user.merchantId ?? ""))
@@ -1493,7 +1493,7 @@ const multiCurrencyRouter = router({
     currency: z.string().length(3),
     label: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerAccounts).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1506,7 +1506,7 @@ const multiCurrencyRouter = router({
     accountId: z.string().optional(),
     currency: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(multiCurrencyLedgerEntries)
       .where(eq(multiCurrencyLedgerEntries.merchantId, ctx.user.merchantId ?? ""))
@@ -1522,7 +1522,7 @@ const multiCurrencyRouter = router({
     description: z.string().optional(),
     referenceId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerEntries).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1538,7 +1538,7 @@ const mutualFundsRouter = router({
     fundId: z.string().optional(),
     txType: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(mutualFundTransactions)
       .where(eq(mutualFundTransactions.merchantId, ctx.user.merchantId ?? ""))
@@ -1553,7 +1553,7 @@ const mutualFundsRouter = router({
     units: z.number().positive().optional(),
     navPerUnit: z.number().positive().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(mutualFundTransactions).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1567,7 +1567,7 @@ const mutualFundsRouter = router({
 
 const nfcRouter = router({
   listDevices: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nfcDevices)
       .where(eq(nfcDevices.merchantId, ctx.user.merchantId ?? ""))
@@ -1580,7 +1580,7 @@ const nfcRouter = router({
     location: z.string().optional(),
     terminalId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(nfcDevices).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1591,7 +1591,7 @@ const nfcRouter = router({
   listTransactions: protectedProcedure.input(paginationInput.extend({
     deviceId: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nfcTransactions)
       .where(eq(nfcTransactions.merchantId, ctx.user.merchantId ?? ""))
@@ -1605,7 +1605,7 @@ const nfcRouter = router({
 
 const nftBadgesRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nftBadges)
       .where(eq(nftBadges.merchantId, ctx.user.merchantId ?? ""))
@@ -1619,7 +1619,7 @@ const nftBadgesRouter = router({
     criteria: z.record(z.unknown()).optional(),
     maxSupply: z.number().int().positive().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(nftBadges).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1634,7 +1634,7 @@ const nftBadgesRouter = router({
     recipientId: z.string(),
     walletAddress: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(nftBadges).set({ mintedCount: sql`${nftBadges.mintedCount} + 1` })
       .where(eq(nftBadges.id, input.badgeId));
     return { success: true, badgeId: input.badgeId, recipientId: input.recipientId };
@@ -1645,7 +1645,7 @@ const nftBadgesRouter = router({
 
 const openBankingRouter = router({
   listAccounts: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(openBankingAccountsV2)
       .where(eq(openBankingAccountsV2.merchantId, ctx.user.merchantId ?? ""))
@@ -1655,7 +1655,7 @@ const openBankingRouter = router({
   listConsents: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(openBankingConsentsV2)
       .where(eq(openBankingConsentsV2.merchantId, ctx.user.merchantId ?? ""))
@@ -1669,7 +1669,7 @@ const openBankingRouter = router({
     expiresAt: z.number().optional(),
     redirectUri: z.string().url(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const consentId = `CON-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(openBankingConsentsV2).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -1683,7 +1683,7 @@ const openBankingRouter = router({
     return row;
   }),
   revokeConsent: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(openBankingConsentsV2).set({ status: "revoked", revokedAt: new Date() })
       .where(eq(openBankingConsentsV2.id, input.id));
     return { success: true };
@@ -1696,7 +1696,7 @@ const partnerOnboardingRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(partnerOnboardingSessions)
       .orderBy(desc(partnerOnboardingSessions.createdAt))
@@ -1704,7 +1704,7 @@ const partnerOnboardingRouter = router({
     return { sessions: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(partnerOnboardingSessions)
       .where(eq(partnerOnboardingSessions.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1716,7 +1716,7 @@ const partnerOnboardingRouter = router({
     stepData: z.record(z.unknown()).optional(),
     completed: z.boolean().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(partnerOnboardingSessions).set({
       currentStep: input.currentStep,
       stepData: input.stepData ? JSON.stringify(input.stepData) : undefined,
@@ -1734,7 +1734,7 @@ const payrollRouter = router({
     status: z.string().optional(),
     period: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(payrollRuns)
       .where(eq(payrollRuns.merchantId, ctx.user.merchantId ?? ""))
@@ -1743,7 +1743,7 @@ const payrollRouter = router({
     return { runs: rows, total: rows.length };
   }),
   getRun: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(payrollRuns).where(eq(payrollRuns.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -1757,7 +1757,7 @@ const payrollRouter = router({
     employeeCount: z.number().int().positive(),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(payrollRuns).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1767,13 +1767,13 @@ const payrollRouter = router({
     return row;
   }),
   approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(payrollRuns).set({ status: "approved", approvedAt: new Date() })
       .where(eq(payrollRuns.id, input.id));
     return { success: true };
   }),
   processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(payrollRuns).set({ status: "processing", processedAt: new Date() })
       .where(eq(payrollRuns.id, input.id));
     return { success: true };
@@ -1782,7 +1782,7 @@ const payrollRouter = router({
     department: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(payrollV3Employees)
       .where(eq(payrollV3Employees.merchantId, ctx.user.merchantId ?? ""))
@@ -1802,7 +1802,7 @@ const payrollRouter = router({
     taxId: z.string().optional(),
     pensionId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(payrollV3Employees).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1811,7 +1811,7 @@ const payrollRouter = router({
     return row;
   }),
   listV3Runs: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(payrollV3Runs)
       .where(eq(payrollV3Runs.merchantId, ctx.user.merchantId ?? ""))
@@ -1827,7 +1827,7 @@ const portfolioRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(portfolioRebalancingOrders)
       .where(eq(portfolioRebalancingOrders.merchantId, ctx.user.merchantId ?? ""))
@@ -1840,7 +1840,7 @@ const portfolioRouter = router({
     targetAllocations: z.record(z.number()),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(portfolioRebalancingOrders).values({
       merchantId: ctx.user.merchantId ?? "",
       portfolioId: input.portfolioId,
@@ -1851,7 +1851,7 @@ const portfolioRouter = router({
     return row;
   }),
   execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(portfolioRebalancingOrders).set({ status: "executed", executedAt: new Date() })
       .where(eq(portfolioRebalancingOrders.id, input.id));
     return { success: true };
@@ -1865,7 +1865,7 @@ const ptspRouter = router({
     status: z.string().optional(),
     period: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(ptspBatches)
       .where(eq(ptspBatches.merchantId, ctx.user.merchantId ?? ""))
@@ -1874,7 +1874,7 @@ const ptspRouter = router({
     return { batches: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(ptspBatches).where(eq(ptspBatches.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -1885,7 +1885,7 @@ const ptspRouter = router({
     transactionCount: z.number().int().positive(),
     settlementDate: z.number(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(ptspBatches).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -1895,7 +1895,7 @@ const ptspRouter = router({
     return row;
   }),
   settle: protectedProcedure.input(z.object({ id: z.string(), reference: z.string().optional() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(ptspBatches).set({ status: "settled", settledAt: new Date() })
       .where(eq(ptspBatches.id, input.id));
     return { success: true };
@@ -1911,7 +1911,7 @@ const rateLimitEventsRouter = router({
     from: z.number().optional(),
     to: z.number().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(rateLimitEvents)
       .orderBy(desc(rateLimitEvents.createdAt))
@@ -1919,7 +1919,7 @@ const rateLimitEventsRouter = router({
     return { events: rows, total: rows.length };
   }),
   stats: protectedProcedure.query(async () => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const total = await db.select({ count: sql<number>`count(*)::int` }).from(rateLimitEvents);
     const blocked = await db.select({ count: sql<number>`count(*)::int` }).from(rateLimitEvents)
       .where(eq(rateLimitEvents.action, "blocked"));
@@ -1937,7 +1937,7 @@ const realtimeNotifRouter = router({
   listHistory: protectedProcedure.input(paginationInput.extend({
     read: z.boolean().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(realtimeNotificationHistory)
       .where(eq(realtimeNotificationHistory.userId, String(ctx.user.id)))
@@ -1946,13 +1946,13 @@ const realtimeNotifRouter = router({
     return { notifications: rows, total: rows.length };
   }),
   markRead: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
       .where(eq(realtimeNotificationHistory.id, input.id));
     return { success: true };
   }),
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
       .where(and(
         eq(realtimeNotificationHistory.userId, String(ctx.user.id)),
@@ -1961,7 +1961,7 @@ const realtimeNotifRouter = router({
     return { success: true };
   }),
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(realtimeNotificationPreferences)
       .where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id))).limit(1);
     return rows[0] ?? null;
@@ -1972,7 +1972,7 @@ const realtimeNotifRouter = router({
     smsEnabled: z.boolean().optional(),
     categories: z.record(z.boolean()).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const existing = await db.select().from(realtimeNotificationPreferences)
       .where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id))).limit(1);
     if (existing.length > 0) {
@@ -1998,7 +1998,7 @@ const recipeRouter = router({
     recipeId: z.string().optional(),
     search: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(recipeIngredients)
       .where(eq(recipeIngredients.merchantId, ctx.user.merchantId ?? ""))
@@ -2014,7 +2014,7 @@ const recipeRouter = router({
     allergens: z.array(z.string()).optional(),
     isOptional: z.boolean().default(false),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(recipeIngredients).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -2027,13 +2027,13 @@ const recipeRouter = router({
     quantity: z.number().positive().optional(),
     costPerUnitKobo: z.number().int().positive().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(recipeIngredients).set(rest).where(eq(recipeIngredients.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(recipeIngredients).where(eq(recipeIngredients.id, input.id));
     return { success: true };
   }),
@@ -2046,7 +2046,7 @@ const reconciliationRouter = router({
     status: z.string().optional(),
     severity: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(reconciliationAlerts)
       .where(eq(reconciliationAlerts.merchantId, ctx.user.merchantId ?? ""))
@@ -2055,7 +2055,7 @@ const reconciliationRouter = router({
     return { alerts: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(reconciliationAlerts).where(eq(reconciliationAlerts.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -2065,7 +2065,7 @@ const reconciliationRouter = router({
     resolution: z.string(),
     notes: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(reconciliationAlerts).set({
       status: "resolved",
       resolution: input.resolution,
@@ -2074,7 +2074,7 @@ const reconciliationRouter = router({
     return { success: true };
   }),
   dismiss: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(reconciliationAlerts).set({ status: "dismissed" })
       .where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
@@ -2089,7 +2089,7 @@ const regulatoryReportsRouter = router({
     status: z.string().optional(),
     period: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(regulatoryReports)
       .where(eq(regulatoryReports.merchantId, ctx.user.merchantId ?? ""))
@@ -2098,7 +2098,7 @@ const regulatoryReportsRouter = router({
     return { reports: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(regulatoryReports).where(eq(regulatoryReports.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -2108,7 +2108,7 @@ const regulatoryReportsRouter = router({
     period: z.string(),
     data: z.record(z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(regulatoryReports).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -2118,7 +2118,7 @@ const regulatoryReportsRouter = router({
     return row;
   }),
   submit: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(regulatoryReports).set({ status: "submitted", submittedAt: new Date() })
       .where(eq(regulatoryReports.id, input.id));
     return { success: true };
@@ -2129,7 +2129,7 @@ const regulatoryReportsRouter = router({
 
 const restaurantRouter = router({
   listTables: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(restaurantTables)
       .where(eq(restaurantTables.merchantId, ctx.user.merchantId ?? ""))
@@ -2142,7 +2142,7 @@ const restaurantRouter = router({
     section: z.string().optional(),
     qrCode: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(restaurantTables).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -2154,7 +2154,7 @@ const restaurantRouter = router({
     id: z.string(),
     status: z.enum(["available", "occupied", "reserved", "cleaning"]),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(restaurantTables).set({ status: input.status }).where(eq(restaurantTables.id, input.id));
     return { success: true };
   }),
@@ -2162,7 +2162,7 @@ const restaurantRouter = router({
     tableId: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(restaurantOrders)
       .where(eq(restaurantOrders.merchantId, ctx.user.merchantId ?? ""))
@@ -2182,7 +2182,7 @@ const restaurantRouter = router({
     orderType: z.enum(["dine_in", "takeaway", "delivery"]).default("dine_in"),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const totalKobo = input.items.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const [order] = await db.insert(restaurantOrders).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -2209,12 +2209,12 @@ const restaurantRouter = router({
     id: z.string(),
     status: z.enum(["pending", "confirmed", "preparing", "ready", "served", "paid", "cancelled"]),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(restaurantOrders).set({ status: input.status }).where(eq(restaurantOrders.id, input.id));
     return { success: true };
   }),
   listOrderItems: protectedProcedure.input(z.object({ orderId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(restaurantOrderItems)
       .where(eq(restaurantOrderItems.orderId, input.orderId));
     return { items: rows };
@@ -2228,7 +2228,7 @@ const sdkTokensRouter = router({
     status: z.string().optional(),
     platform: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(sdkTokens)
       .where(eq(sdkTokens.merchantId, ctx.user.merchantId ?? ""))
@@ -2242,7 +2242,7 @@ const sdkTokensRouter = router({
     permissions: z.array(z.string()).optional(),
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const token = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
     const [row] = await db.insert(sdkTokens).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -2256,13 +2256,13 @@ const sdkTokensRouter = router({
     return row;
   }),
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(sdkTokens).set({ status: "revoked", revokedAt: new Date() })
       .where(eq(sdkTokens.id, input.id));
     return { success: true };
   }),
   rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const newToken = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
     await db.update(sdkTokens).set({ token: newToken, rotatedAt: new Date() })
       .where(eq(sdkTokens.id, input.id));
@@ -2277,7 +2277,7 @@ const settlementSlaRouter = router({
     status: z.string().optional(),
     severity: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(settlementSlaEvents)
       .where(eq(settlementSlaEvents.merchantId, ctx.user.merchantId ?? ""))
@@ -2286,13 +2286,13 @@ const settlementSlaRouter = router({
     return { events: rows, total: rows.length };
   }),
   acknowledge: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(settlementSlaEvents).set({ status: "acknowledged", acknowledgedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),
   resolve: protectedProcedure.input(z.object({ id: z.string(), resolution: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(settlementSlaEvents).set({ status: "resolved", resolvedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };

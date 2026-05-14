@@ -17,22 +17,18 @@ export default function FraudRules() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ name: "", ruleType: "velocity", condition: "", action: "flag", threshold: 0, isActive: true });
 
-  const { data, isLoading, refetch } = trpc.fraudRules.list.useQuery({ page, limit: 20, ruleType, search: search || undefined });
-  const createMutation = trpc.fraudRules.create.useMutation({
-    onSuccess: () => { toast.success("Fraud rule created"); setCreateOpen(false); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const { data, isLoading, refetch } = trpc.fraudRules.listAlerts.useQuery({ page, limit: 20 });
+  const acknowledgeMutation = trpc.fraudRules.acknowledgeAlert.useMutation({
+    onSuccess: () => { toast.success("Alert acknowledged"); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const toggleMutation = trpc.fraudRules.toggle.useMutation({
-    onSuccess: () => { toast.success("Rule status updated"); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteMutation = trpc.fraudRules.delete.useMutation({
-    onSuccess: () => { toast.success("Rule deleted"); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const resolveMutation = trpc.fraudRules.resolveAlert.useMutation({
+    onSuccess: () => { toast.success("Alert resolved"); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const rules = data?.rules ?? [];
-  const total = data?.total ?? 0;
+  const rules = (data as any)?.alerts ?? [];
+  const total = (data as any)?.total ?? 0;
   const ruleTypes = ["velocity", "amount_threshold", "geo_block", "device_fingerprint", "pattern_match", "ml_score"];
   const actions = ["flag", "block", "review", "notify"];
 
@@ -67,8 +63,8 @@ export default function FraudRules() {
               </div>
               <div><Label>Condition (JSON expression)</Label><Input value={form.condition} onChange={e => setForm(f => ({ ...f, condition: e.target.value }))} placeholder='{"field":"amount","op":"gt","value":500000}' /></div>
               <div><Label>Threshold</Label><Input type="number" value={form.threshold} onChange={e => setForm(f => ({ ...f, threshold: Number(e.target.value) }))} /></div>
-              <Button className="w-full" onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending}>
-                {createMutation.isPending ? "Creating…" : "Create Rule"}
+              <Button className="w-full" onClick={() => toast.info("Rule creation coming soon — contact support to add custom rules")} disabled={false}>
+                Request Rule
               </Button>
             </div>
           </DialogContent>
@@ -93,7 +89,7 @@ export default function FraudRules() {
       </CardContent></Card>
 
       <Card>
-        <CardHeader><CardTitle>Fraud Rules ({total})</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Fraud Alerts ({total})</CardTitle></CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-12 bg-muted rounded animate-pulse" />)}</div>
@@ -129,10 +125,10 @@ export default function FraudRules() {
                       <td className="py-3 px-2"><Badge variant={r.isActive ? "default" : "secondary"}>{r.isActive ? "Active" : "Inactive"}</Badge></td>
                       <td className="py-3 px-2 text-right">
                         <div className="flex justify-end gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => toggleMutation.mutate({ id: r.id, isActive: !r.isActive })}>
-                            {r.isActive ? <ToggleRight className="w-4 h-4 text-green-600" /> : <ToggleLeft className="w-4 h-4" />}
+                          <Button size="sm" variant="ghost" onClick={() => acknowledgeMutation.mutate({ id: r.id })}>
+                            <ToggleRight className="w-4 h-4 text-green-600" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Delete this rule?")) deleteMutation.mutate({ id: r.id }); }}>
+                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Resolve this alert?")) resolveMutation.mutate({ id: r.id, resolution: "manually resolved" }); }}>
                             <Trash2 className="w-3 h-3" />
                           </Button>
                         </div>

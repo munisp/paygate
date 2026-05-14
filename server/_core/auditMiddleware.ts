@@ -77,7 +77,7 @@ export const auditLogMiddleware = middleware(async ({ ctx, path, type, next, raw
     // Fire-and-forget — never block the response
     getDb()
       .then((db) =>
-        db
+        db!
           .insert(schema.auditEvents)
           .values({
             merchantId: merchantId ? String(merchantId) : "system",

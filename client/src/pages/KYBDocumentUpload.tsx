@@ -90,6 +90,7 @@ function DropZone({
 export default function KYBDocumentUpload() {
   const { user } = useAuth();
   const merchantId = (user as any)?.merchant?.id ?? "demo-merchant";
+  const verificationId = (user as any)?.merchant?.verificationId ?? merchantId;
   const [selectedDocType, setSelectedDocType] = useState("cac_certificate");
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -97,39 +98,25 @@ export default function KYBDocumentUpload() {
 
   const utils = trpc.useUtils();
 
-  const { data: documents, isLoading } = trpc.kybDocUpload.listDocuments.useQuery({ merchantId });
-  const { data: checklist } = trpc.kybDocUpload.getChecklist.useQuery({ merchantId });
+  const { data: documentsData, isLoading } = trpc.kybDocUpload.listDocuments.useQuery({ verificationId });
+  const { data: progressData } = trpc.kybDocUpload.getVerificationProgress.useQuery({ verificationId });
 
-  const uploadDoc = trpc.kybDocUpload.uploadDocument.useMutation({
-    onSuccess: () => {
-      toast.success("Document uploaded successfully");
-      utils.kybDocUpload.listDocuments.invalidate();
-      utils.kybDocUpload.getChecklist.invalidate();
-      setUploadingType(null);
-      setUploadProgress(0);
-    },
-    onError: (e) => {
-      toast.error(e.message);
-      setUploadingType(null);
-      setUploadProgress(0);
-    },
+  const getUploadUrl = trpc.kybDocUpload.getUploadUrl.useMutation({
+    onError: (e: any) => { toast.error(e.message); setUploadingType(null); setUploadProgress(0); },
   });
 
   const deleteDoc = trpc.kybDocUpload.deleteDocument.useMutation({
     onSuccess: () => {
       toast.success("Document removed");
       utils.kybDocUpload.listDocuments.invalidate();
-      utils.kybDocUpload.getChecklist.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const resubmit = trpc.kybDocUpload.resubmitForReview.useMutation({
-    onSuccess: () => {
-      toast.success("Documents resubmitted for review");
-      utils.kybDocUpload.listDocuments.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
+  // resubmitForReview not available; using reviewDocument for admin review
+  const reviewDoc = trpc.kybDocUpload.reviewDocument.useMutation({
+    onSuccess: () => { toast.success("Document reviewed"); utils.kybDocUpload.listDocuments.invalidate(); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handleFilesSelected = async (files: File[], docType: string) => {
@@ -148,24 +135,35 @@ export default function KYBDocumentUpload() {
     reader.onload = async (e) => {
       const base64 = (e.target?.result as string).split(",")[1];
       setUploadProgress(60);
-      uploadDoc.mutate({
+      getUploadUrl.mutate({
+        verificationId,
         merchantId,
-        docType,
+        documentType: docType as any,
         fileName: file.name,
         mimeType: file.type,
-        fileData: base64,
+        fileSizeBytes: file.size,
         uploadedBy: user?.openId ?? "unknown",
+        fileContent: base64,
+      }, {
+        onSuccess: () => {
+          toast.success("Document uploaded successfully");
+          utils.kybDocUpload.listDocuments.invalidate();
+          setUploadingType(null);
+          setUploadProgress(0);
+        },
       });
     };
     reader.readAsDataURL(file);
   };
 
-  const completedCount = checklist?.filter((c: any) => c.status === "verified").length ?? 0;
-  const requiredCount = checklist?.filter((c: any) => c.required).length ?? DOC_TYPES.filter((d) => d.required).length;
+  const documents = (documentsData as any)?.checklist?.flatMap((c: any) => c.allVersions ?? []) ?? [];
+  const checklist = (documentsData as any)?.checklist ?? [];
+  const completedCount = checklist.filter((c: any) => c.status === "verified").length;
+  const requiredCount = checklist.filter((c: any) => c.required).length || DOC_TYPES.filter((d) => d.required).length;
   const overallProgress = requiredCount > 0 ? Math.round((completedCount / requiredCount) * 100) : 0;
 
   const getDocForType = (docType: string) =>
-    documents?.filter((d: any) => d.docType === docType) ?? [];
+    checklist.filter((c: any) => c.documentType === docType).flatMap((c: any) => c.allVersions ?? []);
 
   return (
     <div className="p-6 space-y-6">
@@ -183,8 +181,8 @@ export default function KYBDocumentUpload() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => resubmit.mutate({ merchantId })}
-          disabled={resubmit.isPending}
+          onClick={() => toast.info("Please contact support to resubmit for review")}
+          disabled={false}
         >
           <RefreshCw className="h-4 w-4 mr-2" />
           Resubmit for Review
@@ -203,7 +201,7 @@ export default function KYBDocumentUpload() {
           <Progress value={overallProgress} className="h-2" />
           <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
             {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
-              const count = documents?.filter((d: any) => d.status === key).length ?? 0;
+              const count = checklist.flatMap((c: any) => c.allVersions ?? []).filter((d: any) => d.status === key).length ?? 0;
               if (!count) return null;
               return (
                 <span key={key} className="flex items-center gap-1">
@@ -271,7 +269,7 @@ export default function KYBDocumentUpload() {
                                 size="icon"
                                 variant="ghost"
                                 className="h-5 w-5 text-destructive"
-                                onClick={() => deleteDoc.mutate({ id: doc.id })}
+                                onClick={() => deleteDoc.mutate({ documentId: doc.id })}
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>

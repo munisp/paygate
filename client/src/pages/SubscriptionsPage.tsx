@@ -43,13 +43,11 @@ export default function SubscriptionsPage() {
 
   const cancelMutation = trpc.wave32.stripeSubs.cancel.useMutation({
     onSuccess: () => {
-      toast({ title: "Subscription will cancel at period end",
-      onError: (e) => toast.error(e.message),
-    });
+      toast({ title: "Subscription will cancel at period end" });
       setCancelId(null);
       refetch();
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const currentPlan = mySub?.plan ?? "free";

@@ -21,25 +21,21 @@ export default function TaxFilingV2() {
   const { data, isLoading } = trpc.taxFilingV2.list.useQuery({ page });
 
   const create = trpc.taxFilingV2.create.useMutation({
-    onSuccess: () => { utils.taxFilingV2.list.invalidate(); setAddOpen(false); toast({ title: "Tax filing created",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.taxFilingV2.list.invalidate(); setAddOpen(false); toast({ title: "Tax filing created" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const file = trpc.taxFilingV2.file.useMutation({
-    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Filing submitted",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Filing submitted" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const markPaid = trpc.taxFilingV2.markPaid.useMutation({
-    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Marked as paid",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.taxFilingV2.list.invalidate(); toast({ title: "Marked as paid" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const filings = data?.filings ?? [];
+  const filings = data?.records ?? [];
 
   return (
     <div className="p-6 space-y-6">

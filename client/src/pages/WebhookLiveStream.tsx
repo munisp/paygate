@@ -65,9 +65,9 @@ export default function WebhookLiveStream() {
 
   // Seed initial events from real DB deliveries once loaded
   useEffect(() => {
-    if (seededRef.current || !realDeliveries?.deliveries?.length) return;
+    if (seededRef.current || !realDeliveries?.length) return;
     seededRef.current = true;
-    const dbEvents: WebhookEvent[] = (realDeliveries.deliveries as any[]).map((d) => ({
+    const dbEvents: WebhookEvent[] = (realDeliveries as any[]).map((d) => ({
       id: d.id,
       type: d.eventType ?? "unknown",
       status: d.status === "delivered" ? "success" : d.status === "failed" ? "failed" : "pending",

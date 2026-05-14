@@ -37,24 +37,22 @@ export default function WebhookSimulatorV2() {
     onSuccess: (result) => {
       utils.webhookSimV2.list.invalidate();
       toast({
-        title: result.status === "success" ? "Webhook delivered" : "Webhook failed",
-        description: `Status: ${result.responseStatus ?? "N/A"} · ${result.latencyMs}ms`,
-        variant: result.status === "success" ? "default" : "destructive",
+        title: result.success ? "Webhook delivered" : "Webhook failed",
+        description: `Status: ${result.responseStatus ?? "N/A"} · ${result.durationMs ?? 0}ms`,
+        variant: result.success ? "default" : "destructive",
       });
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const retry = trpc.webhookSimV2.retry.useMutation({
-    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Retried",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Retried" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const clear = trpc.webhookSimV2.clear.useMutation({
-    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Logs cleared",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.webhookSimV2.list.invalidate(); toast({ title: "Logs cleared" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const logs = data?.logs ?? [];
@@ -108,7 +106,7 @@ export default function WebhookSimulatorV2() {
               onClick={() => {
                 let parsedPayload: any;
                 try { parsedPayload = JSON.parse(payload); } catch { toast({ title: "Invalid JSON payload", variant: "destructive" }); return; }
-                simulate.mutate({ eventType, targetUrl: targetUrl || undefined, payload: parsedPayload });
+                simulate.mutate({ webhookId: targetUrl || "sim-default", eventType, targetUrl: targetUrl || "", payload: parsedPayload });
               }}
             >
               {simulate.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}

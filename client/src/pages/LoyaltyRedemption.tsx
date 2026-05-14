@@ -58,13 +58,20 @@ function RedemptionModal({
   const [pin, setPin] = useState("");
   const [redemptionId, setRedemptionId] = useState<string | null>(null);
 
-  const redeemPoints = trpc.loyaltyRedemption.redeem.useMutation({
+  const initiateRedemption = trpc.loyaltyRedemption.initiateRedemption.useMutation({
     onSuccess: (data) => {
       setRedemptionId(data.redemptionId);
+      setStep("pin");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const confirmPin = trpc.loyaltyRedemption.confirmWithPin.useMutation({
+    onSuccess: () => {
       setStep("success");
       onSuccess();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const handlePinSubmit = () => {
@@ -72,12 +79,9 @@ function RedemptionModal({
       toast.error("Please enter your 4-digit PIN");
       return;
     }
-    redeemPoints.mutate({
-      memberId,
-      rewardId: reward.id,
-      pointsCost: reward.pointsCost,
-      pin,
-    });
+    if (redemptionId) {
+      confirmPin.mutate({ redemptionId, pin });
+    }
   };
 
   const canAfford = balance >= reward.pointsCost;
@@ -125,8 +129,8 @@ function RedemptionModal({
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={onClose}>Cancel</Button>
-              <Button onClick={() => setStep("pin")} disabled={!canAfford}>
-                Continue <ArrowRight className="h-4 w-4 ml-1" />
+              <Button onClick={() => initiateRedemption.mutate({ memberId, rewardTier: (reward.category as any) ?? "bronze" })} disabled={!canAfford || initiateRedemption.isPending}>
+                {initiateRedemption.isPending ? "Processing..." : <><span>Continue</span><ArrowRight className="h-4 w-4 ml-1" /></>}
               </Button>
             </DialogFooter>
           </>
@@ -174,9 +178,9 @@ function RedemptionModal({
               <Button variant="outline" onClick={() => setStep("confirm")}>Back</Button>
               <Button
                 onClick={handlePinSubmit}
-                disabled={pin.length !== 4 || redeemPoints.isPending}
+                disabled={pin.length !== 4 || confirmPin.isPending}
               >
-                {redeemPoints.isPending ? "Processing..." : "Confirm Redemption"}
+                {confirmPin.isPending ? "Processing..." : "Confirm Redemption"}
               </Button>
             </DialogFooter>
           </>
@@ -228,26 +232,26 @@ export default function LoyaltyRedemption() {
   const utils = trpc.useUtils();
 
   const { data: memberData, isLoading: loadingMember } = trpc.loyaltyRedemption.getBalance.useQuery({
+    memberId: merchantId,
+  });
+
+  const { data: rewards, isLoading: loadingRewards } = trpc.loyaltyRedemption.listRedemptions.useQuery({
+    merchantId,
+    status: undefined,
+  });
+
+  const { data: history, isLoading: loadingHistory } = trpc.loyaltyRedemption.getRedemptionStats.useQuery({
     merchantId,
   });
 
-  const { data: rewards, isLoading: loadingRewards } = trpc.loyaltyRedemption.listRewards.useQuery({
-    merchantId,
-    category: filterCategory === "all" ? undefined : filterCategory,
-  });
-
-  const { data: history, isLoading: loadingHistory } = trpc.loyaltyRedemption.getRedemptionHistory.useQuery({
-    merchantId,
-    limit: 10,
-  });
-
-  const balance = memberData?.pointsBalance ?? 0;
-  const tier = memberData?.tier ?? "bronze";
+  const balance = memberData?.member?.pointsBalance ?? 0;
+  const tier = memberData?.member?.tier ?? "bronze";
   const TierIcon = TIER_ICONS[tier] ?? Star;
-  const nextTierPoints = memberData?.nextTierThreshold ?? 10000;
+  const nextTierPoints = 10000;
   const tierProgress = nextTierPoints > 0 ? Math.min(100, Math.round((balance / nextTierPoints) * 100)) : 100;
 
-  const categories = ["all", ...Array.from(new Set((rewards ?? []).map((r: any) => r.category)))];
+  const rewardsList = (rewards as any)?.redemptions ?? [];
+  const categories: string[] = ["all", ...Array.from(new Set<string>(rewardsList.map((r: any) => String(r.rewardCategory ?? "general"))))];
 
   return (
     <div className="p-6 space-y-6">
@@ -282,7 +286,7 @@ export default function LoyaltyRedemption() {
                   <span className="text-base font-normal text-muted-foreground">points</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Member since {memberData?.joinedAt ? new Date(memberData.joinedAt).toLocaleDateString() : "—"}
+                  Member since {memberData?.member?.joinedAt ? new Date(memberData.member.joinedAt).toLocaleDateString() : "—"}
                 </p>
               </div>
               <div className="text-right">
@@ -321,14 +325,14 @@ export default function LoyaltyRedemption() {
               <div key={i} className="h-40 animate-pulse bg-muted rounded-lg" />
             ))}
           </div>
-        ) : !rewards?.length ? (
+        ) : !rewardsList?.length ? (
           <div className="text-center py-12 text-muted-foreground">
             <Gift className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>No rewards available in this category</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {rewards.map((reward: any) => {
+            {rewardsList.map((reward: any) => {
               const canAfford = balance >= reward.pointsCost;
               return (
                 <Card
@@ -384,36 +388,28 @@ export default function LoyaltyRedemption() {
                 <div key={i} className="h-10 animate-pulse bg-muted rounded" />
               ))}
             </div>
-          ) : !history?.length ? (
+          ) : !history ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              No redemptions yet
+              No redemption data yet
             </div>
           ) : (
-            <div className="space-y-2">
-              {history.map((item: any) => (
-                <div key={item.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                  <div>
-                    <div className="text-sm font-medium">{item.rewardName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(item.redeemedAt).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-destructive">
-                      -{item.pointsCost.toLocaleString()} pts
-                    </div>
-                    <Badge
-                      className={`text-xs border ${
-                        item.status === "fulfilled"
-                          ? "bg-green-500/10 text-green-700 border-green-500/30"
-                          : "bg-yellow-500/10 text-yellow-700 border-yellow-500/30"
-                      }`}
-                    >
-                      {item.status}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold">{(history as any)?.total ?? 0}</div>
+                <div className="text-xs text-muted-foreground">Total</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">{(history as any)?.confirmed ?? 0}</div>
+                <div className="text-xs text-muted-foreground">Confirmed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-yellow-600">{(history as any)?.pending ?? 0}</div>
+                <div className="text-xs text-muted-foreground">Pending</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold">{((history as any)?.totalPointsRedeemed ?? 0).toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Points Redeemed</div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -429,7 +425,7 @@ export default function LoyaltyRedemption() {
           onClose={() => setSelectedReward(null)}
           onSuccess={() => {
             utils.loyaltyRedemption.getBalance.invalidate();
-            utils.loyaltyRedemption.getRedemptionHistory.invalidate();
+            utils.loyaltyRedemption.getRedemptionStats.invalidate();
           }}
         />
       )}

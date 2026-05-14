@@ -25,9 +25,9 @@ export default function MiddlewareIntegrations() {
   const [termiiMsg, setTermiiMsg] = useState({ phone: "", message: "" });
   const [youverifyBvn, setYouverifyBvn] = useState({ bvn: "", firstName: "", lastName: "" });
 
-  const { data: healthStatus, refetch: refetchHealth } = trpc.wave30.middlewareIntegrations.getHealthStatus.useQuery();
-  const { data: nibssLogs } = trpc.wave30.middlewareIntegrations.getNibssLogs.useQuery({ limit: 20 });
-  const { data: vtpassLogs } = trpc.wave30.middlewareIntegrations.getVtpassLogs.useQuery({ limit: 20 });
+  const { data: healthStatus, isLoading: healthLoading, refetch: refetchHealth } = trpc.wave30.middlewareIntegrations.getHealthStatus.useQuery();
+  const { data: nibssLogs, isLoading: nibssLogsLoading } = trpc.wave30.middlewareIntegrations.getNibssLogs.useQuery({ limit: 20 });
+  const { data: vtpassLogs, isLoading: vtpassLogsLoading } = trpc.wave30.middlewareIntegrations.getVtpassLogs.useQuery({ limit: 20 });
 
   const nibssEnquiry = trpc.wave30.middlewareIntegrations.nibssNameEnquiry.useMutation({
     onSuccess: (data) => toast.success(`Account: ${data.accountName ?? data.account_name ?? "Resolved"}`),
@@ -65,7 +65,16 @@ export default function MiddlewareIntegrations() {
 
       {/* Health Status Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {INTEGRATIONS.map((intg) => {
+        {healthLoading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i} className="border-2 border-gray-200">
+              <CardContent className="pt-4 space-y-2">
+                <div className="h-5 bg-muted animate-pulse rounded" />
+                <div className="h-3 bg-muted animate-pulse rounded w-3/4" />
+              </CardContent>
+            </Card>
+          ))
+        ) : INTEGRATIONS.map((intg) => {
           const health = healthStatus?.find((h: any) => h.service === intg.id);
           const isUp = health?.status === 'up' || health?.status === 'healthy';
           return (
@@ -117,7 +126,13 @@ export default function MiddlewareIntegrations() {
                 </Button>
               </div>
               <div className="text-xs text-gray-500">Test: Account 0123456789, Bank Code 058 (GTBank)</div>
-              {nibssLogs && nibssLogs.length > 0 && (
+              {nibssLogsLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+                  ))}
+                </div>
+              ) : nibssLogs && nibssLogs.length > 0 ? (
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead>Account</TableHead><TableHead>Bank</TableHead>
@@ -135,7 +150,7 @@ export default function MiddlewareIntegrations() {
                     ))}
                   </TableBody>
                 </Table>
-              )}
+              ) : null}
             </div>
           )}
 
@@ -160,7 +175,13 @@ export default function MiddlewareIntegrations() {
                   Purchase
                 </Button>
               </div>
-              {vtpassLogs && vtpassLogs.length > 0 && (
+              {vtpassLogsLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+                  ))}
+                </div>
+              ) : vtpassLogs && vtpassLogs.length > 0 ? (
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead>Service</TableHead><TableHead>Phone</TableHead>
@@ -178,7 +199,7 @@ export default function MiddlewareIntegrations() {
                     ))}
                   </TableBody>
                 </Table>
-              )}
+              ) : null}
             </div>
           )}
 

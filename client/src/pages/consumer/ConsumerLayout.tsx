@@ -102,11 +102,13 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
   const [location, navigate] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const { data: unreadData } = trpc.notifications.unreadCount.useQuery(undefined, {
+  const { data: unreadData, isLoading: unreadLoading } = trpc.notifications.unreadCount.useQuery(undefined, {
     staleTime: 30_000,
     refetchInterval: consumerlayout_60s,
   });
   const unreadCount = unreadData?.count ?? 0;
+  // Show a subtle pulse on the bell icon while loading
+  const bellPulsing = unreadLoading;
 
   // Check if current page is in "More" section
   const isMoreActive = MORE_SECTIONS.some(section =>
@@ -146,7 +148,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
             {unreadCount > 0 && (
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
             )}
-            <Bell className="w-5 h-5 text-muted-foreground" />
+            <Bell className={`w-5 h-5 text-muted-foreground ${bellPulsing ? 'animate-pulse opacity-50' : ''}`} />
           </button>
         </div>
       </header>

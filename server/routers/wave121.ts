@@ -41,7 +41,7 @@ export const feeSchedulesRouter = router({
       isActive: z.boolean().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? "")];
       if (input.isActive !== undefined) conditions.push(eq(tenantFeeOverrides.isActive, input.isActive));
@@ -58,7 +58,7 @@ export const feeSchedulesRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(tenantFeeOverrides)
         .where(and(
           eq(tenantFeeOverrides.id, input.id),
@@ -79,7 +79,7 @@ export const feeSchedulesRouter = router({
       effectiveTo: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.insert(tenantFeeOverrides).values({
         tenantId: ctx.user.merchantId ?? "",
         transactionType: input.transactionType,
@@ -105,7 +105,7 @@ export const feeSchedulesRouter = router({
       effectiveTo: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const { id, ...updates } = input;
       const setData: Record<string, unknown> = {};
       if (updates.flatFeeNgn !== undefined) setData.flatFeeNgn = updates.flatFeeNgn;
@@ -122,14 +122,14 @@ export const feeSchedulesRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.delete(tenantFeeOverrides)
         .where(and(eq(tenantFeeOverrides.id, input.id), eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? "")));
       return { success: true };
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [{ total }] = await db.select({ total: sql<number>`count(*)` })
       .from(tenantFeeOverrides).where(eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? ""));
     const [{ active }] = await db.select({ active: sql<number>`count(*)` })
@@ -151,7 +151,7 @@ export const chargebackMgmtRouter = router({
       search: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(chargebacks.merchantId, ctx.user.merchantId ?? "")];
       if (input.status) conditions.push(eq(chargebacks.status, input.status));
@@ -167,7 +167,7 @@ export const chargebackMgmtRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(chargebacks)
         .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.merchantId ?? "")))
         .limit(1);
@@ -183,7 +183,7 @@ export const chargebackMgmtRouter = router({
       evidenceFileName: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(chargebacks).set({
         evidence: input.evidence,
         evidenceUrl: input.evidenceUrl,
@@ -201,7 +201,7 @@ export const chargebackMgmtRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const setData: Record<string, unknown> = {
         status: input.status,
         updatedAt: new Date(),
@@ -214,7 +214,7 @@ export const chargebackMgmtRouter = router({
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select({
       status: chargebacks.status,
       count: sql<number>`count(*)`,
@@ -236,7 +236,7 @@ export const fraudRulesRouter = router({
       alertType: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(fraudAlerts.merchantId, ctx.user.merchantId ?? "")];
       if (input.status) conditions.push(eq(fraudAlerts.status, input.status));
@@ -253,7 +253,7 @@ export const fraudRulesRouter = router({
   getAlert: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(fraudAlerts)
         .where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.merchantId ?? "")))
         .limit(1);
@@ -264,7 +264,7 @@ export const fraudRulesRouter = router({
   acknowledgeAlert: protectedProcedure
     .input(z.object({ id: z.string(), notes: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(fraudAlerts).set({
         status: "investigating",
         notes: input.notes,
@@ -276,7 +276,7 @@ export const fraudRulesRouter = router({
   resolveAlert: protectedProcedure
     .input(z.object({ id: z.string(), resolution: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(fraudAlerts).set({
         status: "resolved",
         resolvedAt: new Date(),
@@ -288,7 +288,7 @@ export const fraudRulesRouter = router({
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const byStatus = await db.select({
       status: fraudAlerts.status,
       count: sql<number>`count(*)`,
@@ -311,7 +311,7 @@ export const kybMgmtRouter = router({
       riskLevel: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(kybVerifications.merchantId, ctx.user.merchantId ?? "")];
       if (input.status) conditions.push(eq(kybVerifications.status, input.status));
@@ -328,7 +328,7 @@ export const kybMgmtRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(kybVerifications)
         .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.merchantId ?? "")))
         .limit(1);
@@ -345,7 +345,7 @@ export const kybMgmtRouter = router({
       industryCode: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.insert(kybVerifications).values({
         verificationId: crypto.randomUUID(),
         merchantId: ctx.user.merchantId ?? "",
@@ -368,7 +368,7 @@ export const kybMgmtRouter = router({
       riskLevel: z.enum(["low", "medium", "high"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const setData: Record<string, unknown> = { status: input.status, updatedAt: new Date() };
       if (input.riskLevel) setData.riskLevel = input.riskLevel;
       await db.update(kybVerifications).set(setData)
@@ -377,7 +377,7 @@ export const kybMgmtRouter = router({
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select({
       status: kybVerifications.status,
       count: sql<number>`count(*)`,
@@ -397,7 +397,7 @@ export const invoiceFinV2Router = router({
       status: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? "")];
       if (input.status) conditions.push(eq(invoiceFinancingV2Applications.status, input.status));
@@ -413,7 +413,7 @@ export const invoiceFinV2Router = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(invoiceFinancingV2Applications)
         .where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? "")))
         .limit(1);
@@ -430,7 +430,7 @@ export const invoiceFinV2Router = router({
       tenorDays: z.number().int().min(1).max(365).default(30),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       if (input.requestedAmount > input.invoiceAmount) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Requested amount cannot exceed invoice amount" });
       }
@@ -449,7 +449,7 @@ export const invoiceFinV2Router = router({
   approve: protectedProcedure
     .input(z.object({ id: z.string(), approvedAmount: z.number().int().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(invoiceFinancingV2Applications).set({
         status: "approved",
         approvedAmount: input.approvedAmount,
@@ -461,7 +461,7 @@ export const invoiceFinV2Router = router({
   disburse: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(invoiceFinancingV2Applications).set({
         status: "disbursed",
         disbursedAt: new Date(),
@@ -471,7 +471,7 @@ export const invoiceFinV2Router = router({
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select({
       status: invoiceFinancingV2Applications.status,
       count: sql<number>`count(*)`,
@@ -498,7 +498,7 @@ export const loyaltyV3Router = router({
       status: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? "")];
       if (input.status) conditions.push(eq(loyaltyV3Programs.status, input.status));
@@ -514,7 +514,7 @@ export const loyaltyV3Router = router({
   getProgram: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(loyaltyV3Programs)
         .where(and(eq(loyaltyV3Programs.id, input.id), eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? "")))
         .limit(1);
@@ -535,7 +535,7 @@ export const loyaltyV3Router = router({
       })).default([]),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.insert(loyaltyV3Programs).values({
         merchantId: ctx.user.merchantId ?? "",
         programName: input.programName,
@@ -558,7 +558,7 @@ export const loyaltyV3Router = router({
       status: z.enum(["active", "paused", "archived"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const { id, ...updates } = input;
       await db.update(loyaltyV3Programs).set(updates as Record<string, unknown>)
         .where(and(eq(loyaltyV3Programs.id, id), eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? "")));
@@ -572,7 +572,7 @@ export const loyaltyV3Router = router({
       limit: z.number().int().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(loyaltyV3Members)
         .where(and(
@@ -590,7 +590,7 @@ export const loyaltyV3Router = router({
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [{ programs }] = await db.select({ programs: sql<number>`count(*)` })
       .from(loyaltyV3Programs).where(eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? ""));
     const [{ members }] = await db.select({ members: sql<number>`count(*)` })
@@ -633,7 +633,7 @@ export const openSearchAuditRouter = router({
       }
 
       // DB fallback
-      const db = await getDb();
+      const db = (await getDb())!;
       const { sql: sqlFn } = await import("drizzle-orm");
       const offset = (input.page - 1) * input.limit;
       const result = await db.execute(
@@ -684,7 +684,7 @@ export const openSearchAuditRouter = router({
     }),
 
   getActionTypes: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { sql: sqlFn } = await import("drizzle-orm");
     const result = await db.execute(
       sqlFn`SELECT DISTINCT action FROM audit_events WHERE merchant_id = ${ctx.user.merchantId ?? ""} ORDER BY action`
@@ -693,7 +693,7 @@ export const openSearchAuditRouter = router({
   }),
 
   getActors: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { sql: sqlFn } = await import("drizzle-orm");
     const result = await db.execute(
       sqlFn`SELECT DISTINCT actor_id, actor_name FROM audit_events WHERE merchant_id = ${ctx.user.merchantId ?? ""} ORDER BY actor_name`
@@ -735,7 +735,7 @@ export const tenantProvisionRouter = router({
       }
 
       // Fallback: create tenant config in DB directly
-      const db = await getDb();
+      const db = (await getDb())!;
       // DB fallback: use tenantConfig table (existing schema)
       const tenantId = crypto.randomUUID();
       const [row] = await db.insert(tenantConfig).values({
@@ -767,7 +767,7 @@ export const tenantProvisionRouter = router({
       limit: z.number().int().min(1).max(100).default(20),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(tenantConfig)
         .orderBy(desc(tenantConfig.updatedAt))

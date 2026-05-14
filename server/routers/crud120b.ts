@@ -52,7 +52,7 @@ export const splitBillRouter = router({
   listSessions: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(splitBillSessions)
       .where(eq(splitBillSessions.merchantId, ctx.user.merchantId ?? ""))
@@ -67,7 +67,7 @@ export const splitBillRouter = router({
     participantCount: z.number().int().min(2).max(20),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [session] = await db.insert(splitBillSessions).values({
       merchantId: ctx.user.merchantId ?? "",
       orderId: input.orderId ?? null,
@@ -92,7 +92,7 @@ export const splitBillRouter = router({
     return session;
   }),
   listShares: protectedProcedure.input(z.object({ sessionId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(splitBillShares)
       .where(eq(splitBillShares.sessionId, input.sessionId));
     return { shares: rows };
@@ -101,13 +101,13 @@ export const splitBillRouter = router({
     shareId: z.string(),
     paymentReference: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(splitBillShares).set({ status: "paid", paidAt: new Date() })
       .where(eq(splitBillShares.id, input.shareId));
     return { success: true };
   }),
   listSplitPayments: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(splitPayments)
       .where(eq(splitPayments.merchantId, ctx.user.merchantId ?? ""))
@@ -125,7 +125,7 @@ export const staffRouter = router({
     role: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(staffMembers)
       .where(eq(staffMembers.merchantId, ctx.user.merchantId ?? ""))
@@ -133,7 +133,7 @@ export const staffRouter = router({
     return { members: rows, total: rows.length };
   }),
   getMember: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(staffMembers).where(eq(staffMembers.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -145,7 +145,7 @@ export const staffRouter = router({
     bankCode: z.string().optional(),
     accountNumber: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(staffMembers).values({
       merchantId: ctx.user.merchantId ?? "",
       name: input.name,
@@ -166,13 +166,13 @@ export const staffRouter = router({
     bankCode: z.string().optional(),
     accountNumber: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(staffMembers).set(rest).where(eq(staffMembers.id, id));
     return { success: true };
   }),
   deleteMember: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(staffMembers).set({ active: false }).where(eq(staffMembers.id, input.id));
     return { success: true };
   }),
@@ -181,7 +181,7 @@ export const staffRouter = router({
     from: z.number().optional(),
     to: z.number().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(staffShifts)
       .where(eq(staffShifts.merchantId, ctx.user.merchantId ?? ""))
@@ -195,7 +195,7 @@ export const staffRouter = router({
     clockOut: z.number().optional(),
     tipsKobo: z.number().int().min(0).default(0),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(staffShifts).values({
       merchantId: ctx.user.merchantId ?? "",
       staffId: input.staffId,
@@ -206,13 +206,13 @@ export const staffRouter = router({
     return row;
   }),
   clockIn: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(staffShifts).set({ clockIn: new Date() })
       .where(eq(staffShifts.id, input.shiftId));
     return { success: true };
   }),
   clockOut: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(staffShifts).set({ clockOut: new Date() })
       .where(eq(staffShifts.id, input.shiftId));
     return { success: true };
@@ -225,7 +225,7 @@ export const stripeSubscriptionsRouter = router({
   list: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(stripeSubscriptions)
       .where(eq(stripeSubscriptions.merchantId, ctx.user.merchantId ?? ""))
@@ -234,7 +234,7 @@ export const stripeSubscriptionsRouter = router({
     return { subscriptions: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(stripeSubscriptions).where(eq(stripeSubscriptions.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -243,7 +243,7 @@ export const stripeSubscriptionsRouter = router({
     subscriptionId: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(subscriptionCharges)
       .where(eq(subscriptionCharges.merchantId, ctx.user.merchantId ?? ""))
@@ -259,7 +259,7 @@ export const superAgentV2Router = router({
   listNetworks: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(superAgentV2Networks)
       .where(eq(superAgentV2Networks.superAgentMerchantId, ctx.user.merchantId ?? ""))
@@ -272,7 +272,7 @@ export const superAgentV2Router = router({
     commissionBps: z.number().int().min(0).max(10000).default(100),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(superAgentV2Networks).values({
       superAgentMerchantId: ctx.user.merchantId ?? "",
       subAgentMerchantId: input.subAgentMerchantId,
@@ -283,13 +283,13 @@ export const superAgentV2Router = router({
     return row;
   }),
   suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(superAgentV2Networks).set({ status: "suspended" })
       .where(eq(superAgentV2Networks.id, input.id));
     return { success: true };
   }),
   reactivate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(superAgentV2Networks).set({ status: "active" })
       .where(eq(superAgentV2Networks.id, input.id));
     return { success: true };
@@ -303,7 +303,7 @@ export const supportRouter = router({
     status: z.string().optional(),
     merchantId: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     // Get distinct session IDs with latest message
     const rows = await db.selectDistinctOn([supportMessages.sessionId], {
@@ -318,7 +318,7 @@ export const supportRouter = router({
     return { sessions: rows, total: rows.length };
   }),
   getSession: protectedProcedure.input(z.object({ sessionId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(supportMessages)
       .where(eq(supportMessages.sessionId, input.sessionId))
       .orderBy(supportMessages.createdAt);
@@ -330,7 +330,7 @@ export const supportRouter = router({
     role: z.enum(["user", "agent", "system"]).default("user"),
     metadata: z.record(z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(supportMessages).values({
       sessionId: input.sessionId,
       merchantId: ctx.user.merchantId ?? null,
@@ -347,7 +347,7 @@ export const supportRouter = router({
     category: z.string().optional(),
     priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const sessionId = `SUP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(supportMessages).values({
       sessionId,
@@ -361,7 +361,7 @@ export const supportRouter = router({
     return { sessionId, message: row };
   }),
   closeSession: protectedProcedure.input(z.object({ sessionId: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(supportMessages).set({ status: "closed" })
       .where(eq(supportMessages.sessionId, input.sessionId));
     return { success: true };
@@ -376,7 +376,7 @@ export const taxFilingRouter = router({
     status: z.string().optional(),
     year: z.number().int().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(taxFilingRecords)
       .where(eq(taxFilingRecords.merchantId, ctx.user.merchantId ?? ""))
@@ -385,7 +385,7 @@ export const taxFilingRouter = router({
     return { records: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(taxFilingRecords).where(eq(taxFilingRecords.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -397,7 +397,7 @@ export const taxFilingRouter = router({
     taxAmount: z.number().int().min(0),
     dueDate: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(taxFilingRecords).values({
       merchantId: ctx.user.merchantId ?? "",
       taxType: input.taxType,
@@ -413,7 +413,7 @@ export const taxFilingRouter = router({
     id: z.string(),
     receiptNumber: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(taxFilingRecords).set({
       status: "filed",
       filedAt: new Date(),
@@ -425,7 +425,7 @@ export const taxFilingRouter = router({
     id: z.string(),
     receiptNumber: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(taxFilingRecords).set({
       status: "paid",
       receiptNumber: input.receiptNumber ?? null,
@@ -442,7 +442,7 @@ export const tenantMgmtRouter = router({
     plan: z.string().optional(),
     search: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenants)
       .orderBy(desc(tenants.createdAt))
@@ -450,7 +450,7 @@ export const tenantMgmtRouter = router({
     return { tenants: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(tenants).where(eq(tenants.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -466,7 +466,7 @@ export const tenantMgmtRouter = router({
     currency: z.string().length(3).default("NGN"),
     timezone: z.string().default("Africa/Lagos"),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(tenants).values({
       ...input,
       status: "pending",
@@ -483,18 +483,18 @@ export const tenantMgmtRouter = router({
     logoUrl: z.string().url().optional(),
     websiteUrl: z.string().url().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { id, ...rest } = input;
     await db.update(tenants).set(rest).where(eq(tenants.id, id));
     return { success: true };
   }),
   suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, input.id));
     return { success: true };
   }),
   getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(tenantConfig)
       .where(eq(tenantConfig.tenantId, input.tenantId)).limit(1);
     return rows[0] ?? null;
@@ -509,7 +509,7 @@ export const tenantMgmtRouter = router({
     settlementDelayHours: z.number().int().min(0).optional(),
     kycLevel: z.number().int().min(0).max(3).optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { tenantId, ...rest } = input;
     const existing = await db.select().from(tenantConfig)
       .where(eq(tenantConfig.tenantId, tenantId)).limit(1);
@@ -524,7 +524,7 @@ export const tenantMgmtRouter = router({
     tenantId: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantCorridors)
       .offset(offset).limit(limit);
@@ -541,7 +541,7 @@ export const tenantMgmtRouter = router({
     minAmountKobo: z.number().int().positive().optional(),
     maxAmountKobo: z.number().int().positive().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(tenantCorridors).values({
       ...input,
       status: "active",
@@ -554,7 +554,7 @@ export const tenantMgmtRouter = router({
     from: z.number().optional(),
     to: z.number().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantCorridorDailyStats)
       .orderBy(desc(tenantCorridorDailyStats.date))
@@ -564,7 +564,7 @@ export const tenantMgmtRouter = router({
   listFeeOverrides: protectedProcedure.input(paginationInput.extend({
     tenantId: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantFeeOverrides)
       .offset(offset).limit(limit);
@@ -577,7 +577,7 @@ export const tenantMgmtRouter = router({
     reason: z.string().optional(),
     expiresAt: z.number().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(tenantFeeOverrides).values({
       ...input,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -586,13 +586,13 @@ export const tenantMgmtRouter = router({
     return row;
   }),
   getPlanLimits: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(tenantPlanLimits)
       .where(eq(tenantPlanLimits.tenantId, input.tenantId)).limit(1);
     return rows[0] ?? null;
   }),
   getSsoConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(tenantSsoConfigs)
       .where(eq(tenantSsoConfigs.tenantId, input.tenantId)).limit(1);
     return rows[0] ?? null;
@@ -608,7 +608,7 @@ export const tenantMgmtRouter = router({
     discoveryUrl: z.string().url().optional(),
     enabled: z.boolean().default(false),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { tenantId, ...rest } = input;
     const existing = await db.select().from(tenantSsoConfigs)
       .where(eq(tenantSsoConfigs.tenantId, tenantId)).limit(1);
@@ -623,7 +623,7 @@ export const tenantMgmtRouter = router({
     tenantId: z.string(),
     period: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(tenantUsageMetrics)
       .where(eq(tenantUsageMetrics.tenantId, input.tenantId))
       .orderBy(desc(tenantUsageMetrics.recordedAt))
@@ -634,7 +634,7 @@ export const tenantMgmtRouter = router({
     tenantId: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(tenantBillingInvoices)
       .orderBy(desc(tenantBillingInvoices.createdAt))
@@ -650,7 +650,7 @@ export const transactionReceiptsRouter = router({
     transactionId: z.string().optional(),
     channel: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(transactionReceipts)
       .where(eq(transactionReceipts.merchantId, ctx.user.merchantId ?? ""))
@@ -659,7 +659,7 @@ export const transactionReceiptsRouter = router({
     return { receipts: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(transactionReceipts).where(eq(transactionReceipts.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -669,7 +669,7 @@ export const transactionReceiptsRouter = router({
     emailAddress: z.string().email().optional(),
     pdfUrl: z.string().url().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const receiptNumber = `RCT-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const [row] = await db.insert(transactionReceipts).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -682,7 +682,7 @@ export const transactionReceiptsRouter = router({
     return row;
   }),
   resend: protectedProcedure.input(z.object({ id: z.string(), emailAddress: z.string().email().optional() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(transactionReceipts).set({
       emailSentAt: new Date(),
       ...(input.emailAddress ? { emailAddress: input.emailAddress } : {}),
@@ -697,7 +697,7 @@ export const usdcRouter = router({
   listDeposits: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(usdcDeposits)
       .where(eq(usdcDeposits.merchantId, ctx.user.merchantId ?? ""))
@@ -711,7 +711,7 @@ export const usdcRouter = router({
     txHash: z.string().optional(),
     network: z.enum(["ethereum", "polygon", "solana", "base", "arbitrum"]).default("ethereum"),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(usdcDeposits).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -722,7 +722,7 @@ export const usdcRouter = router({
   listPayouts: protectedProcedure.input(paginationInput.extend({
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(usdcPayouts)
       .where(eq(usdcPayouts.merchantId, ctx.user.merchantId ?? ""))
@@ -736,7 +736,7 @@ export const usdcRouter = router({
     network: z.enum(["ethereum", "polygon", "solana", "base", "arbitrum"]).default("ethereum"),
     memo: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(usdcPayouts).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -745,7 +745,7 @@ export const usdcRouter = router({
     return row;
   }),
   listV2Wallets: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(usdcV2Wallets)
       .where(eq(usdcV2Wallets.merchantId, ctx.user.merchantId ?? ""))
@@ -757,7 +757,7 @@ export const usdcRouter = router({
     network: z.enum(["ethereum", "polygon", "solana", "base", "arbitrum"]),
     walletAddress: z.string(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const [row] = await db.insert(usdcV2Wallets).values({
       merchantId: ctx.user.merchantId ?? "",
       ...input,
@@ -770,7 +770,7 @@ export const usdcRouter = router({
     walletId: z.string().optional(),
     txType: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(usdcV2Transactions)
       .where(eq(usdcV2Transactions.merchantId, ctx.user.merchantId ?? ""))
@@ -787,7 +787,7 @@ export const insuranceClaimsRouter = router({
     status: z.string().optional(),
     claimType: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(userInsuranceClaims)
       .where(eq(userInsuranceClaims.merchantId, ctx.user.merchantId ?? ""))
@@ -796,7 +796,7 @@ export const insuranceClaimsRouter = router({
     return { claims: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(userInsuranceClaims).where(eq(userInsuranceClaims.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
@@ -809,7 +809,7 @@ export const insuranceClaimsRouter = router({
     description: z.string(),
     documents: z.array(z.string()).optional(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const claimNumber = `CLM-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const [row] = await db.insert(userInsuranceClaims).values({
       merchantId: ctx.user.merchantId ?? "",
@@ -830,7 +830,7 @@ export const insuranceClaimsRouter = router({
     approvedAmountKobo: z.number().int().positive(),
     notes: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(userInsuranceClaims).set({
       status: "approved",
       approvedAmountKobo: input.approvedAmountKobo,
@@ -842,7 +842,7 @@ export const insuranceClaimsRouter = router({
     id: z.string(),
     reason: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(userInsuranceClaims).set({
       status: "rejected",
       rejectionReason: input.reason,
@@ -854,7 +854,7 @@ export const insuranceClaimsRouter = router({
     id: z.string(),
     paymentReference: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.update(userInsuranceClaims).set({ status: "paid", paidAt: new Date() })
       .where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
@@ -868,7 +868,7 @@ export const webhookSimulatorRouter = router({
     eventType: z.string().optional(),
     status: z.string().optional(),
   })).query(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(webhookSimulatorLogs)
       .where(eq(webhookSimulatorLogs.merchantId, ctx.user.merchantId ?? ""))
@@ -882,7 +882,7 @@ export const webhookSimulatorRouter = router({
     payload: z.record(z.unknown()),
     targetUrl: z.string().url(),
   })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const startTime = Date.now();
     let responseStatus = 0;
     let responseBody = "";
@@ -920,7 +920,7 @@ export const webhookSimulatorRouter = router({
     return row;
   }),
   retry: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     const rows = await db.select().from(webhookSimulatorLogs).where(eq(webhookSimulatorLogs.id, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     const log = rows[0];
@@ -954,7 +954,7 @@ export const webhookSimulatorRouter = router({
     return { success: true, status, responseStatus, latencyMs };
   }),
   clear: protectedProcedure.mutation(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     await db.delete(webhookSimulatorLogs)
       .where(eq(webhookSimulatorLogs.merchantId, ctx.user.merchantId ?? ""));
     return { success: true };

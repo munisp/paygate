@@ -62,9 +62,10 @@ export default function PortfolioRebalancing() {
   const [isRebalancing, setIsRebalancing] = useState(false);
 
   // Fetch holdings
-  const { data: goldData } = trpc.newFeatures.consumerGold.getHoldings.useQuery();
-  const { data: mfData } = trpc.newFeatures.consumerMutualFunds.getPortfolio.useQuery();
-  const { data: pensionData } = trpc.newFeatures.consumerPension.getBalance.useQuery();
+  const { data: goldData, isLoading: goldLoading } = trpc.newFeatures.consumerGold.getHoldings.useQuery();
+  const { data: mfData, isLoading: mfLoading } = trpc.newFeatures.consumerMutualFunds.getPortfolio.useQuery();
+  const { data: pensionData, isLoading: pensionLoading } = trpc.newFeatures.consumerPension.getBalance.useQuery();
+  const isLoading = goldLoading || mfLoading || pensionLoading;
 
   const holdings = useMemo(() => {
     const goldVal = (goldData?.investments?.currentValueKobo ?? 0) / 100;
@@ -128,6 +129,25 @@ export default function PortfolioRebalancing() {
     cumulative += a.currentVal;
     return seg;
   });
+
+  if (isLoading) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center gap-3">
+          <Target className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Portfolio Rebalancing</h1>
+            <p className="text-muted-foreground">Loading your portfolio...</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">

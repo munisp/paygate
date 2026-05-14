@@ -16,16 +16,16 @@ export default function ChargebackCases() {
   const [selected, setSelected] = useState<any>(null);
 
   const { data, isLoading, refetch } = trpc.chargebackMgmt.list.useQuery({ page, limit: 20, status, search: search || undefined });
-  const respondMutation = trpc.chargebackMgmt.respond.useMutation({
-    onSuccess: () => { toast.success("Response submitted"); setSelected(null); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const submitEvidenceMutation = trpc.chargebackMgmt.submitEvidence.useMutation({
+    onSuccess: () => { toast.success("Evidence submitted"); setSelected(null); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
-  const escalateMutation = trpc.chargebackMgmt.escalate.useMutation({
-    onSuccess: () => { toast.success("Case escalated"); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const updateStatusMutation = trpc.chargebackMgmt.updateStatus.useMutation({
+    onSuccess: () => { toast.success("Status updated"); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const cases = data?.cases ?? [];
+  const cases = data?.chargebacks ?? [];
   const total = data?.total ?? 0;
   const statusColors: Record<string, string> = { open: "destructive", pending_evidence: "outline", won: "default", lost: "secondary", escalated: "outline" };
 
@@ -108,7 +108,7 @@ export default function ChargebackCases() {
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setSelected(c)}><Eye className="w-3 h-3" /></Button>
                           {c.status === "open" && (
-                            <Button size="sm" variant="ghost" className="text-orange-600" onClick={() => escalateMutation.mutate({ caseId: c.caseId })}>
+                            <Button size="sm" variant="ghost" className="text-orange-600" onClick={() => updateStatusMutation.mutate({ id: c.id, status: "under_review" })}>
                               <AlertTriangle className="w-3 h-3" />
                             </Button>
                           )}
@@ -157,14 +157,14 @@ export default function ChargebackCases() {
                   <div className="flex gap-2">
                     <Button className="flex-1" onClick={() => {
                       const ev = (document.getElementById("evidence-text") as HTMLTextAreaElement)?.value;
-                      respondMutation.mutate({ caseId: selected.caseId, evidence: ev, responseType: "contest" });
-                    }} disabled={respondMutation.isPending}>
-                      <CheckCircle className="w-4 h-4 mr-2" />Contest
+                      submitEvidenceMutation.mutate({ id: selected.id, evidence: ev });
+                    }} disabled={submitEvidenceMutation.isPending}>
+                      <CheckCircle className="w-4 h-4 mr-2" />Submit Evidence
                     </Button>
                     <Button variant="outline" className="flex-1" onClick={() => {
-                      respondMutation.mutate({ caseId: selected.caseId, evidence: "", responseType: "accept" });
-                    }} disabled={respondMutation.isPending}>
-                      <XCircle className="w-4 h-4 mr-2" />Accept
+                      updateStatusMutation.mutate({ id: selected.id, status: "lost" });
+                    }} disabled={updateStatusMutation.isPending}>
+                      <XCircle className="w-4 h-4 mr-2" />Accept Loss
                     </Button>
                   </div>
                 </div>

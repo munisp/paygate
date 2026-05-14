@@ -25,17 +25,13 @@ export default function SplitBillV2() {
   );
 
   const createSession = trpc.splitBillV2.createSession.useMutation({
-    onSuccess: () => { utils.splitBillV2.listSessions.invalidate(); setCreateOpen(false); toast({ title: "Split session created",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.splitBillV2.listSessions.invalidate(); setCreateOpen(false); toast({ title: "Split session created" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const payShare = trpc.splitBillV2.payShare.useMutation({
-    onSuccess: () => { utils.splitBillV2.listShares.invalidate(); toast({ title: "Share paid",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.splitBillV2.listShares.invalidate(); toast({ title: "Share paid" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const sessions = data?.sessions ?? [];
@@ -57,7 +53,7 @@ export default function SplitBillV2() {
               <div><Label>Total Amount</Label><Input type="number" value={form.totalAmount} onChange={e => setForm(f => ({ ...f, totalAmount: e.target.value }))} placeholder="25000" /></div>
               <div><Label>Currency</Label><Input value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))} placeholder="NGN" /></div>
               <div><Label>Number of Participants</Label><Input type="number" value={form.participantCount} onChange={e => setForm(f => ({ ...f, participantCount: e.target.value }))} min="2" /></div>
-              <Button className="w-full" disabled={createSession.isPending} onClick={() => createSession.mutate({ ...form, totalAmount: Number(form.totalAmount), participantCount: Number(form.participantCount) })}>
+              <Button className="w-full" disabled={createSession.isPending} onClick={() => createSession.mutate({ totalAmountKobo: Math.round(Number(form.totalAmount) * 100), participantCount: Number(form.participantCount), splitType: "equal" })}>
                 {createSession.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Create Session
               </Button>
             </div>

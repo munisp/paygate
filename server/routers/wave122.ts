@@ -60,7 +60,7 @@ export const fraudRuleEngineRouter = router({
       offset: z.number().default(0),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const conditions = [eq(fraudRules.merchantId, input.merchantId)];
       if (input.status !== "all") {
         conditions.push(eq(fraudRules.status, input.status));
@@ -82,7 +82,7 @@ export const fraudRuleEngineRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [row] = await db.select().from(fraudRules).where(eq(fraudRules.id, input.id));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Fraud rule not found" });
       return {
@@ -104,7 +104,7 @@ export const fraudRuleEngineRouter = router({
       createdBy: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const id = crypto.randomUUID();
       await db.insert(fraudRules).values({
         id,
@@ -131,7 +131,7 @@ export const fraudRuleEngineRouter = router({
       status: z.enum(["active", "paused", "draft"]).optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const { id, conditionTree, actions, ...rest } = input;
       const updateData: Record<string, unknown> = {
         ...rest,
@@ -146,7 +146,7 @@ export const fraudRuleEngineRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.delete(fraudRules).where(eq(fraudRules.id, input.id));
       return { success: true };
     }),
@@ -157,7 +157,7 @@ export const fraudRuleEngineRouter = router({
       status: z.enum(["active", "paused"]),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(fraudRules)
         .set({ status: input.status, updatedAt: new Date() })
         .where(eq(fraudRules.id, input.id));
@@ -171,7 +171,7 @@ export const fraudRuleEngineRouter = router({
       offset: z.number().default(0),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const rows = await db
         .select()
         .from(fraudAlerts)
@@ -185,7 +185,7 @@ export const fraudRuleEngineRouter = router({
   getStats: protectedProcedure
     .input(z.object({ merchantId: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [stats] = await db
         .select({
           total: sql<number>`count(*)`,
@@ -213,7 +213,7 @@ export const fraudRuleEngineRouter = router({
       }),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [rule] = await db.select().from(fraudRules).where(eq(fraudRules.id, input.ruleId));
       if (!rule) throw new TRPCError({ code: "NOT_FOUND", message: "Rule not found" });
       // Simple simulation: evaluate top-level conditions
@@ -276,7 +276,7 @@ export const kybDocUploadRouter = router({
   listDocuments: protectedProcedure
     .input(z.object({ verificationId: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const docs = await db
         .select()
         .from(kybDocuments)
@@ -310,7 +310,7 @@ export const kybDocUploadRouter = router({
       fileContent: z.string(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       // Decode base64 and upload to S3
       const buffer = Buffer.from(input.fileContent, "base64");
       const suffix = crypto.randomUUID().slice(0, 8);
@@ -349,7 +349,7 @@ export const kybDocUploadRouter = router({
       reviewedBy: z.string(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.update(kybDocuments)
         .set({
           status: input.status,
@@ -365,7 +365,7 @@ export const kybDocUploadRouter = router({
   deleteDocument: protectedProcedure
     .input(z.object({ documentId: z.string() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       await db.delete(kybDocuments).where(eq(kybDocuments.id, input.documentId));
       return { success: true };
     }),
@@ -373,7 +373,7 @@ export const kybDocUploadRouter = router({
   getVerificationProgress: protectedProcedure
     .input(z.object({ verificationId: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [verification] = await db
         .select()
         .from(kybVerifications)
@@ -429,7 +429,7 @@ export const loyaltyRedemptionRouter = router({
   getBalance: protectedProcedure
     .input(z.object({ memberId: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [member] = await db
         .select()
         .from(loyaltyV3Members)
@@ -459,7 +459,7 @@ export const loyaltyRedemptionRouter = router({
       rewardTier: z.enum(["bronze", "silver", "gold", "platinum"]),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [member] = await db
         .select()
         .from(loyaltyV3Members)
@@ -509,7 +509,7 @@ export const loyaltyRedemptionRouter = router({
       pin: z.string().length(4, "PIN must be 4 digits"),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [redemption] = await db
         .select()
         .from(loyaltyV3Redemptions)
@@ -588,7 +588,7 @@ export const loyaltyRedemptionRouter = router({
       offset: z.number().default(0),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const conditions = [eq(loyaltyV3Redemptions.merchantId, input.merchantId)];
       if (input.memberId) conditions.push(eq(loyaltyV3Redemptions.memberId, input.memberId));
       if (input.status) conditions.push(eq(loyaltyV3Redemptions.status, input.status));
@@ -608,7 +608,7 @@ export const loyaltyRedemptionRouter = router({
       reason: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [redemption] = await db
         .select()
         .from(loyaltyV3Redemptions)
@@ -626,7 +626,7 @@ export const loyaltyRedemptionRouter = router({
   getRedemptionStats: protectedProcedure
     .input(z.object({ merchantId: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       const [stats] = await db
         .select({
           total: sql<number>`count(*)`,

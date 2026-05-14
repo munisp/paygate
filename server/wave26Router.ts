@@ -314,6 +314,47 @@ const featureFlagsEnhancedRouter = router({
       return rows[0] ?? null;
     }),
 
+  // Bulk enable/create flags by key array (used by Onboarding wizard step 6)
+  bulkEnable: protectedProcedure
+    .input(z.object({
+      keys: z.array(z.string()).min(1).max(20),
+      environment: z.enum(["production", "staging", "development"]).default("production"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const results: Array<{ key: string; action: "created" | "enabled" }> = [];
+      for (const key of input.keys) {
+        const existing = await db.select({ id: featureFlags.id, enabled: featureFlags.enabled })
+          .from(featureFlags)
+          .where(eq(featureFlags.key, key))
+          .limit(1);
+        if (existing[0]) {
+          if (!existing[0].enabled) {
+            await db.update(featureFlags)
+              .set({ enabled: true, updatedAt: new Date() })
+              .where(eq(featureFlags.id, existing[0].id));
+          }
+          results.push({ key, action: "enabled" });
+        } else {
+          await db.insert(featureFlags).values({
+            id: crypto.randomUUID(),
+            key,
+            name: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+            description: `Enabled during merchant onboarding`,
+            enabled: true,
+            environment: input.environment,
+            rolloutPercentage: 100,
+            category: "onboarding",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          results.push({ key, action: "created" });
+        }
+      }
+      return { success: true, results };
+    }),
+
   // Update onboarding feature selection for a tenant (admin only)
   setOnboardingFeatures: protectedProcedure
     .input(z.object({

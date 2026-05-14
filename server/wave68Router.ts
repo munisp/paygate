@@ -37,7 +37,7 @@ function nanoid(prefix = "") {
 }
 
 async function resolveUser(openId: string) {
-  const db = await getDb();
+  const db = (await getDb())!;
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
   const { users } = await import("../drizzle/schema");
   const { eq } = await import("drizzle-orm");
@@ -47,7 +47,7 @@ async function resolveUser(openId: string) {
 }
 
 async function getConsumerWallet(userId: number, currency = "NGN") {
-  const db = await getDb();
+  const db = (await getDb())!;
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
   const { consumerWallets } = await import("../drizzle/schema");
   const { eq, and } = await import("drizzle-orm");
@@ -68,7 +68,7 @@ async function debitWallet(
   counterpartyName?: string,
   counterpartyAccount?: string,
 ) {
-  const db = await getDb();
+  const db = (await getDb())!;
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
   const { consumerWallets, consumerWalletTxns } = await import("../drizzle/schema");
   const { eq, sql } = await import("drizzle-orm");
@@ -114,7 +114,7 @@ async function creditWallet(
   reference: string,
   counterpartyName?: string,
 ) {
-  const db = await getDb();
+  const db = (await getDb())!;
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
   const { consumerWallets, consumerWalletTxns } = await import("../drizzle/schema");
   const { eq, and, sql } = await import("drizzle-orm");
@@ -163,7 +163,7 @@ function calcTier(lifetimePoints: number): "bronze" | "silver" | "gold" | "plati
 }
 
 async function earnPoints(userId: number, amountKobo: number, description: string, referenceId: string) {
-  const db = await getDb();
+  const db = (await getDb())!;
   if (!db) return;
   const { consumerLoyaltyAccounts, consumerLoyaltyTxns } = await import("../drizzle/schema");
   const { eq, sql } = await import("drizzle-orm");
@@ -302,7 +302,7 @@ export const moneyRequestRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { moneyRequests } = await import("../drizzle/schema");
       const id = nanoid("mr_");
@@ -327,7 +327,7 @@ export const moneyRequestRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) return { rows: [], total: 0 };
       const { moneyRequests } = await import("../drizzle/schema");
       const { eq, and, desc, count: countFn } = await import("drizzle-orm");
@@ -345,7 +345,7 @@ export const moneyRequestRouter = router({
   get: publicProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { moneyRequests, users } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -363,7 +363,7 @@ export const moneyRequestRouter = router({
     .input(z.object({ id: z.string(), pin: z.string().length(4) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { moneyRequests, consumerPins } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -434,7 +434,7 @@ export const moneyRequestRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { moneyRequests } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -453,7 +453,7 @@ export const consumerQrPayRouter = router({
   resolve: protectedProcedure
     .input(z.object({ qrId: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { qrPayments, merchants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -498,7 +498,7 @@ export const consumerQrPayRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPins } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -545,7 +545,7 @@ export const contactsRouter = router({
     .input(z.object({ search: z.string().optional() }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) return [];
       const { consumerContacts } = await import("../drizzle/schema");
       const { eq, and, or, ilike } = await import("drizzle-orm");
@@ -570,7 +570,7 @@ export const contactsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerContacts } = await import("../drizzle/schema");
       const id = nanoid("con_");
@@ -595,7 +595,7 @@ export const contactsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerContacts } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -612,7 +612,7 @@ export const contactsRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerContacts } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -631,7 +631,7 @@ export const loyaltyRouter = router({
       const result = await getCashbackBalanceViaMiddleware(user.id);
       if (result) return { userId: user.id, pointsBalance: Math.round(result.balance * 100), lifetimePoints: Math.round(result.balance * 100), tier: 'bronze', pendingBalance: result.pendingBalance };
     }
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) return null;
     const { consumerLoyaltyAccounts } = await import("../drizzle/schema");
     const { eq } = await import("drizzle-orm");
@@ -655,7 +655,7 @@ export const loyaltyRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(50).default(20), offset: z.number().int().default(0) }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) return { rows: [], total: 0 };
       const { consumerLoyaltyTxns } = await import("../drizzle/schema");
       const { eq, desc, count: countFn } = await import("drizzle-orm");
@@ -680,7 +680,7 @@ export const loyaltyRouter = router({
         const result = await redeemCashbackViaMiddleware(user.id, input.points / 100, input.merchantId ?? user.id);
         if (result) return { success: result.success, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
       }
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerLoyaltyAccounts, consumerLoyaltyTxns } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -719,7 +719,7 @@ export const couponsRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { coupons, couponRedemptions } = await import("../drizzle/schema");
       const { eq, and, gte, lte, count: countFn } = await import("drizzle-orm");
@@ -773,7 +773,7 @@ export const couponsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { coupons, couponRedemptions } = await import("../drizzle/schema");
       const { eq, sql } = await import("drizzle-orm");
@@ -802,7 +802,7 @@ export const couponsRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) return [];
       const { couponRedemptions, coupons } = await import("../drizzle/schema");
       const { eq, desc } = await import("drizzle-orm");
@@ -823,7 +823,7 @@ export const couponsRouter = router({
 export const consumerCardRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) return [];
     const { consumerCards } = await import("../drizzle/schema");
     const { eq } = await import("drizzle-orm");
@@ -848,7 +848,7 @@ export const consumerCardRouter = router({
         });
         if (result) return result;
       }
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerCards, consumerKycRecords } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -898,7 +898,7 @@ export const consumerCardRouter = router({
     .input(z.object({ id: z.string(), freeze: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerCards } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -912,7 +912,7 @@ export const consumerCardRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerCards } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -934,7 +934,7 @@ export const recurringRouter = router({
         const result = await listSubscriptionPlansViaMiddleware(user.id);
         if (result?.plans?.length) return result.plans;
       }
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) return [];
       const { consumerRecurringPayments } = await import("../drizzle/schema");
       const { eq, and, desc } = await import("drizzle-orm");
@@ -963,7 +963,7 @@ export const recurringRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerRecurringPayments } = await import("../drizzle/schema");
       if (input.type === "bill" && (!input.billerCode || !input.customerReference)) {
@@ -1002,7 +1002,7 @@ export const recurringRouter = router({
         const result = await cancelSubscriptionViaMiddleware(input.id, input.reason ?? 'user_cancelled');
         if (result?.success) return { success: true };
       }
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerRecurringPayments } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -1028,7 +1028,7 @@ export const splitBillConsumerRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerSplitSessions, consumerSplitParticipants } = await import("../drizzle/schema");
       const totalShares = input.participants.reduce((s, p) => s + p.shareAmountKobo, 0);
@@ -1061,7 +1061,7 @@ export const splitBillConsumerRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerSplitSessions, consumerSplitParticipants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -1074,7 +1074,7 @@ export const splitBillConsumerRouter = router({
 
   list: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) return [];
     const { consumerSplitSessions } = await import("../drizzle/schema");
     const { eq, desc } = await import("drizzle-orm");
@@ -1092,7 +1092,7 @@ export const splitBillConsumerRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerSplitSessions, consumerSplitParticipants, consumerPins } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
@@ -1150,7 +1150,7 @@ export const consumerPinRouter = router({
     .input(z.object({ pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits") }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPins } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -1170,7 +1170,7 @@ export const consumerPinRouter = router({
     .input(z.object({ pin: z.string().regex(/^\d{4}$/) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPins } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -1192,7 +1192,7 @@ export const consumerPinRouter = router({
 
   isSet: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) return { isSet: false };
     const { consumerPins } = await import("../drizzle/schema");
     const { eq } = await import("drizzle-orm");
@@ -1205,7 +1205,7 @@ export const consumerPinRouter = router({
 export const consumerKycRouter = router({
   status: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) return null;
     const { consumerKycRecords } = await import("../drizzle/schema");
     const { eq } = await import("drizzle-orm");
@@ -1224,7 +1224,7 @@ export const consumerKycRouter = router({
     }).refine(d => d.bvn || d.nin, { message: "BVN or NIN is required" }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerKycRecords } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
@@ -1275,7 +1275,7 @@ export const consumerOtpRouter = router({
     .input(z.object({ phone: z.string().min(10).max(15) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPhoneVerifications } = await import("../drizzle/schema");
       const { eq, and, gte } = await import("drizzle-orm");
@@ -1318,7 +1318,7 @@ export const consumerOtpRouter = router({
     .input(z.object({ phone: z.string(), otp: z.string().length(6) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { consumerPhoneVerifications } = await import("../drizzle/schema");
       const { eq, and, desc } = await import("drizzle-orm");

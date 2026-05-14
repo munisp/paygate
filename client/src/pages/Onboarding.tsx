@@ -322,7 +322,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   "channels": "bg-orange-100 text-orange-700",
 };
 
-function FeatureFlagsStep() {
+function FeatureFlagsStep({ onEnabledChange }: { onEnabledChange?: (keys: string[]) => void }) {
   const [enabled, setEnabled] = useState<Set<string>>(new Set(["ai_fraud_gnn"]));
   const toggleMutation = trpc.wave26.featureFlags.toggle.useMutation();
   const { data: flags } = trpc.wave26.featureFlags.list.useQuery({ category: "onboarding" });
@@ -331,6 +331,7 @@ function FeatureFlagsStep() {
     setEnabled(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      onEnabledChange?.(Array.from(next));
       return next;
     });
     // Optimistically update — the flag may not exist yet in DB during onboarding
@@ -403,6 +404,7 @@ export default function Onboarding() {
   const [account, setAccount] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", confirm: "" });
   const [business, setBusiness] = useState({ name: "", type: "limited", country: "Nigeria", industry: "", website: "", address: "", city: "", state: "", rcNumber: "", tin: "" });
   const [bank, setBank] = useState({ bankName: "", accountNumber: "", accountName: "", bvn: "" });
+  const [selectedFeatureKeys, setSelectedFeatureKeys] = useState<string[]>(["ai_fraud_gnn"]);
 
   const handleDocUpload = (docId: string, file: File) => {
     setDocs(p => ({ ...p, [docId]: { file, status: "uploading" } }));
@@ -429,6 +431,12 @@ export default function Onboarding() {
   const updateStepMutation = trpc.onboarding.updateStep.useMutation({
     onError: (err) => console.error('[onboarding] updateStep failed:', err),
   });
+  const bulkEnableMutation = trpc.wave26.featureFlags.bulkEnable.useMutation({
+    onSuccess: (data) => {
+      toast.success(`${data.results.length} feature${data.results.length !== 1 ? "s" : ""} activated!`);
+    },
+    onError: (err) => console.error('[onboarding] bulkEnable failed:', err),
+  });
 
   const handleNext = async () => {
     if (!canProceed()) { toast.error("Please complete all required fields"); return; }
@@ -442,6 +450,10 @@ export default function Onboarding() {
         currency: countryCode === "KE" ? "KES" : countryCode === "GH" ? "GHS" : "NGN",
       });
       return;
+    }
+    // Step 6 → 7: persist selected feature flags
+    if (step === 6 && selectedFeatureKeys.length > 0) {
+      bulkEnableMutation.mutate({ keys: selectedFeatureKeys, environment: "production" });
     }
     // Steps 3-6: persist progress
     if (step >= 3 && step <= 6) {
@@ -722,7 +734,7 @@ export default function Onboarding() {
 
             {/* Step 6: Feature Flags */}
             {step === 6 && (
-              <FeatureFlagsStep />
+              <FeatureFlagsStep onEnabledChange={setSelectedFeatureKeys} />
             )}
 
             {/* Step 7: Complete */}

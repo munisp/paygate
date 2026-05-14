@@ -38,7 +38,7 @@ export default function KybStateMachine() {
   const [transitionNote, setTransitionNote] = useState("");
   const [targetState, setTargetState] = useState("");
 
-  const { data: submissions, refetch } = trpc.wave30.kybStateMachine.listSubmissions.useQuery({
+  const { data: submissions, isLoading, refetch } = trpc.wave30.kybStateMachine.listSubmissions.useQuery({
     status: filterState || undefined,
     search: search || undefined,
     limit: 100,
@@ -124,7 +124,15 @@ export default function KybStateMachine() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {!submissions?.length ? (
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 7 }).map((_, j) => (
+                      <TableCell key={j}><div className="h-4 bg-muted animate-pulse rounded" /></TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : !submissions?.length ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-gray-400">
                     <Shield className="w-8 h-8 mx-auto mb-2 opacity-30" />

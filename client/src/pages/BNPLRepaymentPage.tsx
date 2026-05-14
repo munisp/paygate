@@ -41,15 +41,13 @@ export default function BNPLRepaymentPage() {
 
   const markPaidMutation = trpc.wave32.bnplRepayment.markPaid.useMutation({
     onSuccess: () => {
-      toast({ title: "Instalment marked as paid",
-      onError: (e) => toast.error(e.message),
-    });
+      toast({ title: "Instalment marked as paid" });
       setPayingId(null);
       setPayAmount("");
       setPayRef("");
       refetch();
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const totalDue = data?.items?.filter(i => i.status === "pending" || i.status === "overdue")

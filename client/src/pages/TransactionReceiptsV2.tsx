@@ -14,20 +14,16 @@ export default function TransactionReceiptsV2() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
 
-  const { data, isLoading } = trpc.txReceipts.list.useQuery({ page, search: search || undefined });
+  const { data, isLoading } = trpc.txReceipts.list.useQuery({ page, transactionId: search || undefined });
 
   const generate = trpc.txReceipts.generate.useMutation({
-    onSuccess: () => { utils.txReceipts.list.invalidate(); toast({ title: "Receipt generated",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.txReceipts.list.invalidate(); toast({ title: "Receipt generated" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const resend = trpc.txReceipts.resend.useMutation({
-    onSuccess: () => toast({ title: "Receipt resent",
-      onError: (e) => toast.error(e.message),
-    }),
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => toast({ title: "Receipt resent" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const receipts = data?.receipts ?? [];
@@ -88,11 +84,11 @@ export default function TransactionReceiptsV2() {
         </div>
       }
 
-      {(data?.pages ?? 1) > 1 && (
+      {Math.ceil((data?.total ?? 0) / 20) > 1 && (
         <div className="flex justify-center gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</Button>
-          <span className="text-sm self-center">Page {page} of {data?.pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= (data?.pages ?? 1)} onClick={() => setPage(p => p + 1)}>Next</Button>
+          <span className="text-sm self-center">Page {page} of {Math.ceil((data?.total ?? 0) / 20)}</span>
+          <Button variant="outline" size="sm" disabled={page >= Math.ceil((data?.total ?? 0) / 20)} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       )}
     </div>

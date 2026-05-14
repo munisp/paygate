@@ -15,18 +15,14 @@ export default function KYBVerifications() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any>(null);
 
-  const { data, isLoading, refetch } = trpc.kybMgmt.list.useQuery({ page, limit: 20, status, search: search || undefined });
-  const startMutation = trpc.kybMgmt.startVerification.useMutation({
+  const { data, isLoading, refetch } = trpc.kybMgmt.list.useQuery({ page, limit: 20, status });
+  const startMutation = trpc.kybMgmt.initiate.useMutation({
     onSuccess: () => { toast.success("KYB verification started"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const approveMutation = trpc.kybMgmt.approve.useMutation({
-    onSuccess: () => { toast.success("KYB approved"); setSelected(null); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const rejectMutation = trpc.kybMgmt.reject.useMutation({
-    onSuccess: () => { toast.success("KYB rejected"); setSelected(null); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const updateMutation = trpc.kybMgmt.updateStatus.useMutation({
+    onSuccess: () => { toast.success("KYB status updated"); setSelected(null); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const verifications = data?.verifications ?? [];
@@ -121,7 +117,7 @@ export default function KYBVerifications() {
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setSelected(v)}><Eye className="w-3 h-3" /></Button>
                           {v.status === "pending" && (
-                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => startMutation.mutate({ verificationId: v.verificationId })}>
+                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => startMutation.mutate({ businessName: v.businessName ?? "Unknown", rcNumber: v.rcNumber ?? "", taxId: v.taxId ?? "", businessType: v.businessType ?? "", industryCode: v.industryCode ?? "" })}>
                               <Play className="w-3 h-3" />
                             </Button>
                           )}
@@ -151,13 +147,12 @@ export default function KYBVerifications() {
               </div>
               {(selected.status === "in_progress" || selected.status === "requires_review") && (
                 <div className="flex gap-2 pt-2">
-                  <Button className="flex-1" onClick={() => approveMutation.mutate({ verificationId: selected.verificationId })} disabled={approveMutation.isPending}>
+                  <Button className="flex-1" onClick={() => updateMutation.mutate({ id: selected.verificationId, status: "approved" as const })} disabled={updateMutation.isPending}>
                     <CheckCircle className="w-4 h-4 mr-2" />Approve
                   </Button>
                   <Button variant="destructive" className="flex-1" onClick={() => {
-                    const reason = prompt("Rejection reason:");
-                    if (reason) rejectMutation.mutate({ verificationId: selected.verificationId, reason });
-                  }} disabled={rejectMutation.isPending}>Reject</Button>
+                    updateMutation.mutate({ id: selected.verificationId, status: "rejected" as const });
+                  }} disabled={updateMutation.isPending}>Reject</Button>
                 </div>
               )}
             </div>

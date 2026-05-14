@@ -27,24 +27,18 @@ export default function UsdcV3() {
   const { data: txData } = trpc.usdcV3.listV2Transactions.useQuery({ page: 1 });
 
   const createDeposit = trpc.usdcV3.createDeposit.useMutation({
-    onSuccess: () => { utils.usdcV3.listDeposits.invalidate(); setDepositOpen(false); toast({ title: "Deposit initiated",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.usdcV3.listDeposits.invalidate(); setDepositOpen(false); toast({ title: "Deposit initiated" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const createPayout = trpc.usdcV3.createPayout.useMutation({
-    onSuccess: () => { utils.usdcV3.listPayouts.invalidate(); setPayoutOpen(false); toast({ title: "Payout initiated",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.usdcV3.listPayouts.invalidate(); setPayoutOpen(false); toast({ title: "Payout initiated" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const createWallet = trpc.usdcV3.createV2Wallet.useMutation({
-    onSuccess: () => { utils.usdcV3.listV2Wallets.invalidate(); setWalletOpen(false); toast({ title: "Wallet created",
-      onError: (e) => toast.error(e.message),
-    }); },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { utils.usdcV3.listV2Wallets.invalidate(); setWalletOpen(false); toast({ title: "Wallet created" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deposits = depositsData?.deposits ?? [];
@@ -71,7 +65,7 @@ export default function UsdcV3() {
                 <div><Label>Amount (USDC)</Label><Input type="number" value={depositForm.amount} onChange={e => setDepositForm(f => ({ ...f, amount: e.target.value }))} placeholder="1000" /></div>
                 <div><Label>Network</Label><Input value={depositForm.network} onChange={e => setDepositForm(f => ({ ...f, network: e.target.value }))} placeholder="ethereum" /></div>
                 <div><Label>Wallet Address</Label><Input value={depositForm.walletAddress} onChange={e => setDepositForm(f => ({ ...f, walletAddress: e.target.value }))} placeholder="0x..." /></div>
-                <Button className="w-full" disabled={createDeposit.isPending} onClick={() => createDeposit.mutate({ ...depositForm, amount: Number(depositForm.amount) })}>
+                <Button className="w-full" disabled={createDeposit.isPending} onClick={() => createDeposit.mutate({ walletAddress: depositForm.walletAddress, amountUsdc: Number(depositForm.amount), network: depositForm.network as any })}>
                   {createDeposit.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Create Deposit
                 </Button>
               </div>
@@ -85,7 +79,7 @@ export default function UsdcV3() {
                 <div><Label>Amount (USDC)</Label><Input type="number" value={payoutForm.amount} onChange={e => setPayoutForm(f => ({ ...f, amount: e.target.value }))} placeholder="500" /></div>
                 <div><Label>Network</Label><Input value={payoutForm.network} onChange={e => setPayoutForm(f => ({ ...f, network: e.target.value }))} placeholder="ethereum" /></div>
                 <div><Label>Destination Address</Label><Input value={payoutForm.destinationAddress} onChange={e => setPayoutForm(f => ({ ...f, destinationAddress: e.target.value }))} placeholder="0x..." /></div>
-                <Button className="w-full" disabled={createPayout.isPending} onClick={() => createPayout.mutate({ ...payoutForm, amount: Number(payoutForm.amount) })}>
+                <Button className="w-full" disabled={createPayout.isPending} onClick={() => createPayout.mutate({ destinationAddress: payoutForm.destinationAddress, amountUsdc: Number(payoutForm.amount), network: payoutForm.network as any })}>
                   {createPayout.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Send Payout
                 </Button>
               </div>
@@ -149,7 +143,7 @@ export default function UsdcV3() {
                 <div className="space-y-4 pt-2">
                   <div><Label>Network</Label><Input value={walletForm.network} onChange={e => setWalletForm(f => ({ ...f, network: e.target.value }))} placeholder="ethereum" /></div>
                   <div><Label>Label</Label><Input value={walletForm.label} onChange={e => setWalletForm(f => ({ ...f, label: e.target.value }))} placeholder="Main wallet" /></div>
-                  <Button className="w-full" disabled={createWallet.isPending} onClick={() => createWallet.mutate(walletForm)}>
+                  <Button className="w-full" disabled={createWallet.isPending} onClick={() => createWallet.mutate({ label: walletForm.label, network: walletForm.network as any, walletAddress: "" })}>
                     {createWallet.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Create Wallet
                   </Button>
                 </div>

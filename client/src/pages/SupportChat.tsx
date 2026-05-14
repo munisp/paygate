@@ -21,7 +21,7 @@ export default function SupportChat() {
 
   const { data: sessionsData, isLoading } = trpc.supportChat.listSessions.useQuery({ page: 1 });
   const { data: sessionDetail } = trpc.supportChat.getSession.useQuery(
-    { id: selectedSession! },
+    { sessionId: selectedSession! },
     { enabled: !!selectedSession }
   );
 
@@ -30,32 +30,27 @@ export default function SupportChat() {
       utils.supportChat.listSessions.invalidate();
       setStartOpen(false);
       setSubject("");
-      setSelectedSession(data.session?.id ?? null);
-      toast({ title: "Support session started",
-      onError: (e) => toast.error(e.message),
-    });
+      setSelectedSession(data.sessionId ?? null);
+      toast({ title: "Support session started" });
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const sendMessage = trpc.supportChat.sendMessage.useMutation({
     onSuccess: () => {
-      utils.supportChat.getSession.invalidate({ id: selectedSession!,
-      onError: (e) => toast.error(e.message),
-    });
+      utils.supportChat.getSession.invalidate({ sessionId: selectedSession! });
       setNewMessage("");
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const closeSession = trpc.supportChat.closeSession.useMutation({
     onSuccess: () => {
       utils.supportChat.listSessions.invalidate();
       setSelectedSession(null);
-      toast({ title: "Session closed",
-      onError: (e) => toast.error(e.message),
-    });
+      toast({ title: "Session closed" });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const sessions = sessionsData?.sessions ?? [];
@@ -76,7 +71,7 @@ export default function SupportChat() {
             <DialogHeader><DialogTitle>Start Support Session</DialogTitle></DialogHeader>
             <div className="space-y-4 pt-2">
               <div><Label>Subject</Label><Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Describe your issue..." /></div>
-              <Button className="w-full" disabled={startSession.isPending} onClick={() => startSession.mutate({ subject })}>
+              <Button className="w-full" disabled={startSession.isPending} onClick={() => startSession.mutate({ initialMessage: subject })}>
                 {startSession.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Start Session
               </Button>
             </div>
@@ -120,8 +115,8 @@ export default function SupportChat() {
           ) : (
             <>
               <CardHeader className="pb-2 flex-row items-center justify-between">
-                <CardTitle className="text-sm">{sessionDetail?.session?.subject ?? "Support Session"}</CardTitle>
-                <Button size="sm" variant="destructive" onClick={() => closeSession.mutate({ id: selectedSession })}>
+                <CardTitle className="text-sm">{"Support Session"}</CardTitle>
+                <Button size="sm" variant="destructive" onClick={() => closeSession.mutate({ sessionId: selectedSession! })}>
                   <X className="w-3.5 h-3.5 mr-1" />Close
                 </Button>
               </CardHeader>

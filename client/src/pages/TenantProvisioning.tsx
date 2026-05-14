@@ -29,8 +29,8 @@ export default function TenantProvisioning() {
     enableBillingConfig: true,
   });
 
-  const { data, isLoading, refetch } = trpc.tenantProvision.listTenants.useQuery({
-    page, limit: 20, status, search: search || undefined,
+  const { data, isLoading, refetch } = trpc.tenantProvision.list.useQuery({
+    page, limit: 20,
   });
 
   const provisionMutation = trpc.tenantProvision.provision.useMutation({
@@ -42,13 +42,11 @@ export default function TenantProvisioning() {
     onError: (e) => toast.error(e.message),
   });
 
-  const checkStatusMutation = trpc.tenantProvision.checkWorkflowStatus.useMutation({
-    onSuccess: (result) => {
-      toast.info(`Workflow status: ${result.status}`);
-      refetch();
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const [checkWorkflowId, setCheckWorkflowId] = useState<string | null>(null);
+  const { data: workflowStatus } = trpc.tenantProvision.getStatus.useQuery(
+    { workflowId: checkWorkflowId! },
+    { enabled: !!checkWorkflowId }
+  );
 
   const tenants = data?.tenants ?? [];
   const total = data?.total ?? 0;
@@ -135,7 +133,7 @@ export default function TenantProvisioning() {
                 ))}
               </div>
 
-              <Button className="w-full" onClick={() => provisionMutation.mutate(form)} disabled={provisionMutation.isPending || !form.tenantName || !form.tenantSlug || !form.adminEmail}>
+              <Button className="w-full" onClick={() => provisionMutation.mutate({ tenantName: form.tenantName, tenantType: "merchant", adminEmail: form.adminEmail, adminName: form.adminName, billingTier: form.billingTier as any, country: form.country, currency: form.currency })} disabled={provisionMutation.isPending || !form.tenantName || !form.adminEmail}>
                 {provisionMutation.isPending ? (
                   <><Clock className="w-4 h-4 mr-2 animate-spin" />Starting Temporal Workflow…</>
                 ) : (
@@ -231,7 +229,7 @@ export default function TenantProvisioning() {
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setSelected(t)}><Eye className="w-3 h-3" /></Button>
                           {t.temporalWorkflowId && t.status === "provisioning" && (
-                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => checkStatusMutation.mutate({ workflowId: t.temporalWorkflowId })}>
+                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => setCheckWorkflowId(t.temporalWorkflowId ?? null)}>
                               <RefreshCw className="w-3 h-3" />
                             </Button>
                           )}

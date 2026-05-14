@@ -18,19 +18,17 @@ export default function LoyaltyV3() {
 
   const { data: programsData, isLoading: programsLoading, refetch: refetchPrograms } =
     trpc.loyaltyV3.listPrograms.useQuery({ page: 1, limit: 20 });
+  const [selectedProgramId, setSelectedProgramId] = useState("");
   const { data: membersData, isLoading: membersLoading } =
-    trpc.loyaltyV3.listMembers.useQuery({ page: 1, limit: 20 });
-  const { data: catalogData, isLoading: catalogLoading } =
-    trpc.loyaltyV3.listRewardCatalog.useQuery({ page: 1, limit: 20 });
+    trpc.loyaltyV3.listMembers.useQuery({ programId: selectedProgramId, page: 1, limit: 20 }, { enabled: !!selectedProgramId });
 
   const createProgramMutation = trpc.loyaltyV3.createProgram.useMutation({
     onSuccess: () => { toast.success("Loyalty program created"); setCreateProgramOpen(false); refetchPrograms(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const programs = programsData?.programs ?? [];
   const members = membersData?.members ?? [];
-  const catalog = catalogData?.items ?? [];
 
   return (
     <div className="p-6 space-y-6">
@@ -47,7 +45,7 @@ export default function LoyaltyV3() {
               <div><Label>Program Name</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
               <div><Label>Points per Naira</Label><Input value={form.pointsPerNaira} onChange={e => setForm(f => ({ ...f, pointsPerNaira: e.target.value }))} /></div>
               <div><Label>Points Expiry (days)</Label><Input type="number" value={form.expiryDays} onChange={e => setForm(f => ({ ...f, expiryDays: Number(e.target.value) }))} /></div>
-              <Button className="w-full" onClick={() => createProgramMutation.mutate(form)} disabled={createProgramMutation.isPending}>
+              <Button className="w-full" onClick={() => createProgramMutation.mutate({ programName: form.name, pointsPerNaira: parseFloat(form.pointsPerNaira), expiryDays: form.expiryDays })} disabled={createProgramMutation.isPending}>
                 {createProgramMutation.isPending ? "Creating…" : "Create Program"}
               </Button>
             </div>
@@ -72,7 +70,7 @@ export default function LoyaltyV3() {
         <Card><CardContent className="pt-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-yellow-100 rounded-lg"><Award className="w-5 h-5 text-yellow-600" /></div>
-            <div><p className="text-sm text-muted-foreground">Catalog Items</p><p className="text-2xl font-bold">{catalogData?.total ?? 0}</p></div>
+            <div><p className="text-sm text-muted-foreground">Catalog Items</p><p className="text-2xl font-bold">—</p></div>
           </div>
         </CardContent></Card>
       </div>
@@ -160,32 +158,11 @@ export default function LoyaltyV3() {
         <Card>
           <CardHeader><CardTitle>Reward Catalog</CardTitle></CardHeader>
           <CardContent>
-            {catalogLoading ? (
-              <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted rounded animate-pulse" />)}</div>
-            ) : catalog.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Award className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>No reward catalog items yet</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-4">
-                {catalog.map((item: any) => (
-                  <div key={item.itemId} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="flex items-center gap-1 text-yellow-600">
-                        <Star className="w-4 h-4" />
-                        <span className="text-sm font-bold">{(item.pointsCost ?? 0).toLocaleString()} pts</span>
-                      </div>
-                      <Badge variant={item.isAvailable ? "default" : "secondary"}>
-                        {item.isAvailable ? "Available" : "Out of Stock"}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="text-center py-12 text-muted-foreground">
+              <Award className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>Reward catalog management coming soon</p>
+              <p className="text-xs mt-1">Configure redeemable rewards in the Admin panel</p>
+            </div>
           </CardContent>
         </Card>
       )}

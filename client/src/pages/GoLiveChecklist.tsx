@@ -49,10 +49,6 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
   const daysLeft = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   const isUrgent = daysLeft <= 14;
 
-  // Show error toast when queries fail
-  if (error) {
-    toast.error(error.message ?? "An error occurred");
-  }
   return (
     <span className={`text-xs font-medium ${isUrgent ? "text-red-600" : "text-amber-600"}`}>
       <Clock className="h-3 w-3 inline mr-1" />

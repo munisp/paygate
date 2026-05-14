@@ -93,7 +93,7 @@ export const walletRouter = router({
   list: protectedProcedure
     .input(paginationInput.extend({ merchantId: z.string().optional() }))
     .query(async ({ input, ctx }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const offset = (input.page - 1) * input.limit;
       const rows = await db.select().from(walletTransactions)
@@ -102,7 +102,7 @@ export const walletRouter = router({
       return rows;
     }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(walletTransactions).where(eq(walletTransactions.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -113,13 +113,13 @@ export const walletRouter = router({
 // ─── cross-border transfers ────────────────────────────────────────────────────
 export const crossBorderRouter = router({
   list: protectedProcedure.input(paginationInput.merge(dateRangeInput)).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(crossBorderTransfers).orderBy(desc(crossBorderTransfers.createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(crossBorderTransfers).where(eq(crossBorderTransfers.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -136,7 +136,7 @@ export const crossBorderRouter = router({
     purposeCode: z.string().optional(),
     narration: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(crossBorderTransfers).values({
       ...input,
@@ -153,7 +153,7 @@ export const crossBorderRouter = router({
     failureReason: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.update(crossBorderTransfers)
       .set({ status: input.status, failureReason: input.failureReason, updatedAt: new Date() })
@@ -165,7 +165,7 @@ export const crossBorderRouter = router({
 // ─── NIP banks ────────────────────────────────────────────────────────────────
 export const nipBanksRouter = router({
   list: protectedProcedure.input(z.object({ search: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(nipBanks);
     if (input.search) {
@@ -177,7 +177,7 @@ export const nipBanksRouter = router({
     accountNumber: z.string().length(10),
     bankCode: z.string(),
   })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [cached] = await db.select().from(nipAccountCache)
       .where(and(eq(nipAccountCache.accountNumber, input.accountNumber), eq(nipAccountCache.bankCode, input.bankCode)));
@@ -190,7 +190,7 @@ export const nipBanksRouter = router({
 // ─── merchant notifications ────────────────────────────────────────────────────
 export const merchantNotificationsRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ unreadOnly: z.boolean().optional() })).query(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const conditions = [(merchantNotifications as any).merchantId ? eq((merchantNotifications as any).merchantId, (ctx.user as any).merchantId) : sql`1=1`];
@@ -198,13 +198,13 @@ export const merchantNotificationsRouter = router({
     return db.select().from(merchantNotifications).where(and(...conditions)).orderBy(desc((merchantNotifications as any).createdAt)).limit(input.limit).offset(offset);
   }),
   markRead: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.update(merchantNotifications).set({ isRead: true } as any).where(eq((merchantNotifications as any).id, input.id));
     return { success: true };
   }),
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.update(merchantNotifications).set({ isRead: true } as any);
     return { success: true };
@@ -214,14 +214,14 @@ export const merchantNotificationsRouter = router({
 // ─── loyalty ledger ────────────────────────────────────────────────────────────
 export const loyaltyRouter = router({
   balance: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const rows = await db.select().from(loyaltyLedger).where(eq((loyaltyLedger as any).merchantId, (ctx.user as any).merchantId ?? ""));
     const balance = rows.reduce((sum, r) => sum + ((r as any).pointsDelta ?? 0), 0);
     return { balance, transactions: rows };
   }),
   history: protectedProcedure.input(paginationInput).query(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(loyaltyLedger).orderBy(desc((loyaltyLedger as any).createdAt)).limit(input.limit).offset(offset);
@@ -231,13 +231,13 @@ export const loyaltyRouter = router({
 // ─── BNPL plans ────────────────────────────────────────────────────────────────
 export const bnplRouter = router({
   listPlans: protectedProcedure.input(paginationInput).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(bnplPlans).orderBy(desc((bnplPlans as any).createdAt)).limit(input.limit).offset(offset);
   }),
   getPlan: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(bnplPlans).where(eq((bnplPlans as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -251,7 +251,7 @@ export const bnplRouter = router({
     interestRateBps: z.number().int().min(0),
     productDescription: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const installmentAmountKobo = Math.ceil(input.totalAmountKobo / input.installments);
     const [row] = await db.insert(bnplPlans).values({
@@ -268,7 +268,7 @@ export const bnplRouter = router({
     status: z.enum(["active", "completed", "defaulted", "cancelled"]),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.update(bnplPlans).set({ status: input.status, updatedAt: new Date() } as any).where(eq((bnplPlans as any).id, input.id)).returning();
     return row;
@@ -278,13 +278,13 @@ export const bnplRouter = router({
 // ─── KYB verifications ─────────────────────────────────────────────────────────
 export const kybRouter = router({
   getVerification: protectedProcedure.input(z.object({ merchantId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(kybVerifications).where(eq((kybVerifications as any).merchantId, input.merchantId));
     return row ?? null;
   }),
   listSteps: protectedProcedure.input(z.object({ verificationId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(kybSteps).where(eq((kybSteps as any).verificationId, input.verificationId)).orderBy((kybSteps as any).stepOrder);
   }),
@@ -294,7 +294,7 @@ export const kybRouter = router({
     reviewNotes: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.update(kybSteps).set({ status: input.status, reviewNotes: input.reviewNotes, updatedAt: new Date() } as any).where(eq((kybSteps as any).id, input.stepId)).returning();
     return row;
@@ -307,7 +307,7 @@ export const kybRouter = router({
     businessType: z.string(),
     incorporationDate: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [existing] = await db.select().from(kybVerifications).where(eq((kybVerifications as any).merchantId, input.merchantId));
     if (existing) {
@@ -322,20 +322,20 @@ export const kybRouter = router({
 // ─── merchant loans ────────────────────────────────────────────────────────────
 export const merchantLoansRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(merchantLoans).orderBy(desc((merchantLoans as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(merchantLoans).where(eq((merchantLoans as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return row;
   }),
   listInstallments: protectedProcedure.input(z.object({ loanId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(loanInstalments).where(eq((loanInstalments as any).loanId, input.loanId)).orderBy((loanInstalments as any).dueDate);
   }),
@@ -345,7 +345,7 @@ export const merchantLoansRouter = router({
     amountKobo: z.number().int().positive(),
     paymentReference: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(loanRepayments).values({
       ...input,
@@ -361,7 +361,7 @@ export const merchantLoansRouter = router({
     tenorMonths: z.number().int().min(1).max(24),
     purpose: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(merchantLoans).values({
       ...input,
@@ -377,7 +377,7 @@ export const merchantLoansRouter = router({
 // ─── split rules ───────────────────────────────────────────────────────────────
 export const splitRulesRouter = router({
   list: protectedProcedure.input(z.object({ merchantId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(splitRules);
     if (input.merchantId) return q.where(eq((splitRules as any).merchantId, input.merchantId));
@@ -392,7 +392,7 @@ export const splitRulesRouter = router({
       bearsFee: z.boolean().optional(),
     })),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const totalShare = input.rules.reduce((s, r) => s + r.sharePercent, 0);
     if (Math.abs(totalShare - 100) > 0.01) throw new TRPCError({ code: "BAD_REQUEST", message: "Split rules must sum to 100%" });
@@ -401,7 +401,7 @@ export const splitRulesRouter = router({
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.delete(splitRules).where(eq((splitRules as any).id, input.id));
     return { success: true };
@@ -411,13 +411,13 @@ export const splitRulesRouter = router({
 // ─── DCC transactions ──────────────────────────────────────────────────────────
 export const dccRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(dccTransactions).orderBy(desc((dccTransactions as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(dccTransactions).where(eq((dccTransactions as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -428,7 +428,7 @@ export const dccRouter = router({
 // ─── webhook endpoints ─────────────────────────────────────────────────────────
 export const webhookEndpointsRouter = router({
   list: protectedProcedure.input(z.object({ merchantId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(webhookEndpoints);
     if (input.merchantId) return q.where(eq((webhookEndpoints as any).merchantId, input.merchantId));
@@ -441,7 +441,7 @@ export const webhookEndpointsRouter = router({
     secret: z.string().min(16),
     description: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(webhookEndpoints).values({ ...input, events: JSON.stringify(input.events), isActive: true, createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -452,20 +452,20 @@ export const webhookEndpointsRouter = router({
     events: z.array(z.string()).optional(),
     isActive: z.boolean().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const { id, ...updates } = input;
     const [row] = await db.update(webhookEndpoints).set({ ...updates, events: updates.events ? JSON.stringify(updates.events) : undefined, updatedAt: new Date() } as any).where(eq((webhookEndpoints as any).id, id)).returning();
     return row;
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.delete(webhookEndpoints).where(eq((webhookEndpoints as any).id, input.id));
     return { success: true };
   }),
   deliveryLog: protectedProcedure.input(z.object({ webhookId: z.string() }).merge(paginationInput)).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(webhookDeliveryLog).where(eq((webhookDeliveryLog as any).webhookId, input.webhookId)).orderBy(desc((webhookDeliveryLog as any).createdAt)).limit(input.limit).offset(offset);
@@ -475,13 +475,13 @@ export const webhookEndpointsRouter = router({
 // ─── digital gold ──────────────────────────────────────────────────────────────
 export const digitalGoldRouter = router({
   getHolding: protectedProcedure.input(z.object({ customerId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(digitalGoldHoldings).where(eq((digitalGoldHoldings as any).customerId, input.customerId));
     return row ?? { customerId: input.customerId, balanceGrams: 0, balanceKobo: 0 };
   }),
   listTransactions: protectedProcedure.input(paginationInput.extend({ customerId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(digitalGoldTransactions);
@@ -489,7 +489,7 @@ export const digitalGoldRouter = router({
     return q.orderBy(desc((digitalGoldTransactions as any).createdAt)).limit(input.limit).offset(offset);
   }),
   listSipPlans: protectedProcedure.input(z.object({ customerId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(goldSipPlans);
     if (input.customerId) return q.where(eq((goldSipPlans as any).customerId, input.customerId));
@@ -501,7 +501,7 @@ export const digitalGoldRouter = router({
     targetGrams: z.number().positive().optional(),
     dayOfMonth: z.number().int().min(1).max(28),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(goldSipPlans).values({ ...input, status: "active", createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -511,13 +511,13 @@ export const digitalGoldRouter = router({
 // ─── pension ───────────────────────────────────────────────────────────────────
 export const pensionRouter = router({
   getAccount: protectedProcedure.input(z.object({ customerId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(pensionAccounts).where(eq((pensionAccounts as any).customerId, input.customerId));
     return row ?? null;
   }),
   listContributions: protectedProcedure.input(paginationInput.extend({ accountId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(pensionContributions).where(eq((pensionContributions as any).accountId, input.accountId)).orderBy(desc((pensionContributions as any).createdAt)).limit(input.limit).offset(offset);
@@ -528,7 +528,7 @@ export const pensionRouter = router({
     contributionType: z.enum(["voluntary", "mandatory", "employer"]),
     paymentReference: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(pensionContributions).values({ ...input, status: "pending", createdAt: new Date() } as any).returning();
     return row;
@@ -538,7 +538,7 @@ export const pensionRouter = router({
 // ─── insurance ─────────────────────────────────────────────────────────────────
 export const insuranceRouter = router({
   listPolicies: protectedProcedure.input(paginationInput.extend({ customerId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(consumerInsurancePolicies);
@@ -546,14 +546,14 @@ export const insuranceRouter = router({
     return q.orderBy(desc((consumerInsurancePolicies as any).createdAt)).limit(input.limit).offset(offset);
   }),
   getPolicy: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(consumerInsurancePolicies).where(eq((consumerInsurancePolicies as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return row;
   }),
   listClaims: protectedProcedure.input(paginationInput.extend({ policyId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(consumerInsuranceClaims);
@@ -567,7 +567,7 @@ export const insuranceRouter = router({
     claimAmountKobo: z.number().int().positive(),
     incidentDate: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(consumerInsuranceClaims).values({ ...input, status: "submitted", createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -579,7 +579,7 @@ export const insuranceRouter = router({
     approvedAmountKobo: z.number().int().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const { id, ...updates } = input;
     const [row] = await db.update(consumerInsuranceClaims).set({ ...updates, updatedAt: new Date() } as any).where(eq((consumerInsuranceClaims as any).id, id)).returning();
@@ -590,13 +590,13 @@ export const insuranceRouter = router({
 // ─── cashback ──────────────────────────────────────────────────────────────────
 export const cashbackRouter = router({
   getBalance: protectedProcedure.input(z.object({ customerId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(cashbackBalances).where(eq((cashbackBalances as any).customerId, input.customerId));
     return row ?? { customerId: input.customerId, balanceKobo: 0 };
   }),
   listTransactions: protectedProcedure.input(paginationInput.extend({ customerId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(cashbackTransactions);
@@ -608,7 +608,7 @@ export const cashbackRouter = router({
     amountKobo: z.number().int().positive(),
     redemptionType: z.enum(["wallet_credit", "bank_transfer", "merchant_discount"]),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [balance] = await db.select().from(cashbackBalances).where(eq((cashbackBalances as any).customerId, input.customerId));
     if (!balance || (balance as any).balanceKobo < input.amountKobo) {
@@ -623,7 +623,7 @@ export const cashbackRouter = router({
 // ─── wealth management ─────────────────────────────────────────────────────────
 export const wealthRouter = router({
   getRiskProfile: protectedProcedure.input(z.object({ customerId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(wealthRiskProfiles).where(eq((wealthRiskProfiles as any).customerId, input.customerId));
     return row ?? null;
@@ -634,7 +634,7 @@ export const wealthRouter = router({
     investmentHorizonYears: z.number().int().min(1).max(40),
     monthlyInvestmentKobo: z.number().int().min(0),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [existing] = await db.select().from(wealthRiskProfiles).where(eq((wealthRiskProfiles as any).customerId, input.customerId));
     if (existing) {
@@ -645,7 +645,7 @@ export const wealthRouter = router({
     return row;
   }),
   listGoals: protectedProcedure.input(z.object({ customerId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(wealthGoals).where(eq((wealthGoals as any).customerId, input.customerId)).orderBy((wealthGoals as any).targetDate);
   }),
@@ -657,13 +657,13 @@ export const wealthRouter = router({
     goalType: z.enum(["retirement", "education", "home", "emergency", "vacation", "other"]),
     monthlyContributionKobo: z.number().int().min(0),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(wealthGoals).values({ ...input, currentAmountKobo: 0, status: "active", createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
   }),
   listMutualFunds: protectedProcedure.input(z.object({ customerId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(mutualFundHoldings);
     if (input.customerId) return q.where(eq((mutualFundHoldings as any).customerId, input.customerId));
@@ -674,20 +674,20 @@ export const wealthRouter = router({
 // ─── EMI contracts ─────────────────────────────────────────────────────────────
 export const emiRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ merchantId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(emiContracts).orderBy(desc((emiContracts as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(emiContracts).where(eq((emiContracts as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
     return row;
   }),
   listInstallments: protectedProcedure.input(z.object({ contractId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(emiInstallments).where(eq((emiInstallments as any).contractId, input.contractId)).orderBy((emiInstallments as any).dueDate);
   }),
@@ -700,7 +700,7 @@ export const emiRouter = router({
     productDescription: z.string(),
     firstDueDate: z.string(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const monthlyRate = input.interestRateBps / 10000;
     const emi = monthlyRate > 0
@@ -714,13 +714,13 @@ export const emiRouter = router({
 // ─── salary transactions ───────────────────────────────────────────────────────
 export const salaryRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ merchantId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(salaryTransactions).orderBy(desc((salaryTransactions as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(salaryTransactions).where(eq((salaryTransactions as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -736,7 +736,7 @@ export const salaryRouter = router({
     payPeriod: z.string(),
     narration: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(salaryTransactions).values({ ...input, status: "pending", createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -752,7 +752,7 @@ export const salaryRouter = router({
       amountKobo: z.number().int().positive(),
     })),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const rows = await db.insert(salaryTransactions).values(
       input.employees.map(e => ({ ...e, merchantId: input.merchantId, payPeriod: input.payPeriod, status: "pending", createdAt: new Date(), updatedAt: new Date() } as any))
@@ -764,7 +764,7 @@ export const salaryRouter = router({
 // ─── privacy settings ──────────────────────────────────────────────────────────
 export const privacyRouter = router({
   getSettings: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(privacySettings).where(eq((privacySettings as any).userId, ctx.user.id));
     return row ?? { userId: ctx.user.id, dataRetentionDays: 365, marketingOptIn: false, analyticsOptIn: true };
@@ -775,7 +775,7 @@ export const privacyRouter = router({
     analyticsOptIn: z.boolean().optional(),
     shareWithPartners: z.boolean().optional(),
   })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [existing] = await db.select().from(privacySettings).where(eq((privacySettings as any).userId, ctx.user.id));
     if (existing) {
@@ -786,7 +786,7 @@ export const privacyRouter = router({
     return row;
   }),
   listAliases: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(privacyAliases).where(eq((privacyAliases as any).userId, ctx.user.id));
   }),
@@ -795,7 +795,7 @@ export const privacyRouter = router({
     originalValue: z.string(),
     aliasValue: z.string(),
   })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(privacyAliases).values({ ...input, userId: ctx.user.id, createdAt: new Date() } as any).returning();
     return row;
@@ -805,7 +805,7 @@ export const privacyRouter = router({
 // ─── report jobs ───────────────────────────────────────────────────────────────
 export const reportsRouter = router({
   listJobs: protectedProcedure.input(paginationInput).query(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(reportJobs).where(eq((reportJobs as any).userId, ctx.user.id)).orderBy(desc((reportJobs as any).createdAt)).limit(input.limit).offset(offset);
@@ -817,7 +817,7 @@ export const reportsRouter = router({
     dateFrom: z.string(),
     dateTo: z.string(),
   })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(reportJobs).values({
       ...input,
@@ -830,7 +830,7 @@ export const reportsRouter = router({
     return row;
   }),
   listScheduled: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(scheduledReports).where(eq((scheduledReports as any).userId, ctx.user.id));
   }),
@@ -841,7 +841,7 @@ export const reportsRouter = router({
     emailRecipients: z.array(z.string().email()),
     filters: z.record(z.any()).optional(),
   })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(scheduledReports).values({
       ...input,
@@ -855,7 +855,7 @@ export const reportsRouter = router({
     return row;
   }),
   deleteSchedule: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.delete(scheduledReports).where(and(eq((scheduledReports as any).id, input.id), eq((scheduledReports as any).userId, ctx.user.id)));
     return { success: true };
@@ -865,13 +865,13 @@ export const reportsRouter = router({
 // ─── nodal accounts ────────────────────────────────────────────────────────────
 export const nodalRouter = router({
   listTransactions: protectedProcedure.input(paginationInput.merge(dateRangeInput)).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(nodalTransactions).orderBy(desc((nodalTransactions as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(nodalTransactions).where(eq((nodalTransactions as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -882,7 +882,7 @@ export const nodalRouter = router({
 // ─── retail POS ────────────────────────────────────────────────────────────────
 export const retailPosRouter = router({
   listConfigs: protectedProcedure.input(z.object({ merchantId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(retailPosConfigs);
     if (input.merchantId) return q.where(eq((retailPosConfigs as any).merchantId, input.merchantId));
@@ -895,13 +895,13 @@ export const retailPosRouter = router({
     location: z.string().optional(),
     acceptedPaymentMethods: z.array(z.string()),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(retailPosConfigs).values({ ...input, acceptedPaymentMethods: JSON.stringify(input.acceptedPaymentMethods), isActive: true, createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
   }),
   listSales: protectedProcedure.input(paginationInput.extend({ terminalId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(retailSales);
@@ -913,13 +913,13 @@ export const retailPosRouter = router({
 // ─── international remittance ──────────────────────────────────────────────────
 export const intlRemittanceRouter = router({
   list: protectedProcedure.input(paginationInput.merge(dateRangeInput)).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(intlRemittanceTransfers).orderBy(desc((intlRemittanceTransfers as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(intlRemittanceTransfers).where(eq((intlRemittanceTransfers as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -937,7 +937,7 @@ export const intlRemittanceRouter = router({
     purposeCode: z.string(),
     narration: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(intlRemittanceTransfers).values({ ...input, status: "pending", createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -950,7 +950,7 @@ export const intlRemittanceRouter = router({
     failureReason: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const { id, ...updates } = input;
     const [row] = await db.update(intlRemittanceTransfers).set({ ...updates, updatedAt: new Date() } as any).where(eq((intlRemittanceTransfers as any).id, id)).returning();
@@ -961,12 +961,12 @@ export const intlRemittanceRouter = router({
 // ─── subscription plans v2 ─────────────────────────────────────────────────────
 export const subscriptionV2Router = router({
   listPlans: protectedProcedure.query(async () => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(subscriptionPlansV2).orderBy((subscriptionPlansV2 as any).sortOrder);
   }),
   getPlan: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(subscriptionPlansV2).where(eq((subscriptionPlansV2 as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -983,14 +983,14 @@ export const subscriptionV2Router = router({
     sortOrder: z.number().int().default(0),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(subscriptionPlansV2).values({ ...input, features: JSON.stringify(input.features), isActive: true, createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
   }),
   listSubscribers: protectedProcedure.input(paginationInput.extend({ planId: z.string().optional() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(subscriptionSubscribers);
@@ -1002,7 +1002,7 @@ export const subscriptionV2Router = router({
     billingCycle: z.enum(["monthly", "annual"]),
     paymentMethodId: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [existing] = await db.select().from(portalSubscriptions).where(eq((portalSubscriptions as any).userId, ctx.user.id));
     if (existing && (existing as any).status === "active") {
@@ -1024,13 +1024,13 @@ export const subscriptionV2Router = router({
     return row;
   }),
   getMySubscription: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(portalSubscriptions).where(eq((portalSubscriptions as any).userId, ctx.user.id));
     return row ?? null;
   }),
   cancel: protectedProcedure.mutation(async ({ ctx }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.update(portalSubscriptions).set({ status: "cancelled", cancelledAt: new Date(), updatedAt: new Date() } as any).where(eq((portalSubscriptions as any).userId, ctx.user.id));
     return { success: true };
@@ -1041,7 +1041,7 @@ export const subscriptionV2Router = router({
 export const overheadRouter = router({
   list: protectedProcedure.input(paginationInput).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(overheadCosts).orderBy(desc(overheadCosts.createdAt)).limit(input.limit).offset(offset);
@@ -1056,7 +1056,7 @@ export const overheadRouter = router({
     inflationRateBps: z.number().int().min(0).default(0),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(overheadCosts).values({ ...input, createdBy: String(ctx.user.id), createdAt: new Date(), updatedAt: new Date() }).returning();
     return row;
@@ -1068,7 +1068,7 @@ export const overheadRouter = router({
     isRecurring: z.boolean().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const { id, ...updates } = input;
     const [row] = await db.update(overheadCosts).set({ ...updates, updatedAt: new Date() }).where(eq(overheadCosts.id, id)).returning();
@@ -1076,14 +1076,14 @@ export const overheadRouter = router({
   }),
   delete: protectedProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.delete(overheadCosts).where(eq(overheadCosts.id, input.id));
     return { success: true };
   }),
   summary: protectedProcedure.input(z.object({ periodMonth: z.string() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const rows = await db.select().from(overheadCosts).where(eq(overheadCosts.periodMonth, input.periodMonth));
     const total = rows.reduce((s, r) => s + r.amountKobo, 0);
@@ -1098,7 +1098,7 @@ export const overheadRouter = router({
 // ─── bulk collection items ─────────────────────────────────────────────────────
 export const bulkCollectionRouter = router({
   listItems: protectedProcedure.input(paginationInput.extend({ scheduleId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(bulkCollectionItems);
@@ -1106,7 +1106,7 @@ export const bulkCollectionRouter = router({
     return q.orderBy(desc((bulkCollectionItems as any).createdAt)).limit(input.limit).offset(offset);
   }),
   listSchedules: protectedProcedure.input(paginationInput).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(bulkPaymentSchedules).orderBy(desc((bulkPaymentSchedules as any).createdAt)).limit(input.limit).offset(offset);
@@ -1123,7 +1123,7 @@ export const bulkCollectionRouter = router({
       narration: z.string().optional(),
     })),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [schedule] = await db.insert(bulkPaymentSchedules).values({
       merchantId: input.merchantId,
@@ -1144,7 +1144,7 @@ export const bulkCollectionRouter = router({
 export const fraudFlagsRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ customerId: z.string().optional(), resolved: z.boolean().optional() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const conditions = [];
@@ -1160,7 +1160,7 @@ export const fraudFlagsRouter = router({
     isFalsePositive: z.boolean(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.update(consumerFraudFlags).set({ isResolved: true, resolution: input.resolution, isFalsePositive: input.isFalsePositive, resolvedAt: new Date(), resolvedBy: String(ctx.user.id), updatedAt: new Date() } as any).where(eq((consumerFraudFlags as any).id, input.id)).returning();
     return row;
@@ -1171,13 +1171,13 @@ export const fraudFlagsRouter = router({
 export const taxRouter = router({
   list: protectedProcedure.input(paginationInput.merge(dateRangeInput)).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     return db.select().from(taxWithholdingRecords).orderBy(desc((taxWithholdingRecords as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(taxWithholdingRecords).where(eq((taxWithholdingRecords as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1185,7 +1185,7 @@ export const taxRouter = router({
   }),
   summary: protectedProcedure.input(z.object({ year: z.number().int(), merchantId: z.string().optional() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const rows = await db.select().from(taxWithholdingRecords);
     const total = rows.reduce((s, r) => s + ((r as any).withheldAmountKobo ?? 0), 0);
@@ -1197,7 +1197,7 @@ export const taxRouter = router({
 export const regulatorySandboxRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(regulatorySandboxConfigs);
   }),
@@ -1208,7 +1208,7 @@ export const regulatorySandboxRouter = router({
     expiresAt: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(regulatorySandboxConfigs).values({ ...input, configJson: JSON.stringify(input.configJson), isActive: true, createdBy: String(ctx.user.id), createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -1219,7 +1219,7 @@ export const regulatorySandboxRouter = router({
     isActive: z.boolean().optional(),
   })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const { id, ...updates } = input;
     const [row] = await db.update(regulatorySandboxConfigs).set({ ...updates, configJson: updates.configJson ? JSON.stringify(updates.configJson) : undefined, updatedAt: new Date() } as any).where(eq((regulatorySandboxConfigs as any).id, id)).returning();
@@ -1230,7 +1230,7 @@ export const regulatorySandboxRouter = router({
 // ─── soundbox devices ──────────────────────────────────────────────────────────
 export const soundboxRouter = router({
   list: protectedProcedure.input(z.object({ merchantId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const q = db.select().from(soundboxDevices);
     if (input.merchantId) return q.where(eq((soundboxDevices as any).merchantId, input.merchantId));
@@ -1243,7 +1243,7 @@ export const soundboxRouter = router({
     serialNumber: z.string(),
     firmwareVersion: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(soundboxDevices).values({ ...input, isActive: true, createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
@@ -1253,14 +1253,14 @@ export const soundboxRouter = router({
     isActive: z.boolean(),
     lastSeenAt: z.string().optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const { id, ...updates } = input;
     const [row] = await db.update(soundboxDevices).set({ ...updates, updatedAt: new Date() } as any).where(eq((soundboxDevices as any).id, id)).returning();
     return row;
   }),
   deregister: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.delete(soundboxDevices).where(eq((soundboxDevices as any).id, input.id));
     return { success: true };
@@ -1271,7 +1271,7 @@ export const soundboxRouter = router({
 export const consumerOutboxRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ processed: z.boolean().optional() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(consumerOutbox);
@@ -1280,7 +1280,7 @@ export const consumerOutboxRouter = router({
   }),
   reprocess: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.update(consumerOutbox).set({ processed: false, retryCount: 0, updatedAt: new Date() } as any).where(eq((consumerOutbox as any).id, input.id));
     return { success: true };
@@ -1290,7 +1290,7 @@ export const consumerOutboxRouter = router({
 // ─── invoice payments ──────────────────────────────────────────────────────────
 export const invoicePaymentsRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ invoiceId: z.string().optional() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(invoicePayments);
@@ -1298,7 +1298,7 @@ export const invoicePaymentsRouter = router({
     return q.orderBy(desc((invoicePayments as any).createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(invoicePayments).where(eq((invoicePayments as any).id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1309,7 +1309,7 @@ export const invoicePaymentsRouter = router({
 // ─── merchant profiles & directors ────────────────────────────────────────────
 export const merchantProfilesRouter = router({
   get: protectedProcedure.input(z.object({ merchantId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(merchantProfiles).where(eq((merchantProfiles as any).merchantId, input.merchantId));
     return row ?? null;
@@ -1326,7 +1326,7 @@ export const merchantProfilesRouter = router({
     supportPhone: z.string().optional(),
     socialLinks: z.record(z.string()).optional(),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [existing] = await db.select().from(merchantProfiles).where(eq((merchantProfiles as any).merchantId, input.merchantId));
     if (existing) {
@@ -1337,7 +1337,7 @@ export const merchantProfilesRouter = router({
     return row;
   }),
   listDirectors: protectedProcedure.input(z.object({ merchantId: z.string() })).query(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     return db.select().from(merchantDirectors).where(eq((merchantDirectors as any).merchantId, input.merchantId));
   }),
@@ -1351,13 +1351,13 @@ export const merchantProfilesRouter = router({
     sharePercent: z.number().min(0).max(100).optional(),
     isPep: z.boolean().default(false),
   })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.insert(merchantDirectors).values({ ...input, createdAt: new Date(), updatedAt: new Date() } as any).returning();
     return row;
   }),
   removeDirector: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.delete(merchantDirectors).where(eq((merchantDirectors as any).id, input.id));
     return { success: true };
@@ -1368,7 +1368,7 @@ export const merchantProfilesRouter = router({
 export const billingAuditRouter = router({
   list: protectedProcedure.input(paginationInput.extend({ configId: z.number().int().optional() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(billingAuditLog);
@@ -1377,7 +1377,7 @@ export const billingAuditRouter = router({
   }),
   get: protectedProcedure.input(z.object({ id: z.number().int() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(billingAuditLog).where(eq(billingAuditLog.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1392,7 +1392,7 @@ export const billingEventsRouter = router({
     status: z.string().optional(),
   })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const conditions = [];
@@ -1404,7 +1404,7 @@ export const billingEventsRouter = router({
   }),
   get: protectedProcedure.input(z.object({ id: z.number().int() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const [row] = await db.select().from(billingEvents).where(eq(billingEvents.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND" });
@@ -1412,7 +1412,7 @@ export const billingEventsRouter = router({
   }),
   summary: protectedProcedure.input(z.object({ merchantId: z.string().optional(), periodMonth: z.string() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
-    const db = await getDb();
+    const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const conditions = [];
     if (input.merchantId) conditions.push(eq(billingEvents.merchantId, input.merchantId));

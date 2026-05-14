@@ -20,47 +20,41 @@ export default function StaffManagement() {
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", role: "cashier", phone: "" });
 
-  const { data: membersData, isLoading } = trpc.staffMgmt.listMembers.useQuery({ page, search: search || undefined });
+  const { data: membersData, isLoading } = trpc.staffMgmt.listMembers.useQuery({ page });
   const { data: shiftsData } = trpc.staffMgmt.listShifts.useQuery({ page: 1 });
 
   const createMember = trpc.staffMgmt.createMember.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listMembers.invalidate();
       setAddOpen(false);
-      setForm({ name: "", email: "", role: "cashier", phone: "",
-      onError: (e) => toast.error(e.message),
-    });
+      setForm({ name: "", email: "", role: "cashier", phone: "" });
       toast({ title: "Staff member added" });
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deleteMember = trpc.staffMgmt.deleteMember.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listMembers.invalidate();
-      toast({ title: "Staff member removed",
-      onError: (e) => toast.error(e.message),
-    });
+      toast({ title: "Staff member removed" });
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const clockIn = trpc.staffMgmt.clockIn.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listShifts.invalidate();
-      toast({ title: "Clocked in",
-      onError: (e) => toast.error(e.message),
-    });
+      toast({ title: "Clocked in" });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const clockOut = trpc.staffMgmt.clockOut.useMutation({
     onSuccess: () => {
       utils.staffMgmt.listShifts.invalidate();
-      toast({ title: "Clocked out",
-      onError: (e) => toast.error(e.message),
-    });
+      toast({ title: "Clocked out" });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const members = membersData?.members ?? [];
@@ -107,7 +101,7 @@ export default function StaffManagement() {
         <Card><CardContent className="pt-4"><p className="text-sm text-muted-foreground">Total Staff</p><p className="text-2xl font-bold">{membersData?.total ?? 0}</p></CardContent></Card>
         <Card><CardContent className="pt-4"><p className="text-sm text-muted-foreground">Active Shifts</p><p className="text-2xl font-bold">{shifts.filter((s: any) => !s.clockOut).length}</p></CardContent></Card>
         <Card><CardContent className="pt-4"><p className="text-sm text-muted-foreground">Today's Shifts</p><p className="text-2xl font-bold">{shifts.length}</p></CardContent></Card>
-        <Card><CardContent className="pt-4"><p className="text-sm text-muted-foreground">Pages</p><p className="text-2xl font-bold">{membersData?.pages ?? 1}</p></CardContent></Card>
+        <Card><CardContent className="pt-4"><p className="text-sm text-muted-foreground">Pages</p><p className="text-2xl font-bold">{Math.ceil((membersData?.total ?? 0) / 20) || 1}</p></CardContent></Card>
       </div>
 
       <Tabs defaultValue="members">
@@ -142,7 +136,7 @@ export default function StaffManagement() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={m.status === "active" ? "default" : "secondary"}>{m.role}</Badge>
-                      <Button size="sm" variant="outline" onClick={() => clockIn.mutate({ memberId: m.id })}>
+                      <Button size="sm" variant="outline" onClick={() => clockIn.mutate({ shiftId: parseInt(m.id) || 0 })}>
                         <UserCheck className="w-3.5 h-3.5 mr-1" />Clock In
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => deleteMember.mutate({ id: m.id })}>
@@ -155,11 +149,11 @@ export default function StaffManagement() {
             </div>
           )}
 
-          {(membersData?.pages ?? 1) > 1 && (
+          {Math.ceil((membersData?.total ?? 0) / 20) > 1 && (
             <div className="flex justify-center gap-2">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</Button>
-              <span className="text-sm self-center">Page {page} of {membersData?.pages}</span>
-              <Button variant="outline" size="sm" disabled={page >= (membersData?.pages ?? 1)} onClick={() => setPage(p => p + 1)}>Next</Button>
+              <span className="text-sm self-center">Page {page} of {Math.ceil((membersData?.total ?? 0) / 20)}</span>
+              <Button variant="outline" size="sm" disabled={page >= Math.ceil((membersData?.total ?? 0) / 20)} onClick={() => setPage(p => p + 1)}>Next</Button>
             </div>
           )}
         </TabsContent>

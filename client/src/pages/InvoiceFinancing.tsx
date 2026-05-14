@@ -19,15 +19,15 @@ export default function InvoiceFinancing() {
   const { data, isLoading, refetch } = trpc.invoiceFinV2.list.useQuery({ page, limit: 20, status });
   const applyMutation = trpc.invoiceFinV2.submitApplication.useMutation({
     onSuccess: () => { toast.success("Application submitted"); setApplyOpen(false); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
   const approveMutation = trpc.invoiceFinV2.approve.useMutation({
     onSuccess: () => { toast.success("Application approved"); refetch(); },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
-  const rejectMutation = trpc.invoiceFinV2.reject.useMutation({
-    onSuccess: () => { toast.success("Application rejected"); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const disburseMutation = trpc.invoiceFinV2.disburse.useMutation({
+    onSuccess: () => { toast.success("Funds disbursed"); refetch(); },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const applications = data?.applications ?? [];
@@ -142,10 +142,10 @@ export default function InvoiceFinancing() {
                       <td className="py-3 px-2 text-right">
                         {a.status === "pending" && (
                           <div className="flex justify-end gap-1">
-                            <Button size="sm" variant="ghost" className="text-green-600" onClick={() => approveMutation.mutate({ id: a.id })}>
+                            <Button size="sm" variant="ghost" className="text-green-600" onClick={() => approveMutation.mutate({ id: a.id, approvedAmount: a.requestedAmount })}>
                               <CheckCircle className="w-3 h-3" />
                             </Button>
-                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => rejectMutation.mutate({ id: a.id, reason: "Rejected by admin" })}>
+                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => disburseMutation.mutate({ id: a.id })}>
                               <XCircle className="w-3 h-3" />
                             </Button>
                           </div>

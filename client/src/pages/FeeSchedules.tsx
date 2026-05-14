@@ -20,8 +20,7 @@ export default function FeeSchedules() {
   const { data, isLoading, refetch } = trpc.feeSchedules.list.useQuery({
     page,
     limit: 20,
-    feeType,
-    search: search || undefined,
+    transactionType: feeType || undefined,
   });
 
   const createMutation = trpc.feeSchedules.create.useMutation({

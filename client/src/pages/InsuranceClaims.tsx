@@ -36,30 +36,25 @@ export default function InsuranceClaims() {
     onSuccess: () => {
       utils.insuranceClaims.list.invalidate();
       setAddOpen(false);
-      setForm({ policyId: "", claimType: "health", amount: "", description: "",
-      onError: (e) => toast.error(e.message),
-    });
+      setForm({ policyId: "", claimType: "health", amount: "", description: "" });
       toast({ title: "Claim submitted" });
     },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const approveClaim = trpc.insuranceClaims.approve.useMutation({
-    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim approved",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim approved" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const rejectClaim = trpc.insuranceClaims.reject.useMutation({
-    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim rejected",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim rejected" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const payClaim = trpc.insuranceClaims.pay.useMutation({
-    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim paid",
-      onError: (e) => toast.error(e.message),
-    }); },
+    onSuccess: () => { utils.insuranceClaims.list.invalidate(); toast({ title: "Claim paid" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const claims = data?.claims ?? [];
@@ -93,7 +88,7 @@ export default function InsuranceClaims() {
               </div>
               <div><Label>Claim Amount (NGN)</Label><Input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="50000" /></div>
               <div><Label>Description</Label><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Describe the claim..." /></div>
-              <Button className="w-full" disabled={createClaim.isPending} onClick={() => createClaim.mutate({ ...form, amount: Number(form.amount) })}>
+              <Button className="w-full" disabled={createClaim.isPending} onClick={() => createClaim.mutate({ policyId: form.policyId, claimType: form.claimType, claimAmountKobo: Math.round(Number(form.amount) * 100), incidentDate: Date.now(), description: form.description })}>
                 {createClaim.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Submit Claim
               </Button>
             </div>
@@ -144,7 +139,7 @@ export default function InsuranceClaims() {
                 <div className="flex gap-2 shrink-0">
                   {c.status === "pending" && (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => approveClaim.mutate({ id: c.id })}>
+                      <Button size="sm" variant="outline" onClick={() => approveClaim.mutate({ id: c.id, approvedAmountKobo: c.claimAmountKobo ?? 0 })}>
                         <CheckCircle className="w-3.5 h-3.5 mr-1" />Approve
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => rejectClaim.mutate({ id: c.id, reason: "Rejected by admin" })}>
@@ -164,11 +159,11 @@ export default function InsuranceClaims() {
         </div>
       )}
 
-      {(data?.pages ?? 1) > 1 && (
+      {Math.ceil((data?.total ?? 0) / 20) > 1 && (
         <div className="flex justify-center gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</Button>
-          <span className="text-sm self-center">Page {page} of {data?.pages}</span>
-          <Button variant="outline" size="sm" disabled={page >= (data?.pages ?? 1)} onClick={() => setPage(p => p + 1)}>Next</Button>
+          <span className="text-sm self-center">Page {page} of {Math.ceil((data?.total ?? 0) / 20)}</span>
+          <Button variant="outline" size="sm" disabled={page >= Math.ceil((data?.total ?? 0) / 20)} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       )}
     </div>
