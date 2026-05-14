@@ -13,6 +13,7 @@ import { logger } from './logger';
  */
 
 import { upsertNipBanks } from "./db";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 const REFRESH_INTERVAL_MS =
   Number(process.env.NIP_BANK_REFRESH_INTERVAL_MS) || 24 * 60 * 60 * 1000; // 24 h
@@ -66,7 +67,9 @@ async function runRefresh(): Promise<void> {
     logger.info(`[nipBankRefresh] Upserted ${records.length} banks successfully`);
   } catch (err) {
     // Fail-open: log and continue — existing directory is preserved
-    logger.error("[nipBankRefresh] Refresh failed (existing directory preserved):", err instanceof Error ? err.message : err);
+    if (!isSuppressedWorkerError(err)) {
+      logger.error("[nipBankRefresh] Refresh failed (existing directory preserved):", err instanceof Error ? err.message : err);
+    }
   }
 }
 

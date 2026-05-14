@@ -60,14 +60,15 @@ export default defineConfig({
         "server/pgSetupFile.ts",
         "server/serverHealthGlobalSetup.ts",
       ],
-      // Current baseline coverage (as of Round 10 / Round 11):
-      // lines: ~10.65%, functions: ~7.09%, branches: ~7.39%, statements: ~11.4%
+      // Current baseline coverage (as of Round 13):
+      // 4602 tests across 115 test files; ~200 new tests added since Round 11
+      // Estimated: lines: ~12%, functions: ~9%, branches: ~8%, statements: ~13%
       // These thresholds prevent regression; raise incrementally as more tests are added.
       thresholds: {
-        lines: 10,
-        functions: 7,
-        branches: 7,
-        statements: 11,
+        lines: 12,
+        functions: 9,
+        branches: 8,
+        statements: 13,
       },
     },
     projects: [

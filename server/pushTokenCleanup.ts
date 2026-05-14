@@ -13,6 +13,7 @@ import { logger } from './logger';
  */
 
 import { getDb } from "./db";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 const CLEANUP_INTERVAL_MS =
   Number(process.env.PUSH_TOKEN_CLEANUP_INTERVAL_MS) || 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -48,10 +49,12 @@ async function runCleanup(): Promise<void> {
 
     logger.info(`[pushTokenCleanup] Removed ${result.length} stale/inactive push tokens`);
   } catch (err) {
-    console.error(
-      "[pushTokenCleanup] Cleanup failed:",
-      err instanceof Error ? err.message : err,
-    );
+    if (!isSuppressedWorkerError(err)) {
+      console.error(
+        "[pushTokenCleanup] Cleanup failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 

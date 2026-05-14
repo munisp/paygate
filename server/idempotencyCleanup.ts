@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { isSuppressedWorkerError } from './workerErrorFilter';
 /**
  * Idempotency Key TTL Cleanup Worker
  *
@@ -31,7 +32,9 @@ async function cleanupExpiredKeys(): Promise<void> {
       console.info(`[idempotencyCleanup] Purged ${deleted} expired idempotency keys`);
     }
   } catch (err) {
-    logger.error("[idempotencyCleanup] Cleanup error:", err);
+    if (!isSuppressedWorkerError(err)) {
+      logger.error("[idempotencyCleanup] Cleanup error:", err);
+    }
   }
 }
 
@@ -41,10 +44,10 @@ export function startIdempotencyCleanupWorker(): void {
   if (cleanupInterval) return;
 
   // Run immediately on startup, then every 6 hours
-  cleanupExpiredKeys().catch(console.error);
+  cleanupExpiredKeys().catch(e => { if (!isSuppressedWorkerError(e)) console.error('[idempotencyCleanup] Startup error:', e); });
 
   cleanupInterval = setInterval(() => {
-    cleanupExpiredKeys().catch(console.error);
+    cleanupExpiredKeys().catch(e => { if (!isSuppressedWorkerError(e)) console.error('[idempotencyCleanup] Error:', e); });
   }, CLEANUP_INTERVAL_MS);
 
   console.info("[idempotencyCleanup] Worker started (interval=6h)");

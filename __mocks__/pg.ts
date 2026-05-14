@@ -215,20 +215,20 @@ const DDL_STATEMENTS = [
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`,
   `CREATE TABLE IF NOT EXISTS webhook_deliveries (
-    id SERIAL PRIMARY KEY,
-    webhook_id INTEGER,
-    merchant_id INTEGER,
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    webhook_id TEXT NOT NULL,
+    merchant_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
-    payload JSONB,
-    status TEXT DEFAULT 'pending',
-    response_code INTEGER,
+    payload JSONB NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending',
     response_status INTEGER,
     response_body TEXT,
-    latency_ms INTEGER DEFAULT 0,
-    attempt_count INTEGER DEFAULT 0,
+    latency_ms INTEGER,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
     next_retry_at TIMESTAMPTZ,
     delivered_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS api_keys (
     id SERIAL PRIMARY KEY,

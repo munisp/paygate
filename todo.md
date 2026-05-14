@@ -4180,3 +4180,17 @@
 - [x] Add server/wave90.procedures.test.ts (37 tests: BNPL amortisation, loyalty fallbacks, tenant branding, gold, remittance, insurance, EMI, subscriptions, virtual cards, partner onboarding)
 - [x] Full test suite: 4512 passed | 0 failed | 111 test files (up from 4475 | 0 | 110 at Round 11)
 - [x] New test count: +37 tests (wave90.procedures.test.ts)
+
+## Round 13 — Router Coverage, Admin Tests, NewFeatures Tests, Coverage Thresholds
+
+- [x] Fix test timeouts: increase testTimeout/hookTimeout to 15000ms in standard-tests project
+- [x] Fix Window Function Interceptor tests (all 63 db.pg.test.ts tests pass)
+- [x] Write wave104.test.ts (9 tests for adminDataPipelineRouter)
+- [x] Write admin.router.test.ts (21 tests for platformOverview, merchants, disputes, fraud, settlements, compliance, system health)
+- [x] Write newFeatures.router.test.ts (38 tests for gold, fx, wealthManagement, emi, nodalAccount, churnAnalytics, remittance, insurance, sipRouter, wealthManagementMw, anomalyDetection, customerSegmentation)
+- [x] Write remaining.routers.test.ts (22 tests for marketDataRouter, sipRouter, grpcRouter, ollamaRouter, portalBillingRouter)
+- [x] Fix slaEscalation.test.ts Invalid time value errors (add createdAt to makeBreachRow)
+- [x] Fix webhook_deliveries table in pg-mem mock (add tenant_id, webhook_id, merchant_id, fix id to TEXT, add payload JSONB)
+- [x] Update coverage thresholds to Round 13 baseline (lines: 12%, functions: 9%, branches: 8%, statements: 13%)
+- [x] Fix tsc OOM: add NODE_OPTIONS=--max-old-space-size=8192 to typecheck script in package.json
+- [x] Full test suite: 4602 passed / 0 failed / 115 test files

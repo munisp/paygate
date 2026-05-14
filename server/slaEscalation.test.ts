@@ -77,6 +77,7 @@ function makeBreachRow(overrides: Partial<{
   slaDeadlineAt: Date;
   resolvedAt: Date | null;
   severity: string;
+  createdAt: Date;
 }> = {}) {
   const fiveHoursAgo = new Date(Date.now() - 5 * 3_600_000);
   return {
@@ -89,6 +90,7 @@ function makeBreachRow(overrides: Partial<{
     slaDeadlineAt: new Date(Date.now() - 7 * 3_600_000),
     resolvedAt: null,
     severity: "high",
+    createdAt: new Date(Date.now() - 8 * 3_600_000),
     ...overrides,
   };
 }

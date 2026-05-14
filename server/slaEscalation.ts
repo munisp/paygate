@@ -15,6 +15,7 @@ import { settlements } from "../drizzle/schema.js";
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { notifyOwner } from "./_core/notification.js";
 import { dispatchSlaBreachWebhook } from "./webhookDispatch.js";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 // ─── 4-Level Escalation Chain ─────────────────────────────────────────────────
 // Level 1 (T+0):   In-app notification + webhook dispatch
@@ -163,7 +164,9 @@ export async function runSlaEscalation(): Promise<EscalationResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     result.errors.push(`Escalation query failed: ${msg}`);
-    logger.error("[SLA Escalation] Query error:", err);
+    if (!isSuppressedWorkerError(err)) {
+      logger.error("[SLA Escalation] Query error:", err);
+    }
   }
 
   return result;
@@ -184,11 +187,11 @@ export function startSlaEscalationScheduler(): void {
 
   // Run once immediately on startup (with a short delay to let the DB connect)
   setTimeout(() => {
-    runSlaEscalation().catch(err => logger.error("[SLA Escalation] Startup run error:", err));
+    runSlaEscalation().catch(err => { if (!isSuppressedWorkerError(err)) logger.error("[SLA Escalation] Startup run error:", err); });
   }, 10_000);
 
   _timer = setInterval(() => {
-    runSlaEscalation().catch(err => logger.error("[SLA Escalation] Scheduled run error:", err));
+    runSlaEscalation().catch(err => { if (!isSuppressedWorkerError(err)) logger.error("[SLA Escalation] Scheduled run error:", err); });
   }, INTERVAL_MS);
 }
 

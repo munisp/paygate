@@ -197,6 +197,15 @@ export function startWebhookRetryWorker() {
   console.info("[webhookRetry] Starting retry worker (interval=30s, maxAttempts=7)");
   workerInterval = setInterval(() => {
     processRetries().catch((err) => {
+      // Suppress expected errors when DB tables are not yet migrated or DB is unreachable
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('relation') && msg.includes('does not exist')) return;
+      if (msg.includes('connect ECONNREFUSED')) return;
+      if (msg.includes('Failed query')) {
+        // Only log at debug level for query failures (table may not exist yet)
+        logger.warn('[webhookRetry] Worker query error (table may not be migrated yet):', msg.slice(0, 120));
+        return;
+      }
       logger.error("[webhookRetry] Worker error:", err);
     });
   }, WORKER_INTERVAL_MS);

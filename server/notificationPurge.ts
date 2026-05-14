@@ -13,6 +13,7 @@ import { logger } from './logger';
  */
 
 import { getDb } from "./db";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 const PURGE_INTERVAL_MS =
   Number(process.env.NOTIFICATION_PURGE_INTERVAL_MS) || 24 * 60 * 60 * 1000; // 24 h
@@ -55,10 +56,12 @@ async function runPurge(): Promise<void> {
 
     logger.info(`[notificationPurge] Purged ${result.length} old notifications`);
   } catch (err) {
-    console.error(
-      "[notificationPurge] Purge failed:",
-      err instanceof Error ? err.message : err,
-    );
+    if (!isSuppressedWorkerError(err)) {
+      console.error(
+        "[notificationPurge] Purge failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 

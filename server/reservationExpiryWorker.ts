@@ -13,6 +13,8 @@ import { logger } from './logger';
  *
  * Usage: call startReservationExpiryWorker() once in server/_core/index.ts
  */
+import { logger } from './logger';
+import { isSuppressedWorkerError } from './workerErrorFilter';
 import { getDb } from "./db";
 import { transactions } from "../drizzle/schema";
 import { and, eq, isNotNull, lt, sql } from "drizzle-orm";
@@ -87,7 +89,9 @@ export function startReservationExpiryWorker(): void {
         })
       );
     } catch (err) {
-      logger.error("[reservationExpiry] Worker error:", err);
+      if (!isSuppressedWorkerError(err)) {
+        logger.error("[reservationExpiry] Worker error:", err);
+      }
     }
   };
 

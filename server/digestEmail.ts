@@ -11,6 +11,7 @@
 import { sendEmail } from "./emailService";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 const PORTAL_URL = ENV.merchantPortalUrl ?? "https://paygate.manus.space";
 
@@ -329,7 +330,7 @@ export async function sendMerchantDailyDigests(): Promise<void> {
 
     console.info(`[digestEmail] Sent merchant daily digests to ${prefs.length} merchants`);
   } catch (err) {
-    console.error("[digestEmail] Merchant daily digest error:", err);
+    if (!isSuppressedWorkerError(err)) console.error("[digestEmail] Merchant daily digest error:", err);
   }
 }
 
@@ -411,7 +412,7 @@ export async function sendConsumerWeeklyDigests(): Promise<void> {
 
     console.info(`[digestEmail] Sent consumer weekly digests to ${prefs.length} consumers`);
   } catch (err) {
-    console.error("[digestEmail] Consumer weekly digest error:", err);
+    if (!isSuppressedWorkerError(err)) console.error("[digestEmail] Consumer weekly digest error:", err);
   }
 }
 
@@ -491,7 +492,7 @@ export async function sendAdminWeeklyReports(): Promise<void> {
 
     console.info(`[digestEmail] Sent admin weekly reports to ${prefs.length} admins`);
   } catch (err) {
-    console.error("[digestEmail] Admin weekly report error:", err);
+    if (!isSuppressedWorkerError(err)) console.error("[digestEmail] Admin weekly report error:", err);
   }
 }
 

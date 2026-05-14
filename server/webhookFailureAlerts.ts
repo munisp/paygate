@@ -10,6 +10,7 @@
 
 import { getDb } from "./db";
 import { notifyOwner } from "./_core/notification";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -117,7 +118,9 @@ export async function pollWebhookFailures(): Promise<WebhookFailureAlert[]> {
 
     return alerts;
   } catch (err) {
-    console.error("[webhookFailureAlerts] Poll error:", err);
+    if (!isSuppressedWorkerError(err)) {
+      console.error("[webhookFailureAlerts] Poll error:", err);
+    }
     return [];
   }
 }

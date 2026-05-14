@@ -9,6 +9,7 @@ import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendEmail } from "./emailService";
 import { notifyOwner } from "./_core/notification";
+import { isSuppressedWorkerError } from './workerErrorFilter';
 
 // ─── SIP Executor ─────────────────────────────────────────────────────────────
 
@@ -132,7 +133,9 @@ async function executeDueSipPlans() {
       }).catch(() => {});
     }
   } catch (err: any) {
-    logger.error(`[SIP] Cron error: ${err.message}`);
+    if (!isSuppressedWorkerError(err)) {
+      logger.error(`[SIP] Cron error: ${err.message}`);
+    }
   }
 }
 
@@ -176,7 +179,9 @@ async function autoFreezeEscalatedRings() {
       }).catch(() => {});
     }
   } catch (err: any) {
-    logger.error(`[FraudRing] Auto-freeze cron error: ${err.message}`);
+    if (!isSuppressedWorkerError(err)) {
+      logger.error(`[FraudRing] Auto-freeze cron error: ${err.message}`);
+    }
   }
 }
 
@@ -206,7 +211,7 @@ async function checkSettlementSLA() {
     }
   } catch (err: any) {
     // Settlements table may not have sla_breached column — non-fatal
-    if (!err.message?.includes("column") && !err.message?.includes("does not exist")) {
+    if (!isSuppressedWorkerError(err) && !err.message?.includes("column") && !err.message?.includes("does not exist")) {
       logger.error(`[SLA] Settlement SLA cron error: ${err.message}`);
     }
   }
@@ -233,9 +238,9 @@ export function startCronJobs() {
 
   // Run immediately on startup (after a short delay to let DB connect)
   setTimeout(() => {
-    executeDueSipPlans().catch(e => logger.error(`[Cron] SIP initial run: ${e.message}`));
-    autoFreezeEscalatedRings().catch(e => logger.error(`[Cron] FraudRing initial run: ${e.message}`));
-    checkSettlementSLA().catch(e => logger.error(`[Cron] SLA initial run: ${e.message}`));
+    executeDueSipPlans().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SIP initial run: ${e.message}`); });
+    autoFreezeEscalatedRings().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] FraudRing initial run: ${e.message}`); });
+    checkSettlementSLA().catch(e => { if (!isSuppressedWorkerError(e)) logger.error(`[Cron] SLA initial run: ${e.message}`); });
   }, 15_000);
 
   logger.info("[Cron] Scheduled jobs started: SIP(5m), FraudRingAutoFreeze(30m), SettlementSLA(15m)");
