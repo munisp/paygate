@@ -56,11 +56,26 @@ const generateMockEvents = () => {
 };
 
 export default function WAFAlertDashboard() {
-  // Real audit events from DB
-  const { data: auditEvents, isLoading } = trpc.wave99.auditEvents.list.useQuery({ limit: 100 });
-  const { data: rateLimitEvents } = trpc.wave99.rateLimitEvents.list.useQuery({ limit: 50 });
+  // Real WAF alerts from DB via wafAlerts router
+  const { data: wafAlertsData, isLoading, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 });
+  const { data: wafStats } = trpc.wafAlerts.stats.useQuery();
+  const { data: topAttackersData } = trpc.wafAlerts.getTopAttackers.useQuery({ limit: 10 });
   
-  const [events, setEvents] = useState(generateMockEvents());
+  // Map real DB rows to display format, fallback to mock for empty state
+  const dbEvents = (wafAlertsData?.rows ?? []).map((row: any) => ({
+    id: row.id ?? `db-${Math.random()}`,
+    timestamp: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+    attackType: row.action?.replace('waf.', '') ?? 'unknown',
+    severity: row.severity ?? 'medium',
+    sourceIp: row.ipAddress ?? '0.0.0.0',
+    country: row.country ?? 'NG',
+    endpoint: row.resourceId ?? '/api/trpc',
+    blocked: true,
+    userAgent: row.userAgent ?? 'unknown',
+    ruleId: row.ruleId ?? 'OWASP-0000',
+  }));
+  
+  const [events, setEvents] = useState(dbEvents.length > 0 ? dbEvents : generateMockEvents());
   const [liveEvents, setLiveEvents] = useState<any[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [filterSeverity, setFilterSeverity] = useState("all");
@@ -115,7 +130,8 @@ export default function WAFAlertDashboard() {
   };
 
   const refreshEvents = () => {
-    setEvents(generateMockEvents());
+    refetchAlerts();
+    if (dbEvents.length === 0) setEvents(generateMockEvents());
     toast.success("WAF events refreshed");
   };
 

@@ -523,6 +523,30 @@ export default function FraudRisk() {
   const [showNewRule, setShowNewRule] = useState(false);
   const [newRule, setNewRule] = useState({ name: "", desc: "", type: "velocity" });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const seededFromDbRef = useRef(false);
+
+  // Seed initial transactions from real DB fraud alerts once loaded
+  useEffect(() => {
+    if (seededFromDbRef.current || !dbAlerts?.rows?.length) return;
+    seededFromDbRef.current = true;
+    const dbTxs = (dbAlerts.rows as any[]).map((row) => ({
+      id: row.id,
+      amount: Number(row.amount ?? 0),
+      currency: row.currency ?? "NGN",
+      risk: (row.riskLevel ?? "medium") as typeof RISK_LEVELS[number],
+      score: Number(row.riskScore ?? 50),
+      channel: row.channel ?? "card",
+      country: row.country ?? "NG",
+      email: row.customerEmail ?? "unknown@example.com",
+      ip: row.ipAddress ?? "0.0.0.0",
+      fraudType: row.alertType ?? "Unknown",
+      signals: row.signals ? (Array.isArray(row.signals) ? row.signals : [String(row.signals)]) : [],
+      status: (row.status ?? "flagged") as "flagged" | "blocked" | "reviewing" | "cleared",
+      time: row.createdAt ? new Date(row.createdAt).toLocaleTimeString() : new Date().toLocaleTimeString(),
+      model: row.mlModel ?? "GraphSAGE v2.1",
+    }));
+    if (dbTxs.length > 0) setTransactions(dbTxs);
+  }, [dbAlerts]);
 
   // Live feed simulation
   useEffect(() => {

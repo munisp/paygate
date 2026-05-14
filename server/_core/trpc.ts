@@ -4,8 +4,21 @@ import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { logProcedure } from "../logger";
 
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  // Mask stack traces in production to prevent information leakage
+  errorFormatter({ shape, error }) {
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        // Only include stack traces in development
+        stack: IS_PRODUCTION ? undefined : shape.data.stack,
+      },
+    };
+  },
 });
 
 // ─── Logging middleware ───────────────────────────────────────────────────────

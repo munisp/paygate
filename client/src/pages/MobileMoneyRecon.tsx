@@ -77,11 +77,39 @@ export default function MobileMoneyRecon() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [reconciling, setReconciling] = useState(false);
-  const [entries] = useState(() => ({
+  // Real DB data for the main table (falls back to mock if empty)
+  const { data: dbReconData } = trpc.mobileMoneyRecon.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
+  const [entries, setEntries] = useState(() => ({
     mpesa: generateEntries("mpesa", 18),
     mtn: generateEntries("mtn", 14),
     airtel: generateEntries("airtel", 12),
   }));
+  // Seed entries from DB when real data loads
+  useEffect(() => {
+    const rows = (dbReconData as any)?.rows ?? [];
+    const byProvider: Record<string, any[]> = { mpesa: [], mtn: [], airtel: [] };
+    rows.forEach((row: any) => {
+      const p = row.provider?.toLowerCase() ?? "mpesa";
+      const key = p.includes("mtn") ? "mtn" : p.includes("airtel") ? "airtel" : "mpesa";
+      byProvider[key].push({
+        id: row.id,
+        customer: row.customerId ?? "Unknown",
+        phone: row.providerRef?.startsWith("+") ? row.providerRef : `+234${row.providerRef ?? "00000000"}`,
+        amount: Number(row.amount ?? 0),
+        currency: row.currency ?? "NGN",
+        status: row.status ?? "pending",
+        time: row.createdAt ? new Date(row.createdAt).toLocaleTimeString() : "--",
+        ref: row.id,
+        gatewayRef: row.id,
+        providerRef: row.providerRef ?? "--",
+      });
+    });
+    setEntries(prev => ({
+      mpesa: byProvider.mpesa.length > 0 ? byProvider.mpesa : prev.mpesa,
+      mtn: byProvider.mtn.length > 0 ? byProvider.mtn : prev.mtn,
+      airtel: byProvider.airtel.length > 0 ? byProvider.airtel : prev.airtel,
+    }));
+  }, [dbReconData]);
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
 
   const provider = PROVIDERS.find(p => p.id === activeProvider)!;
