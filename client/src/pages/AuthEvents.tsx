@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Shield, RefreshCw, AlertTriangle, CheckCircle, LogIn, LogOut, Search } from "lucide-react";
+import { Shield, RefreshCw, AlertTriangle, CheckCircle, LogIn, LogOut, Search, Download } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { toast } from "sonner";
 
 const EVENT_TYPES = [
   { value: "ALL", label: "All Events" },
@@ -51,6 +52,18 @@ function formatTimestamp(ts: Date | string) {
   });
 }
 
+function downloadFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function AuthEvents() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -58,6 +71,7 @@ export default function AuthEvents() {
   const [eventTypeFilter, setEventTypeFilter] = useState("ALL");
   const [userIdFilter, setUserIdFilter] = useState("");
   const [limit, setLimit] = useState(100);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data, isLoading, refetch, isFetching } = trpc.keycloak.getAuthEvents.useQuery({
     limit,
@@ -65,12 +79,66 @@ export default function AuthEvents() {
     userId: isAdmin && userIdFilter.trim() ? userIdFilter.trim() : undefined,
   });
 
+  const exportQuery = trpc.keycloak.exportAuthEvents.useQuery(
+    {
+      format: "csv",
+      userId: isAdmin && userIdFilter.trim() ? userIdFilter.trim() : undefined,
+      eventType: eventTypeFilter === "ALL" ? undefined : eventTypeFilter,
+      limit: 5000,
+    },
+    { enabled: false }
+  );
+
+  const exportJsonQuery = trpc.keycloak.exportAuthEvents.useQuery(
+    {
+      format: "json",
+      userId: isAdmin && userIdFilter.trim() ? userIdFilter.trim() : undefined,
+      eventType: eventTypeFilter === "ALL" ? undefined : eventTypeFilter,
+      limit: 5000,
+    },
+    { enabled: false }
+  );
+
+  const handleExportCsv = async () => {
+    if (!isAdmin) { toast.error("Admin access required"); return; }
+    setIsExporting(true);
+    try {
+      const result = await exportQuery.refetch();
+      if (result.data?.data) {
+        const timestamp = new Date().toISOString().slice(0, 10);
+        downloadFile(result.data.data, `auth-events-${timestamp}.csv`, "text/csv;charset=utf-8;");
+        toast.success(`Exported ${result.data.count} events as CSV`);
+      }
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportJson = async () => {
+    if (!isAdmin) { toast.error("Admin access required"); return; }
+    setIsExporting(true);
+    try {
+      const result = await exportJsonQuery.refetch();
+      if (result.data?.data) {
+        const timestamp = new Date().toISOString().slice(0, 10);
+        downloadFile(result.data.data, `auth-events-${timestamp}.json`, "application/json");
+        toast.success(`Exported ${result.data.count} events as JSON`);
+      }
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const events = data?.events ?? [];
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Shield className="w-6 h-6 text-primary" />
@@ -80,16 +148,42 @@ export default function AuthEvents() {
             Keycloak login, logout, and security events for compliance and anomaly detection
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportCsv}
+                disabled={isExporting || isLoading}
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportJson}
+                disabled={isExporting || isLoading}
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Export JSON
+              </Button>
+            </>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -165,6 +259,7 @@ export default function AuthEvents() {
           <CardTitle className="text-base">Event Log</CardTitle>
           <CardDescription>
             {isLoading ? "Loading…" : `${events.length} event${events.length !== 1 ? "s" : ""} shown`}
+            {isAdmin && <span className="ml-2 text-muted-foreground">· Use Export buttons above to download up to 5,000 events</span>}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">

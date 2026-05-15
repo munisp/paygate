@@ -92,6 +92,43 @@ export async function storagePut(
   return { key, url };
 }
 
+export async function storageList(prefix: string): Promise<{ key: string; url: string; size?: number; lastModified?: string }[]> {
+  const { baseUrl, apiKey } = getStorageConfig();
+  const listUrl = new URL("v1/storage/list", ensureTrailingSlash(baseUrl));
+  listUrl.searchParams.set("prefix", normalizeKey(prefix));
+  const response = await fetch(listUrl, {
+    method: "GET",
+    headers: buildAuthHeaders(apiKey),
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(`Storage list failed (${response.status}): ${message}`);
+  }
+  const data = await response.json();
+  // The forge storage API returns { files: [{ path, url, size, lastModified }] }
+  const files: any[] = data.files ?? data.items ?? [];
+  return files.map((f: any) => ({
+    key: normalizeKey(f.path ?? f.key ?? ""),
+    url: f.url ?? "",
+    size: f.size,
+    lastModified: f.lastModified ?? f.last_modified,
+  }));
+}
+
+export async function storageDelete(relKey: string): Promise<void> {
+  const { baseUrl, apiKey } = getStorageConfig();
+  const deleteUrl = new URL("v1/storage/delete", ensureTrailingSlash(baseUrl));
+  deleteUrl.searchParams.set("path", normalizeKey(relKey));
+  const response = await fetch(deleteUrl, {
+    method: "DELETE",
+    headers: buildAuthHeaders(apiKey),
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(`Storage delete failed (${response.status}): ${message}`);
+  }
+}
+
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
   const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);

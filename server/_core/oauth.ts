@@ -376,7 +376,7 @@ export function registerOAuthRoutes(app: Express) {
     "/api/internal/keycloak-events",
     rateLimitMiddleware(webhookRateLimit, "/api/internal/keycloak-events"),
     async (req: Request, res: Response) => {
-      const webhookSecret = process.env.KEYCLOAK_WEBHOOK_SECRET;
+      const webhookSecret = ENV.keycloakWebhookSecret || undefined;
 
       // Verify HMAC signature if a secret is configured
       if (webhookSecret) {

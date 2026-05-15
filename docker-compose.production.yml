@@ -51,6 +51,12 @@ x-python-defaults: &python-defaults
 networks:
   paygate:
     driver: bridge
+  # keycloak-admin: internal-only network for Keycloak Admin Console.
+  # The Admin Console (port 8080) is NOT exposed to the host.
+  # Access via SSH tunnel: ssh -L 18080:keycloak:8080 <bastion-host>
+  keycloak-admin:
+    driver: bridge
+    internal: true
 
 volumes:
   postgres_data:
@@ -120,6 +126,10 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-paygate}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-merchant-portal}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me_run_bootstrap_script}
+      # Keycloak Admin credentials for the nightly realm backup job
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
       # Comma-separated list of allowed redirect origins (e.g. https://portal.acme.com)
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     depends_on:
@@ -312,8 +322,10 @@ services:
       # This value must match KEYCLOAK_WEBHOOK_SECRET in the portal .env.
       # Generate with: openssl rand -hex 32
       KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
-    ports:
-      - "${KEYCLOAK_PORT:-8081}:8080"
+    # Port 8080 is intentionally NOT exposed to the host.
+    # Uncomment the line below ONLY for initial bootstrap / emergency access:
+    # ports:
+    #   - "127.0.0.1:${KEYCLOAK_PORT:-18080}:8080"
     # Health-check: poll /health/ready so dependent services (portal, bootstrap
     # script) only start once Keycloak is fully initialised and serving OIDC.
     healthcheck:
@@ -330,7 +342,13 @@ services:
       # Mount realm JSON so Keycloak auto-imports it on first start (--import-realm).
       # The realm is only imported if it does not already exist.
       - ./keycloak/paygate-realm.json:/opt/keycloak/data/import/paygate-realm.json:ro
-    networks: [paygate]
+    networks:
+      - paygate
+      - keycloak-admin
+    # NOTE: Port 8080 (Admin Console) is NOT exposed to the host.
+    # The portal reaches Keycloak via the internal Docker network (http://keycloak:8080).
+    # To access Admin Console: ssh -L 18080:localhost:8080 <bastion-ip>
+    # then open http://localhost:18080/admin
 
   # ─── MinIO (S3-compatible Lakehouse storage) ──────────────────────
   minio:

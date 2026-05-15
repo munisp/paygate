@@ -4540,3 +4540,19 @@
 - [x] docs/keycloak-deployment.md: Add password policy and production pre-flight checklist sections
 - [x] server/_core/oauth.ts: Add state parameter entropy validation (min 32 bytes) to callback handler
 - [x] Write vitest tests for Round 40 features
+
+## Round 41 — Admin UI Lockdown, Audit Export, Realm Backup
+- [ ] docker-compose.production.yml: Remove Keycloak port 8080 from public expose; add keycloak-admin internal network
+- [ ] docker-compose.production.yml: Add internal-only keycloak-admin network; app connects to keycloak via internal network only
+- [ ] server/routers.ts: Add keycloak.exportAuthEvents query with CSV/XLSX download support
+- [ ] client/src/pages/AuthEvents.tsx: Add Export CSV and Export XLSX buttons to the audit log page
+- [ ] scripts/keycloak-realm-backup.sh: Nightly realm backup script using Keycloak Admin REST API → S3 upload
+- [ ] periodic-updates: Register nightly realm backup as a Heartbeat scheduled task
+
+## Round 42 — Backup retention, restore runbook, backup health-check
+
+- [ ] S3 backup retention: auto-delete keycloak-backups older than 30 days in the scheduled handler
+- [ ] Add listKeycloakBackups and deleteKeycloakBackup tRPC procedures for admin management
+- [ ] Add /api/health/keycloak-backup endpoint showing age of latest backup
+- [ ] Backup restore runbook in docs/keycloak-deployment.md
+- [ ] Backup management UI section in AuthEvents page (list/delete backups)

@@ -24,6 +24,10 @@ export const ENV = {
   // Must match the secret configured in the http-event-listener SPI provider.
   // Generate with: openssl rand -hex 32
   keycloakWebhookSecret: process.env.KEYCLOAK_WEBHOOK_SECRET ?? "",
+  // Keycloak Admin credentials — used by the nightly realm backup job
+  // These are the Keycloak master realm admin username/password (not the portal user)
+  keycloakAdminUser: process.env.KEYCLOAK_ADMIN ?? "admin",
+  keycloakAdminPassword: process.env.KEYCLOAK_ADMIN_PASSWORD ?? "",
 
   // Stripe
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",

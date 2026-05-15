@@ -267,3 +267,77 @@ Events are forwarded from Keycloak to the portal via the `/api/internal/keycloak
 The webhook uses HMAC-SHA256 signature verification (`X-Keycloak-Signature` header). If `KEYCLOAK_WEBHOOK_SECRET` is not set, signature verification is skipped (not recommended for production).
 
 Events are also mirrored to the existing `audit_events` table for cross-system correlation.
+
+
+---
+
+## Backup Management
+
+### Nightly Automated Backup
+
+The portal runs a nightly Heartbeat job (`/api/scheduled/keycloak-realm-backup`) that:
+1. Authenticates to the Keycloak Admin REST API using `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD`
+2. Calls the partial-export endpoint (`/admin/realms/{realm}/partial-export?exportClients=true&exportGroupsAndRoles=true`)
+3. Uploads the realm JSON to S3 under `keycloak-backups/{realm}-realm-{date}-{ts}.json`
+4. Purges backups older than 30 days (retention policy)
+
+**Required env vars for the backup job:**
+```
+KEYCLOAK_ADMIN=admin
+KEYCLOAK_ADMIN_PASSWORD=<your-admin-password>
+KEYCLOAK_REALM=paygate
+```
+
+### Backup Health Check
+
+```bash
+curl https://your-portal.example.com/api/health/keycloak-backup
+```
+
+Returns `{ status: "ok" | "stale" | "no_backup", ageHours, totalBackups }`. A `503` response means the latest backup is older than 25 hours or no backup exists.
+
+### Backup Management UI
+
+Admins can list and delete backups from **Settings -> Security -> Auth Events -> Backups** tab in the portal.
+
+### Restore Procedure (Disaster Recovery)
+
+1. **List available backups:**
+   ```bash
+   curl -H "Cookie: app_session_id=<admin-token>" \
+     https://your-portal.example.com/api/trpc/keycloak.listBackups
+   ```
+
+2. **Stop the portal to prevent auth during restore:**
+   ```bash
+   docker compose -f docker-compose.production.yml stop app
+   ```
+
+3. **Download and import the backup:**
+   ```bash
+   # Download the backup JSON from the returned URL
+   curl -o realm-restore.json "<backup-url>"
+
+   # Get Keycloak admin token
+   KC_TOKEN=$(curl -s -X POST \
+     http://localhost:8080/realms/master/protocol/openid-connect/token \
+     -d "grant_type=password&client_id=admin-cli&username=$KEYCLOAK_ADMIN&password=$KEYCLOAK_ADMIN_PASSWORD" \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+   # Delete the existing realm
+   curl -X DELETE http://localhost:8080/admin/realms/paygate \
+     -H "Authorization: Bearer $KC_TOKEN"
+
+   # Re-import from backup
+   curl -X POST http://localhost:8080/admin/realms \
+     -H "Authorization: Bearer $KC_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d @realm-restore.json
+   ```
+
+4. **Restart the portal:**
+   ```bash
+   docker compose -f docker-compose.production.yml start app
+   ```
+
+5. **Verify:** Check `/api/health/auth-config` returns `{ status: "ok" }`.

@@ -1496,6 +1496,41 @@ async function startServer() {
     });
   });
 
+  // Backup health-check: reports age of latest Keycloak realm backup
+  app.get("/api/health/keycloak-backup", async (_req: any, res: any) => {
+    try {
+      const { storageList } = await import("../storage");
+      const realm = process.env.KEYCLOAK_REALM ?? "paygate";
+      const files = await storageList(`keycloak-backups/${realm}-realm-`);
+      if (files.length === 0) {
+        return res.status(503).json({ status: "no_backup", message: "No Keycloak realm backup found in S3" });
+      }
+      // Find the newest backup
+      const sorted = files.sort((a, b) => {
+        const aTime = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+        const bTime = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+        return bTime - aTime;
+      });
+      const latest = sorted[0];
+      const latestTime = latest.lastModified ? new Date(latest.lastModified).getTime() : 0;
+      const ageMs = latestTime > 0 ? Date.now() - latestTime : -1;
+      const ageHours = ageMs > 0 ? Math.round(ageMs / 3600000) : -1;
+      const isStale = ageMs > 0 && ageMs > 25 * 3600000; // stale if older than 25 hours
+      return res.status(isStale ? 503 : 200).json({
+        status: isStale ? "stale" : "ok",
+        latestBackup: latest.key,
+        latestBackupUrl: latest.url,
+        latestBackupTime: latest.lastModified,
+        ageHours,
+        totalBackups: files.length,
+        retentionDays: 30,
+      });
+    } catch (err: any) {
+      logger.warn("keycloak_backup_health_error", { error: err.message });
+      return res.status(503).json({ status: "error", message: err.message });
+    }
+  });
+
   app.get("/api/events/transactions", async (req: any, res: any) => {
     try {
       const ctx = await createContext({ req, res } as any);
@@ -1831,6 +1866,98 @@ async function startServer() {
       return res.status(500).json({ error: "Internal server error" });
     }
   });
+  // ─── Scheduled: Keycloak Realm Backup ─────────────────────────────────────
+  // Triggered nightly by Heartbeat (project-level cron, no end-user involved).
+  // Calls Keycloak Admin REST API to export the paygate realm JSON and uploads
+  // it to S3 with a datestamped key for versioned disaster recovery.
+  app.post("/api/scheduled/keycloak-realm-backup", async (req: any, res: any) => {
+    const cronTaskUid = req.headers["x-manus-cron-task-uid"];
+    if (!cronTaskUid) {
+      return res.status(403).json({ error: "cron-only endpoint" });
+    }
+    try {
+      const keycloakUrl = process.env.KEYCLOAK_URL ?? "http://keycloak:8080";
+      const realm = process.env.KEYCLOAK_REALM ?? "paygate";
+      const adminUser = ENV.keycloakAdminUser;
+      const adminPass = ENV.keycloakAdminPassword;
+
+      // 1. Get admin access token
+      const tokenRes = await fetch(
+        `${keycloakUrl}/realms/master/protocol/openid-connect/token`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "password",
+            client_id: "admin-cli",
+            username: adminUser,
+            password: adminPass,
+          }).toString(),
+        }
+      );
+      if (!tokenRes.ok) {
+        const err = await tokenRes.text();
+        logger.error("keycloak_backup_token_error", { status: tokenRes.status, err });
+        return res.status(500).json({ error: "Failed to obtain Keycloak admin token", details: err });
+      }
+      const { access_token } = await tokenRes.json() as { access_token: string };
+
+      // 2. Export realm (partial export: includes clients, roles, users)
+      const exportRes = await fetch(
+        `${keycloakUrl}/admin/realms/${realm}/partial-export?exportClients=true&exportGroupsAndRoles=true`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
+        }
+      );
+      if (!exportRes.ok) {
+        const err = await exportRes.text();
+        logger.error("keycloak_backup_export_error", { status: exportRes.status, err });
+        return res.status(500).json({ error: "Failed to export realm", details: err });
+      }
+      const realmJson = await exportRes.text();
+
+      // 3. Upload to S3 with datestamped key
+      const { storagePut } = await import("../storage");
+      const date = new Date().toISOString().slice(0, 10);
+      const key = `keycloak-backups/${realm}-realm-${date}-${Date.now()}.json`;
+      const { url } = await storagePut(key, Buffer.from(realmJson), "application/json");
+
+      // 4. Retention: delete backups older than 30 days
+      const RETENTION_DAYS = 30;
+      const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      let purged: string[] = [];
+      try {
+        const { storageList, storageDelete } = await import("../storage");
+        const existing = await storageList(`keycloak-backups/${realm}-realm-`);
+        for (const file of existing) {
+          const fileTime = file.lastModified ? new Date(file.lastModified).getTime() : 0;
+          if (fileTime > 0 && fileTime < cutoff && file.key !== key) {
+            await storageDelete(file.key);
+            purged.push(file.key);
+          }
+        }
+        if (purged.length > 0) {
+          logger.info("keycloak_backup_retention_purged", { count: purged.length, keys: purged });
+        }
+      } catch (retentionErr: any) {
+        // Retention failure is non-fatal — log and continue
+        logger.warn("keycloak_backup_retention_error", { error: retentionErr.message });
+      }
+
+      logger.info("keycloak_backup_success", { realm, key, url, taskUid: cronTaskUid, purgedCount: purged.length });
+      return res.json({ ok: true, realm, key, url, timestamp: Date.now(), purgedCount: purged.length });
+    } catch (err: any) {
+      logger.error("keycloak_backup_error", { error: err.message, stack: err.stack, taskUid: cronTaskUid });
+      return res.status(500).json({
+        error: err.message,
+        stack: err.stack,
+        context: { taskUid: cronTaskUid },
+        timestamp: Date.now(),
+      });
+    }
+  });
+
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
     "/api/trpc",

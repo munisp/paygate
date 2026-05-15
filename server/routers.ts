@@ -2611,6 +2611,72 @@ const middlewareRouter = router({
         });
         return { events };
       }),
+
+    exportAuthEvents: protectedProcedure
+      .input(z.object({
+        format: z.enum(["csv", "json"]).default("csv"),
+        userId: z.string().optional(),
+        eventType: z.string().optional(),
+        limit: z.number().min(1).max(5000).default(1000),
+      }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required to export auth events" });
+        }
+        const events = await getKeycloakEvents({
+          limit: input.limit,
+          userId: input.userId,
+          eventType: input.eventType,
+        });
+        if (input.format === "json") {
+          return { format: "json" as const, data: JSON.stringify(events, null, 2), count: events.length };
+        }
+        const headers = ["id", "eventType", "userId", "ipAddress", "sessionId", "realmId", "details", "createdAt"];
+        const rows = events.map((e: any) => [
+          e.id ?? "",
+          e.eventType ?? "",
+          e.userId ?? "",
+          e.ipAddress ?? "",
+          e.sessionId ?? "",
+          e.realmId ?? "",
+          typeof e.details === "object" ? JSON.stringify(e.details) : (e.details ?? ""),
+          e.createdAt ? new Date(e.createdAt).toISOString() : "",
+        ]);
+        const csvLines = [
+          headers.join(","),
+          ...rows.map((r: string[]) => r.map((v: string) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+        ];
+        return { format: "csv" as const, data: csvLines.join("\n"), count: events.length };
+      }),
+
+    listBackups: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required to list backups" });
+        }
+        const { storageList } = await import("./storage");
+        const realm = process.env.KEYCLOAK_REALM ?? "paygate";
+        const files = await storageList(`keycloak-backups/${realm}-realm-`);
+        return files.sort((a, b) => {
+          const aTime = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+          const bTime = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+          return bTime - aTime;
+        });
+      }),
+
+    deleteBackup: protectedProcedure
+      .input(z.object({ key: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required to delete backups" });
+        }
+        if (!input.key.startsWith("keycloak-backups/")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid backup key" });
+        }
+        const { storageDelete } = await import("./storage");
+        await storageDelete(input.key);
+        return { ok: true, deleted: input.key };
+      }),
   }),
 });
 
