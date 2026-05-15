@@ -285,7 +285,9 @@ services:
     image: quay.io/keycloak/keycloak:24.0.4
     container_name: paygate_keycloak
     restart: unless-stopped
-    command: start-dev
+    # start-dev: suitable for on-premise internal networks.
+    # For internet-facing deployments, switch to `start` and configure KC_HOSTNAME.
+    command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paygate_prod}
@@ -302,6 +304,9 @@ services:
         condition: service_healthy
     volumes:
       - keycloak_data:/opt/keycloak/data
+      # Mount realm JSON so Keycloak auto-imports it on first start (--import-realm).
+      # The realm is only imported if it does not already exist.
+      - ./keycloak/paygate-realm.json:/opt/keycloak/data/import/paygate-realm.json:ro
     networks: [paygate]
 
   # ─── MinIO (S3-compatible Lakehouse storage) ──────────────────────

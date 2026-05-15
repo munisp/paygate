@@ -26,12 +26,25 @@ export function useAuth(options?: UseAuthOptions) {
 
   const logout = useCallback(async () => {
     try {
-      await logoutMutation.mutateAsync();
+      // Pass the current origin so the server can build the correct
+      // post_logout_redirect_uri for Keycloak's end-session endpoint.
+      const result = await logoutMutation.mutateAsync({
+        origin: window.location.origin,
+      });
+
+      // If Keycloak returned an SSO logout URL, redirect the browser there.
+      // This terminates the Keycloak SSO session so the user must enter
+      // credentials again on the next login (important for shared/kiosk machines).
+      if (result?.ssoLogoutUrl) {
+        window.location.href = result.ssoLogoutUrl;
+        return; // navigation takes over; no further state updates needed
+      }
     } catch (error: unknown) {
       if (
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"
       ) {
+        // Session already expired — treat as successful logout
         return;
       }
       throw error;

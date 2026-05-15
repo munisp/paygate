@@ -15,6 +15,206 @@ import { resolve } from "path";
 
 const ROOT = resolve(__dirname, "..");
 
+// ─── Round 34 — SSO Logout + ALLOWED_ORIGINS hardening ────────────────────────
+
+describe("server/_core/keycloak.ts — buildEndSessionUrl helper", () => {
+  const src = readFileSync(resolve(ROOT, "server/_core/keycloak.ts"), "utf8");
+
+  it("exports buildEndSessionUrl function", () => {
+    expect(src).toContain("export function buildEndSessionUrl");
+  });
+
+  it("includes client_id in the end-session URL", () => {
+    expect(src).toContain('url.searchParams.set("client_id"');
+  });
+
+  it("includes post_logout_redirect_uri in the end-session URL", () => {
+    expect(src).toContain('url.searchParams.set("post_logout_redirect_uri"');
+  });
+
+  it("optionally includes id_token_hint to skip confirmation page", () => {
+    expect(src).toContain("id_token_hint");
+    expect(src).toContain("idTokenHint");
+  });
+
+  it("uses getEndSessionEndpoint() as the base URL", () => {
+    expect(src).toContain("getEndSessionEndpoint()");
+  });
+});
+
+describe("server/routers.ts auth.logout — SSO logout redirect", () => {
+  const src = readFileSync(resolve(ROOT, "server/routers.ts"), "utf8");
+
+  it("auth.logout accepts an optional origin input", () => {
+    expect(src).toContain("origin: z.string().url().optional()");
+  });
+
+  it("auth.logout calls buildEndSessionUrl when Keycloak is configured", () => {
+    expect(src).toContain("buildEndSessionUrl");
+  });
+
+  it("auth.logout returns ssoLogoutUrl in the response", () => {
+    expect(src).toContain("ssoLogoutUrl");
+  });
+
+  it("auth.logout returns ssoLogoutUrl: null when Keycloak is not configured", () => {
+    expect(src).toContain("ssoLogoutUrl: null");
+  });
+});
+
+describe("client/src/_core/hooks/useAuth.ts — SSO logout redirect", () => {
+  const src = readFileSync(resolve(ROOT, "client/src/_core/hooks/useAuth.ts"), "utf8");
+
+  it("passes window.location.origin to logout mutation", () => {
+    expect(src).toContain("origin: window.location.origin");
+  });
+
+  it("redirects to ssoLogoutUrl when returned by server", () => {
+    expect(src).toContain("result?.ssoLogoutUrl");
+    expect(src).toContain("window.location.href = result.ssoLogoutUrl");
+  });
+
+  it("handles expired session gracefully without throwing", () => {
+    expect(src).toContain("UNAUTHORIZED");
+    expect(src).toContain("return;");
+  });
+});
+
+describe("server/_core/oauth.ts — ALLOWED_ORIGINS hardening", () => {
+  const src = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+
+  it("rejects wildcard entries in ALLOWED_ORIGINS", () => {
+    expect(src).toContain("Wildcards are not permitted");
+    expect(src).toContain('o !== "*" && o !== "**"');
+  });
+
+  it("rejects null/undefined/empty origin strings", () => {
+    expect(src).toContain('rawOrigin === "null"');
+    expect(src).toContain('rawOrigin === "undefined"');
+  });
+
+  it("in production mode, does not allow localhost fallback", () => {
+    expect(src).toContain("IS_PRODUCTION");
+    expect(src).toContain("if (IS_PRODUCTION) return false;");
+  });
+
+  it("logs allowed origins at startup", () => {
+    expect(src).toContain("ALLOWED_ORIGINS:");
+  });
+
+  it("warns when ALLOWED_ORIGINS is empty in production", () => {
+    expect(src).toContain("ALLOWED_ORIGINS is empty in production");
+  });
+
+  it("parses ALLOWED_ORIGINS from env var at module load time", () => {
+    expect(src).toContain("parseAllowedOrigins()");
+    expect(src).toContain("ALLOWED_ORIGINS_LIST");
+  });
+
+  it("warns about http:// origins in production", () => {
+    expect(src).toContain("Consider switching to https://");
+  });
+});
+
+describe("docs/keycloak-deployment.md — deployment guide exists", () => {
+  const src = readFileSync(resolve(ROOT, "docs/keycloak-deployment.md"), "utf8");
+
+  it("documents ALLOWED_ORIGINS configuration", () => {
+    expect(src).toContain("ALLOWED_ORIGINS");
+  });
+
+  it("documents SSO logout flow", () => {
+    expect(src).toContain("SSO Logout");
+    expect(src).toContain("post_logout_redirect_uri");
+  });
+
+  it("documents --import-realm bootstrap mode", () => {
+    expect(src).toContain("--import-realm");
+  });
+
+  it("includes a production checklist", () => {
+    expect(src).toContain("Production Checklist");
+  });
+
+  it("documents realm export procedure", () => {
+    expect(src).toContain("Exporting the Realm");
+  });
+});
+
+describe("keycloak/paygate-realm.json — realm seed file", () => {
+  const src = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(src);
+
+  it("realm name is paygate", () => {
+    expect(realm.realm).toBe("paygate");
+  });
+
+  it("realm is enabled", () => {
+    expect(realm.enabled).toBe(true);
+  });
+
+  it("includes merchant-portal client", () => {
+    const client = realm.clients?.find((c: { clientId: string }) => c.clientId === "merchant-portal");
+    expect(client).toBeDefined();
+    expect(client.enabled).toBe(true);
+  });
+
+  it("client has post_logout_redirect_uris attribute", () => {
+    const client = realm.clients?.find((c: { clientId: string }) => c.clientId === "merchant-portal");
+    expect(client?.attributes?.["post.logout.redirect.uris"]).toBeDefined();
+  });
+
+  it("includes all 5 paygate realm roles", () => {
+    const roleNames = realm.roles?.realm?.map((r: { name: string }) => r.name) ?? [];
+    expect(roleNames).toContain("paygate-admin");
+    expect(roleNames).toContain("paygate-merchant");
+    expect(roleNames).toContain("paygate-consumer");
+    expect(roleNames).toContain("paygate-partner");
+    expect(roleNames).toContain("paygate-operator");
+  });
+
+  it("brute force protection is enabled", () => {
+    expect(realm.bruteForceProtected).toBe(true);
+  });
+
+  it("admin events are enabled", () => {
+    expect(realm.adminEventsEnabled).toBe(true);
+  });
+});
+
+describe("docker-compose.production.yml — realm JSON volume mount", () => {
+  const src = readFileSync(resolve(ROOT, "docker-compose.production.yml"), "utf8");
+
+  it("mounts paygate-realm.json into the keycloak container", () => {
+    expect(src).toContain("paygate-realm.json:/opt/keycloak/data/import/paygate-realm.json");
+  });
+
+  it("keycloak command includes --import-realm flag", () => {
+    expect(src).toContain("--import-realm");
+  });
+});
+
+describe("scripts/keycloak-bootstrap.sh — --import-realm mode", () => {
+  const src = readFileSync(resolve(ROOT, "scripts/keycloak-bootstrap.sh"), "utf8");
+
+  it("supports --import-realm argument", () => {
+    expect(src).toContain("--import-realm");
+    expect(src).toContain("IMPORT_REALM=true");
+  });
+
+  it("patches client secret after import", () => {
+    expect(src).toContain("Patching client secret");
+  });
+
+  it("creates admin user in --import-realm mode", () => {
+    expect(src).toContain("Creating admin user");
+  });
+
+  it("prints tip to use --import-realm at end of default mode", () => {
+    expect(src).toContain("Tip: Next time use --import-realm");
+  });
+});
+
 function readSrc(relPath: string): string {
   return readFileSync(resolve(ROOT, relPath), "utf8");
 }

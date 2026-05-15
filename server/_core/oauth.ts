@@ -33,27 +33,76 @@ function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
   return typeof value === "string" ? value : undefined;
 }
-
-// ─── Allowed origin validation ────────────────────────────────────────────────
+// ─── Allowed origin validation ───────────────────────────────────────────────────
 // Prevents open-redirect attacks on the login initiation endpoint.
-// Add your on-premise domain(s) to the ALLOWED_ORIGINS env var (comma-separated).
+//
+// Production hardening rules:
+//   1. Wildcard (*) and empty string values in ALLOWED_ORIGINS are rejected.
+//   2. In production (NODE_ENV=production), localhost/127.x patterns are rejected.
+//   3. Every allowed origin must be a valid URL with https:// scheme in production.
+//
+// Set ALLOWED_ORIGINS in your .env as a comma-separated list of exact origins:
+//   ALLOWED_ORIGINS=https://portal.acme.ng,https://portal-staging.acme.ng
 
-function isOriginAllowed(rawOrigin: string, serverOrigin: string): boolean {
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+/** Parse and validate the ALLOWED_ORIGINS env var. */
+function parseAllowedOrigins(): string[] {
+  const raw = (process.env.ALLOWED_ORIGINS ?? "");
+  const origins = raw
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+
+  // Reject wildcard entries — they defeat the purpose of the allowlist
+  const wildcards = origins.filter((o) => o === "*" || o === "**");
+  if (wildcards.length > 0) {
+    console.error(
+      "[Auth] SECURITY: ALLOWED_ORIGINS contains wildcard entries ('*'). " +
+      "Wildcards are not permitted — specify exact origins instead. " +
+      "Offending entries have been removed."
+    );
+  }
+
+  const safe = origins.filter((o) => o !== "*" && o !== "**");
+
+  // In production, warn about http:// origins (should be https://)
+  if (IS_PRODUCTION) {
+    const insecure = safe.filter((o) => o.startsWith("http://") && !o.includes("localhost") && !o.includes("127."));
+    if (insecure.length > 0) {
+      console.warn(
+        "[Auth] WARNING: ALLOWED_ORIGINS contains http:// (non-TLS) origins in production: " +
+        insecure.join(", ") +
+        ". Consider switching to https://."
+      );
+    }
+  }
+
+  return safe;
+}
+
+/** Cached allowed origins list (parsed once at startup). */
+const ALLOWED_ORIGINS_LIST: string[] = parseAllowedOrigins();
+
+function isOriginAllowed(rawOrigin: string, serverOrigin: string): boolean {
+  // Reject obviously invalid or empty origins
+  if (!rawOrigin || rawOrigin === "null" || rawOrigin === "undefined") return false;
 
   // Always allow the server's own origin
   if (rawOrigin === serverOrigin) return true;
 
   // Explicit allowlist from env
-  if (allowedOrigins.includes(rawOrigin)) return true;
+  if (ALLOWED_ORIGINS_LIST.includes(rawOrigin)) return true;
 
-  // Safe patterns for local development
+  // In production: no localhost/127.x fallback
+  if (IS_PRODUCTION) return false;
+
+  // Safe patterns for local development only
   const SAFE_DEV_PATTERNS = [
     /^https?:\/\/localhost(:\d+)?$/,
     /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+    // Manus sandbox preview URLs (dev only)
+    /^https:\/\/\d+-[a-z0-9]+-[a-z0-9]+\.us2\.manus\.computer$/,
   ];
   if (SAFE_DEV_PATTERNS.some((p) => p.test(rawOrigin))) return true;
 
@@ -117,6 +166,19 @@ export function registerOAuthRoutes(app: Express) {
     );
   } else {
     console.log(`[Auth] Keycloak OIDC enabled — ${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}`);
+  }
+
+  // Log allowed origins at startup for operator visibility
+  if (ALLOWED_ORIGINS_LIST.length > 0) {
+    console.log(`[Auth] ALLOWED_ORIGINS: ${ALLOWED_ORIGINS_LIST.join(", ")}`);
+  } else if (IS_PRODUCTION) {
+    console.warn(
+      "[Auth] WARNING: ALLOWED_ORIGINS is empty in production. " +
+      "Only the server's own origin will be accepted for OAuth redirects. " +
+      "Set ALLOWED_ORIGINS=https://your-portal-domain.com to allow external origins."
+    );
+  } else {
+    console.log("[Auth] ALLOWED_ORIGINS not set — localhost and 127.x are allowed in development.");
   }
 
   // ── Initiate Keycloak login ──────────────────────────────────────────────

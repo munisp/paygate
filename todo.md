@@ -4454,3 +4454,17 @@
 - [x] docker-compose.production.yml: Add KEYCLOAK_URL env var to portal service; add realm import volume
 - [x] Update SAFE_ORIGIN_PATTERNS in oauth.ts to support on-premise custom domains
 - [x] Write keycloak auth migration tests
+
+## Round 34 — Keycloak Post-Migration Improvements
+
+- [x] keycloak/paygate-realm.json: Seed realm export file for --import-realm bootstrap
+- [x] scripts/keycloak-bootstrap.sh: Add --import-realm mode that imports realm JSON instead of API calls
+- [x] docker-compose.production.yml: Add --import-realm volume mount to keycloak service
+- [x] server/_core/keycloak.ts: Add buildEndSessionUrl() helper
+- [x] server/routers.ts auth.logout: Redirect to Keycloak end-session endpoint after clearing cookie
+- [x] server/routers.ts auth.logout: Accept post_logout_redirect_uri from client
+- [x] client/src/_core/hooks/useAuth.ts: Pass window.location.origin to logout mutation for SSO redirect
+- [x] server/_core/oauth.ts: Harden ALLOWED_ORIGINS — reject empty/wildcard origins in production
+- [x] server/_core/env.ts: Add ALLOWED_ORIGINS to ENV object with validation
+- [x] docs/keycloak-deployment.md: Document ALLOWED_ORIGINS, realm import, and SSO logout setup
+- [x] Write vitest tests for SSO logout and ALLOWED_ORIGINS hardening

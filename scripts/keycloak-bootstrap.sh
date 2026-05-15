@@ -5,11 +5,15 @@
 # Idempotently provisions the Keycloak realm, client, roles, and first admin
 # user required by the PayGate Merchant Portal.
 #
-# Run this ONCE after Keycloak starts for the first time.
-# Safe to re-run — all operations use GET-then-CREATE logic.
+# Two modes:
+#   --import-realm   Import keycloak/paygate-realm.json via the Admin REST API
+#                    (faster, idempotent, recommended for CI/CD pipelines).
+#                    The client secret is patched in after import.
+#   (default)        Create realm, roles, client, and admin user step-by-step
+#                    via individual Admin REST API calls.
 #
 # Usage:
-#   ./scripts/keycloak-bootstrap.sh
+#   ./scripts/keycloak-bootstrap.sh [--import-realm]
 #
 # Environment variables (with defaults):
 #   KEYCLOAK_URL             — http://localhost:8081
@@ -26,6 +30,16 @@
 
 set -euo pipefail
 
+# ─── Parse arguments ──────────────────────────────────────────────────────────
+IMPORT_REALM=false
+for arg in "$@"; do
+  case "$arg" in
+    --import-realm) IMPORT_REALM=true ;;
+    *) echo "[bootstrap] Unknown argument: $arg"; exit 1 ;;
+  esac
+done
+
+# ─── Configuration ────────────────────────────────────────────────────────────
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8081}"
 KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}"
 KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}"
@@ -37,6 +51,10 @@ PAYGATE_ADMIN_PASSWORD="${PAYGATE_ADMIN_PASSWORD:-Admin@PayGate2026!}"
 PAYGATE_ADMIN_FIRST="${PAYGATE_ADMIN_FIRST_NAME:-PayGate}"
 PAYGATE_ADMIN_LAST="${PAYGATE_ADMIN_LAST_NAME:-Admin}"
 
+# Resolve realm JSON path relative to this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REALM_JSON="${SCRIPT_DIR}/../keycloak/paygate-realm.json"
+
 # Auto-generate client secret if not provided
 if [ -z "$CLIENT_SECRET" ]; then
   CLIENT_SECRET=$(openssl rand -hex 32)
@@ -44,6 +62,7 @@ if [ -z "$CLIENT_SECRET" ]; then
   echo "[bootstrap] Add this to your .env: KEYCLOAK_CLIENT_SECRET=$CLIENT_SECRET"
 fi
 
+# ─── Wait for Keycloak ────────────────────────────────────────────────────────
 echo "[bootstrap] Waiting for Keycloak to be ready at $KEYCLOAK_URL ..."
 until curl -sf "$KEYCLOAK_URL/realms/master" > /dev/null 2>&1; do
   sleep 3
@@ -63,7 +82,121 @@ ADMIN_TOKEN=$(curl -sf \
 
 AUTH_HEADER="Authorization: Bearer $ADMIN_TOKEN"
 
-# ─── Create realm ─────────────────────────────────────────────────────────────
+# ─── Mode: --import-realm ─────────────────────────────────────────────────────
+if [ "$IMPORT_REALM" = true ]; then
+  echo "[bootstrap] --import-realm mode: importing $REALM_JSON ..."
+
+  if [ ! -f "$REALM_JSON" ]; then
+    echo "[bootstrap] ERROR: Realm JSON not found at $REALM_JSON"
+    exit 1
+  fi
+
+  # Check if realm already exists
+  REALM_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+    -H "$AUTH_HEADER" \
+    "$KEYCLOAK_URL/admin/realms/$REALM" || echo "404")
+
+  if [ "$REALM_STATUS" = "200" ]; then
+    echo "[bootstrap] Realm '$REALM' already exists — skipping import."
+  else
+    echo "[bootstrap] Importing realm from $REALM_JSON ..."
+    curl -sf -X POST "$KEYCLOAK_URL/admin/realms" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d @"$REALM_JSON"
+    echo "[bootstrap] Realm imported."
+  fi
+
+  # Patch the client secret (the JSON file ships without a secret)
+  echo "[bootstrap] Patching client secret for '$CLIENT_ID' ..."
+  EXISTING_CLIENTS=$(curl -sf \
+    -H "$AUTH_HEADER" \
+    "$KEYCLOAK_URL/admin/realms/$REALM/clients?clientId=$CLIENT_ID")
+  CLIENT_UUID=$(echo "$EXISTING_CLIENTS" | python3 -c "
+import sys, json
+clients = json.load(sys.stdin)
+print(clients[0]['id'] if clients else '')
+" 2>/dev/null || echo "")
+
+  if [ -n "$CLIENT_UUID" ]; then
+    curl -sf -X PUT "$KEYCLOAK_URL/admin/realms/$REALM/clients/$CLIENT_UUID" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d "{\"secret\": \"$CLIENT_SECRET\"}"
+    echo "[bootstrap] Client secret patched."
+  else
+    echo "[bootstrap] WARNING: Client '$CLIENT_ID' not found after import — skipping secret patch."
+  fi
+
+  # Create the first admin user (not included in realm JSON for security)
+  echo "[bootstrap] Creating admin user '$PAYGATE_ADMIN_EMAIL' ..."
+  EXISTING_USERS=$(curl -sf \
+    -H "$AUTH_HEADER" \
+    "$KEYCLOAK_URL/admin/realms/$REALM/users?email=$PAYGATE_ADMIN_EMAIL&exact=true")
+  USER_UUID=$(echo "$EXISTING_USERS" | python3 -c "
+import sys, json
+users = json.load(sys.stdin)
+print(users[0]['id'] if users else '')
+" 2>/dev/null || echo "")
+
+  if [ -n "$USER_UUID" ]; then
+    echo "[bootstrap] Admin user '$PAYGATE_ADMIN_EMAIL' already exists — skipping."
+  else
+    curl -sf -X POST "$KEYCLOAK_URL/admin/realms/$REALM/users" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"username\": \"$PAYGATE_ADMIN_EMAIL\",
+        \"email\": \"$PAYGATE_ADMIN_EMAIL\",
+        \"firstName\": \"$PAYGATE_ADMIN_FIRST\",
+        \"lastName\": \"$PAYGATE_ADMIN_LAST\",
+        \"enabled\": true,
+        \"emailVerified\": true,
+        \"credentials\": [{
+          \"type\": \"password\",
+          \"value\": \"$PAYGATE_ADMIN_PASSWORD\",
+          \"temporary\": false
+        }]
+      }"
+    USER_UUID=$(curl -sf \
+      -H "$AUTH_HEADER" \
+      "$KEYCLOAK_URL/admin/realms/$REALM/users?email=$PAYGATE_ADMIN_EMAIL&exact=true" \
+      | python3 -c "import sys,json; users=json.load(sys.stdin); print(users[0]['id'] if users else '')")
+    echo "[bootstrap] Admin user created (UUID: $USER_UUID)."
+
+    ROLE_REP=$(curl -sf \
+      -H "$AUTH_HEADER" \
+      "$KEYCLOAK_URL/admin/realms/$REALM/roles/paygate-admin")
+    curl -sf -X POST \
+      "$KEYCLOAK_URL/admin/realms/$REALM/users/$USER_UUID/role-mappings/realm" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d "[$ROLE_REP]"
+    echo "[bootstrap] 'paygate-admin' role assigned."
+  fi
+
+  echo ""
+  echo "============================================================"
+  echo " PayGate Keycloak Import Complete"
+  echo "============================================================"
+  echo " Realm:          $REALM"
+  echo " Client ID:      $CLIENT_ID"
+  echo " Client Secret:  $CLIENT_SECRET"
+  echo " Admin email:    $PAYGATE_ADMIN_EMAIL"
+  echo " Admin password: $PAYGATE_ADMIN_PASSWORD"
+  echo ""
+  echo " Add these to your portal .env:"
+  echo "   KEYCLOAK_URL=$KEYCLOAK_URL"
+  echo "   KEYCLOAK_REALM=$REALM"
+  echo "   KEYCLOAK_CLIENT_ID=$CLIENT_ID"
+  echo "   KEYCLOAK_CLIENT_SECRET=$CLIENT_SECRET"
+  echo "============================================================"
+  exit 0
+fi
+
+# ─── Mode: step-by-step API provisioning (default) ────────────────────────────
+
+# Create realm
 echo "[bootstrap] Checking realm '$REALM' ..."
 REALM_EXISTS=$(curl -sf -o /dev/null -w "%{http_code}" \
   -H "$AUTH_HEADER" \
@@ -104,7 +237,7 @@ else
   echo "[bootstrap] Realm '$REALM' created."
 fi
 
-# ─── Create realm roles ───────────────────────────────────────────────────────
+# Create realm roles
 for ROLE in "paygate-admin" "paygate-merchant" "paygate-consumer" "paygate-partner" "paygate-operator"; do
   ROLE_EXISTS=$(curl -sf -o /dev/null -w "%{http_code}" \
     -H "$AUTH_HEADER" \
@@ -121,7 +254,7 @@ for ROLE in "paygate-admin" "paygate-merchant" "paygate-consumer" "paygate-partn
   fi
 done
 
-# ─── Create confidential OIDC client ─────────────────────────────────────────
+# Create confidential OIDC client
 echo "[bootstrap] Checking client '$CLIENT_ID' ..."
 EXISTING_CLIENTS=$(curl -sf \
   -H "$AUTH_HEADER" \
@@ -132,56 +265,42 @@ clients = json.load(sys.stdin)
 print(clients[0]['id'] if clients else '')
 " 2>/dev/null || echo "")
 
+CLIENT_PAYLOAD="{
+  \"clientId\": \"$CLIENT_ID\",
+  \"name\": \"PayGate Merchant Portal\",
+  \"secret\": \"$CLIENT_SECRET\",
+  \"enabled\": true,
+  \"publicClient\": false,
+  \"standardFlowEnabled\": true,
+  \"implicitFlowEnabled\": false,
+  \"directAccessGrantsEnabled\": false,
+  \"serviceAccountsEnabled\": false,
+  \"protocol\": \"openid-connect\",
+  \"redirectUris\": [\"*\"],
+  \"webOrigins\": [\"*\"],
+  \"attributes\": {
+    \"access.token.lifespan\": \"300\",
+    \"post.logout.redirect.uris\": \"*\",
+    \"backchannel.logout.session.required\": \"true\"
+  }
+}"
+
 if [ -n "$CLIENT_UUID" ]; then
-  echo "[bootstrap] Client '$CLIENT_ID' already exists (UUID: $CLIENT_UUID) — updating secret ..."
+  echo "[bootstrap] Client '$CLIENT_ID' already exists (UUID: $CLIENT_UUID) — updating ..."
   curl -sf -X PUT "$KEYCLOAK_URL/admin/realms/$REALM/clients/$CLIENT_UUID" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"clientId\": \"$CLIENT_ID\",
-      \"name\": \"PayGate Merchant Portal\",
-      \"secret\": \"$CLIENT_SECRET\",
-      \"enabled\": true,
-      \"publicClient\": false,
-      \"standardFlowEnabled\": true,
-      \"implicitFlowEnabled\": false,
-      \"directAccessGrantsEnabled\": false,
-      \"serviceAccountsEnabled\": false,
-      \"protocol\": \"openid-connect\",
-      \"redirectUris\": [\"*\"],
-      \"webOrigins\": [\"*\"],
-      \"attributes\": {
-        \"access.token.lifespan\": \"300\",
-        \"post.logout.redirect.uris\": \"*\"
-      }
-    }"
+    -d "$CLIENT_PAYLOAD"
 else
   echo "[bootstrap] Creating client '$CLIENT_ID' ..."
   curl -sf -X POST "$KEYCLOAK_URL/admin/realms/$REALM/clients" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"clientId\": \"$CLIENT_ID\",
-      \"name\": \"PayGate Merchant Portal\",
-      \"secret\": \"$CLIENT_SECRET\",
-      \"enabled\": true,
-      \"publicClient\": false,
-      \"standardFlowEnabled\": true,
-      \"implicitFlowEnabled\": false,
-      \"directAccessGrantsEnabled\": false,
-      \"serviceAccountsEnabled\": false,
-      \"protocol\": \"openid-connect\",
-      \"redirectUris\": [\"*\"],
-      \"webOrigins\": [\"*\"],
-      \"attributes\": {
-        \"access.token.lifespan\": \"300\",
-        \"post.logout.redirect.uris\": \"*\"
-      }
-    }"
+    -d "$CLIENT_PAYLOAD"
   echo "[bootstrap] Client '$CLIENT_ID' created."
 fi
 
-# ─── Create first admin user ──────────────────────────────────────────────────
+# Create first admin user
 echo "[bootstrap] Checking admin user '$PAYGATE_ADMIN_EMAIL' ..."
 EXISTING_USERS=$(curl -sf \
   -H "$AUTH_HEADER" \
@@ -213,7 +332,6 @@ else
       }]
     }"
 
-  # Fetch the newly created user UUID
   USER_UUID=$(curl -sf \
     -H "$AUTH_HEADER" \
     "$KEYCLOAK_URL/admin/realms/$REALM/users?email=$PAYGATE_ADMIN_EMAIL&exact=true" \
@@ -221,7 +339,7 @@ else
   echo "[bootstrap] Admin user created (UUID: $USER_UUID)."
 fi
 
-# ─── Assign paygate-admin role to the admin user ──────────────────────────────
+# Assign paygate-admin role to the admin user
 if [ -n "$USER_UUID" ]; then
   echo "[bootstrap] Assigning 'paygate-admin' role to user ..."
   ROLE_REP=$(curl -sf \
@@ -251,4 +369,7 @@ echo "   KEYCLOAK_URL=$KEYCLOAK_URL"
 echo "   KEYCLOAK_REALM=$REALM"
 echo "   KEYCLOAK_CLIENT_ID=$CLIENT_ID"
 echo "   KEYCLOAK_CLIENT_SECRET=$CLIENT_SECRET"
+echo ""
+echo " Tip: Next time use --import-realm for faster idempotent provisioning:"
+echo "   ./scripts/keycloak-bootstrap.sh --import-realm"
 echo "============================================================"

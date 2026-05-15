@@ -135,6 +135,34 @@ export function extractRole(claims: KeycloakClaims): "admin" | "user" {
   return allRoles.includes("paygate-admin") || allRoles.includes("admin") ? "admin" : "user";
 }
 
+// ─── End-session URL builder ─────────────────────────────────────────────────
+
+/**
+ * Build the Keycloak end-session URL.
+ *
+ * Redirecting the browser here terminates the Keycloak SSO session so the
+ * user must re-authenticate with credentials on the next login attempt.
+ * Without this, the Keycloak session cookie persists and the user would be
+ * silently re-authenticated on shared / kiosk machines.
+ *
+ * @param idTokenHint  The Keycloak id_token — if provided, Keycloak skips the
+ *                     "do you want to log out?" confirmation page.
+ * @param postLogoutRedirectUri  Where Keycloak should redirect after logout.
+ *                               Must match a URI registered in the client config.
+ */
+export function buildEndSessionUrl(
+  postLogoutRedirectUri: string,
+  idTokenHint?: string
+): string {
+  const url = new URL(getEndSessionEndpoint());
+  url.searchParams.set("client_id", ENV.keycloakClientId);
+  url.searchParams.set("post_logout_redirect_uri", postLogoutRedirectUri);
+  if (idTokenHint) {
+    url.searchParams.set("id_token_hint", idTokenHint);
+  }
+  return url.toString();
+}
+
 // ─── Session cookie helpers ───────────────────────────────────────────────────
 // We continue to issue our own HS256 session cookie (same as before) so the
 // rest of the application (protectedProcedure, ctx.user) is unchanged.

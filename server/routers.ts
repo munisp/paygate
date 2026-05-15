@@ -272,13 +272,35 @@ const authRouter = router({
       return { success: true, user: { id: user.id, email: user.email, name: user.name } };
     }),
 
-  logout: protectedProcedure.mutation(async ({ ctx }) => {
-    const { COOKIE_NAME } = await import("../shared/const");
-    const { getSessionCookieOptions } = await import("./_core/cookies");
-    const cookieOptions = getSessionCookieOptions(ctx.req);
-    ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-    return { success: true } as const;
-  }),
+  logout: protectedProcedure
+    .input(z.object({
+      // The frontend passes its own origin so the server can build the
+      // post-logout redirect URI without hardcoding a domain.
+      origin: z.string().url().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const { COOKIE_NAME } = await import("../shared/const");
+      const { getSessionCookieOptions } = await import("./_core/cookies");
+      const { ENV } = await import("./_core/env");
+
+      // Clear the portal session cookie
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+
+      // If Keycloak is configured, return the end-session URL so the client
+      // can redirect the browser there to terminate the Keycloak SSO session.
+      // Without this redirect, the Keycloak session cookie persists and the
+      // user would be silently re-authenticated on shared/kiosk machines.
+      if (ENV.keycloakUrl) {
+        const { buildEndSessionUrl } = await import("./_core/keycloak");
+        const origin = input?.origin ?? `${ctx.req.protocol}://${ctx.req.get("host")}`;
+        const postLogoutRedirectUri = `${origin}/`;
+        const ssoLogoutUrl = buildEndSessionUrl(postLogoutRedirectUri);
+        return { success: true, ssoLogoutUrl } as const;
+      }
+
+      return { success: true, ssoLogoutUrl: null } as const;
+    }),
 
   updateProfile: protectedProcedure
     .input(z.object({
