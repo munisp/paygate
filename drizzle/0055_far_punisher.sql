@@ -10,10 +10,10 @@ CREATE TABLE "pos_products" (
 	"currency" text DEFAULT 'NGN' NOT NULL,
 	"tax_percent" integer DEFAULT 0 NOT NULL,
 	"stock_quantity" integer,
-	"track_inventory" integer DEFAULT false NOT NULL,
+	"track_inventory" boolean DEFAULT false NOT NULL,
 	"image_url" text,
 	"barcode" text,
-	"is_active" integer DEFAULT true NOT NULL,
+	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );

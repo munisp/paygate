@@ -45,7 +45,7 @@ CREATE TABLE "loyalty_v3_redemptions" (
 	"points_balance_after" integer NOT NULL,
 	"naira_value" integer DEFAULT 0 NOT NULL,
 	"redemption_code" text NOT NULL,
-	"pin_verified" integer DEFAULT false NOT NULL,
+	"pin_verified" boolean DEFAULT false NOT NULL,
 	"kafka_event_id" text,
 	"kafka_event_status" text DEFAULT 'pending' NOT NULL,
 	"status" text DEFAULT 'pending' NOT NULL,

@@ -421,6 +421,20 @@
       "when": 1778847708634,
       "tag": "0059_puzzling_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1778857569612,
+      "tag": "0060_lowly_power_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1778857773986,
+      "tag": "0061_next_white_tiger",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "loyalty_v3_redemptions" ALTER COLUMN "pin_verified" SET DATA TYPE boolean;
