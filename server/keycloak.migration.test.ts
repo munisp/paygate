@@ -731,8 +731,8 @@ describe("Round 37 — AuthEvents.tsx UI page", () => {
   const appSrc = readFileSync(resolve(ROOT, "client/src/App.tsx"), "utf8");
   const layoutSrc = readFileSync(resolve(ROOT, "client/src/components/Layout.tsx"), "utf8");
 
-  it("AuthEvents.tsx exists and uses trpc.keycloak.getAuthEvents", () => {
-    expect(uiSrc).toContain("trpc.keycloak.getAuthEvents.useQuery");
+  it("AuthEvents.tsx exists and uses trpc.middleware.keycloak.getAuthEvents", () => {
+    expect(uiSrc).toContain("trpc.middleware.keycloak.getAuthEvents.useQuery");
   });
 
   it("AuthEvents.tsx has event type filter", () => {

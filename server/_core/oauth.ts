@@ -438,6 +438,37 @@ export function registerOAuthRoutes(app: Express) {
         details: body.details as Record<string, unknown> | undefined,
       });
 
+      // ── Geo-based anomaly detection: alert on new-country login ────────────
+      if (eventType === "LOGIN" && body.userId && body.ipAddress) {
+        try {
+          const knownCountries = await db.getKnownCountriesForUser(body.userId as string, 1);
+          // Only alert if user has prior logins (not first-ever login)
+          if (knownCountries.length > 0) {
+            // Get the country of the event we just stored
+            const recentEvents = await db.getKeycloakEvents({
+              limit: 1,
+              userId: body.userId as string,
+              eventType: "LOGIN",
+            });
+            const latestCountry = recentEvents[0]?.geo_country;
+            if (latestCountry && !knownCountries.includes(latestCountry)) {
+              const { notifyOwner } = await import("./notification");
+              await notifyOwner({
+                title: "🌍 New Country Login Detected",
+                content: `User ${body.userId} logged in from ${latestCountry} (IP: ${body.ipAddress}). Known countries: ${knownCountries.join(", ")}.`,
+              });
+              console.warn("[Keycloak Events] New-country login alert", {
+                userId: body.userId,
+                country: latestCountry,
+                knownCountries,
+              });
+            }
+          }
+        } catch (geoErr) {
+          console.error("[Keycloak Events] Geo anomaly check failed", geoErr);
+        }
+      }
+
       // Also mirror to the existing audit_events table for cross-system correlation
       if (body.userId) {
         await db.logAuditEvent({

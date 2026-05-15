@@ -103,7 +103,7 @@ export default function AuthEvents() {
     toDate: toDate ? endOfDay(toDate) : undefined,
   }), [page, eventTypeFilter, userIdFilter, fromDate, toDate, isAdmin]);
 
-  const { data, isLoading, refetch, isFetching } = trpc.keycloak.getAuthEvents.useQuery(queryInput);
+  const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.getAuthEvents.useQuery(queryInput);
 
   const exportQueryInput = useMemo(() => ({
     format: "csv" as const,
@@ -119,8 +119,8 @@ export default function AuthEvents() {
     format: "json" as const,
   }), [exportQueryInput]);
 
-  const exportQuery = trpc.keycloak.exportAuthEvents.useQuery(exportQueryInput, { enabled: false });
-  const exportJsonQuery = trpc.keycloak.exportAuthEvents.useQuery(exportJsonQueryInput, { enabled: false });
+  const exportQuery = trpc.middleware.keycloak.exportAuthEvents.useQuery(exportQueryInput, { enabled: false });
+  const exportJsonQuery = trpc.middleware.keycloak.exportAuthEvents.useQuery(exportJsonQueryInput, { enabled: false });
 
   const handleExportCsv = async () => {
     if (!isAdmin) { toast.error("Admin access required"); return; }

@@ -53,16 +53,16 @@ describe("Round 46 — Anomaly Alerts, Session Management, Active Sessions UI", 
       expect(page.length).toBeGreaterThan(100);
     });
 
-    it("uses trpc.keycloak.listActiveSessions", () => {
-      expect(page).toContain("trpc.keycloak.listActiveSessions");
+    it("uses trpc.middleware.keycloak.listActiveSessions", () => {
+      expect(page).toContain("trpc.middleware.keycloak.listActiveSessions");
     });
 
-    it("uses trpc.keycloak.forceLogoutSession", () => {
-      expect(page).toContain("trpc.keycloak.forceLogoutSession");
+    it("uses trpc.middleware.keycloak.forceLogoutSession", () => {
+      expect(page).toContain("trpc.middleware.keycloak.forceLogoutSession");
     });
 
-    it("uses trpc.keycloak.checkLoginAnomalies for anomaly banner", () => {
-      expect(page).toContain("trpc.keycloak.checkLoginAnomalies");
+    it("uses trpc.middleware.keycloak.checkLoginAnomalies for anomaly banner", () => {
+      expect(page).toContain("trpc.middleware.keycloak.checkLoginAnomalies");
     });
 
     it("shows anomaly alert banner when threshold exceeded", () => {

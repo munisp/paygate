@@ -28,17 +28,17 @@ export default function ActiveSessions() {
   const [userIdFilter, setUserIdFilter] = useState("");
   const [sessionToLogout, setSessionToLogout] = useState<string | null>(null);
 
-  const { data, isLoading, refetch, isFetching } = trpc.keycloak.listActiveSessions.useQuery(
+  const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.listActiveSessions.useQuery(
     { userId: userIdFilter.trim() || undefined, limit: 100 },
     { refetchInterval: 30000 } // auto-refresh every 30s
   );
 
-  const anomalyQuery = trpc.keycloak.checkLoginAnomalies.useQuery(
+  const anomalyQuery = trpc.middleware.keycloak.checkLoginAnomalies.useQuery(
     { windowMinutes: 15, threshold: 5 },
     { refetchInterval: 60000 }
   );
 
-  const forceLogout = trpc.keycloak.forceLogoutSession.useMutation({
+  const forceLogout = trpc.middleware.keycloak.forceLogoutSession.useMutation({
     onSuccess: (result) => {
       toast.success(`Session ${result.sessionId.slice(0, 8)}… terminated`);
       refetch();

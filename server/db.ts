@@ -2796,3 +2796,38 @@ export async function getKeycloakEvents(params: {
     return [];
   }
 }
+
+/**
+ * Returns the distinct countries a user has previously logged in from.
+ * Used for geo-based anomaly detection (new country alert).
+ * Excludes the most recent event (last `excludeLastN` rows) so we can compare
+ * the brand-new event against historical data.
+ */
+export async function getKnownCountriesForUser(
+  userId: string,
+  excludeLastN = 1,
+): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await db.execute(sql`
+      SELECT DISTINCT geo_country
+      FROM keycloak_events
+      WHERE user_id = ${userId}
+        AND event_type = 'LOGIN'
+        AND geo_country IS NOT NULL
+        AND id NOT IN (
+          SELECT id FROM keycloak_events
+          WHERE user_id = ${userId} AND event_type = 'LOGIN'
+          ORDER BY received_at DESC
+          LIMIT ${excludeLastN}
+        )
+    `);
+    return (rows.rows as Array<{ geo_country: string }>)
+      .map(r => r.geo_country)
+      .filter(Boolean);
+  } catch (err) {
+    console.error("[DB] getKnownCountriesForUser failed", err);
+    return [];
+  }
+}

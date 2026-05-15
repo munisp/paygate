@@ -2641,16 +2641,18 @@ const middlewareRouter = router({
         if (input.format === "json") {
           return { format: "json" as const, data: JSON.stringify(events, null, 2), count: events.length };
         }
-        const headers = ["id", "eventType", "userId", "ipAddress", "sessionId", "realmId", "details", "createdAt"];
+        const headers = ["id", "eventType", "userId", "ipAddress", "geoCountry", "geoCity", "sessionId", "realmId", "details", "createdAt"];
         const rows = events.map((e: any) => [
           e.id ?? "",
-          e.eventType ?? "",
-          e.userId ?? "",
-          e.ipAddress ?? "",
-          e.sessionId ?? "",
-          e.realmId ?? "",
+          e.event_type ?? e.eventType ?? "",
+          e.user_id ?? e.userId ?? "",
+          e.ip_address ?? e.ipAddress ?? "",
+          e.geo_country ?? "",
+          e.geo_city ?? "",
+          e.session_id ?? e.sessionId ?? "",
+          e.realm_id ?? e.realmId ?? "",
           typeof e.details === "object" ? JSON.stringify(e.details) : (e.details ?? ""),
-          e.createdAt ? new Date(e.createdAt).toISOString() : "",
+          e.received_at ? new Date(e.received_at).toISOString() : (e.createdAt ? new Date(e.createdAt).toISOString() : ""),
         ]);
         const csvLines = [
           headers.join(","),

@@ -4577,3 +4577,9 @@
 - [ ] Anomaly threshold config: admin-configurable threshold stored in DB, UI in Active Sessions page
 - [ ] Final production audit: verify no remaining gaps in auth layer
 - [ ] Round 47 tests
+## Round 48 — Geo-based anomaly alert, CSV export geo columns, force-logout confirmation dialog
+- [x] Geo-based anomaly alert — flag logins from a first-time country for a user, send notifyOwner notification
+- [x] CSV export geo columns — add geo_country and geo_city to exportAuthEvents CSV output
+- [x] Force-logout confirmation dialog — wrap force-logout button in AlertDialog with confirmation step (done in Round 46)
+- [x] Fix trpc.keycloak.* path mismatch → trpc.middleware.keycloak.* in ActiveSessions.tsx and AuthEvents.tsx
+- [x] Write server/keycloak.round48.test.ts covering all three features
