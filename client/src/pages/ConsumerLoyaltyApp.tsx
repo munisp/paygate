@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useMemo } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,14 +16,6 @@ const TIERS = [
   { name: "Platinum", min: 10000, max: Infinity, color: "text-purple-600", bg: "bg-purple-100", cashback: 3.0 },
 ];
 
-const mockHistory = [
-  { id: 1, type: "earned", description: "Purchase at Shoprite", points: 150, date: "2026-04-22", amount: "₦15,000" },
-  { id: 2, type: "earned", description: "Online transfer bonus", points: 50, date: "2026-04-20", amount: "₦5,000" },
-  { id: 3, type: "redeemed", description: "Cashback to wallet", points: -500, date: "2026-04-18", amount: "₦5,000" },
-  { id: 4, type: "earned", description: "Fuel purchase", points: 80, date: "2026-04-15", amount: "₦8,000" },
-  { id: 5, type: "earned", description: "Airtime purchase", points: 20, date: "2026-04-12", amount: "₦2,000" },
-];
-
 const offers = [
   { id: 1, title: "Double Points Weekend", desc: "Earn 2x points on all purchases this weekend", expiry: "Apr 27", icon: "⚡" },
   { id: 2, title: "Fuel Cashback Boost", desc: "Get 5% cashback on fuel purchases up to ₦50,000", expiry: "Apr 30", icon: "⛽" },
@@ -33,11 +25,14 @@ const offers = [
 export default function ConsumerLoyaltyApp() {
   // Real loyalty data from DB
   const { data: loyaltyAccounts, isLoading } = trpc.wave99.loyalty.listAccounts.useQuery({ limit: 10 });
-  const { data: loyaltyTransactions } = trpc.wave99.loyalty.listTransactions.useQuery({ limit: 20 });
-  const [points, setPoints] = useState(3_750);
-  const [cashbackBalance, setCashbackBalance] = useState(3_750); // kobo → naira
+  const { data: loyaltyTransactionsData } = trpc.wave99.loyalty.listTransactions.useQuery({ limit: 20 });
   const [showRedeem, setShowRedeem] = useState(false);
   const [redeemAmount, setRedeemAmount] = useState("");
+
+  // Derive points from real account data (first account) or default to 0
+  const firstAccount = loyaltyAccounts?.[0];
+  const points = firstAccount?.pointsBalance ?? 0;
+  const cashbackBalance = Math.floor(points * 10); // 1 pt = ₦10 cashback
 
   const currentTier = TIERS.find((t) => points >= t.min && points <= t.max) ?? TIERS[0];
   const nextTier = TIERS[TIERS.indexOf(currentTier) + 1];
@@ -46,15 +41,47 @@ export default function ConsumerLoyaltyApp() {
     : 100;
   const pointsToNext = nextTier ? nextTier.min - points : 0;
 
+  // Real transaction history from DB
+  const txHistory = useMemo(() => {
+    if (!loyaltyTransactionsData?.length) return [];
+    return loyaltyTransactionsData.map((tx) => ({
+      id: tx.id,
+      type: tx.type === "earn" ? "earned" : "redeemed",
+      description: tx.note ?? (tx.type === "earn" ? "Points earned" : "Points redeemed"),
+      points: tx.type === "redeem" ? -Math.abs(tx.points) : tx.points,
+      date: new Date(tx.createdAt).toLocaleDateString("en-NG", { year: "numeric", month: "short", day: "numeric" }),
+      amount: tx.orderId ? `Order #${tx.orderId}` : "",
+    }));
+  }, [loyaltyTransactionsData]);
+
+  // Monthly earnings from real data
+  const thisMonthPts = useMemo(() => {
+    if (!loyaltyTransactionsData) return 0;
+    const now = new Date();
+    return loyaltyTransactionsData
+      .filter((tx) => {
+        const d = new Date(tx.createdAt);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && tx.type === "earn";
+      })
+      .reduce((sum, tx) => sum + tx.points, 0);
+  }, [loyaltyTransactionsData]);
+
+  const redeemMutation = trpc.wave99.loyalty.redeemPoints.useMutation({
+    onSuccess: () => {
+      toast.success(`₦${parseInt(redeemAmount).toLocaleString()} redeemed to your wallet!`);
+      setShowRedeem(false);
+      setRedeemAmount("");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   const handleRedeem = () => {
     const amount = parseInt(redeemAmount);
     if (!amount || amount < 500) { toast.error("Minimum redemption is ₦500"); return; }
-    if (amount > cashbackBalance) { toast.error("Insufficient cashback balance"); return; }
-    setCashbackBalance((b) => b - amount);
-    setPoints((p) => p - Math.floor(amount / 10));
-    setShowRedeem(false);
-    setRedeemAmount("");
-    toast.success(`₦${amount.toLocaleString()} redeemed to your wallet!`);
+    if (!firstAccount) { toast.error("No loyalty account found"); return; }
+    const ptsNeeded = Math.ceil(amount / 10);
+    if (ptsNeeded > points) { toast.error("Insufficient points balance"); return; }
+    redeemMutation.mutate({ accountId: firstAccount.id, points: ptsNeeded, transactionRef: `redeem-${Date.now()}` });
   };
 
   if (isLoading) {
@@ -118,7 +145,7 @@ export default function ConsumerLoyaltyApp() {
                 <p className="text-3xl font-bold text-green-600 mt-1">₦{cashbackBalance.toLocaleString()}</p>
                 <p className="text-xs text-muted-foreground mt-1">Min redemption: ₦500</p>
               </div>
-              <Button onClick={() => setShowRedeem(true)} className="gap-2">
+              <Button onClick={() => setShowRedeem(true)} className="gap-2" disabled={cashbackBalance < 500}>
                 <Zap className="w-4 h-4" /> Redeem
               </Button>
             </div>
@@ -127,9 +154,9 @@ export default function ConsumerLoyaltyApp() {
         <Card>
           <CardContent className="p-5">
             <p className="text-sm text-muted-foreground">This Month's Earnings</p>
-            <p className="text-3xl font-bold mt-1">300 pts</p>
+            <p className="text-3xl font-bold mt-1">{thisMonthPts.toLocaleString()} pts</p>
             <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> +12% vs last month
+              <TrendingUp className="w-3 h-3" /> Live from transaction history
             </p>
           </CardContent>
         </Card>
@@ -161,24 +188,30 @@ export default function ConsumerLoyaltyApp() {
         </h2>
         <Card>
           <CardContent className="p-0">
-            <div className="divide-y">
-              {mockHistory.map((tx) => (
-                <div key={tx.id} className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tx.type === "earned" ? "bg-green-100" : "bg-orange-100"}`}>
-                      {tx.type === "earned" ? <ShoppingBag className="w-4 h-4 text-green-600" /> : <Zap className="w-4 h-4 text-orange-500" />}
+            {txHistory.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">
+                No transactions yet. Start earning points by making purchases!
+              </div>
+            ) : (
+              <div className="divide-y">
+                {txHistory.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tx.type === "earned" ? "bg-green-100" : "bg-orange-100"}`}>
+                        {tx.type === "earned" ? <ShoppingBag className="w-4 h-4 text-green-600" /> : <Zap className="w-4 h-4 text-orange-500" />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{tx.description}</p>
+                        <p className="text-xs text-muted-foreground">{tx.date}{tx.amount ? ` · ${tx.amount}` : ""}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium">{tx.description}</p>
-                      <p className="text-xs text-muted-foreground">{tx.date} · {tx.amount}</p>
-                    </div>
+                    <span className={`font-semibold text-sm ${tx.points > 0 ? "text-green-600" : "text-orange-500"}`}>
+                      {tx.points > 0 ? "+" : ""}{tx.points} pts
+                    </span>
                   </div>
-                  <span className={`font-semibold text-sm ${tx.points > 0 ? "text-green-600" : "text-orange-500"}`}>
-                    {tx.points > 0 ? "+" : ""}{tx.points} pts
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -192,6 +225,7 @@ export default function ConsumerLoyaltyApp() {
           <div className="space-y-4 mt-2">
             <div className="bg-muted rounded-lg p-3 text-sm">
               Available balance: <strong>₦{cashbackBalance.toLocaleString()}</strong>
+              <span className="text-muted-foreground ml-2">({points.toLocaleString()} pts)</span>
             </div>
             <div>
               <label className="text-sm font-medium">Amount to redeem (₦)</label>
@@ -205,7 +239,9 @@ export default function ConsumerLoyaltyApp() {
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setShowRedeem(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleRedeem}>Redeem to Wallet</Button>
+              <Button className="flex-1" onClick={handleRedeem} disabled={redeemMutation.isPending}>
+                {redeemMutation.isPending ? "Processing..." : "Redeem to Wallet"}
+              </Button>
             </div>
           </div>
         </DialogContent>

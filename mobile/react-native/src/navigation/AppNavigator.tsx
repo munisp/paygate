@@ -30,6 +30,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import DisputesScreen from "../screens/DisputesScreen";
 import VirtualCardsScreen from "../screens/VirtualCardsScreen";
+import BillingEngineScreen from "../screens/BillingEngineScreen";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export type RootStackParamList = {
   CarbonCredits: undefined;
   Subscriptions: undefined;
   Coupons: undefined;
+  BillingEngine: undefined;
 };
 
 export type MainTabParamList = {
@@ -287,6 +289,11 @@ export default function AppNavigator() {
           name="Coupons"
           component={CouponsScreen}
           options={{ title: "Coupons" }}
+        />
+        <Stack.Screen
+          name="BillingEngine"
+          component={BillingEngineScreen}
+          options={{ title: "Billing Engine" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

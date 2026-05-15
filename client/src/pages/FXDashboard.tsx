@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
+import { useResilientSSE } from "@/lib/resilientSSE";
 import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -194,28 +195,24 @@ export default function FXDashboard() {
     });
   }
 
-  // ─── SSE: Real-time market ticker from /api/market/stream ─────────────────
+  // ─── SSE: Real-time market ticker from /api/market/stream (resilient) ───────
   const [sseConnected, setSseConnected] = useState(false);
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const es = new EventSource("/api/market/stream");
-    es.addEventListener("market", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        setSseConnected(true);
-        setLastUpdated(new Date(data.timestamp).toLocaleTimeString());
-        // Merge SSE rates into the rates map (USD-based)
-        setRates(prev => ({
-          ...prev,
-          ...(data.usdNGN ? { NGN: data.usdNGN } : {}),
-          ...(data.gbpNGN && data.usdNGN ? { GBP: +(data.usdNGN / data.gbpNGN).toFixed(6) } : {}),
-          ...(data.eurNGN && data.usdNGN ? { EUR: +(data.usdNGN / data.eurNGN).toFixed(6) } : {}),
-        }));
-      } catch { /* ignore parse errors */ }
-    });
-    es.onerror = () => setSseConnected(false);
-    return () => { es.close(); setSseConnected(false); };
-  }, [autoRefresh]);
+  const { connected: sseActive } = useResilientSSE<{ timestamp: string; usdNGN?: number; gbpNGN?: number; eurNGN?: number }>({
+    url: "/api/market/stream",
+    enabled: autoRefresh,
+    onMessage: (data) => {
+      setLastUpdated(new Date(data.timestamp).toLocaleTimeString());
+      setRates(prev => ({
+        ...prev,
+        ...(data.usdNGN ? { NGN: data.usdNGN } : {}),
+        ...(data.gbpNGN && data.usdNGN ? { GBP: +(data.usdNGN / data.gbpNGN).toFixed(6) } : {}),
+        ...(data.eurNGN && data.usdNGN ? { EUR: +(data.usdNGN / data.eurNGN).toFixed(6) } : {}),
+      }));
+    },
+    onConnected: (c) => setSseConnected(c),
+  });
+  // Keep sseConnected in sync with resilient SSE state
+  useEffect(() => { setSseConnected(sseActive); }, [sseActive]);
 
   // Live FX rates from DB
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false });

@@ -4617,3 +4617,14 @@
 - [x] getAnomalyConfigAuditLog offset parameter — SQL OFFSET clause for pagination
 - [x] getAnomalyConfigAuditLogFull procedure — paginated full audit log for modal
 - [x] Write server/keycloak.round52.test.ts (19 tests)
+## Round 53 (Wave 125) — Mock Data Elimination, RN BillingEngine, Rules Wiring
+- [x] GoldSIP.tsx — remove mockPlans fallback, use real tRPC setupSIP/pauseSIP/resumeSIP/cancelSIP mutations
+- [x] GoldSIP.tsx — show live gold price from priceData?.priceNGN with GOLD_PRICE_NGN constant fallback
+- [x] GoldSIP.tsx — disabled state on action buttons during pending mutations
+- [x] ConsumerLoyaltyApp.tsx — fix redeemPoints mutation: accountId as number (not string), add transactionRef
+- [x] FraudRisk.tsx — wire Rules Engine tab to real fraudRuleEngine.list tRPC query
+- [x] FraudRisk.tsx — toggleStatus mutation for rule enable/disable (falls back to static RULES when no DB data)
+- [x] React Native BillingEngineScreen.tsx — fee schedules tab, billing events tab, summary cards, pull-to-refresh
+- [x] AppNavigator.tsx — BillingEngine route registered in RootStackParamList and Stack.Navigator
+- [x] Write server/wave125.production-readiness.test.ts — 39 tests, all passing
+- [x] Total test count: 5,190 passing (10 pre-existing failures unchanged)

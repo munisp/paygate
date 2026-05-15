@@ -107,12 +107,24 @@ function ScoreBar({ score, risk }: { score: number; risk: typeof RISK_LEVELS[num
 
 export default function FraudRisk() {
   const [transactions, setTransactions] = useState(INITIAL_TXS);
-  const [rules, setRules] = useState(RULES);
   const [tab, setTab] = useState<"feed" | "rules" | "models" | "insights" | "db_alerts">("feed");
   const { data: dbAlerts } = trpc.fraudRisk.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
   const { data: fraudStats } = trpc.fraudRisk.stats.useQuery(undefined, { staleTime: 60_000 });
   const updateDbAlert = trpc.fraudRisk.updateAlert.useMutation({ onSuccess: () => toast.success("Alert updated") });
   const utils = trpc.useUtils();
+  // Real fraud rules from DB (fraudRuleEngine router)
+  const { data: dbRulesData } = trpc.fraudRuleEngine.list.useQuery({ merchantId: "" }, { staleTime: 30_000 });
+  const toggleRuleMutation = trpc.fraudRuleEngine.toggleStatus.useMutation({
+    onSuccess: () => { utils.fraudRuleEngine.list.invalidate(); toast.success("Rule updated"); },
+    onError: (e) => toast.error(e.message),
+  });
+  // Map DB rules to display format, fallback to static RULES if no DB rules yet
+  const rules = dbRulesData?.rules?.length
+    ? dbRulesData.rules.map((r: any) => ({
+        id: r.id, name: r.name, desc: r.description ?? "", enabled: r.status === "active",
+        triggered: r.triggeredCount ?? 0, blocked: r.blockedCount ?? 0, type: r.ruleType ?? "custom",
+      }))
+    : RULES;
   const snoozeAlerts = trpc.fraudRisk.snoozeAlerts.useMutation({
     onSuccess: (data) => {
       toast.success(`Snoozed ${data.count} alert${data.count !== 1 ? "s" : ""} for 24 hours`);
@@ -769,10 +781,10 @@ export default function FraudRisk() {
               <div className="flex gap-3">
                 <Button size="sm" onClick={() => {
                   if (!newRule.name) { toast.error("Enter a rule name"); return; }
-                  setRules(p => [...p, { id: `r${p.length + 1}`, ...newRule, enabled: true, triggered: 0, blocked: 0 }]);
+                  // Navigate to FraudRuleEngine for full rule creation with condition builder
+                  toast.info("Use Fraud Rule Engine for full rule creation");
                   setShowNewRule(false);
                   setNewRule({ name: "", desc: "", type: "velocity" });
-                  toast.success("Rule created and activated!");
                 }}>Create Rule</Button>
                 <Button size="sm" variant="outline" onClick={() => setShowNewRule(false)}>Cancel</Button>
               </div>
@@ -811,15 +823,19 @@ export default function FraudRisk() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => {
-                        setRules(p => p.map(r => r.id === rule.id ? { ...r, enabled: !r.enabled } : r));
-                        toast.success(rule.enabled ? `Rule "${rule.name}" disabled` : `Rule "${rule.name}" enabled`);
+                        if (dbRulesData?.rules?.length) {
+                          toggleRuleMutation.mutate({ id: rule.id, status: rule.enabled ? "inactive" : "active" });
+                        } else {
+                          toast.info("Connect to DB to manage rules");
+                        }
                       }}
+                      disabled={toggleRuleMutation.isPending}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${rule.enabled ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"}`}
                     >
                       {rule.enabled ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
                       {rule.enabled ? "Active" : "Inactive"}
                     </button>
-                    <button onClick={() => { setRules(p => p.filter(r => r.id !== rule.id)); toast.success("Rule deleted"); }} className="p-2 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors">
+                    <button onClick={() => toast.info("Manage rules in Fraud Rule Engine")} className="p-2 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>

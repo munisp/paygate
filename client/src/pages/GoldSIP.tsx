@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { TrendingUp, TrendingDown, Plus, Pause, Play, Trash2, Target, Coins, Calendar, BarChart3 } from "lucide-react";
+import { TrendingUp, TrendingDown, Plus, Pause, Play, Trash2, Coins, Calendar, BarChart3 } from "lucide-react";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const GOLD_PRICE_NGN = 98_500; // per gram
@@ -28,33 +28,6 @@ interface SIPPlan {
   nextDebitDate: string;
 }
 
-const mockPlans: SIPPlan[] = [
-  {
-    id: "sip-001",
-    name: "Monthly Gold SIP",
-    amountNGN: 50_000,
-    frequency: "monthly",
-    startDate: "2025-01-01",
-    status: "active",
-    gramsAccumulated: 4.82,
-    totalInvested: 450_000,
-    currentValue: 474_870,
-    nextDebitDate: "2026-05-01",
-  },
-  {
-    id: "sip-002",
-    name: "Weekly Micro-Gold",
-    amountNGN: 10_000,
-    frequency: "weekly",
-    startDate: "2025-06-01",
-    status: "active",
-    gramsAccumulated: 1.93,
-    totalInvested: 190_000,
-    currentValue: 190_105,
-    nextDebitDate: "2026-04-28",
-  },
-];
-
 const portfolioHistory = [
   { month: "Nov", value: 380_000 },
   { month: "Dec", value: 412_000 },
@@ -69,10 +42,10 @@ export default function GoldSIP() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", amountNGN: "", frequency: "monthly" as const });
 
-  // tRPC data
+  // tRPC data — real data only, no mock fallback
   const { data: priceData, isLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval });
   const { data: sipData, refetch: refetchSIPs } = trpc.newFeatures.digitalGold.listSIPs.useQuery();
-  const plans = sipData?.plans ?? mockPlans; // fallback to mock while backend warms up
+  const plans: SIPPlan[] = sipData?.plans ?? [];
 
   const setupSIPMutation = trpc.newFeatures.digitalGold.setupSIP.useMutation({
     onSuccess: () => { toast.success("SIP created"); setShowCreate(false); refetchSIPs(); },
@@ -80,12 +53,15 @@ export default function GoldSIP() {
   });
   const pauseSIPMutation = trpc.newFeatures.digitalGold.pauseSIP.useMutation({
     onSuccess: () => { toast.success("SIP paused"); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
   });
   const resumeSIPMutation = trpc.newFeatures.digitalGold.resumeSIP.useMutation({
     onSuccess: () => { toast.success("SIP resumed"); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
   });
   const cancelSIPMutation = trpc.newFeatures.digitalGold.cancelSIP.useMutation({
     onSuccess: () => { toast.success("SIP cancelled"); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
   });
 
   const totalInvested = useMemo(() => plans.reduce((s, p) => s + p.totalInvested, 0), [plans]);
@@ -94,41 +70,26 @@ export default function GoldSIP() {
   const totalPnL = totalCurrentValue - totalInvested;
   const pnlPct = totalInvested > 0 ? ((totalPnL / totalInvested) * 100).toFixed(2) : "0.00";
 
-  const maxBarValue = Math.max(...portfolioHistory.map((h) => h.value));
+  const maxBarValue = Math.max(...portfolioHistory.map((h) => h.value), 1);
 
   const handleCreate = () => {
     if (!form.name || !form.amountNGN) { toast.error("Fill all fields"); return; }
     const amount = parseInt(form.amountNGN);
     if (amount < 5_000) { toast.error("Minimum SIP amount is ₦5,000"); return; }
-    const grams = amount / GOLD_PRICE_NGN;
-    const newPlan: SIPPlan = {
-      id: `sip-${Date.now()}`,
-      name: form.name,
-      amountNGN: amount,
-      frequency: form.frequency,
-      startDate: new Date().toISOString().split("T")[0],
-      status: "active",
-      gramsAccumulated: grams,
-      totalInvested: amount,
-      currentValue: amount * 1.01,
-      nextDebitDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
-    };
-    setPlans((prev) => [...prev, newPlan]);
-    setShowCreate(false);
+    setupSIPMutation.mutate({ name: form.name, amountNGN: amount, frequency: form.frequency });
     setForm({ name: "", amountNGN: "", frequency: "monthly" });
-    toast.success(`SIP "${form.name}" created successfully`);
   };
 
-  const toggleStatus = (id: string) => {
-    setPlans((prev) => prev.map((p) =>
-      p.id === id ? { ...p, status: p.status === "active" ? "paused" : "active" } : p
-    ));
-    toast.success("SIP status updated");
+  const toggleStatus = (plan: SIPPlan) => {
+    if (plan.status === "active") {
+      pauseSIPMutation.mutate({ sipId: plan.id });
+    } else {
+      resumeSIPMutation.mutate({ sipId: plan.id });
+    }
   };
 
   const deletePlan = (id: string) => {
-    setPlans((prev) => prev.filter((p) => p.id !== id));
-    toast.success("SIP plan deleted");
+    cancelSIPMutation.mutate({ sipId: id });
   };
 
   const fmtNGN = (v: number) => `₦${v.toLocaleString("en-NG")}`;
@@ -168,15 +129,15 @@ export default function GoldSIP() {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Live Gold Price</p>
-            <p className="font-bold text-lg">{fmtNGN(GOLD_PRICE_NGN)}<span className="text-sm font-normal text-muted-foreground"> /gram</span></p>
+            <p className="font-bold text-lg">{fmtNGN(priceData?.priceNGN ?? GOLD_PRICE_NGN)}<span className="text-sm font-normal text-muted-foreground"> /gram</span></p>
           </div>
         </div>
         <div className="text-right">
           <p className="text-xs text-muted-foreground">USD equivalent</p>
-          <p className="font-semibold">${GOLD_PRICE_USD}/gram</p>
+          <p className="font-semibold">${priceData?.priceUSD ?? GOLD_PRICE_USD}/gram</p>
         </div>
         <div className="flex items-center gap-1 text-green-600 text-sm font-medium">
-          <TrendingUp className="w-4 h-4" /> +2.3% today
+          <TrendingUp className="w-4 h-4" /> Live price
         </div>
       </div>
 
@@ -275,10 +236,20 @@ export default function GoldSIP() {
                     </div>
                   </div>
                   <div className="flex gap-2 ml-4">
-                    <Button size="sm" variant="outline" onClick={() => toggleStatus(plan.id)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => toggleStatus(plan)}
+                      disabled={pauseSIPMutation.isPending || resumeSIPMutation.isPending}
+                    >
                       {plan.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => deletePlan(plan.id)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => deletePlan(plan.id)}
+                      disabled={cancelSIPMutation.isPending}
+                    >
                       <Trash2 className="w-3.5 h-3.5 text-red-500" />
                     </Button>
                   </div>
@@ -328,7 +299,9 @@ export default function GoldSIP() {
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleCreate}>Create SIP</Button>
+              <Button className="flex-1" onClick={handleCreate} disabled={setupSIPMutation.isPending}>
+                {setupSIPMutation.isPending ? "Creating..." : "Create SIP"}
+              </Button>
             </div>
           </div>
         </DialogContent>
