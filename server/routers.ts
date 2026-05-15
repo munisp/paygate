@@ -2687,6 +2687,98 @@ const middlewareRouter = router({
         await storageDelete(input.key);
         return { ok: true, deleted: input.key };
       }),
+
+    // ── Anomaly alert: notify owner when LOGIN_ERROR count exceeds threshold ──
+    checkLoginAnomalies: protectedProcedure
+      .input(z.object({
+        windowMinutes: z.number().min(1).max(1440).default(15),
+        threshold: z.number().min(1).max(1000).default(5),
+      }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
+        const events = await getKeycloakEvents({
+          limit: 1000,
+          eventType: "LOGIN_ERROR",
+          fromDate: since,
+        });
+        const count = events.length;
+        const exceeded = count >= input.threshold;
+        if (exceeded) {
+          const { notifyOwner } = await import("./_core/notification");
+          await notifyOwner({
+            title: "⚠️ Auth Anomaly Detected",
+            content: `${count} login failures in the last ${input.windowMinutes} minutes (threshold: ${input.threshold}). Check /security/auth-events for details.`,
+          });
+        }
+        return { count, exceeded, windowMinutes: input.windowMinutes, threshold: input.threshold, since };
+      }),
+
+    // ── Active Keycloak sessions list (admin) ──
+    listActiveSessions: protectedProcedure
+      .input(z.object({
+        userId: z.string().optional(),
+        limit: z.number().min(1).max(200).default(50),
+      }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const kcUrl = process.env.KEYCLOAK_URL ?? "";
+        const realm = process.env.KEYCLOAK_REALM ?? "paygate";
+        const adminUser = process.env.KEYCLOAK_ADMIN ?? "admin";
+        const adminPass = process.env.KEYCLOAK_ADMIN_PASSWORD ?? "";
+        if (!kcUrl || !adminPass) return { sessions: [], total: 0 };
+        try {
+          const tokenRes = await fetch(`${kcUrl}/realms/master/protocol/openid-connect/token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ grant_type: "password", client_id: "admin-cli", username: adminUser, password: adminPass }),
+          });
+          if (!tokenRes.ok) return { sessions: [], total: 0 };
+          const { access_token } = await tokenRes.json() as { access_token: string };
+          const url = input.userId
+            ? `${kcUrl}/admin/realms/${realm}/users/${input.userId}/sessions`
+            : `${kcUrl}/admin/realms/${realm}/sessions?first=0&max=${input.limit}`;
+          const sessRes = await fetch(url, { headers: { Authorization: `Bearer ${access_token}` } });
+          if (!sessRes.ok) return { sessions: [], total: 0 };
+          const sessions = await sessRes.json() as Array<{ id: string; userId: string; username: string; ipAddress: string; start: number; lastAccess: number; clients?: Record<string, string> }>;
+          return { sessions: sessions.slice(0, input.limit), total: sessions.length };
+        } catch {
+          return { sessions: [], total: 0 };
+        }
+      }),
+
+    // ── Force-logout a specific Keycloak session (admin) ──
+    forceLogoutSession: protectedProcedure
+      .input(z.object({ sessionId: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const kcUrl = process.env.KEYCLOAK_URL ?? "";
+        const realm = process.env.KEYCLOAK_REALM ?? "paygate";
+        const adminUser = process.env.KEYCLOAK_ADMIN ?? "admin";
+        const adminPass = process.env.KEYCLOAK_ADMIN_PASSWORD ?? "";
+        if (!kcUrl || !adminPass) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Keycloak admin credentials not configured" });
+        const tokenRes = await fetch(`${kcUrl}/realms/master/protocol/openid-connect/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ grant_type: "password", client_id: "admin-cli", username: adminUser, password: adminPass }),
+        });
+        if (!tokenRes.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to authenticate with Keycloak admin" });
+        const { access_token } = await tokenRes.json() as { access_token: string };
+        const delRes = await fetch(`${kcUrl}/admin/realms/${realm}/sessions/${input.sessionId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
+        if (!delRes.ok && delRes.status !== 404) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Keycloak returned ${delRes.status}` });
+        }
+        return { ok: true, sessionId: input.sessionId };
+      }),
   }),
 });
 

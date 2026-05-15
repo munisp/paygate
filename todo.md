@@ -4564,3 +4564,16 @@
 - [ ] Add Keycloak Admin Console bastion SSH access docs to keycloak-deployment.md
 - [ ] Add production deploy checklist to docs/
 - [ ] Write Round 45 tests
+
+## Round 46 — Auth Events anomaly alerts, IP geolocation enrichment, and Keycloak session management UI
+
+- [x] Auth Events: add anomaly alert — notify owner when LOGIN_ERROR count exceeds threshold in a time window
+- [x] Auth Events: enrich IP address with country/city via ip-api.com or similar free geo API
+- [x] Keycloak session management: add active sessions list and force-logout button for admin users
+- [x] Round 46 tests
+
+## Round 47 — IP Geolocation, Anomaly Config UI, Final Production Audit
+- [x] IP geolocation enrichment: enrich keycloak_events ipAddress with country/city on ingest
+- [ ] Anomaly threshold config: admin-configurable threshold stored in DB, UI in Active Sessions page
+- [ ] Final production audit: verify no remaining gaps in auth layer
+- [ ] Round 47 tests

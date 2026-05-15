@@ -99,6 +99,7 @@ const OllamaChat = lz(() => import("./pages/OllamaChat"));
 const GoLiveChecklist = lz(() => import("./pages/GoLiveChecklist"));
 const SettingsPayments = lz(() => import("./pages/SettingsPayments"));
 const AuthEvents = lz(() => import("./pages/AuthEvents"));
+const ActiveSessions = lz(() => import("./pages/ActiveSessions"));
 const QuickPay = lz(() => import("./pages/QuickPay"));
 const NotificationsCenter = lz(() => import("./pages/NotificationsCenter"));
 const MerchantNotificationPreferences = lz(() => import("./pages/MerchantNotificationPreferences"));
@@ -609,6 +610,7 @@ function Router() {
           <Route path="/go-live-checklist" component={GoLiveChecklist} />
           <Route path="/settings/payments" component={SettingsPayments} />
           <Route path="/settings/auth-events" component={AuthEvents} />
+          <Route path="/settings/active-sessions" component={ActiveSessions} />
           <Route path="/quick-pay" component={QuickPay} />
           <Route path="/notifications" component={NotificationsCenter} />
           <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />

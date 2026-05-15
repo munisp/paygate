@@ -377,22 +377,23 @@ export default function AuthEvents() {
                   <TableHead>User ID</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>IP Address</TableHead>
+                  <TableHead>Location</TableHead>
                   <TableHead>Session</TableHead>
                   <TableHead>Error</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                  {isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : events.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                       <Shield className="w-8 h-8 mx-auto mb-2 opacity-30" />
                       No auth events found for the selected filters.
                     </TableCell>
@@ -412,6 +413,11 @@ export default function AuthEvents() {
                       </TableCell>
                       <TableCell className="text-xs font-mono">
                         {event.ip_address ?? <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {(event as any).geo_city || (event as any).geo_country
+                          ? <span>{[(event as any).geo_city, (event as any).geo_country].filter(Boolean).join(", ")}</span>
+                          : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-xs font-mono max-w-[120px] truncate" title={event.session_id ?? ""}>
                         {event.session_id ? event.session_id.slice(0, 12) + "…" : <span className="text-muted-foreground">—</span>}

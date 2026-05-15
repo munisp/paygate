@@ -435,6 +435,13 @@
       "when": 1778857773986,
       "tag": "0061_next_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1778858705337,
+      "tag": "0062_complete_vapor",
+      "breakpoints": true
     }
   ]
 }

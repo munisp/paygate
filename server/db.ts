@@ -2681,6 +2681,29 @@ export const db = new Proxy({} as ReturnType<typeof drizzle>, {
 
 // ─── Keycloak Event Logging ───────────────────────────────────────────────────
 
+// In-memory geo cache to avoid hammering ip-api.com (free tier: 45 req/min)
+const _geoCache = new Map<string, { country: string; city: string; ts: number }>();
+const GEO_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const GEO_SKIP_PREFIXES = ["10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31."];
+
+async function enrichIpGeo(ip: string | null | undefined): Promise<{ country: string | null; city: string | null }> {
+  if (!ip || ip === "127.0.0.1" || ip === "::1" || ip === "localhost") return { country: null, city: null };
+  if (GEO_SKIP_PREFIXES.some(p => ip.startsWith(p))) return { country: null, city: null };
+  const cached = _geoCache.get(ip);
+  if (cached && Date.now() - cached.ts < GEO_CACHE_TTL_MS) return { country: cached.country, city: cached.city };
+  try {
+    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,city`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return { country: null, city: null };
+    const data = await res.json() as { status: string; country?: string; city?: string };
+    if (data.status !== "success") return { country: null, city: null };
+    const geo = { country: data.country ?? null, city: data.city ?? null, ts: Date.now() };
+    _geoCache.set(ip, { ...geo });
+    return { country: geo.country, city: geo.city };
+  } catch {
+    return { country: null, city: null };
+  }
+}
+
 /**
  * Persist a Keycloak auth event to the keycloak_events table.
  *
@@ -2700,10 +2723,12 @@ export async function logKeycloakEvent(params: {
 }) {
   const db = await getDb();
   if (!db) return;
+  // Enrich IP with geo data (best-effort, non-blocking)
+  const geo = await enrichIpGeo(params.ipAddress);
   try {
     await db.execute(sql`
       INSERT INTO keycloak_events
-        (event_type, realm_id, client_id, user_id, session_id, ip_address, error, details, received_at)
+        (event_type, realm_id, client_id, user_id, session_id, ip_address, geo_country, geo_city, error, details, received_at)
       VALUES (
         ${params.eventType},
         ${params.realmId ?? null},
@@ -2711,6 +2736,8 @@ export async function logKeycloakEvent(params: {
         ${params.userId ?? null},
         ${params.sessionId ?? null},
         ${params.ipAddress ?? null},
+        ${geo.country},
+        ${geo.city},
         ${params.error ?? null},
         ${params.details ? JSON.stringify(params.details) : null}::jsonb,
         NOW()
@@ -2739,7 +2766,7 @@ export async function getKeycloakEvents(params: {
     const { limit = 100, offset = 0, userId, eventType, fromDate, toDate } = params;
     const rows = await db.execute(sql`
       SELECT id, event_type, realm_id, client_id, user_id, session_id,
-             ip_address, error, details, received_at
+             ip_address, geo_country, geo_city, error, details, received_at
       FROM keycloak_events
       WHERE
         (${userId ?? null} IS NULL OR user_id = ${userId ?? null})
@@ -2758,6 +2785,8 @@ export async function getKeycloakEvents(params: {
       user_id: string | null;
       session_id: string | null;
       ip_address: string | null;
+      geo_country: string | null;
+      geo_city: string | null;
       error: string | null;
       details: Record<string, unknown> | null;
       received_at: Date;

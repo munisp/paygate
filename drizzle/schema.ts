@@ -4413,6 +4413,8 @@ export const keycloakEvents = pgTable("keycloak_events", {
   userId: text("user_id"),                        // Keycloak user UUID (sub)
   sessionId: text("session_id"),
   ipAddress: text("ip_address"),
+  geoCountry: text("geo_country"),               // enriched from IP via ip-api.com
+  geoCity: text("geo_city"),                     // enriched from IP via ip-api.com
   error: text("error"),                           // populated for *_ERROR events
   details: jsonb("details"),                      // raw Keycloak event details object
   receivedAt: timestamp("received_at").defaultNow().notNull(),
