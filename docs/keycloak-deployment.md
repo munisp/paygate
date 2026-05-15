@@ -341,3 +341,66 @@ Admins can list and delete backups from **Settings -> Security -> Auth Events ->
    ```
 
 5. **Verify:** Check `/api/health/auth-config` returns `{ status: "ok" }`.
+
+---
+
+## Accessing the Keycloak Admin Console (Bastion SSH)
+
+The Keycloak Admin Console port (`8080`) is **not exposed publicly** in `docker-compose.production.yml`. It is only reachable from within the `keycloak-admin` internal Docker network. To access the Admin UI from your workstation, use an SSH port-forward through your bastion host:
+
+```bash
+# Forward localhost:9090 → keycloak container port 8080 via bastion
+ssh -L 9090:localhost:8080 -N -f bastion-user@bastion.your-domain.com
+
+# Then open in your browser:
+# http://localhost:9090/admin
+```
+
+**If Keycloak is running on a separate host from the bastion:**
+
+```bash
+# Forward localhost:9090 → keycloak-host:8080 via bastion
+ssh -L 9090:keycloak-host:8080 -N -f bastion-user@bastion.your-domain.com
+```
+
+**Recommended SSH config entry** (`~/.ssh/config`):
+
+```
+Host paygate-kc-tunnel
+  HostName bastion.your-domain.com
+  User bastion-user
+  LocalForward 9090 localhost:8080
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+```
+
+Then connect with: `ssh -N paygate-kc-tunnel`
+
+**Security notes:**
+- Never expose port `8080` directly in firewall rules or `docker-compose.production.yml`
+- Rotate `KEYCLOAK_ADMIN_PASSWORD` after initial setup and store it in your secrets manager
+- Restrict bastion SSH access by IP allowlist
+- Audit Admin Console sessions via Keycloak's Admin Events log (`Realm Settings → Events → Admin Events`)
+
+---
+
+## Production Deployment Checklist
+
+Before going live, verify each item:
+
+| # | Check | Command / Location |
+|---|---|---|
+| 1 | All migrations applied | `pnpm db:push` on production DB |
+| 2 | `KEYCLOAK_URL` set and reachable | `curl $KEYCLOAK_URL/health/ready` |
+| 3 | `KEYCLOAK_CLIENT_SECRET` set | Settings → Secrets |
+| 4 | `KEYCLOAK_ADMIN_PASSWORD` set | Settings → Secrets |
+| 5 | `KEYCLOAK_WEBHOOK_SECRET` set | Settings → Secrets |
+| 6 | `ALLOWED_ORIGINS` set to production domain | `.env` or Settings → Secrets |
+| 7 | Keycloak Admin port not publicly exposed | `docker-compose.production.yml` ports section |
+| 8 | TOTP required for admin users | Keycloak Admin → Users → Required Actions |
+| 9 | Brute-force protection enabled | `/api/health/auth-config` → `bruteForceProtected: true` |
+| 10 | Nightly backup schedule active | Manus Schedules panel → `keycloak-realm-backup` |
+| 11 | SMTP configured for password reset | Keycloak Admin → Realm Settings → Email |
+| 12 | HSTS header present | `curl -I https://portal.your-domain.com` → `Strict-Transport-Security` |
+| 13 | Auth Events page accessible | `/security/auth-events` in portal |
+| 14 | `/api/health/auth-config` returns ok | `curl https://portal.your-domain.com/api/health/auth-config` |

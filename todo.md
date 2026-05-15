@@ -4556,3 +4556,11 @@
 - [ ] Add /api/health/keycloak-backup endpoint showing age of latest backup
 - [ ] Backup restore runbook in docs/keycloak-deployment.md
 - [ ] Backup management UI section in AuthEvents page (list/delete backups)
+
+## Round 45 — Audit Log UI filters, Keycloak bastion SSH docs, Publish checklist
+
+- [ ] Add date-range picker and event-type multi-select to Auth Events page
+- [ ] Add pagination to Auth Events table
+- [ ] Add Keycloak Admin Console bastion SSH access docs to keycloak-deployment.md
+- [ ] Add production deploy checklist to docs/
+- [ ] Write Round 45 tests

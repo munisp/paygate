@@ -2595,9 +2595,12 @@ const middlewareRouter = router({
     // Non-admins see only their own events; admins can filter by any userId.
     getAuthEvents: protectedProcedure
       .input(z.object({
-        limit: z.number().min(1).max(500).default(100),
+        limit: z.number().min(1).max(500).default(50),
+        offset: z.number().min(0).default(0),
         userId: z.string().optional(),
         eventType: z.string().optional(),
+        fromDate: z.date().optional(),
+        toDate: z.date().optional(),
       }))
       .query(async ({ ctx, input }) => {
         const targetUserId =
@@ -2606,10 +2609,13 @@ const middlewareRouter = router({
             : ctx.user.openId;
         const events = await getKeycloakEvents({
           limit: input.limit,
+          offset: input.offset,
           userId: targetUserId,
           eventType: input.eventType,
+          fromDate: input.fromDate,
+          toDate: input.toDate,
         });
-        return { events };
+        return { events, offset: input.offset, limit: input.limit };
       }),
 
     exportAuthEvents: protectedProcedure
@@ -2617,6 +2623,8 @@ const middlewareRouter = router({
         format: z.enum(["csv", "json"]).default("csv"),
         userId: z.string().optional(),
         eventType: z.string().optional(),
+        fromDate: z.date().optional(),
+        toDate: z.date().optional(),
         limit: z.number().min(1).max(5000).default(1000),
       }))
       .query(async ({ ctx, input }) => {
@@ -2627,6 +2635,8 @@ const middlewareRouter = router({
           limit: input.limit,
           userId: input.userId,
           eventType: input.eventType,
+          fromDate: input.fromDate,
+          toDate: input.toDate,
         });
         if (input.format === "json") {
           return { format: "json" as const, data: JSON.stringify(events, null, 2), count: events.length };

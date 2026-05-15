@@ -2727,13 +2727,16 @@ export async function logKeycloakEvent(params: {
  */
 export async function getKeycloakEvents(params: {
   limit?: number;
+  offset?: number;
   userId?: string;
   eventType?: string;
+  fromDate?: Date;
+  toDate?: Date;
 }) {
   const db = await getDb();
   if (!db) return [];
   try {
-    const { limit = 100, userId, eventType } = params;
+    const { limit = 100, offset = 0, userId, eventType, fromDate, toDate } = params;
     const rows = await db.execute(sql`
       SELECT id, event_type, realm_id, client_id, user_id, session_id,
              ip_address, error, details, received_at
@@ -2741,8 +2744,11 @@ export async function getKeycloakEvents(params: {
       WHERE
         (${userId ?? null} IS NULL OR user_id = ${userId ?? null})
         AND (${eventType ?? null} IS NULL OR event_type = ${eventType ?? null})
+        AND (${fromDate ?? null} IS NULL OR received_at >= ${fromDate ?? null})
+        AND (${toDate ?? null} IS NULL OR received_at <= ${toDate ?? null})
       ORDER BY received_at DESC
       LIMIT ${limit}
+      OFFSET ${offset}
     `);
     return rows.rows as Array<{
       id: number;
