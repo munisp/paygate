@@ -132,6 +132,9 @@ import {
   getRestaurantTableTurnStats,
   logAuditEvent,
   getKeycloakEvents,
+  getAnomalyConfig,
+  setAnomalyConfig,
+  acknowledgeGeoAnomaly,
   getTenantBySlug,
   updateTenantBranding,
 } from "./db";
@@ -2751,6 +2754,41 @@ const middlewareRouter = router({
         } catch {
           return { sessions: [], total: 0 };
         }
+      }),
+
+    // ── Anomaly config: get/set admin-configurable thresholds ──
+    getAnomalyConfig: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const user = await resolveUser(ctx.user.openId);
+        return getAnomalyConfig(user.id);
+      }),
+
+    setAnomalyConfig: protectedProcedure
+      .input(z.object({
+        windowMinutes: z.number().min(1).max(1440),
+        threshold: z.number().min(1).max(1000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const user = await resolveUser(ctx.user.openId);
+        await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
+        return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
+      }),
+
+    // ── Acknowledge a geo-anomaly event (admin dismisses new-country alert) ──
+    acknowledgeGeoAnomaly: protectedProcedure
+      .input(z.object({ eventId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        await acknowledgeGeoAnomaly(input.eventId);
+        return { ok: true, eventId: input.eventId };
       }),
 
     // ── Force-logout a specific Keycloak session (admin) ──

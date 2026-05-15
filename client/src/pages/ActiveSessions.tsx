@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Shield, RefreshCw, LogOut, Monitor, Search, AlertTriangle } from "lucide-react";
+import { Shield, RefreshCw, LogOut, Monitor, Search, AlertTriangle, Settings2 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
+import { Label } from "@/components/ui/label";
 
 function formatRelativeTime(ms: number) {
   const diff = Date.now() - ms;
@@ -27,14 +28,34 @@ export default function ActiveSessions() {
 
   const [userIdFilter, setUserIdFilter] = useState("");
   const [sessionToLogout, setSessionToLogout] = useState<string | null>(null);
+  const [showConfigForm, setShowConfigForm] = useState(false);
+  const [configWindow, setConfigWindow] = useState(15);
+  const [configThreshold, setConfigThreshold] = useState(5);
 
   const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.listActiveSessions.useQuery(
     { userId: userIdFilter.trim() || undefined, limit: 100 },
     { refetchInterval: 30000 } // auto-refresh every 30s
   );
 
+  // Load anomaly config from DB
+  const anomalyConfigQuery = trpc.middleware.keycloak.getAnomalyConfig.useQuery(undefined, {
+    onSuccess: (cfg) => {
+      setConfigWindow(cfg.loginAnomalyWindowMinutes);
+      setConfigThreshold(cfg.loginAnomalyThreshold);
+    },
+  });
+
+  const saveAnomalyConfig = trpc.middleware.keycloak.setAnomalyConfig.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Anomaly config saved: ${result.windowMinutes}m window, threshold ${result.threshold}`);
+      setShowConfigForm(false);
+      anomalyConfigQuery.refetch();
+    },
+    onError: (err) => toast.error(`Failed to save config: ${err.message}`),
+  });
+
   const anomalyQuery = trpc.middleware.keycloak.checkLoginAnomalies.useQuery(
-    { windowMinutes: 15, threshold: 5 },
+    { windowMinutes: anomalyConfigQuery.data?.loginAnomalyWindowMinutes ?? 15, threshold: anomalyConfigQuery.data?.loginAnomalyThreshold ?? 5 },
     { refetchInterval: 60000 }
   );
 
@@ -74,10 +95,16 @@ export default function ActiveSessions() {
             Live Keycloak SSO sessions — force-logout suspicious or stale sessions
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
-          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowConfigForm(v => !v)} className="gap-2">
+            <Settings2 className="w-4 h-4" />
+            Configure
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
+            <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Anomaly alert banner */}
@@ -91,6 +118,57 @@ export default function ActiveSessions() {
                 {anomalyQuery.data.count} login failures in the last {anomalyQuery.data.windowMinutes} minutes
                 (threshold: {anomalyQuery.data.threshold}). Review the Auth Events log for details.
               </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Anomaly threshold config form */}
+      {showConfigForm && (
+        <Card className="border-dashed">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Settings2 className="w-4 h-4" />
+              Anomaly Detection Config
+            </CardTitle>
+            <CardDescription>Set the time window and failure count threshold for login anomaly alerts.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="space-y-1">
+                <Label htmlFor="configWindow">Window (minutes)</Label>
+                <Input
+                  id="configWindow"
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={configWindow}
+                  onChange={e => setConfigWindow(Number(e.target.value))}
+                  className="w-32"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="configThreshold">Failure threshold</Label>
+                <Input
+                  id="configThreshold"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={configThreshold}
+                  onChange={e => setConfigThreshold(Number(e.target.value))}
+                  className="w-32"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => saveAnomalyConfig.mutate({ windowMinutes: configWindow, threshold: configThreshold })}
+                  disabled={saveAnomalyConfig.isPending}
+                >
+                  {saveAnomalyConfig.isPending ? "Saving…" : "Save"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowConfigForm(false)}>Cancel</Button>
+              </div>
             </div>
           </CardContent>
         </Card>

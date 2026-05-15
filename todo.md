@@ -4583,3 +4583,10 @@
 - [x] Force-logout confirmation dialog — wrap force-logout button in AlertDialog with confirmation step (done in Round 46)
 - [x] Fix trpc.keycloak.* path mismatch → trpc.middleware.keycloak.* in ActiveSessions.tsx and AuthEvents.tsx
 - [x] Write server/keycloak.round48.test.ts covering all three features
+## Round 49 — Anomaly Config UI, Geo Typing, New-Country Alert Dismissal
+
+- [x] Anomaly threshold config UI — getAnomalyConfig/setAnomalyConfig procedures + Configure button + settings form in ActiveSessions.tsx
+- [x] Proper geo column typing — AuthEvent interface in AuthEvents.tsx, remove (as any) casts
+- [x] New-country alert dismissal — geo_anomaly_acknowledged column, acknowledgeGeoAnomaly procedure, dismiss button in AuthEvents.tsx
+- [x] Schema migration — loginAnomalyWindowMinutes + loginAnomalyThreshold in adminNotificationPrefs, geo_anomaly_acknowledged in keycloak_events
+- [x] Write server/keycloak.round49.test.ts (18 tests)

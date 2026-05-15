@@ -10,10 +10,27 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Shield, RefreshCw, AlertTriangle, CheckCircle, LogIn, LogOut, Search, Download, ChevronLeft, ChevronRight, CalendarIcon, X } from "lucide-react";
+import { Globe, Shield, RefreshCw, AlertTriangle, CheckCircle, LogIn, LogOut, Search, Download, ChevronLeft, ChevronRight, CalendarIcon, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { format, startOfDay, endOfDay, subDays } from "date-fns";
+
+/** Typed shape returned by trpc.middleware.keycloak.getAuthEvents */
+interface AuthEvent {
+  id: number;
+  event_type: string;
+  realm_id: string | null;
+  client_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  ip_address: string | null;
+  geo_country: string | null;
+  geo_city: string | null;
+  geo_anomaly_acknowledged: boolean | null;
+  error: string | null;
+  details: Record<string, unknown> | null;
+  received_at: Date | string;
+}
 
 const EVENT_TYPES = [
   { value: "ALL", label: "All Events" },
@@ -162,7 +179,15 @@ export default function AuthEvents() {
     setPage(0);
   };
 
-  const events = data?.events ?? [];
+  const events = (data?.events ?? []) as AuthEvent[];
+
+  const acknowledgeGeoAnomaly = trpc.middleware.keycloak.acknowledgeGeoAnomaly.useMutation({
+    onSuccess: () => {
+      toast.success("Geo anomaly alert dismissed");
+      refetch();
+    },
+    onError: (err) => toast.error(`Failed to dismiss: ${err.message}`),
+  });
   const hasNextPage = events.length === PAGE_SIZE;
   const hasPrevPage = page > 0;
 
@@ -415,9 +440,21 @@ export default function AuthEvents() {
                         {event.ip_address ?? <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-xs">
-                        {(event as any).geo_city || (event as any).geo_country
-                          ? <span>{[(event as any).geo_city, (event as any).geo_country].filter(Boolean).join(", ")}</span>
-                          : <span className="text-muted-foreground">—</span>}
+                        <div className="flex items-center gap-1">
+                          {event.geo_city || event.geo_country
+                            ? <span>{[event.geo_city, event.geo_country].filter(Boolean).join(", ")}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                          {/* Show dismiss button for unacknowledged new-country LOGIN events */}
+                          {event.event_type === "LOGIN" && event.geo_country && !event.geo_anomaly_acknowledged && isAdmin && (
+                            <button
+                              title="Dismiss new-country alert"
+                              className="ml-1 text-amber-500 hover:text-amber-700"
+                              onClick={() => acknowledgeGeoAnomaly.mutate({ eventId: event.id })}
+                            >
+                              <Globe className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs font-mono max-w-[120px] truncate" title={event.session_id ?? ""}>
                         {event.session_id ? event.session_id.slice(0, 12) + "…" : <span className="text-muted-foreground">—</span>}

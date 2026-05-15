@@ -3412,6 +3412,9 @@ export const adminNotificationPrefs = pgTable("admin_notification_prefs", {
   // Thresholds
   highRiskScoreThreshold:    integer("high_risk_score_threshold").notNull().default(75),
   largePayoutThresholdKobo:  integer("large_payout_threshold_kobo").notNull().default(1000000000),
+  // Auth anomaly detection thresholds
+  loginAnomalyWindowMinutes: integer("login_anomaly_window_minutes").notNull().default(15),
+  loginAnomalyThreshold:     integer("login_anomaly_threshold").notNull().default(5),
   // Digest frequency: 'realtime' | 'hourly' | 'daily' | 'weekly'
   digestFrequency: text("digest_frequency").notNull().default("daily"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -4415,6 +4418,7 @@ export const keycloakEvents = pgTable("keycloak_events", {
   ipAddress: text("ip_address"),
   geoCountry: text("geo_country"),               // enriched from IP via ip-api.com
   geoCity: text("geo_city"),                     // enriched from IP via ip-api.com
+  geoAnomalyAcknowledged: boolean("geo_anomaly_acknowledged").default(false), // admin dismissed this new-country alert
   error: text("error"),                           // populated for *_ERROR events
   details: jsonb("details"),                      // raw Keycloak event details object
   receivedAt: timestamp("received_at").defaultNow().notNull(),

@@ -2766,7 +2766,7 @@ export async function getKeycloakEvents(params: {
     const { limit = 100, offset = 0, userId, eventType, fromDate, toDate } = params;
     const rows = await db.execute(sql`
       SELECT id, event_type, realm_id, client_id, user_id, session_id,
-             ip_address, geo_country, geo_city, error, details, received_at
+             ip_address, geo_country, geo_city, geo_anomaly_acknowledged, error, details, received_at
       FROM keycloak_events
       WHERE
         (${userId ?? null} IS NULL OR user_id = ${userId ?? null})
@@ -2787,6 +2787,7 @@ export async function getKeycloakEvents(params: {
       ip_address: string | null;
       geo_country: string | null;
       geo_city: string | null;
+      geo_anomaly_acknowledged: boolean | null;
       error: string | null;
       details: Record<string, unknown> | null;
       received_at: Date;
@@ -2829,5 +2830,76 @@ export async function getKnownCountriesForUser(
   } catch (err) {
     console.error("[DB] getKnownCountriesForUser failed", err);
     return [];
+  }
+}
+
+/**
+ * Get the anomaly detection config for an admin user.
+ * Falls back to defaults (15 min window, threshold 5) if no row exists.
+ */
+export async function getAnomalyConfig(userId: number): Promise<{
+  loginAnomalyWindowMinutes: number;
+  loginAnomalyThreshold: number;
+}> {
+  const db = await getDb();
+  if (!db) return { loginAnomalyWindowMinutes: 15, loginAnomalyThreshold: 5 };
+  try {
+    const rows = await db.execute(sql`
+      SELECT login_anomaly_window_minutes, login_anomaly_threshold
+      FROM admin_notification_prefs
+      WHERE user_id = ${userId}
+      LIMIT 1
+    `);
+    const row = rows.rows[0] as { login_anomaly_window_minutes: number; login_anomaly_threshold: number } | undefined;
+    if (!row) return { loginAnomalyWindowMinutes: 15, loginAnomalyThreshold: 5 };
+    return {
+      loginAnomalyWindowMinutes: row.login_anomaly_window_minutes ?? 15,
+      loginAnomalyThreshold: row.login_anomaly_threshold ?? 5,
+    };
+  } catch (err) {
+    console.error("[DB] getAnomalyConfig failed", err);
+    return { loginAnomalyWindowMinutes: 15, loginAnomalyThreshold: 5 };
+  }
+}
+
+/**
+ * Upsert the anomaly detection config for an admin user.
+ */
+export async function setAnomalyConfig(
+  userId: number,
+  windowMinutes: number,
+  threshold: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO admin_notification_prefs (id, user_id, login_anomaly_window_minutes, login_anomaly_threshold, updated_at)
+      VALUES (${crypto.randomUUID()}, ${userId}, ${windowMinutes}, ${threshold}, NOW())
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        login_anomaly_window_minutes = EXCLUDED.login_anomaly_window_minutes,
+        login_anomaly_threshold = EXCLUDED.login_anomaly_threshold,
+        updated_at = NOW()
+    `);
+  } catch (err) {
+    console.error("[DB] setAnomalyConfig failed", err);
+  }
+}
+
+/**
+ * Mark a keycloak_event row as geo-anomaly acknowledged (admin dismissed the alert).
+ */
+export async function acknowledgeGeoAnomaly(eventId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      UPDATE keycloak_events
+      SET geo_anomaly_acknowledged = TRUE
+      WHERE id = ${eventId}
+    `);
+  } catch (err) {
+    console.error("[DB] acknowledgeGeoAnomaly failed", err);
   }
 }
