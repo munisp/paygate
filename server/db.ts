@@ -2961,3 +2961,99 @@ export async function setGlobalAnomalyConfig(windowMinutes: number, threshold: n
     console.error("[DB] setGlobalAnomalyConfig failed", err);
   }
 }
+
+// ─── Round 51: Anomaly Config Audit Log ──────────────────────────────────────
+
+/**
+ * Record a change to the anomaly config in the audit log.
+ */
+export async function recordAnomalyConfigChange(opts: {
+  changedByUserId: number;
+  isGlobal: boolean;
+  oldWindowMinutes: number | null;
+  oldThreshold: number | null;
+  newWindowMinutes: number;
+  newThreshold: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO anomaly_config_audit
+        (changed_by_user_id, is_global, old_window_minutes, old_threshold, new_window_minutes, new_threshold)
+      VALUES
+        (${opts.changedByUserId}, ${opts.isGlobal}, ${opts.oldWindowMinutes ?? null},
+         ${opts.oldThreshold ?? null}, ${opts.newWindowMinutes}, ${opts.newThreshold})
+    `);
+  } catch (err) {
+    console.error("[DB] recordAnomalyConfigChange failed", err);
+  }
+}
+
+/**
+ * Get the last N anomaly config audit entries (most recent first).
+ */
+export async function getAnomalyConfigAuditLog(limit = 5): Promise<Array<{
+  id: number;
+  changedByUserId: number;
+  isGlobal: boolean;
+  oldWindowMinutes: number | null;
+  oldThreshold: number | null;
+  newWindowMinutes: number;
+  newThreshold: number;
+  changedAt: Date;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await db.execute(sql`
+      SELECT id, changed_by_user_id, is_global, old_window_minutes, old_threshold,
+             new_window_minutes, new_threshold, changed_at
+      FROM anomaly_config_audit
+      ORDER BY changed_at DESC
+      LIMIT ${limit}
+    `);
+    return (rows.rows ?? []).map((r: any) => ({
+      id: Number(r.id),
+      changedByUserId: Number(r.changed_by_user_id),
+      isGlobal: Boolean(r.is_global),
+      oldWindowMinutes: r.old_window_minutes != null ? Number(r.old_window_minutes) : null,
+      oldThreshold: r.old_threshold != null ? Number(r.old_threshold) : null,
+      newWindowMinutes: Number(r.new_window_minutes),
+      newThreshold: Number(r.new_threshold),
+      changedAt: new Date(r.changed_at),
+    }));
+  } catch (err) {
+    console.error("[DB] getAnomalyConfigAuditLog failed", err);
+    return [];
+  }
+}
+
+// ─── Round 51: Session Country Column ────────────────────────────────────────
+
+/**
+ * Get the most recent geo_country for each of the given Keycloak user IDs.
+ * Returns a map of keycloakUserId → country string.
+ */
+export async function getLatestCountryForUsers(keycloakUserIds: string[]): Promise<Record<string, string>> {
+  const db = await getDb();
+  if (!db || keycloakUserIds.length === 0) return {};
+  try {
+    const rows = await db.execute(sql`
+      SELECT DISTINCT ON (user_id) user_id, geo_country
+      FROM keycloak_events
+      WHERE user_id = ANY(${keycloakUserIds})
+        AND event_type = 'LOGIN'
+        AND geo_country IS NOT NULL
+      ORDER BY user_id, received_at DESC
+    `);
+    const result: Record<string, string> = {};
+    for (const r of (rows.rows ?? []) as any[]) {
+      if (r.user_id && r.geo_country) result[r.user_id] = r.geo_country;
+    }
+    return result;
+  } catch (err) {
+    console.error("[DB] getLatestCountryForUsers failed", err);
+    return {};
+  }
+}

@@ -4429,3 +4429,22 @@ export const keycloakEvents = pgTable("keycloak_events", {
 ]);
 export type KeycloakEvent = typeof keycloakEvents.$inferSelect;
 export type InsertKeycloakEvent = typeof keycloakEvents.$inferInsert;
+
+// ─── Anomaly Config Audit Log ─────────────────────────────────────────────────
+// Records every change to loginAnomalyWindowMinutes / loginAnomalyThreshold.
+// Tracks who changed it, old value, new value, and whether it was a global change.
+export const anomalyConfigAudit = pgTable("anomaly_config_audit", {
+  id: serial("id").primaryKey(),
+  changedByUserId: integer("changed_by_user_id").notNull(), // portal user id (0 = global)
+  isGlobal: boolean("is_global").default(false).notNull(),
+  oldWindowMinutes: integer("old_window_minutes"),
+  oldThreshold: integer("old_threshold"),
+  newWindowMinutes: integer("new_window_minutes").notNull(),
+  newThreshold: integer("new_threshold").notNull(),
+  changedAt: timestamp("changed_at").defaultNow().notNull(),
+}, (t) => [
+  index("anomaly_config_audit_user_idx").on(t.changedByUserId),
+  index("anomaly_config_audit_changed_at_idx").on(t.changedAt),
+]);
+export type AnomalyConfigAudit = typeof anomalyConfigAudit.$inferSelect;
+export type InsertAnomalyConfigAudit = typeof anomalyConfigAudit.$inferInsert;

@@ -457,6 +457,29 @@ export function registerOAuthRoutes(app: Express) {
                 title: "🌍 New Country Login Detected",
                 content: `User ${body.userId} logged in from ${latestCountry} (IP: ${body.ipAddress}). Known countries: ${knownCountries.join(", ")}.`,
               });
+              // Also send SMTP email to the portal owner
+              try {
+                const { sendEmail, geoAnomalyEmail } = await import("../emailService");
+                const { ENV } = await import("./env");
+                const ownerEmail = ENV.smtpUser; // fallback: use SMTP user as owner email
+                const portalUrl = process.env.MERCHANT_PORTAL_URL ?? "https://paygate.manus.space";
+                const emailOpts = geoAnomalyEmail({
+                  ownerEmail,
+                  userId: body.userId as string,
+                  newCountry: latestCountry,
+                  knownCountries,
+                  ipAddress: body.ipAddress as string | undefined,
+                  timestamp: new Date(),
+                  portalUrl,
+                });
+                await sendEmail({
+                  to: ownerEmail,
+                  subject: emailOpts.subject,
+                  html: emailOpts.html,
+                });
+              } catch (emailErr) {
+                console.error("[Keycloak Events] Geo anomaly email failed", emailErr);
+              }
               console.warn("[Keycloak Events] New-country login alert", {
                 userId: body.userId,
                 country: latestCountry,

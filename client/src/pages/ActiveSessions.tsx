@@ -35,6 +35,10 @@ export default function ActiveSessions() {
   const globalConfigQuery = trpc.middleware.keycloak.getGlobalAnomalyConfig.useQuery(undefined, {
     enabled: isAdmin,
   });
+  const auditLogQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLog.useQuery(undefined, {
+    enabled: isAdmin && showConfigForm,
+  });
+
   const saveGlobalAnomalyConfig = trpc.middleware.keycloak.setGlobalAnomalyConfig.useMutation({
     onSuccess: () => {
       toast.success("Global anomaly config saved as default for all admins");
@@ -89,6 +93,7 @@ export default function ActiveSessions() {
     lastAccess: number;
     clients?: Record<string, string>;
     isNewCountry?: boolean;
+    geoCountry?: string | null;
   }>;
 
   if (!isAdmin) {
@@ -201,6 +206,25 @@ export default function ActiveSessions() {
                 <Button size="sm" variant="outline" onClick={() => setShowConfigForm(false)}>Cancel</Button>
               </div>
             </div>
+            {/* Audit log */}
+            {auditLogQuery.data && auditLogQuery.data.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="text-xs font-semibold text-muted-foreground mb-2">Recent Changes</p>
+                <div className="space-y-1">
+                  {auditLogQuery.data.map((entry) => (
+                    <div key={entry.id} className="text-xs text-muted-foreground flex items-center gap-2">
+                      <span className="font-mono">{new Date(entry.changedAt).toLocaleString()}</span>
+                      <span>{entry.isGlobal ? "(global)" : `(user ${entry.changedByUserId})`}</span>
+                      <span>
+                        {entry.oldWindowMinutes != null ? `${entry.oldWindowMinutes}m/${entry.oldThreshold}` : "default"}
+                        {" → "}
+                        {entry.newWindowMinutes}m/{entry.newThreshold}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -264,6 +288,7 @@ export default function ActiveSessions() {
                   <TableHead>Session ID</TableHead>
                   <TableHead>Username</TableHead>
                   <TableHead>IP Address</TableHead>
+                  <TableHead>Country</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Last Active</TableHead>
                   <TableHead>Clients</TableHead>
@@ -274,14 +299,14 @@ export default function ActiveSessions() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : sessions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                       <Monitor className="w-8 h-8 mx-auto mb-2 opacity-30" />
                       {userIdFilter ? "No sessions found for this user." : "No active sessions. Sessions appear here once users log in via Keycloak."}
                     </TableCell>
@@ -308,6 +333,14 @@ export default function ActiveSessions() {
                       </TableCell>
                       <TableCell className="text-xs font-mono">
                         {session.ipAddress ?? <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {session.geoCountry ? (
+                          <span className="flex items-center gap-1">
+                            {session.isNewCountry && <Globe className="w-3 h-3 text-amber-500 shrink-0" />}
+                            {session.geoCountry}
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {session.start ? formatRelativeTime(session.start) : "—"}

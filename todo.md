@@ -4599,3 +4599,13 @@
 - [x] getAuthEvents procedure — newCountryOnly input parameter added
 - [x] "Set as Global Default" button in anomaly config form
 - [x] Write server/keycloak.round50.test.ts (19 tests)
+
+## Round 51 — Geo anomaly email, anomaly config audit log, session country column
+
+- [x] Geo anomaly SMTP email — geoAnomalyEmail() template in emailService.ts; oauth.ts webhook handler sends email on new-country login
+- [x] Anomaly config audit log — anomaly_config_audit table (migration 0064), recordAnomalyConfigChange + getAnomalyConfigAuditLog in db.ts
+- [x] setAnomalyConfig + setGlobalAnomalyConfig — now record audit entries before/after change
+- [x] getAnomalyConfigAuditLog tRPC procedure — returns last 5 changes
+- [x] Audit log displayed in config form (ActiveSessions.tsx) — shows timestamp, scope, old→new values
+- [x] Session country column — getLatestCountryForUsers in db.ts; listActiveSessions enriched with geoCountry; Country column in table
+- [x] Write server/keycloak.round51.test.ts (17 tests)

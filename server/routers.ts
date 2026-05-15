@@ -138,6 +138,9 @@ import {
   getGlobalAnomalyConfig,
   setGlobalAnomalyConfig,
   getKnownCountriesForUser,
+  recordAnomalyConfigChange,
+  getAnomalyConfigAuditLog,
+  getLatestCountryForUsers,
   getTenantBySlug,
   updateTenantBranding,
 } from "./db";
@@ -2769,9 +2772,9 @@ const middlewareRouter = router({
                 `);
                 const latestCountry = (recent.rows[0] as { geo_country: string } | undefined)?.geo_country;
                 const isNewCountry = !!latestCountry && !known.includes(latestCountry);
-                return { ...s, isNewCountry };
+                return { ...s, isNewCountry, geoCountry: latestCountry ?? null };
               } catch {
-                return { ...s, isNewCountry: false };
+                return { ...s, isNewCountry: false, geoCountry: null };
               }
             })
           );
@@ -2801,7 +2804,18 @@ const middlewareRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
         const user = await resolveUser(ctx.user.openId);
+        // Get old values for audit log
+        const oldConfig = await getAnomalyConfig(user.id);
         await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
+        // Record audit entry
+        await recordAnomalyConfigChange({
+          changedByUserId: user.id,
+          isGlobal: false,
+          oldWindowMinutes: oldConfig.windowMinutes,
+          oldThreshold: oldConfig.threshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
+        });
         return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
       }),
 
@@ -2834,10 +2848,28 @@ const middlewareRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
+                // Get old global config for audit log
+        const oldGlobal = await getGlobalAnomalyConfig();
         await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
+        const user = await resolveUser(ctx.user.openId);
+        await recordAnomalyConfigChange({
+          changedByUserId: user.id,
+          isGlobal: true,
+          oldWindowMinutes: oldGlobal.windowMinutes,
+          oldThreshold: oldGlobal.threshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
+        });
         return { ok: true };
       }),
-
+    // ── Get anomaly config audit log (last 5 changes) ──
+    getAnomalyConfigAuditLog: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        return getAnomalyConfigAuditLog(5);
+      }),
     // ── Force-logout a specific Keycloak session (admin) ──
     forceLogoutSession: protectedProcedure
       .input(z.object({ sessionId: z.string().min(1) }))

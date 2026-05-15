@@ -195,3 +195,61 @@ export function kycStatusEmail(opts: {
 </html>`,
   };
 }
+
+export function geoAnomalyEmail(opts: {
+  ownerEmail: string;
+  userId: string;
+  newCountry: string;
+  knownCountries: string[];
+  ipAddress?: string;
+  timestamp: Date;
+  portalUrl: string;
+}): { subject: string; html: string } {
+  const knownList = opts.knownCountries.length > 0
+    ? opts.knownCountries.join(", ")
+    : "None on record";
+  const formattedTime = opts.timestamp.toUTCString();
+  return {
+    subject: `🌍 New Country Login Detected — ${opts.newCountry}`,
+    html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #1a1a1a;">
+  <div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="color: #6366f1; font-size: 28px; margin: 0;">PayGate</h1>
+  </div>
+  <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+    <h2 style="color: #92400e; margin: 0 0 8px 0; font-size: 18px;">🌍 New Country Login Alert</h2>
+    <p style="color: #78350f; margin: 0;">A user has logged in from a country not previously seen in their login history.</p>
+  </div>
+  <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+    <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; color: #6b7280; width: 40%;">User ID</td>
+        <td style="padding: 8px 12px; border: 1px solid #e5e7eb; font-family: monospace;">${opts.userId}</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; color: #6b7280;">New Country</td>
+        <td style="padding: 8px 12px; border: 1px solid #e5e7eb; font-weight: 700; color: #d97706;">${opts.newCountry}</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; color: #6b7280;">Known Countries</td>
+        <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${knownList}</td></tr>
+    ${opts.ipAddress ? `<tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; color: #6b7280;">IP Address</td>
+        <td style="padding: 8px 12px; border: 1px solid #e5e7eb; font-family: monospace;">${opts.ipAddress}</td></tr>` : ""}
+    <tr><td style="padding: 8px 12px; border: 1px solid #e5e7eb; color: #6b7280;">Timestamp</td>
+        <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">${formattedTime}</td></tr>
+  </table>
+  <div style="text-align: center; margin: 24px 0;">
+    <a href="${opts.portalUrl}/active-sessions"
+       style="background: #6366f1; color: white; padding: 12px 24px; border-radius: 8px;
+              text-decoration: none; font-weight: 600; display: inline-block;">
+      Review in Portal
+    </a>
+  </div>
+  <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+    If this login was expected, you can dismiss the alert in the Auth Events page.
+  </p>
+  <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+  <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+    © ${new Date().getFullYear()} PayGate. All rights reserved.
+  </p>
+</body>
+</html>`,
+  };
+}
