@@ -19,14 +19,7 @@ const TIER_CONFIG = {
   platinum: { color: "text-purple-600", bg: "bg-purple-50 border-purple-200", icon: "💎", min: 200_000, max: null, next: null },
 };
 
-const MOCK_HISTORY = [
-  { id: "1", type: "earned", amount: 2_500, description: "Transaction cashback", date: "2026-04-20", txRef: "TXN-001" },
-  { id: "2", type: "earned", amount: 1_800, description: "Tier bonus — Gold upgrade", date: "2026-04-18", txRef: "TXN-002" },
-  { id: "3", type: "redeemed", amount: -5_000, description: "Cashback redemption", date: "2026-04-15", txRef: "RDM-001" },
-  { id: "4", type: "earned", amount: 3_200, description: "Merchant referral bonus", date: "2026-04-12", txRef: "TXN-003" },
-  { id: "5", type: "earned", amount: 900, description: "Transaction cashback", date: "2026-04-10", txRef: "TXN-004" },
-  { id: "6", type: "redeemed", amount: -2_000, description: "Cashback redemption", date: "2026-04-05", txRef: "RDM-002" },
-];
+// MOCK_HISTORY removed — now fetched from loyaltyMw.history
 
 const CHART_DATA = [
   { month: "Nov", earned: 8_000, redeemed: 3_000 },
@@ -64,7 +57,9 @@ export default function LoyaltyDashboard() {
     ? Math.min(100, ((currentBalance - tierCfg.min) / (tierCfg.max - tierCfg.min)) * 100)
     : 100;
 
-  const filteredHistory = MOCK_HISTORY.filter((h) =>
+  const { data: historyData, isLoading: historyLoading } = trpc.loyaltyMw.history.useQuery();
+  const allHistory = historyData ?? [];
+  const filteredHistory = allHistory.filter((h: any) =>
     historyFilter === "all" ? true : h.type === historyFilter
   );
 
@@ -238,21 +233,29 @@ export default function LoyaltyDashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredHistory.map((h) => (
-                <TableRow key={h.id}>
-                  <TableCell className="text-sm">{h.description}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{h.txRef}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{h.date}</TableCell>
-                  <TableCell className={`text-right font-semibold ${h.amount > 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    {h.amount > 0 ? "+" : ""}₦{Math.abs(h.amount).toLocaleString("en-NG")}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={h.type === "earned" ? "default" : "secondary"} className="text-xs capitalize">
-                      {h.type}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {historyLoading ? (
+                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading history...</TableCell></TableRow>
+              ) : filteredHistory.length === 0 ? (
+                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No transactions found.</TableCell></TableRow>
+              ) : filteredHistory.map((h: any) => {
+                const pts = h.points ?? h.amount ?? 0;
+                const isEarned = h.type === "earned" || pts > 0;
+                return (
+                  <TableRow key={h.id}>
+                    <TableCell className="text-sm">{h.description}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{h.txRef ?? h.id}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{h.date ?? h.createdAt}</TableCell>
+                    <TableCell className={`text-right font-semibold ${isEarned ? "text-emerald-600" : "text-red-600"}`}>
+                      {isEarned ? "+" : ""}₦{Math.abs(pts).toLocaleString("en-NG")}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={isEarned ? "default" : "secondary"} className="text-xs capitalize">
+                        {h.type ?? (isEarned ? "earned" : "redeemed")}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>

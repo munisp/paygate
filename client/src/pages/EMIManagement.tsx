@@ -22,12 +22,7 @@ const EMI_PLANS = [
   { id: "emi_24m", name: "24 Months", months: 24, interestRate: 9.0, processingFee: 3.0, minAmount: 200_000, maxAmount: 10_000_000 },
 ];
 
-const MOCK_APPLICATIONS = [
-  { id: "EMI-APP-001", customerId: "CUST-001", customerName: "Adaeze Okonkwo", amount: 500_000, planId: "emi_12m", planName: "12 Months", emiAmount: 44_167, status: "active", disbursedDate: "2026-03-01", nextDueDate: "2026-05-01", paidInstalments: 2, totalInstalments: 12 },
-  { id: "EMI-APP-002", customerId: "CUST-002", customerName: "Emeka Nwosu", amount: 200_000, planId: "emi_6m", planName: "6 Months", emiAmount: 34_833, status: "active", disbursedDate: "2026-04-01", nextDueDate: "2026-05-01", paidInstalments: 1, totalInstalments: 6 },
-  { id: "EMI-APP-003", customerId: "CUST-003", customerName: "Fatima Aliyu", amount: 1_000_000, planId: "emi_18m", planName: "18 Months", emiAmount: 60_556, status: "pending", disbursedDate: null, nextDueDate: null, paidInstalments: 0, totalInstalments: 18 },
-  { id: "EMI-APP-004", customerId: "CUST-004", customerName: "Chukwuemeka Eze", amount: 150_000, planId: "emi_3m", planName: "3 Months", emiAmount: 50_000, status: "completed", disbursedDate: "2026-01-01", nextDueDate: null, paidInstalments: 3, totalInstalments: 3 },
-];
+// MOCK_APPLICATIONS removed — now fetched from emiMw.listApplications
 
 const STATUS_STYLES: Record<string, { label: string; color: string }> = {
   active: { label: "Active", color: "bg-emerald-100 text-emerald-700" },
@@ -45,10 +40,13 @@ export default function EMIManagement() {
   const [customerId, setCustomerId] = useState("");
 
   const { data: plans } = trpc.emiMw.plans.useQuery();
+  const { data: applicationsData, isLoading: appsLoading, refetch: refetchApps } = trpc.emiMw.listApplications.useQuery();
+  const applications = applicationsData ?? [];
   const applyMutation = trpc.emiMw.applyEmi.useMutation({
     onSuccess: (data) => {
       toast.success(`EMI application ${data.applicationId} submitted!`);
       setApplyOpen(false);
+      refetchApps();
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -144,20 +142,28 @@ export default function EMIManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {MOCK_APPLICATIONS.map((app) => {
+                  {appsLoading ? (
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading applications...</TableCell></TableRow>
+                  ) : applications.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No EMI applications yet.</TableCell></TableRow>
+                  ) : applications.map((app: any) => {
                     const st = STATUS_STYLES[app.status] ?? STATUS_STYLES.pending;
-                    const pct = app.totalInstalments > 0 ? (app.paidInstalments / app.totalInstalments) * 100 : 0;
+                    const totalInst = app.totalInstalments ?? app.remainingInstallments ?? 0;
+                    const paidInst = app.paidInstalments ?? 0;
+                    const pct = totalInst > 0 ? (paidInst / totalInst) * 100 : 0;
+                    const amount = app.amountNGN ?? app.amount ?? 0;
+                    const emiAmt = app.emiAmountNGN ?? app.emiAmount ?? 0;
                     return (
                       <TableRow key={app.id}>
                         <TableCell className="font-mono text-xs">{app.id}</TableCell>
-                        <TableCell className="font-medium text-sm">{app.customerName}</TableCell>
-                        <TableCell className="text-sm">{app.planName}</TableCell>
-                        <TableCell className="text-right font-semibold">₦{app.amount.toLocaleString()}</TableCell>
-                        <TableCell className="text-right font-semibold text-violet-600">₦{app.emiAmount.toLocaleString()}</TableCell>
+                        <TableCell className="font-medium text-sm">{app.customerName ?? app.customerId ?? "—"}</TableCell>
+                        <TableCell className="text-sm">{app.planName ?? app.planId}</TableCell>
+                        <TableCell className="text-right font-semibold">₦{amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-semibold text-violet-600">₦{emiAmt.toLocaleString()}</TableCell>
                         <TableCell className="min-w-[120px]">
                           <div className="space-y-1">
                             <Progress value={pct} className="h-1.5" />
-                            <p className="text-xs text-muted-foreground">{app.paidInstalments}/{app.totalInstalments} paid</p>
+                            <p className="text-xs text-muted-foreground">{paidInst}/{totalInst} paid</p>
                           </div>
                         </TableCell>
                         <TableCell>

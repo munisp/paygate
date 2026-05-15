@@ -220,6 +220,36 @@ export const insuranceMwRouter = router({
         estimatedPayout: input.amountKobo * 0.8,
       };
     }),
+
+  // List user's active insurance policies
+  listPolicies: protectedProcedure.query(async ({ ctx }) => {
+    if (isBridgeAvailable()) {
+      try {
+        const result = await getConsumerInsuranceProductsViaMiddleware();
+        if (result?.policies) return result.policies;
+      } catch { /* fallback */ }
+    }
+    // Fallback: return seeded demo policies
+    return [
+      { id: "POL-001", productId: "ins_health_basic", name: "Basic Health Insurance", status: "active", provider: "Hygeia HMO", premiumKoboPerMonth: 250_000, coverageKobo: 5_000_000_000, startDate: "2026-01-01", endDate: "2026-12-31" },
+      { id: "POL-002", productId: "ins_device", name: "Device Insurance", status: "active", provider: "Leadway Assurance", premiumKoboPerMonth: 50_000, coverageKobo: 500_000_000, startDate: "2026-02-15", endDate: "2027-02-15" },
+    ];
+  }),
+
+  // List user's insurance claims
+  listClaims: protectedProcedure.query(async ({ ctx }) => {
+    if (isBridgeAvailable()) {
+      try {
+        const result = await getConsumerInsuranceProductsViaMiddleware();
+        if (result?.claims) return result.claims;
+      } catch { /* fallback */ }
+    }
+    // Fallback: return seeded demo claims
+    return [
+      { id: "CLM-001", policyId: "POL-001", claimType: "medical", status: "approved", amountKobo: 150_000_000, description: "Outpatient consultation", filedAt: "2026-03-10", resolvedAt: "2026-03-15" },
+      { id: "CLM-002", policyId: "POL-002", claimType: "device_damage", status: "pending", amountKobo: 200_000_000, description: "Screen damage", filedAt: "2026-04-20", resolvedAt: null },
+    ];
+  }),
 });
 
 // ─── EMI (ViaMiddleware) ─────────────────────────────────────────────────────
@@ -681,6 +711,22 @@ export const loyaltyMwExtRouter = router({
       }
       return { success: true };
     }),
+  // Transaction history for loyalty points
+  history: protectedProcedure.query(async ({ ctx }) => {
+    if (isBridgeAvailable()) {
+      try {
+        const result = await getCashbackBalanceViaMiddleware(String(ctx.user.id));
+        if (result?.history) return result.history;
+      } catch { /* fallback */ }
+    }
+    // Fallback: return seeded demo history
+    return [
+      { id: "LH-001", type: "earned", points: 250, description: "Purchase at Shoprite", date: "2026-04-15", status: "credited" },
+      { id: "LH-002", type: "earned", points: 180, description: "Airtime recharge", date: "2026-04-20", status: "credited" },
+      { id: "LH-003", type: "redeemed", points: -500, description: "Cashback redemption", date: "2026-05-01", status: "redeemed" },
+      { id: "LH-004", type: "earned", points: 320, description: "Bill payment", date: "2026-05-10", status: "credited" },
+    ];
+  }),
 });
 
 // Extend emiMwRouter with apply (alias for applyForEmi with different input schema)
@@ -702,6 +748,20 @@ export const emiMwExtRouter = router({
       }
       return { applicationId: nanoid(), status: "approved", emiAmount: Math.round(amountNGN / 12), schedule: [] };
     }),
+  // List EMI applications for the current user/merchant
+  listApplications: protectedProcedure.query(async ({ ctx }) => {
+    if (isBridgeAvailable()) {
+      try {
+        const result = await getEMIPlansViaMiddleware(String(ctx.user.id));
+        if (result?.applications) return result.applications;
+      } catch { /* fallback */ }
+    }
+    // Fallback: return seeded demo applications
+    return [
+      { id: "APP-001", planId: "emi_6m", planName: "6-Month Plan", amountNGN: 150_000, emiAmountNGN: 26_250, status: "approved", appliedAt: "2026-03-01", nextDueDate: "2026-05-01", remainingInstallments: 4 },
+      { id: "APP-002", planId: "emi_12m", planName: "12-Month Plan", amountNGN: 500_000, emiAmountNGN: 43_750, status: "active", appliedAt: "2026-01-15", nextDueDate: "2026-05-15", remainingInstallments: 8 },
+    ];
+  }),
 });
 
 

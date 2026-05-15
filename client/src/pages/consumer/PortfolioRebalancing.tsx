@@ -108,15 +108,37 @@ export default function PortfolioRebalancing() {
     );
   };
 
-  const handleRebalance = async () => {
+  const executeRebalanceMutation = trpc.portfolioRebalancing.executeRebalance.useMutation({
+    onSuccess: (data) => {
+      setIsRebalancing(false);
+      toast.success(`Rebalancing order submitted! ${data.orders?.length ?? 0} trade(s) will execute within 1 business day.`);
+    },
+    onError: (e: any) => {
+      setIsRebalancing(false);
+      toast.error(e.message ?? "Failed to submit rebalancing order");
+    },
+  });
+
+  const handleRebalance = () => {
     if (totalTarget !== 100) {
       toast.error("Target allocations must sum to 100%");
       return;
     }
+    const orders = rebalanceActions
+      .filter((a) => Math.abs(a.diff) > 100) // only include meaningful trades (>₦1)
+      .map((a) => ({
+        assetType: a.key === "mutualFunds" ? "mutual_fund" : a.key as "gold" | "mutual_fund" | "pension",
+        direction: a.diff > 0 ? "buy" as const : "sell" as const,
+        amountKobo: Math.round(Math.abs(a.diff) * 100),
+        targetAllocationPct: a.targetPct,
+        currentAllocationPct: Math.round(a.currentPct),
+      }));
+    if (orders.length === 0) {
+      toast.info("Portfolio is already at target allocation.");
+      return;
+    }
     setIsRebalancing(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setIsRebalancing(false);
-    toast.success("Rebalancing order submitted! Trades will execute within 1 business day.");
+    executeRebalanceMutation.mutate({ orders });
   };
 
   const formatNGN = (v: number) =>

@@ -33,17 +33,7 @@ const CLAIM_STATUS: Record<string, { badge: string; label: string }> = {
   paid: { badge: "bg-purple-100 text-purple-700", label: "Paid" },
 };
 
-const MOCK_POLICIES = [
-  { id: "POL-001", product: "Life Insurance", category: "life", premium: 5_000, sumAssured: 5_000_000, status: "active", startDate: "2026-02-23", endDate: "2027-02-23" },
-  { id: "POL-002", product: "Health Insurance", category: "health", premium: 8_000, sumAssured: 2_000_000, status: "active", startDate: "2026-03-23", endDate: "2027-03-23" },
-  { id: "POL-003", product: "Device Insurance", category: "device", premium: 2_500, sumAssured: 300_000, status: "active", startDate: "2026-04-08", endDate: "2027-04-08" },
-  { id: "POL-004", product: "Travel Insurance", category: "travel", premium: 3_000, sumAssured: 1_000_000, status: "expired", startDate: "2026-01-23", endDate: "2026-04-23" },
-];
-
-const MOCK_CLAIMS = [
-  { id: "CLM-001", policyId: "POL-002", type: "Medical Expense", amount: 150_000, status: "approved", date: "2026-04-10", description: "Hospital admission and surgery" },
-  { id: "CLM-002", policyId: "POL-003", type: "Device Damage", amount: 85_000, status: "under_review", date: "2026-04-18", description: "Screen cracked, water damage" },
-];
+// MOCK data removed — now fetched from insuranceMw.listPolicies and insuranceMw.listClaims
 
 export default function InsuranceHub() {
   const [tab, setTab] = useState("products");
@@ -57,10 +47,15 @@ export default function InsuranceHub() {
   const [claimDesc, setClaimDesc] = useState("");
 
   const { data: products } = trpc.insuranceMw.products.useQuery();
+  const { data: policiesData, isLoading: policiesLoading, refetch: refetchPolicies } = trpc.insuranceMw.listPolicies.useQuery();
+  const { data: claimsData, isLoading: claimsLoading } = trpc.insuranceMw.listClaims.useQuery();
+  const policies = policiesData ?? [];
+  const claims = claimsData ?? [];
   const purchaseMutation = trpc.insuranceMw.purchase.useMutation({
     onSuccess: (data) => {
       toast.success(`Policy ${data.policyId} activated!`);
       setPurchaseOpen(false);
+      refetchPolicies();
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -198,20 +193,24 @@ export default function InsuranceHub() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {MOCK_POLICIES.map((p) => {
+                  {policiesLoading ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading policies...</TableCell></TableRow>
+                  ) : policies.length === 0 ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No policies yet. Purchase a product to get started.</TableCell></TableRow>
+                  ) : policies.map((p: any) => {
                     const st = STATUS_STYLES[p.status] ?? STATUS_STYLES.pending;
-                    const Icon = PRODUCT_ICONS[p.category] ?? Shield;
+                    const Icon = PRODUCT_ICONS[p.productId?.split('_')[1] ?? p.category ?? 'health'] ?? Shield;
                     return (
                       <TableRow key={p.id}>
                         <TableCell className="font-mono text-xs">{p.id}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Icon className="w-4 h-4 text-emerald-600" />
-                            <span className="text-sm font-medium">{p.product}</span>
+                            <span className="text-sm font-medium">{p.name ?? p.product}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-semibold">₦{p.premium.toLocaleString()}/mo</TableCell>
-                        <TableCell className="text-right font-semibold text-emerald-600">₦{p.sumAssured.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-semibold">₦{((p.premiumKoboPerMonth ?? p.premium ?? 0) / 100).toLocaleString()}/mo</TableCell>
+                        <TableCell className="text-right font-semibold text-emerald-600">₦{((p.coverageKobo ?? p.sumAssured ?? 0) / 100).toLocaleString()}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{p.endDate}</TableCell>
                         <TableCell>
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${st.badge}`}>{st.label}</span>
@@ -253,15 +252,19 @@ export default function InsuranceHub() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {MOCK_CLAIMS.map((c) => {
+                  {claimsLoading ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading claims...</TableCell></TableRow>
+                  ) : claims.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No claims filed yet.</TableCell></TableRow>
+                  ) : claims.map((c: any) => {
                     const st = CLAIM_STATUS[c.status] ?? CLAIM_STATUS.submitted;
                     return (
                       <TableRow key={c.id}>
                         <TableCell className="font-mono text-xs">{c.id}</TableCell>
                         <TableCell className="font-mono text-xs">{c.policyId}</TableCell>
-                        <TableCell className="text-sm">{c.type}</TableCell>
-                        <TableCell className="text-right font-semibold">₦{c.amount.toLocaleString()}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{c.date}</TableCell>
+                        <TableCell className="text-sm">{c.claimType ?? c.type}</TableCell>
+                        <TableCell className="text-right font-semibold">₦{((c.amountKobo ?? c.amount ?? 0) / 100).toLocaleString()}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{c.filedAt ?? c.date}</TableCell>
                         <TableCell>
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${st.badge}`}>{st.label}</span>
                         </TableCell>
@@ -313,11 +316,11 @@ export default function InsuranceHub() {
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Policy</Label>
-              <Select value={selectedPolicy?.id ?? ""} onValueChange={(v) => setSelectedPolicy(MOCK_POLICIES.find((p) => p.id === v))}>
+              <Select value={selectedPolicy?.id ?? ""} onValueChange={(v) => setSelectedPolicy(policies.find((p: any) => p.id === v))}>
                 <SelectTrigger><SelectValue placeholder="Select policy" /></SelectTrigger>
                 <SelectContent>
-                  {MOCK_POLICIES.filter((p) => p.status === "active").map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.id} — {p.product}</SelectItem>
+                  {policies.filter((p: any) => p.status === "active").map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>{p.id} — {p.name ?? p.product}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

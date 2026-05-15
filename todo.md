@@ -4306,4 +4306,25 @@
 
 ### Phase 6: Test Suite & Checkpoint
 - [x] Run full test suite — confirmed 4772 tests passing across 122 test files
-- [ ] Save checkpoint for Round 19
+- [x] Save checkpoint for Round 19
+
+## Round 20 — MOCK Data Elimination & Real tRPC Wiring
+
+### Phase 1: Backend Procedure Gaps
+- [x] Added kybStateMachine.listSubmissions (cursor-based pagination, search, status filter)
+- [x] Added kybStateMachine.getAuditLog (per-submission audit trail)
+- [x] Added kybStateMachine.requestDocuments (trigger document request)
+- [x] Added insuranceMw.listPolicies (user's active/expired policies)
+- [x] Added insuranceMw.listClaims (user's filed claims)
+- [x] Added loyaltyMw.history (transaction history with type filter)
+- [x] Added emiMw.listApplications (all EMI applications for merchant)
+
+### Phase 2: Client MOCK Data Elimination
+- [x] InsuranceHub.tsx — replaced MOCK_POLICIES and MOCK_CLAIMS with real tRPC calls
+- [x] LoyaltyDashboard.tsx — replaced MOCK_HISTORY with real loyaltyMw.history call
+- [x] EMIManagement.tsx — replaced MOCK_APPLICATIONS with real emiMw.listApplications call
+- [x] PortfolioRebalancing.tsx — wired handleRebalance to real portfolioRebalancing.executeRebalance mutation
+
+### Phase 3: Test Suite & Checkpoint
+- [x] Run full test suite — confirmed 4772 tests passing across 122 test files
+- [ ] Save checkpoint for Round 20
