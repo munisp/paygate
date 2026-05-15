@@ -308,6 +308,10 @@ services:
       KC_SMTP_SSL: ${KC_SMTP_SSL:-false}
       KC_SMTP_STARTTLS: ${KC_SMTP_STARTTLS:-true}
       KC_SMTP_AUTH: ${KC_SMTP_AUTH:-true}
+      # ── Webhook secret for event listener SPI ─────────────────────
+      # This value must match KEYCLOAK_WEBHOOK_SECRET in the portal .env.
+      # Generate with: openssl rand -hex 32
+      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
     ports:
       - "${KEYCLOAK_PORT:-8081}:8080"
     # Health-check: poll /health/ready so dependent services (portal, bootstrap

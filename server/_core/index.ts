@@ -256,6 +256,23 @@ async function startServer() {
       },
     },
     crossOriginEmbedderPolicy: false,
+    // HSTS: enforce TLS for 1 year, include subdomains, allow preload
+    // Disabled in dev so http://localhost still works
+    strictTransportSecurity: isDev ? false : {
+      maxAge: 31536000, // 1 year in seconds
+      includeSubDomains: true,
+      preload: true,
+    },
+    // Prevent MIME-type sniffing (X-Content-Type-Options: nosniff)
+    noSniff: true,
+    // Only send referrer on same-origin requests
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" as const },
+    // Block Flash / PDF cross-domain policies
+    permittedCrossDomainPolicies: { permittedPolicies: "none" as const },
+    // Prevent clickjacking — portal must never be embedded in iframes
+    frameguard: { action: "deny" as const },
+    // Remove X-Powered-By: Express fingerprint
+    hidePoweredBy: true,
   }));
   // ─── Permissions-Policy Header ──────────────────────────────────────────────
   app.use((_req: any, res: any, next: any) => {
@@ -775,13 +792,11 @@ async function startServer() {
         const newHash = await hashPassword(password);
         await db.update(schema.users).set({ passwordHash: newHash }).where(eq(schema.users.email, email));
       }
-      const { sdk } = await import("./sdk");
-      const { ONE_YEAR_MS } = await import("../../shared/const");
-      const token = await sdk.signSession({
-        openId: user.openId,
-        appId: process.env.VITE_APP_ID ?? "paygate",
-        name: user.name ?? user.email ?? "Merchant",
-      }, { expiresInMs: ONE_YEAR_MS });
+      const { createSessionToken } = await import("./keycloak");
+      const token = await createSessionToken(
+        user.openId,
+        user.name ?? user.email ?? "Merchant",
+      );
       const { getMerchantByOwnerId, getUserByOpenId } = await import("../db");
       const merchant = await getMerchantByOwnerId(user.id);
       return res.json({
@@ -1437,6 +1452,50 @@ async function startServer() {
     });
   });
 
+  // ─── Auth Config Health Check ──────────────────────────────────────────────
+  // Validates that all required Keycloak env vars are set for production.
+  // Returns 200 if all required vars are present, 503 if any are missing.
+  // Useful as a pre-flight check in CI/CD pipelines and deployment scripts.
+  app.get("/api/health/auth-config", (_req, res) => {
+    const required = [
+      { key: "KEYCLOAK_URL", value: process.env.KEYCLOAK_URL },
+      { key: "KEYCLOAK_REALM", value: process.env.KEYCLOAK_REALM },
+      { key: "KEYCLOAK_CLIENT_ID", value: process.env.KEYCLOAK_CLIENT_ID },
+      { key: "KEYCLOAK_CLIENT_SECRET", value: process.env.KEYCLOAK_CLIENT_SECRET },
+      { key: "JWT_SECRET", value: process.env.JWT_SECRET },
+    ];
+    const recommended = [
+      { key: "ALLOWED_ORIGINS", value: process.env.ALLOWED_ORIGINS },
+      { key: "KEYCLOAK_WEBHOOK_SECRET", value: process.env.KEYCLOAK_WEBHOOK_SECRET },
+    ];
+    const missing = required.filter(v => !v.value).map(v => v.key);
+    const missingRecommended = recommended.filter(v => !v.value).map(v => v.key);
+    const isProduction = process.env.NODE_ENV === "production";
+    const allRequiredPresent = missing.length === 0;
+    const status = allRequiredPresent ? "ok" : "misconfigured";
+    const httpStatus = allRequiredPresent ? 200 : 503;
+    res.status(httpStatus).json({
+      status,
+      timestamp: Date.now(),
+      keycloakConfigured: !!(process.env.KEYCLOAK_URL),
+      ssoEnabled: !!(process.env.KEYCLOAK_URL && process.env.KEYCLOAK_CLIENT_SECRET),
+      missing: missing.length > 0 ? missing : undefined,
+      warnings: missingRecommended.length > 0 ? missingRecommended.map(k =>
+        `${k} is not set — recommended for production`
+      ) : undefined,
+      productionMode: isProduction,
+      checks: {
+        keycloakUrl: !!process.env.KEYCLOAK_URL,
+        keycloakRealm: !!process.env.KEYCLOAK_REALM,
+        keycloakClientId: !!process.env.KEYCLOAK_CLIENT_ID,
+        keycloakClientSecret: !!process.env.KEYCLOAK_CLIENT_SECRET,
+        jwtSecret: !!process.env.JWT_SECRET,
+        allowedOrigins: !!process.env.ALLOWED_ORIGINS,
+        webhookSecret: !!process.env.KEYCLOAK_WEBHOOK_SECRET,
+      },
+    });
+  });
+
   app.get("/api/events/transactions", async (req: any, res: any) => {
     try {
       const ctx = await createContext({ req, res } as any);
@@ -1527,11 +1586,12 @@ async function startServer() {
         ? authHeader.slice(7)
         : queryToken;
       if (!rawToken) return res.status(401).json({ error: "Unauthorized" });
-      // Verify the JWT session token
-      const { sdk } = await import("./sdk");
+      // Verify the JWT session token (Keycloak-issued HS256 JWT)
+      const { verifySessionToken } = await import("./keycloak");
       let sessionUser: { openId: string } | null = null;
       try {
-        sessionUser = await sdk.verifySession(rawToken) as { openId: string };
+        const payload = await verifySessionToken(rawToken);
+        sessionUser = { openId: payload.sub };
       } catch {
         return res.status(401).json({ error: "Invalid or expired token" });
       }

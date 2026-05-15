@@ -118,8 +118,10 @@ export function sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
 const REQUIRED_ENV_VARS: Array<{ key: string; description: string }> = [
   { key: "JWT_SECRET", description: "JWT signing secret (min 32 chars)" },
   { key: "DATABASE_URL", description: "PostgreSQL connection string" },
-  { key: "VITE_APP_ID", description: "Manus OAuth application ID" },
-  { key: "OAUTH_SERVER_URL", description: "Manus OAuth backend base URL" },
+  { key: "KEYCLOAK_URL", description: "Keycloak server base URL (on-premise OIDC provider)" },
+  { key: "KEYCLOAK_REALM", description: "Keycloak realm name (e.g. paygate)" },
+  { key: "KEYCLOAK_CLIENT_ID", description: "Keycloak client ID for the merchant portal" },
+  { key: "KEYCLOAK_CLIENT_SECRET", description: "Keycloak client secret for token exchange" },
 ];
 
 const RECOMMENDED_ENV_VARS: Array<{ key: string; description: string }> = [

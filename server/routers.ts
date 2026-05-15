@@ -131,6 +131,7 @@ import {
   disburseAgentCommissions,
   getRestaurantTableTurnStats,
   logAuditEvent,
+  getKeycloakEvents,
   getTenantBySlug,
   updateTenantBranding,
 } from "./db";
@@ -2589,6 +2590,26 @@ const middlewareRouter = router({
         const result = await bridgeFetch(`/v1/auth/keycloak/identity-providers/${input.providerId}`, 'PATCH', { enabled: input.enabled });
         if (!result) return { updated: false, fallback: true };
         return { updated: true, enabled: input.enabled };
+      }),
+    // Retrieve Keycloak auth events for the audit log UI.
+    // Non-admins see only their own events; admins can filter by any userId.
+    getAuthEvents: protectedProcedure
+      .input(z.object({
+        limit: z.number().min(1).max(500).default(100),
+        userId: z.string().optional(),
+        eventType: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const targetUserId =
+          ctx.user.role === "admin"
+            ? input.userId
+            : ctx.user.openId;
+        const events = await getKeycloakEvents({
+          limit: input.limit,
+          userId: targetUserId,
+          eventType: input.eventType,
+        });
+        return { events };
       }),
   }),
 });

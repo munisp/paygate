@@ -41,6 +41,93 @@ function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
   return typeof value === "string" ? value : undefined;
 }
+
+// ─── In-memory rate limiter ───────────────────────────────────────────────────
+// A lightweight token-bucket rate limiter keyed by IP address.
+// This is intentionally simple — for high-traffic deployments, replace with
+// a Redis-backed rate limiter (e.g. rate-limiter-flexible).
+
+interface RateLimitBucket {
+  count: number;
+  windowStart: number;
+}
+
+class RateLimiter {
+  private buckets = new Map<string, RateLimitBucket>();
+  readonly maxRequests: number;
+  readonly windowMs: number;
+
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+    // Prune stale buckets every 5 minutes to prevent memory leaks
+    setInterval(() => this.prune(), 5 * 60 * 1000).unref();
+  }
+
+  /** Returns true if the request is allowed, false if rate-limited. */
+  check(key: string): boolean {
+    const now = Date.now();
+    const bucket = this.buckets.get(key);
+
+    if (!bucket || now - bucket.windowStart > this.windowMs) {
+      this.buckets.set(key, { count: 1, windowStart: now });
+      return true;
+    }
+
+    if (bucket.count >= this.maxRequests) {
+      return false;
+    }
+
+    bucket.count++;
+    return true;
+  }
+
+  private prune() {
+    const now = Date.now();
+    for (const [key, bucket] of this.buckets) {
+      if (now - bucket.windowStart > this.windowMs) {
+        this.buckets.delete(key);
+      }
+    }
+  }
+}
+
+// Rate limits (per IP, per time window)
+const loginRateLimit = new RateLimiter(20, 60_000);   // 20 login initiations / min
+const callbackRateLimit = new RateLimiter(20, 60_000); // 20 callback exchanges / min
+const refreshRateLimit = new RateLimiter(10, 60_000);  // 10 silent refreshes / min
+const webhookRateLimit = new RateLimiter(200, 60_000); // 200 webhook events / min
+
+function getClientIp(req: Request): string {
+  // Trust X-Forwarded-For when behind a reverse proxy (nginx, Traefik, etc.)
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress ?? "unknown";
+}
+
+function rateLimitMiddleware(limiter: RateLimiter, endpointName: string) {
+  return (req: Request, res: Response, next: () => void) => {
+    const ip = getClientIp(req);
+    if (!limiter.check(ip)) {
+      console.warn(`[Auth] Rate limit exceeded for ${endpointName} from ${ip}`);
+      // RFC 6585 / RFC 9110: include Retry-After and X-RateLimit-* headers
+      res.setHeader("Retry-After", String(Math.ceil(limiter.windowMs / 1000)));
+      res.setHeader("X-RateLimit-Limit", String(limiter.maxRequests));
+      res.setHeader("X-RateLimit-Remaining", "0");
+      res.setHeader("X-RateLimit-Reset", String(Math.ceil((Date.now() + limiter.windowMs) / 1000)));
+      res.status(429).json({
+        error: "Too many requests",
+        hint: `Rate limit exceeded for ${endpointName}. Please wait before retrying.`,
+        retryAfterSeconds: Math.ceil(limiter.windowMs / 1000),
+      });
+      return;
+    }
+    next();
+  };
+}
+
 // ─── Allowed origin validation ───────────────────────────────────────────────────
 // Prevents open-redirect attacks on the login initiation endpoint.
 //
@@ -128,9 +215,33 @@ async function handleKeycloakCallback(req: Request, res: Response) {
     return;
   }
 
+  // Validate state parameter entropy — must decode to a valid HTTPS/HTTP URL
+  // and have at least 32 bytes of base64-encoded content to prevent state forgery.
+  // A valid state is base64(redirectUri) where redirectUri is at minimum
+  // "http://x" (8 chars), so the base64 must be at least 12 chars.
+  if (state.length < 12) {
+    console.warn("[Keycloak] Callback rejected: state parameter too short (possible forgery)");
+    res.status(400).json({ error: "Invalid state parameter" });
+    return;
+  }
+
+  let decodedState: string;
+  try {
+    decodedState = Buffer.from(state, "base64").toString("utf8");
+  } catch {
+    res.status(400).json({ error: "Invalid state encoding" });
+    return;
+  }
+
+  if (!decodedState.startsWith("http://") && !decodedState.startsWith("https://")) {
+    console.warn("[Keycloak] Callback rejected: state decodes to non-HTTP URI (possible open-redirect)");
+    res.status(400).json({ error: "Invalid state parameter" });
+    return;
+  }
+
   try {
     // state = base64(redirectUri)
-    const redirectUri = Buffer.from(state, "base64").toString("utf8");
+    const redirectUri = decodedState;
 
     const tokens = await exchangeCodeForTokens(code, redirectUri);
     const claims = await verifyAccessToken(tokens.accessToken);
@@ -228,14 +339,26 @@ export function registerOAuthRoutes(app: Express) {
     res.redirect(302, buildAuthorizationUrl(redirectUri, state));
   };
 
-  app.get("/api/auth/keycloak/login", keycloakLoginHandler);
+  app.get(
+    "/api/auth/keycloak/login",
+    rateLimitMiddleware(loginRateLimit, "/api/auth/keycloak/login"),
+    keycloakLoginHandler
+  );
   // Legacy path kept for backwards compatibility with existing bookmarks / clients
-  app.get("/api/oauth/keycloak/login", keycloakLoginHandler);
+  app.get(
+    "/api/oauth/keycloak/login",
+    rateLimitMiddleware(loginRateLimit, "/api/oauth/keycloak/login"),
+    keycloakLoginHandler
+  );
 
   // ── OAuth callback (Keycloak Authorization Code response) ───────────────
-  app.get("/api/oauth/callback", (req: Request, res: Response) => {
-    return handleKeycloakCallback(req, res);
-  });
+  app.get(
+    "/api/oauth/callback",
+    rateLimitMiddleware(callbackRateLimit, "/api/oauth/callback"),
+    (req: Request, res: Response) => {
+      return handleKeycloakCallback(req, res);
+    }
+  );
 
   // ── Keycloak event listener webhook ────────────────────────────────────────
   // Keycloak's HTTP Event Listener SPI POSTs auth events (LOGIN, LOGOUT,
@@ -249,142 +372,150 @@ export function registerOAuthRoutes(app: Express) {
   //                    secret = value of KEYCLOAK_WEBHOOK_SECRET env var
   //
   // Alternatively, set it in paygate-realm.json → eventsListeners.
-  app.post("/api/internal/keycloak-events", async (req: Request, res: Response) => {
-    const webhookSecret = process.env.KEYCLOAK_WEBHOOK_SECRET;
+  app.post(
+    "/api/internal/keycloak-events",
+    rateLimitMiddleware(webhookRateLimit, "/api/internal/keycloak-events"),
+    async (req: Request, res: Response) => {
+      const webhookSecret = process.env.KEYCLOAK_WEBHOOK_SECRET;
 
-    // Verify HMAC signature if a secret is configured
-    if (webhookSecret) {
-      const signature = req.headers["x-keycloak-signature"] as string | undefined;
-      if (!signature) {
-        console.warn("[Keycloak Events] Missing X-Keycloak-Signature header");
-        res.status(401).json({ error: "Missing signature" });
-        return;
-      }
-      try {
-        const rawBody = JSON.stringify(req.body);
-        const expected = createHmac("sha256", webhookSecret)
-          .update(rawBody)
-          .digest("hex");
-        const expectedBuf = Buffer.from(expected, "utf8");
-        const actualBuf = Buffer.from(signature, "utf8");
-        const valid =
-          expectedBuf.length === actualBuf.length &&
-          timingSafeEqual(expectedBuf, actualBuf);
-        if (!valid) {
-          console.warn("[Keycloak Events] Invalid signature");
-          res.status(401).json({ error: "Invalid signature" });
+      // Verify HMAC signature if a secret is configured
+      if (webhookSecret) {
+        const signature = req.headers["x-keycloak-signature"] as string | undefined;
+        if (!signature) {
+          console.warn("[Keycloak Events] Missing X-Keycloak-Signature header");
+          res.status(401).json({ error: "Missing signature" });
           return;
         }
-      } catch {
-        res.status(400).json({ error: "Signature verification failed" });
-        return;
+        try {
+          const rawBody = JSON.stringify(req.body);
+          const expected = createHmac("sha256", webhookSecret)
+            .update(rawBody)
+            .digest("hex");
+          const expectedBuf = Buffer.from(expected, "utf8");
+          const actualBuf = Buffer.from(signature, "utf8");
+          const valid =
+            expectedBuf.length === actualBuf.length &&
+            timingSafeEqual(expectedBuf, actualBuf);
+          if (!valid) {
+            console.warn("[Keycloak Events] Invalid signature");
+            res.status(401).json({ error: "Invalid signature" });
+            return;
+          }
+        } catch {
+          res.status(400).json({ error: "Signature verification failed" });
+          return;
+        }
       }
-    }
 
-    const body = req.body as Record<string, unknown>;
-    const eventType = (body.type ?? body.eventType ?? "UNKNOWN") as string;
+      const body = req.body as Record<string, unknown>;
+      const eventType = (body.type ?? body.eventType ?? "UNKNOWN") as string;
 
-    // Log to console for operator visibility
-    const isError = eventType.endsWith("_ERROR");
-    if (isError) {
-      console.warn(`[Keycloak Events] ${eventType}`, {
-        userId: body.userId,
-        ipAddress: body.ipAddress,
-        error: body.error,
-      });
-    } else {
-      console.log(`[Keycloak Events] ${eventType}`, {
-        userId: body.userId,
-        sessionId: body.sessionId,
-        ipAddress: body.ipAddress,
-      });
-    }
-
-    // Persist to DB (fire-and-forget — errors are swallowed in logKeycloakEvent)
-    await db.logKeycloakEvent({
-      eventType,
-      realmId: body.realmId as string | undefined,
-      clientId: body.clientId as string | undefined,
-      userId: body.userId as string | undefined,
-      sessionId: body.sessionId as string | undefined,
-      ipAddress: body.ipAddress as string | undefined,
-      error: body.error as string | undefined,
-      details: body.details as Record<string, unknown> | undefined,
-    });
-
-    // Also mirror to the existing audit_events table for cross-system correlation
-    if (body.userId) {
-      await db.logAuditEvent({
-        merchantId: "platform",
-        actorId: body.userId as string,
-        actorName: (body.details as Record<string, unknown> | undefined)?.username as string ?? "unknown",
-        action: eventType,
-        resource: "auth",
-        resourceId: body.sessionId as string | undefined,
-        metadata: {
-          realmId: body.realmId,
-          clientId: body.clientId,
+      // Log to console for operator visibility
+      const isError = eventType.endsWith("_ERROR");
+      if (isError) {
+        console.warn(`[Keycloak Events] ${eventType}`, {
+          userId: body.userId,
           ipAddress: body.ipAddress,
           error: body.error,
-        },
-        ipAddress: body.ipAddress as string | undefined,
-      });
-    }
+        });
+      } else {
+        console.log(`[Keycloak Events] ${eventType}`, {
+          userId: body.userId,
+          sessionId: body.sessionId,
+          ipAddress: body.ipAddress,
+        });
+      }
 
-    res.json({ ok: true });
-  });
+      // Persist to DB (fire-and-forget — errors are swallowed in logKeycloakEvent)
+      await db.logKeycloakEvent({
+        eventType,
+        realmId: body.realmId as string | undefined,
+        clientId: body.clientId as string | undefined,
+        userId: body.userId as string | undefined,
+        sessionId: body.sessionId as string | undefined,
+        ipAddress: body.ipAddress as string | undefined,
+        error: body.error as string | undefined,
+        details: body.details as Record<string, unknown> | undefined,
+      });
+
+      // Also mirror to the existing audit_events table for cross-system correlation
+      if (body.userId) {
+        await db.logAuditEvent({
+          merchantId: "platform",
+          actorId: body.userId as string,
+          actorName: (body.details as Record<string, unknown> | undefined)?.username as string ?? "unknown",
+          action: eventType,
+          resource: "auth",
+          resourceId: body.sessionId as string | undefined,
+          metadata: {
+            realmId: body.realmId,
+            clientId: body.clientId,
+            ipAddress: body.ipAddress,
+            error: body.error,
+          },
+          ipAddress: body.ipAddress as string | undefined,
+        });
+      }
+
+      res.json({ ok: true });
+    }
+  );
 
   // ── Silent token refresh ─────────────────────────────────────────────────
   // Called by the frontend when the session JWT is approaching expiry.
   // Reads the refresh_token cookie, exchanges it with Keycloak for a new
   // access token, and re-issues the portal session JWT + id_token cookie.
   // Returns 401 if the refresh_token is missing or expired (force re-login).
-  app.post("/api/auth/refresh", async (req: Request, res: Response) => {
-    const storedRefreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME] as string | undefined;
+  app.post(
+    "/api/auth/refresh",
+    rateLimitMiddleware(refreshRateLimit, "/api/auth/refresh"),
+    async (req: Request, res: Response) => {
+      const storedRefreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME] as string | undefined;
 
-    if (!storedRefreshToken) {
-      res.status(401).json({ error: "No refresh token — please log in again" });
-      return;
-    }
-
-    if (!ENV.keycloakUrl) {
-      res.status(503).json({ error: "Keycloak not configured" });
-      return;
-    }
-
-    try {
-      const tokens = await refreshAccessToken(storedRefreshToken);
-      const claims = await verifyAccessToken(tokens.accessToken);
-
-      const openId = claims.sub;
-      const name = claims.name ?? claims.preferred_username ?? "";
-
-      // Re-issue the portal session JWT
-      const sessionToken = await createSessionToken(openId, name);
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-
-      // Rotate the id_token cookie
-      if (tokens.idToken) {
-        const idTokenOptions = getIdTokenCookieOptions(req, tokens.expiresIn || 300);
-        res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken, idTokenOptions);
+      if (!storedRefreshToken) {
+        res.status(401).json({ error: "No refresh token — please log in again" });
+        return;
       }
 
-      // Rotate the refresh_token cookie if Keycloak issued a new one
-      if (tokens.refreshToken) {
-        const refreshOptions = getRefreshTokenCookieOptions(req);
-        res.cookie(REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, refreshOptions);
+      if (!ENV.keycloakUrl) {
+        res.status(503).json({ error: "Keycloak not configured" });
+        return;
       }
 
-      res.json({ ok: true, expiresIn: tokens.expiresIn });
-    } catch (error) {
-      console.error("[Auth] Token refresh failed", error);
-      // Clear all auth cookies — the user must re-authenticate
-      const cookieOptions = getSessionCookieOptions(req);
-      res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      res.clearCookie(ID_TOKEN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth", sameSite: "none", secure: true, maxAge: -1 });
-      res.status(401).json({ error: "Token refresh failed — please log in again" });
+      try {
+        const tokens = await refreshAccessToken(storedRefreshToken);
+        const claims = await verifyAccessToken(tokens.accessToken);
+
+        const openId = claims.sub;
+        const name = claims.name ?? claims.preferred_username ?? "";
+
+        // Re-issue the portal session JWT
+        const sessionToken = await createSessionToken(openId, name);
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+        // Rotate the id_token cookie
+        if (tokens.idToken) {
+          const idTokenOptions = getIdTokenCookieOptions(req, tokens.expiresIn || 300);
+          res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken, idTokenOptions);
+        }
+
+        // Rotate the refresh_token cookie if Keycloak issued a new one
+        if (tokens.refreshToken) {
+          const refreshOptions = getRefreshTokenCookieOptions(req);
+          res.cookie(REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, refreshOptions);
+        }
+
+        res.json({ ok: true, expiresIn: tokens.expiresIn });
+      } catch (error) {
+        console.error("[Auth] Token refresh failed", error);
+        // Clear all auth cookies — the user must re-authenticate
+        const cookieOptions = getSessionCookieOptions(req);
+        res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+        res.clearCookie(ID_TOKEN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+        res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth", sameSite: "none", secure: true, maxAge: -1 });
+        res.status(401).json({ error: "Token refresh failed — please log in again" });
+      }
     }
-  });
+  );
 }

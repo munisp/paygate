@@ -1,8 +1,7 @@
 export const ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
+  // NOTE: appId and oAuthServerUrl removed — Manus OAuth replaced by Keycloak OIDC (on-premise)
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
@@ -21,6 +20,10 @@ export const ENV = {
   keycloakRealm: process.env.KEYCLOAK_REALM ?? "paygate",
   keycloakClientId: process.env.KEYCLOAK_CLIENT_ID ?? "merchant-portal",
   keycloakClientSecret: process.env.KEYCLOAK_CLIENT_SECRET ?? "",
+  // Keycloak event listener webhook HMAC secret
+  // Must match the secret configured in the http-event-listener SPI provider.
+  // Generate with: openssl rand -hex 32
+  keycloakWebhookSecret: process.env.KEYCLOAK_WEBHOOK_SECRET ?? "",
 
   // Stripe
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
@@ -220,10 +223,8 @@ export const ENV = {
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:push@paygate.ng",
-
-  // ─── OAuth ────────────────────────────────────────────────────────────────
-  oauthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-  // ─── Wave 77 New Feature Service URLs ─────────────────────────────────────
+  // NOTE: oauthServerUrl removed — Manus OAuth replaced by Keycloak OIDC (on-premise)
+  // ─── Wave 77 New Feature Service URLs ─────────────────────────────────────────────
   digitalGoldUrl: process.env.DIGITAL_GOLD_URL ?? "http://digital-gold-service:9020",
   digitalGoldApiKey: process.env.DIGITAL_GOLD_API_KEY ?? "dev-gold-key",
   goldTechBaseUrl: process.env.GOLDTECH_BASE_URL ?? "https://api.goldtech.ng/v1",

@@ -14,10 +14,10 @@
   "waitIncrementSeconds": 60,
   "quickLoginCheckMilliSeconds": 1000,
   "maxDeltaTimeSeconds": 43200,
-  "failureFactor": 10,
-  "accessTokenLifespan": 300,
+  "failureFactor": 5,
+  "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 1800,
-  "ssoSessionMaxLifespan": 36000,
+  "ssoSessionMaxLifespan": 28800,
   "offlineSessionIdleTimeout": 2592000,
   "accessCodeLifespan": 60,
   "internationalizationEnabled": false,
@@ -68,8 +68,12 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "protocol": "openid-connect",
-      "redirectUris": ["*"],
-      "webOrigins": ["*"],
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ],
       "attributes": {
         "access.token.lifespan": "300",
         "post.logout.redirect.uris": "*",
@@ -94,9 +98,7 @@
   "clientScopes": [],
   "identityProviders": [],
   "components": {},
-
   "otpPolicy": {
-    "_comment": "TOTP policy enforced for paygate-admin users. Authenticator apps (Google Authenticator, Authy, etc.) generate 6-digit codes every 30 seconds using SHA1.",
     "type": "totp",
     "algorithm": "HmacSHA1",
     "initialCounter": 0,
@@ -104,7 +106,6 @@
     "lookAheadWindow": 1,
     "period": 30
   },
-
   "requiredActions": [
     {
       "alias": "CONFIGURE_TOTP",
@@ -137,6 +138,15 @@
       "enabled": true,
       "defaultAction": false,
       "priority": 50
+    },
+    {
+      "alias": "RECOVERY_AUTHN_CODES",
+      "name": "Recovery Authentication Codes",
+      "providerId": "RECOVERY_AUTHN_CODES",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 70,
+      "config": {}
     }
   ],
   "browserSecurityHeaders": {
@@ -149,7 +159,6 @@
     "strictTransportSecurity": "max-age=31536000; includeSubDomains"
   },
   "smtpServer": {
-    "_comment": "SMTP is configured at runtime via KC_SMTP_* env vars in docker-compose.production.yml. This block is intentionally empty — Keycloak merges runtime env vars into the realm SMTP config on startup.",
     "host": "",
     "port": "587",
     "from": "no-reply@paygate.local",
@@ -161,7 +170,9 @@
     "password": ""
   },
   "eventsEnabled": true,
-  "eventsListeners": ["jboss-logging"],
+  "eventsListeners": [
+    "jboss-logging"
+  ],
   "enabledEventTypes": [
     "LOGIN",
     "LOGIN_ERROR",
@@ -169,11 +180,42 @@
     "LOGOUT_ERROR",
     "REGISTER",
     "REGISTER_ERROR",
+    "CODE_TO_TOKEN",
+    "CODE_TO_TOKEN_ERROR",
+    "REFRESH_TOKEN",
+    "REFRESH_TOKEN_ERROR",
     "UPDATE_PASSWORD",
     "UPDATE_PASSWORD_ERROR",
+    "UPDATE_PROFILE",
+    "UPDATE_PROFILE_ERROR",
+    "UPDATE_EMAIL",
+    "UPDATE_EMAIL_ERROR",
+    "VERIFY_EMAIL",
+    "VERIFY_EMAIL_ERROR",
+    "SEND_VERIFY_EMAIL",
+    "SEND_VERIFY_EMAIL_ERROR",
     "RESET_PASSWORD",
-    "RESET_PASSWORD_ERROR"
+    "RESET_PASSWORD_ERROR",
+    "SEND_RESET_PASSWORD",
+    "CONFIGURE_TOTP",
+    "CONFIGURE_TOTP_ERROR",
+    "REMOVE_TOTP",
+    "REMOVE_TOTP_ERROR",
+    "INTROSPECT_TOKEN",
+    "INTROSPECT_TOKEN_ERROR",
+    "REVOKE_GRANT",
+    "REVOKE_GRANT_ERROR",
+    "CLIENT_LOGIN",
+    "CLIENT_LOGIN_ERROR",
+    "PERMISSION_TOKEN",
+    "PERMISSION_TOKEN_ERROR",
+    "EXECUTE_ACTION_TOKEN",
+    "EXECUTE_ACTION_TOKEN_ERROR"
   ],
   "adminEventsEnabled": true,
-  "adminEventsDetailsEnabled": true
+  "adminEventsDetailsEnabled": true,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "offlineSessionMaxLifespan": 5184000,
+  "eventsExpiration": 7776000,
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername and notEmail and passwordHistory(5)"
 }

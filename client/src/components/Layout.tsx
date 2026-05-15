@@ -176,6 +176,7 @@ const navGroups: NavGroup[] = [
       { icon: Scale, label: "Regulatory Reporting", path: "/regulatory-reporting", badge: "New" },
       { icon: FlaskConical, label: "Reg Sandbox", path: "/regulatory-sandbox" },
       { icon: ScrollText, label: "Audit Log", path: "/audit-log" },
+      { icon: Shield, label: "Auth Events", path: "/settings/auth-events", badge: "New" },
       { icon: Building2, label: "KYB Verifications", path: "/kyb-verifications", badge: "New" },
       { icon: FileCheck, label: "KYB Doc Upload", path: "/kyb-document-upload", badge: "New" },
     ],

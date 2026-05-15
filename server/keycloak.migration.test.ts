@@ -700,3 +700,400 @@ describe("Round 36 — Keycloak Event Listener Webhook", () => {
     expect(oauthSrc).toContain("timingSafeEqual");
   });
 });
+
+// ─── Round 37 — Auth Events UI, Session Timeout Policy, TOTP Recovery ─────────
+
+describe("Round 37 — keycloak.getAuthEvents tRPC procedure", () => {
+  const routersSrc = readFileSync(resolve(ROOT, "server/routers.ts"), "utf8");
+
+  it("routers.ts imports getKeycloakEvents from db", () => {
+    expect(routersSrc).toContain("getKeycloakEvents,");
+  });
+
+  it("routers.ts has getAuthEvents procedure in keycloak router", () => {
+    expect(routersSrc).toContain("getAuthEvents: protectedProcedure");
+  });
+
+  it("getAuthEvents enforces non-admin users can only see their own events", () => {
+    expect(routersSrc).toContain('ctx.user.role === "admin"');
+    expect(routersSrc).toContain("ctx.user.openId");
+  });
+
+  it("getAuthEvents accepts limit, userId, and eventType filters", () => {
+    expect(routersSrc).toContain("limit: z.number().min(1).max(500)");
+    expect(routersSrc).toContain("userId: z.string().optional()");
+    expect(routersSrc).toContain("eventType: z.string().optional()");
+  });
+});
+
+describe("Round 37 — AuthEvents.tsx UI page", () => {
+  const uiSrc = readFileSync(resolve(ROOT, "client/src/pages/AuthEvents.tsx"), "utf8");
+  const appSrc = readFileSync(resolve(ROOT, "client/src/App.tsx"), "utf8");
+  const layoutSrc = readFileSync(resolve(ROOT, "client/src/components/Layout.tsx"), "utf8");
+
+  it("AuthEvents.tsx exists and uses trpc.keycloak.getAuthEvents", () => {
+    expect(uiSrc).toContain("trpc.keycloak.getAuthEvents.useQuery");
+  });
+
+  it("AuthEvents.tsx has event type filter", () => {
+    expect(uiSrc).toContain("eventTypeFilter");
+    expect(uiSrc).toContain("EVENT_TYPES");
+  });
+
+  it("AuthEvents.tsx shows error events with destructive badge", () => {
+    expect(uiSrc).toContain("_ERROR");
+    expect(uiSrc).toContain("destructive");
+  });
+
+  it("App.tsx registers /settings/auth-events route", () => {
+    expect(appSrc).toContain("/settings/auth-events");
+    expect(appSrc).toContain("AuthEvents");
+  });
+
+  it("Layout.tsx has Auth Events nav entry under Compliance & KYC", () => {
+    expect(layoutSrc).toContain("/settings/auth-events");
+    expect(layoutSrc).toContain("Auth Events");
+  });
+});
+
+describe("Round 37 — Session Timeout Policy in realm JSON", () => {
+  const realmSrc = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(realmSrc);
+
+  it("realm has accessTokenLifespan set to 900 seconds (15 min)", () => {
+    expect(realm.accessTokenLifespan).toBe(900);
+  });
+
+  it("realm has ssoSessionIdleTimeout set to 1800 seconds (30 min)", () => {
+    expect(realm.ssoSessionIdleTimeout).toBe(1800);
+  });
+
+  it("realm has ssoSessionMaxLifespan set to 28800 seconds (8 hr)", () => {
+    expect(realm.ssoSessionMaxLifespan).toBe(28800);
+  });
+
+  it("realm has offlineSessionIdleTimeout set to 30 days", () => {
+    expect(realm.offlineSessionIdleTimeout).toBe(2592000);
+  });
+});
+
+describe("Round 37 — TOTP Recovery Codes", () => {
+  const realmSrc = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(realmSrc);
+  const bootstrapSrc = readFileSync(resolve(ROOT, "scripts/keycloak-bootstrap.sh"), "utf8");
+  const docsSrc = readFileSync(resolve(ROOT, "docs/keycloak-deployment.md"), "utf8");
+
+  it("realm JSON has RECOVERY_AUTHN_CODES in requiredActions", () => {
+    const action = realm.requiredActions?.find(
+      (a: { alias: string }) => a.alias === "RECOVERY_AUTHN_CODES"
+    );
+    expect(action).toBeDefined();
+    expect(action.enabled).toBe(true);
+  });
+
+  it("bootstrap.sh has reset_admin_totp function", () => {
+    expect(bootstrapSrc).toContain("reset_admin_totp");
+    expect(bootstrapSrc).toContain("CONFIGURE_TOTP");
+    expect(bootstrapSrc).toContain("execute-actions-email");
+  });
+
+  it("docs/keycloak-deployment.md has TOTP recovery runbook", () => {
+    expect(docsSrc).toContain("Locked-Out Admin Recovery Runbook");
+    expect(docsSrc).toContain("reset_admin_totp");
+  });
+
+  it("docs/keycloak-deployment.md has session timeout policy section", () => {
+    expect(docsSrc).toContain("Session Timeout Policy");
+    expect(docsSrc).toContain("accessTokenLifespan");
+    expect(docsSrc).toContain("ssoSessionIdleTimeout");
+  });
+
+  it("docs/keycloak-deployment.md has Auth Events audit log section", () => {
+    expect(docsSrc).toContain("Auth Events Audit Log");
+    expect(docsSrc).toContain("/settings/auth-events");
+    expect(docsSrc).toContain("KEYCLOAK_WEBHOOK_SECRET");
+  });
+});
+
+// ─── Round 38 — Rate Limiting, Event Listener SPI Config, Webhook Secret ──────
+
+describe("Round 38 — Rate limiting on auth endpoints", () => {
+  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+
+  it("oauth.ts has RateLimiter class", () => {
+    expect(oauthSrc).toContain("class RateLimiter");
+    expect(oauthSrc).toContain("maxRequests");
+    expect(oauthSrc).toContain("windowMs");
+  });
+
+  it("oauth.ts has rate limiters for login, callback, refresh, and webhook endpoints", () => {
+    expect(oauthSrc).toContain("loginRateLimit");
+    expect(oauthSrc).toContain("callbackRateLimit");
+    expect(oauthSrc).toContain("refreshRateLimit");
+    expect(oauthSrc).toContain("webhookRateLimit");
+  });
+
+  it("oauth.ts applies rate limiting to /api/auth/keycloak/login", () => {
+    expect(oauthSrc).toContain('rateLimitMiddleware(loginRateLimit, "/api/auth/keycloak/login")');
+  });
+
+  it("oauth.ts applies rate limiting to /api/oauth/callback", () => {
+    expect(oauthSrc).toContain('rateLimitMiddleware(callbackRateLimit, "/api/oauth/callback")');
+  });
+
+  it("oauth.ts applies rate limiting to /api/auth/refresh", () => {
+    expect(oauthSrc).toContain('rateLimitMiddleware(refreshRateLimit, "/api/auth/refresh")');
+  });
+
+  it("oauth.ts applies rate limiting to /api/internal/keycloak-events", () => {
+    expect(oauthSrc).toContain('rateLimitMiddleware(webhookRateLimit, "/api/internal/keycloak-events")');
+  });
+
+  it("rate limiter returns 429 when limit exceeded", () => {
+    expect(oauthSrc).toContain("status(429)");
+    expect(oauthSrc).toContain("Too many requests");
+  });
+
+  it("rate limiter uses X-Forwarded-For for IP detection behind reverse proxy", () => {
+    expect(oauthSrc).toContain("x-forwarded-for");
+    expect(oauthSrc).toContain("getClientIp");
+  });
+});
+
+describe("Round 38 — Keycloak event listener SPI config in realm JSON", () => {
+  const realmSrc = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(realmSrc);
+
+  it("realm has eventsEnabled = true", () => {
+    expect(realm.eventsEnabled).toBe(true);
+  });
+
+  it("realm has adminEventsEnabled = true", () => {
+    expect(realm.adminEventsEnabled).toBe(true);
+  });
+
+  it("realm has eventsExpiration set to 90 days", () => {
+    expect(realm.eventsExpiration).toBe(90 * 24 * 3600);
+  });
+
+  it("realm has eventsListeners array", () => {
+    expect(Array.isArray(realm.eventsListeners)).toBe(true);
+    expect(realm.eventsListeners).toContain("jboss-logging");
+  });
+
+  it("realm has enabledEventTypes with LOGIN and LOGIN_ERROR", () => {
+    expect(Array.isArray(realm.enabledEventTypes)).toBe(true);
+    expect(realm.enabledEventTypes).toContain("LOGIN");
+    expect(realm.enabledEventTypes).toContain("LOGIN_ERROR");
+    expect(realm.enabledEventTypes).toContain("LOGOUT");
+    expect(realm.enabledEventTypes).toContain("CONFIGURE_TOTP");
+  });
+});
+
+describe("Round 38 — KEYCLOAK_WEBHOOK_SECRET in env.ts and docker-compose", () => {
+  const envSrc = readFileSync(resolve(ROOT, "server/_core/env.ts"), "utf8");
+  const composeSrc = readFileSync(resolve(ROOT, "docker-compose.production.yml"), "utf8");
+
+  it("env.ts has keycloakWebhookSecret field", () => {
+    expect(envSrc).toContain("keycloakWebhookSecret");
+    expect(envSrc).toContain("KEYCLOAK_WEBHOOK_SECRET");
+  });
+
+  it("docker-compose.production.yml has KEYCLOAK_WEBHOOK_SECRET in keycloak service", () => {
+    expect(composeSrc).toContain("KEYCLOAK_WEBHOOK_SECRET");
+  });
+});
+
+// ─── Round 39 — Brute-Force Policy, Security Headers, Rate Limit Headers ──────
+
+describe("Round 39 — Keycloak brute-force protection in realm JSON", () => {
+  const realmSrc = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(realmSrc);
+
+  it("realm has bruteForceProtected = true", () => {
+    expect(realm.bruteForceProtected).toBe(true);
+  });
+
+  it("realm has permanentLockout = false (temporary lockout only)", () => {
+    expect(realm.permanentLockout).toBe(false);
+  });
+
+  it("realm has failureFactor = 5", () => {
+    expect(realm.failureFactor).toBe(5);
+  });
+
+  it("realm has maxFailureWaitSeconds = 900 (15 min max lockout)", () => {
+    expect(realm.maxFailureWaitSeconds).toBe(900);
+  });
+
+  it("realm has waitIncrementSeconds = 60", () => {
+    expect(realm.waitIncrementSeconds).toBe(60);
+  });
+
+  it("realm has maxDeltaTimeSeconds = 43200 (12 hr failure window)", () => {
+    expect(realm.maxDeltaTimeSeconds).toBe(43200);
+  });
+});
+
+describe("Round 39 — Security headers in server/_core/index.ts", () => {
+  const indexSrc = readFileSync(resolve(ROOT, "server/_core/index.ts"), "utf8");
+
+  it("index.ts has HSTS configuration in helmet", () => {
+    expect(indexSrc).toContain("strictTransportSecurity");
+    expect(indexSrc).toContain("maxAge: 31536000");
+    expect(indexSrc).toContain("includeSubDomains: true");
+    expect(indexSrc).toContain("preload: true");
+  });
+
+  it("index.ts has noSniff enabled in helmet", () => {
+    expect(indexSrc).toContain("noSniff: true");
+  });
+
+  it("index.ts has referrerPolicy in helmet", () => {
+    expect(indexSrc).toContain("referrerPolicy");
+    expect(indexSrc).toContain("strict-origin-when-cross-origin");
+  });
+
+  it("index.ts has permittedCrossDomainPolicies in helmet", () => {
+    expect(indexSrc).toContain("permittedCrossDomainPolicies");
+    expect(indexSrc).toContain('"none"');
+  });
+
+  it("index.ts has frameguard deny in helmet (clickjacking protection)", () => {
+    expect(indexSrc).toContain("frameguard");
+    expect(indexSrc).toContain('"deny"');
+  });
+
+  it("index.ts has hidePoweredBy in helmet", () => {
+    expect(indexSrc).toContain("hidePoweredBy: true");
+  });
+
+  it("index.ts disables HSTS in dev mode", () => {
+    expect(indexSrc).toContain("strictTransportSecurity: isDev ? false");
+  });
+});
+
+describe("Round 39 — Rate limit response headers in oauth.ts", () => {
+  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+
+  it("oauth.ts sets Retry-After header on 429 responses", () => {
+    expect(oauthSrc).toContain("Retry-After");
+  });
+
+  it("oauth.ts sets X-RateLimit-Limit header on 429 responses", () => {
+    expect(oauthSrc).toContain("X-RateLimit-Limit");
+  });
+
+  it("oauth.ts sets X-RateLimit-Remaining header on 429 responses", () => {
+    expect(oauthSrc).toContain("X-RateLimit-Remaining");
+  });
+
+  it("oauth.ts sets X-RateLimit-Reset header on 429 responses", () => {
+    expect(oauthSrc).toContain("X-RateLimit-Reset");
+  });
+
+  it("oauth.ts includes retryAfterSeconds in 429 response body", () => {
+    expect(oauthSrc).toContain("retryAfterSeconds");
+  });
+
+  it("RateLimiter exposes maxRequests and windowMs as public fields", () => {
+    expect(oauthSrc).toContain("readonly maxRequests: number");
+    expect(oauthSrc).toContain("readonly windowMs: number");
+  });
+});
+
+// ─── Round 40 — Password Policy, Auth-Config Endpoint, State Entropy ──────────
+
+describe("Round 40 — Keycloak password policy in realm JSON", () => {
+  const realmSrc = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(realmSrc);
+
+  it("realm has passwordPolicy set", () => {
+    expect(typeof realm.passwordPolicy).toBe("string");
+    expect(realm.passwordPolicy.length).toBeGreaterThan(0);
+  });
+
+  it("password policy requires minimum 12 characters", () => {
+    expect(realm.passwordPolicy).toContain("length(12)");
+  });
+
+  it("password policy requires uppercase letters", () => {
+    expect(realm.passwordPolicy).toContain("upperCase(1)");
+  });
+
+  it("password policy requires lowercase letters", () => {
+    expect(realm.passwordPolicy).toContain("lowerCase(1)");
+  });
+
+  it("password policy requires digits", () => {
+    expect(realm.passwordPolicy).toContain("digits(1)");
+  });
+
+  it("password policy requires special characters", () => {
+    expect(realm.passwordPolicy).toContain("specialChars(1)");
+  });
+
+  it("password policy prevents using username as password", () => {
+    expect(realm.passwordPolicy).toContain("notUsername");
+  });
+
+  it("password policy prevents using email as password", () => {
+    expect(realm.passwordPolicy).toContain("notEmail");
+  });
+
+  it("password policy enforces history of 5 passwords", () => {
+    expect(realm.passwordPolicy).toContain("passwordHistory(5)");
+  });
+});
+
+describe("Round 40 — /api/health/auth-config endpoint in index.ts", () => {
+  const indexSrc = readFileSync(resolve(ROOT, "server/_core/index.ts"), "utf8");
+
+  it("index.ts has /api/health/auth-config endpoint", () => {
+    expect(indexSrc).toContain('"/api/health/auth-config"');
+  });
+
+  it("auth-config endpoint checks KEYCLOAK_URL", () => {
+    expect(indexSrc).toContain("KEYCLOAK_URL");
+  });
+
+  it("auth-config endpoint checks KEYCLOAK_CLIENT_SECRET", () => {
+    expect(indexSrc).toContain("KEYCLOAK_CLIENT_SECRET");
+  });
+
+  it("auth-config endpoint checks JWT_SECRET", () => {
+    expect(indexSrc).toContain("JWT_SECRET");
+  });
+
+  it("auth-config endpoint returns 503 when required vars are missing", () => {
+    expect(indexSrc).toContain("503");
+    expect(indexSrc).toContain("misconfigured");
+  });
+
+  it("auth-config endpoint returns checks object with all required fields", () => {
+    expect(indexSrc).toContain("keycloakUrl:");
+    expect(indexSrc).toContain("keycloakClientSecret:");
+    expect(indexSrc).toContain("jwtSecret:");
+    expect(indexSrc).toContain("allowedOrigins:");
+    expect(indexSrc).toContain("webhookSecret:");
+  });
+});
+
+describe("Round 40 — State parameter entropy validation in oauth.ts", () => {
+  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+
+  it("oauth.ts validates state parameter minimum length", () => {
+    expect(oauthSrc).toContain("state.length < 12");
+    expect(oauthSrc).toContain("Invalid state parameter");
+  });
+
+  it("oauth.ts validates state decodes to HTTP/HTTPS URI", () => {
+    expect(oauthSrc).toContain('startsWith("http://")');
+    expect(oauthSrc).toContain('startsWith("https://")');
+  });
+
+  it("oauth.ts logs warning on state forgery attempt", () => {
+    expect(oauthSrc).toContain("possible forgery");
+    expect(oauthSrc).toContain("possible open-redirect");
+  });
+});

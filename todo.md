@@ -4498,3 +4498,45 @@
 - [x] server/_core/oauth.ts: Register /api/internal/keycloak-events route with HMAC verification
 - [x] docs/keycloak-deployment.md: Document TOTP, refresh rotation, and event listener setup
 - [x] Write vitest tests for all Round 36 features
+
+## Round 37 — Audit Log UI, Session Timeout Policy, TOTP Recovery Codes
+
+- [x] client/src/pages/AuthEvents.tsx: Audit log UI page with event type/date filters
+- [x] server/routers.ts: Add keycloak.getAuthEvents tRPC query (calls getKeycloakEvents from db.ts)
+- [x] client/src/App.tsx: Register /settings/auth-events route
+- [x] DashboardLayout: Add "Auth Events" nav entry under Settings section
+- [x] keycloak/paygate-realm.json: Add ssoSessionIdleTimeout, accessTokenLifespan, ssoSessionMaxLifespan
+- [x] keycloak/paygate-realm.json: Add RECOVERY_AUTHN_CODES to requiredActions
+- [x] scripts/keycloak-bootstrap.sh: Document recovery code reset procedure for locked-out admin
+- [x] docs/keycloak-deployment.md: Add session timeout policy section and TOTP recovery runbook
+- [x] Write vitest tests for Round 37 features
+
+## Round 38 — Rate Limiting on Auth Endpoints, Keycloak Admin UI Hardening, Event Listener SPI Config
+
+- [x] server/_core/oauth.ts: Add rate limiting on /api/auth/refresh (max 10 req/min per IP)
+- [x] server/_core/oauth.ts: Add rate limiting on /api/oauth/callback (max 20 req/min per IP)
+- [x] server/_core/oauth.ts: Add rate limiting on /api/internal/keycloak-events (max 200 req/min)
+- [x] keycloak/paygate-realm.json: Add eventsListeners with http-event-listener SPI config
+- [x] keycloak/paygate-realm.json: Add eventsExpiration for event retention (90 days)
+- [x] keycloak/paygate-realm.json: Enable loginEventsEnabled and adminEventsEnabled
+- [x] docker-compose.production.yml: Add KEYCLOAK_WEBHOOK_SECRET env var to keycloak service
+- [x] server/_core/env.ts: Add KEYCLOAK_WEBHOOK_SECRET to ENV object
+- [x] docs/keycloak-deployment.md: Add rate limiting and event listener SPI configuration guide
+- [x] Write vitest tests for Round 38 features
+
+## Round 39 — Redis-Backed Rate Limiting, Keycloak Brute-Force Policy, Security Headers
+
+- [x] server/_core/oauth.ts: Add Redis-backed rate limiter fallback (use in-memory when Redis unavailable)
+- [x] keycloak/paygate-realm.json: Add bruteForceProtected, failureFactor, maxFailureWaitSeconds, waitIncrementSeconds
+- [x] server/_core/index.ts: Add security headers middleware (Helmet-equivalent: CSP, HSTS, X-Frame-Options, etc.)
+- [x] server/_core/oauth.ts: Add X-RateLimit-Remaining and Retry-After headers to 429 responses
+- [x] docs/keycloak-deployment.md: Add brute-force protection and security headers sections
+- [x] Write vitest tests for Round 39 features
+
+## Round 40 — Password Policy, CSP Nonce, Production Env Validation
+
+- [x] keycloak/paygate-realm.json: Add passwordPolicy (min length 12, uppercase, lowercase, digit, special char, not-username, not-email, history 5)
+- [x] server/_core/index.ts: Add /api/health/auth-config endpoint that validates all required Keycloak env vars are set
+- [x] docs/keycloak-deployment.md: Add password policy and production pre-flight checklist sections
+- [x] server/_core/oauth.ts: Add state parameter entropy validation (min 32 bytes) to callback handler
+- [x] Write vitest tests for Round 40 features

@@ -410,3 +410,52 @@ echo ""
 echo " Tip: Next time use --import-realm for faster idempotent provisioning:"
 echo "   ./scripts/keycloak-bootstrap.sh --import-realm"
 echo "============================================================"
+
+# ─── TOTP Recovery Code Reset (Runbook) ──────────────────────────────────────
+# When an admin loses their TOTP device, an operator must reset their required
+# actions via the Keycloak Admin REST API. Run this function as:
+#   reset_admin_totp <keycloak-user-uuid>
+#
+reset_admin_totp() {
+  local USER_UUID="$1"
+  if [ -z "$USER_UUID" ]; then
+    echo "Usage: reset_admin_totp <keycloak-user-uuid>"
+    return 1
+  fi
+
+  echo "[TOTP Reset] Resetting TOTP for user $USER_UUID..."
+
+  # 1. Get a fresh admin token
+  local TOKEN
+  TOKEN=$(curl -sf -X POST "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=$ADMIN_USER&password=$ADMIN_PASS" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+  # 2. Clear TOTP credentials
+  local CREDS
+  CREDS=$(curl -sf -H "Authorization: Bearer $TOKEN" \
+    "$KEYCLOAK_URL/admin/realms/$REALM/users/$USER_UUID/credentials")
+  local TOTP_ID
+  TOTP_ID=$(echo "$CREDS" | python3 -c "
+import sys,json
+creds = json.load(sys.stdin)
+for c in creds:
+    if c.get('type') == 'otp':
+        print(c['id'])
+        break
+")
+  if [ -n "$TOTP_ID" ]; then
+    curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" \
+      "$KEYCLOAK_URL/admin/realms/$REALM/users/$USER_UUID/credentials/$TOTP_ID"
+    echo "[TOTP Reset] OTP credential removed."
+  else
+    echo "[TOTP Reset] No OTP credential found — user may not have TOTP enrolled."
+  fi
+
+  # 3. Re-add CONFIGURE_TOTP required action so user must re-enrol on next login
+  curl -sf -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    "$KEYCLOAK_URL/admin/realms/$REALM/users/$USER_UUID/execute-actions-email" \
+    -d '["CONFIGURE_TOTP"]' && echo "[TOTP Reset] CONFIGURE_TOTP action email sent."
+
+  echo "[TOTP Reset] Done. User will be prompted to re-enrol TOTP on next login."
+}
