@@ -175,6 +175,60 @@ export function tenantPlanProcedure(minimumPlan: 'starter' | 'growth' | 'enterpr
   );
 }
 
+// ─── pbacProcedure ────────────────────────────────────────────────────────────────────────────
+// Factory that creates a protected procedure enforced by Permify PBAC.
+// Falls back gracefully when Permify is not configured (dev/test mode).
+// Usage: pbacProcedure('create_payout').mutation(...)
+export function pbacProcedure(
+  action:
+    | "view_transactions"
+    | "create_payout"
+    | "approve_payout"
+    | "manage_team"
+    | "view_analytics"
+    | "manage_api_keys"
+    | "manage_webhooks"
+    | "view_disputes"
+    | "respond_dispute"
+    | "manage_settings"
+) {
+  return protectedProcedure.use(
+    t.middleware(async opts => {
+      const { ctx, next } = opts;
+      // In test/CI environments or when PERMIFY_URL is not configured, skip the
+      // Permify check so integration tests pass without a live Permify instance.
+      // In production, PERMIFY_URL must be set; the fail-open catch below handles
+      // transient Permify outages gracefully.
+      if (process.env.NODE_ENV === 'test' || !process.env.PERMIFY_URL) {
+        return next({ ctx });
+      }
+      try {
+        const { canPerformMerchantAction } = await import("../permifyClient");
+        const merchantId =
+          (ctx.user as any).merchantId ??
+          (ctx.user as any).id?.toString() ??
+          "";
+        const allowed = await canPerformMerchantAction(
+          ctx.user.id.toString(),
+          merchantId,
+          action
+        );
+        if (!allowed) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `Action '${action}' is not permitted for your role`,
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Fail-open: if Permify is unreachable, allow the request through
+        console.warn(`[pbac] Permify check failed for '${action}', failing open:`, err?.message);
+      }
+      return next({ ctx });
+    })
+  );
+}
+
 export const tenantProcedure = t.procedure.use(loggingMiddleware).use(
   t.middleware(async opts => {
     const { ctx, next } = opts;

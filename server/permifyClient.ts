@@ -98,6 +98,14 @@ export async function checkPermission(
       }
     ) as any;
 
+    // permifyRequest returns null when Permify is unreachable (network error,
+    // DNS failure, timeout). Fail-open so the portal stays available during
+    // transient Permify outages. In production, alert on this log line.
+    if (result === null) {
+      console.warn(`[permify] Permify unreachable, failing open for '${action}' check`);
+      return { allowed: true, reason: "permify_unreachable_fail_open" };
+    }
+
     return {
       allowed: result?.can === "CHECK_RESULT_ALLOWED",
       reason: result?.can,

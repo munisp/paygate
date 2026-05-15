@@ -308,7 +308,7 @@ const apiPlaygroundRouter = router({
       }
       const start = Date.now();
       try {
-        const baseUrl = "http://localhost:3000";
+        const baseUrl = process.env.MERCHANT_PORTAL_URL ?? "http://localhost:3000";
         const url = `${baseUrl}${input.endpoint.startsWith("/") ? "" : "/"}${input.endpoint}`;
         const headers: Record<string, string> = {
           "Content-Type": "application/json",

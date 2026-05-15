@@ -20,7 +20,7 @@ const PLAN_COLORS: Record<string, string> = {
 export default function AdminRevenueAnalytics() {
   const [months, setMonths] = useState(6);
 
-  const { data: revenueByTenant } = trpc.wave29.adminAnalytics.revenueByTenant.useQuery({ months });
+  const { data: revenueByTenant, isLoading } = trpc.wave29.adminAnalytics.revenueByTenant.useQuery({ months });
   const { data: platformSummary } = trpc.wave29.adminAnalytics.platformSummary.useQuery({ months });
   const { data: planDistribution } = trpc.wave29.adminAnalytics.planDistribution.useQuery();
   const { data: topTenants } = trpc.wave29.adminAnalytics.topTenants.useQuery({ limit: 10 });
@@ -32,6 +32,25 @@ export default function AdminRevenueAnalytics() {
     (revenueByTenant ?? []).map((r: any) => r.tenant_id)
   ).size;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <div className="h-7 w-48 bg-muted animate-pulse rounded" />
+            <div className="h-4 w-72 bg-muted animate-pulse rounded" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+        <div className="h-64 bg-muted animate-pulse rounded-lg" />
+        <div className="h-64 bg-muted animate-pulse rounded-lg" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

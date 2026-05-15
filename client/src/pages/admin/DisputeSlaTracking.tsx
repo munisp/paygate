@@ -13,7 +13,7 @@ export default function DisputeSlaTracking() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [slaFilter, setSlaFilter] = useState<string | undefined>(undefined);
 
-  const { data: trackingData, refetch } = trpc.wave31.disputeSla.list.useQuery({
+  const { data: trackingData, refetch, isLoading } = trpc.wave31.disputeSla.list.useQuery({
     status: statusFilter,
     slaBreached: slaFilter === "breached" ? true : slaFilter === "at_risk" ? false : undefined,
   });
@@ -34,6 +34,17 @@ export default function DisputeSlaTracking() {
     return <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">On Track ({hoursRemaining}h)</span>;
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-8 w-64 bg-muted animate-pulse rounded mb-4" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />)}
+        </div>
+        <div className="h-96 bg-muted animate-pulse rounded-lg" />
+      </div>
+    );
+  }
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

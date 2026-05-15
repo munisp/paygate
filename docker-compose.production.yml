@@ -1109,8 +1109,75 @@ services:
       retries: 3
       start_period: 20s
 
+  # ─── TigerBeetle Ledger ─────────────────────────────────────────────
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate_tigerbeetle
+    restart: unless-stopped
+    command: >
+      sh -c "if [ ! -f /var/lib/tigerbeetle/0_0.tigerbeetle ]; then
+               tigerbeetle format --cluster=0 --replica=0 --replica-count=1 /var/lib/tigerbeetle/0_0.tigerbeetle;
+             fi &&
+             tigerbeetle start --addresses=0.0.0.0:3000 /var/lib/tigerbeetle/0_0.tigerbeetle"
+    ports:
+      - "${TIGERBEETLE_PORT:-3001}:3000"
+    volumes:
+      - tigerbeetle_data:/var/lib/tigerbeetle
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── Permify Fine-Grained Authorization ─────────────────────────────
+  permify:
+    image: ghcr.io/permify/permify:v0.9.6
+    container_name: paygate_permify
+    restart: unless-stopped
+    command: serve
+    ports:
+      - "${PERMIFY_PORT:-3476}:3476"
+      - "${PERMIFY_GRPC_PORT:-3478}:3478"
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: "20"
+      PERMIFY_SERVER_RATE_LIMIT: "100"
+      PERMIFY_LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3476/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── Fluvio Real-Time Streaming ───────────────────────────────────────
+  fluvio:
+    image: infinyon/fluvio:0.11.11
+    container_name: paygate_fluvio
+    restart: unless-stopped
+    ports:
+      - "${FLUVIO_PORT:-9003}:9003"
+    volumes:
+      - fluvio_data:/var/lib/fluvio
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9003 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
 volumes:
   nifi_data:
   nifi_logs:
   airflow_logs:
   dbt_logs:
+  tigerbeetle_data:
+  fluvio_data:

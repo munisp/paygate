@@ -55,6 +55,17 @@ function QuotaBar({
   const isWarning = pct >= 80;
   const isCritical = pct >= 95;
 
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-8 w-64 bg-muted animate-pulse rounded mb-4" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />)}
+        </div>
+        <div className="h-96 bg-muted animate-pulse rounded-lg" />
+      </div>
+    );
+  }
   return (
     <div className="space-y-1.5">
       <div className="flex justify-between items-center text-sm">
@@ -83,7 +94,7 @@ export default function AdminTenantBilling() {
   const [search, setSearch] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
 
-  const { data: tenantsData } = trpc.wave26.tenants.list.useQuery({ page: 1, pageSize: 50 });
+  const { data: tenantsData, isLoading } = trpc.wave26.tenants.list.useQuery({ page: 1, pageSize: 50 });
   const { data: usageData } = trpc.wave26.usageMetering.getUsage.useQuery(
     { tenantId: selectedTenantId! },
     { enabled: !!selectedTenantId },

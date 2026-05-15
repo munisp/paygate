@@ -31,7 +31,7 @@ export default function MenuManagement() {
     categoryId: "",
   });
 
-  const statsQuery = trpc.menuMgmt.getMenuStats.useQuery(
+  const { isLoading: statsLoading } = trpc.menuMgmt.getMenuStats.useQuery(
     { merchantId },
     { enabled: !!merchantId }
   );

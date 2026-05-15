@@ -194,6 +194,29 @@ export default function FXDashboard() {
     });
   }
 
+  // ─── SSE: Real-time market ticker from /api/market/stream ─────────────────
+  const [sseConnected, setSseConnected] = useState(false);
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const es = new EventSource("/api/market/stream");
+    es.addEventListener("market", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        setSseConnected(true);
+        setLastUpdated(new Date(data.timestamp).toLocaleTimeString());
+        // Merge SSE rates into the rates map (USD-based)
+        setRates(prev => ({
+          ...prev,
+          ...(data.usdNGN ? { NGN: data.usdNGN } : {}),
+          ...(data.gbpNGN && data.usdNGN ? { GBP: +(data.usdNGN / data.gbpNGN).toFixed(6) } : {}),
+          ...(data.eurNGN && data.usdNGN ? { EUR: +(data.usdNGN / data.eurNGN).toFixed(6) } : {}),
+        }));
+      } catch { /* ignore parse errors */ }
+    });
+    es.onerror = () => setSseConnected(false);
+    return () => { es.close(); setSseConnected(false); };
+  }, [autoRefresh]);
+
   // Live FX rates from DB
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false });
   // Live corridor limits
@@ -262,6 +285,12 @@ export default function FXDashboard() {
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <div className={`w-2 h-2 rounded-full ${autoRefresh ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`} />
             Updated {lastUpdated}
+            {sseConnected && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold tracking-wide">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                SSE LIVE
+              </span>
+            )}
           </div>
           <button onClick={() => setAutoRefresh(p => !p)} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${autoRefresh ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-muted text-muted-foreground"}`}>
             <RefreshCw className={`w-3.5 h-3.5 ${autoRefresh ? "animate-spin" : ""}`} style={{ animationDuration: "3s" }} />

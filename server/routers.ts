@@ -105,7 +105,7 @@ import {
   getDb,
 } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router, pbacProcedure } from "./_core/trpc";
 import { auditedProcedure } from "./_core/auditMiddleware";
 import { notifyOwner } from "./_core/notification";
 import {
@@ -867,7 +867,7 @@ const payoutsRouter = router({
       return payout;
     }),
 
-  create: protectedProcedure
+  create: pbacProcedure('create_payout')
     .input(z.object({
       amount: z.number().min(100),
       currency: z.string().length(3).default("NGN"),
@@ -945,7 +945,7 @@ const payoutsRouter = router({
       return payout;
     }),
 
-  createBulk: protectedProcedure
+  createBulk: pbacProcedure('create_payout')
     .input(z.object({
       rows: z.array(z.object({
         amount: z.number().min(100),
@@ -990,7 +990,7 @@ const payoutsRouter = router({
       return { total: input.rows.length, succeeded, failed, results };
     }),
 
-  approve: protectedProcedure
+  approve: pbacProcedure('approve_payout')
     .input(z.object({
       id: z.string(),
       reason: z.string().max(500).optional(),
@@ -1276,7 +1276,7 @@ const apiKeysRouter = router({
     return listApiKeys(merchant.id);
   }),
 
-  create: protectedProcedure
+  create: pbacProcedure('manage_api_keys')
     .input(z.object({
       name: z.string().min(1).max(128),
       environment: z.enum(["test", "live"]).default("test"),
@@ -1341,7 +1341,7 @@ const webhooksRouter = router({
     return listWebhooks(merchant.id);
   }),
 
-  create: protectedProcedure
+  create: pbacProcedure('manage_webhooks')
     .input(z.object({
       url: z.string().url().max(2048),
       events: z.array(z.string()).min(1).max(50),

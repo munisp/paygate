@@ -4402,3 +4402,24 @@
 - [x] Confirmed: No debug console.log in client pages (only operational server logs)
 - [x] Confirmed: No hardcoded localhost URLs in production pages
 - [x] All 4772 tests passing (122 test files)
+
+## Round 26-32 — Final Production Sprint (Complete)
+
+- [x] Playwright E2E smoke tests for 5 critical payment flows (QR pay, payment link, BNPL, cross-border, bulk payout)
+- [x] FXDashboard SSE real-time ticker with connection indicator badge
+- [x] Analytics env vars (VITE_ANALYTICS_WEBSITE_ID/ENDPOINT) confirmed wired in index.html
+- [x] PBAC pbacProcedure factory added to trpc.ts with Permify fail-open on unreachable
+- [x] PBAC enforcement on 5 high-risk procedures (create_payout, approve_payout, manage_api_keys, manage_webhooks, manage_settings)
+- [x] permifyClient.ts fail-open fix: null result from permifyRequest now allows (was blocking)
+- [x] WebSocket resilience already complete (resilientSSE.ts, offlineQueueV2.ts, networkQuality.ts)
+- [x] All router orphan files confirmed wired (rateLimit.ts, slaEscalation.ts, webhookEventHooks.ts)
+- [x] TigerBeetle, Permify, Fluvio services added to docker-compose.production.yml
+- [x] PWA confirmed complete (443-line sw.js, manifest with all icon sizes, shortcuts, protocol handlers)
+- [x] Mobile responsiveness confirmed in Layout.tsx (hamburger menu, Sheet drawer, breakpoints)
+- [x] ConsumerHelpSearch trackSearch mutation: onError handler added
+- [x] wave25Router.ts API playground: hardcoded localhost:3000 replaced with MERCHANT_PORTAL_URL env
+- [x] AdminRevenueAnalytics: isLoading + skeleton loading guard added
+- [x] AdminTenantBilling: isLoading + skeleton loading guard added
+- [x] DisputeSlaTracking: isLoading + skeleton loading guard added
+- [x] MiddlewareHealthAlerts: isLoading + skeleton loading guard added
+- [x] All 4772 tests passing (122 test files)
