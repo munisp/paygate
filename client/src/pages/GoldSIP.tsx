@@ -63,6 +63,14 @@ export default function GoldSIP() {
     onSuccess: () => { toast.success("SIP cancelled"); refetchSIPs(); },
     onError: (e) => toast.error(e.message),
   });
+  // Real portfolio history from DB (monthly SIP investment totals)
+  const { data: historyData } = trpc.newFeatures.digitalGold.getPortfolioHistory.useQuery(
+    { months: 6 },
+    { staleTime: 300_000 }
+  );
+  const portfolioHistoryLive = historyData?.history?.length
+    ? historyData.history.map(h => ({ month: h.month, value: h.totalInvestedKobo / 100 }))
+    : portfolioHistory; // fallback to static data until first SIP
 
   const totalInvested = useMemo(() => plans.reduce((s, p) => s + p.totalInvested, 0), [plans]);
   const totalCurrentValue = useMemo(() => plans.reduce((s, p) => s + p.currentValue, 0), [plans]);
@@ -70,7 +78,7 @@ export default function GoldSIP() {
   const totalPnL = totalCurrentValue - totalInvested;
   const pnlPct = totalInvested > 0 ? ((totalPnL / totalInvested) * 100).toFixed(2) : "0.00";
 
-  const maxBarValue = Math.max(...portfolioHistory.map((h) => h.value), 1);
+  const maxBarValue = Math.max(...portfolioHistoryLive.map((h) => h.value), 1);
 
   const handleCreate = () => {
     if (!form.name || !form.amountNGN) { toast.error("Fill all fields"); return; }
@@ -185,7 +193,7 @@ export default function GoldSIP() {
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-3 h-32">
-            {portfolioHistory.map((h) => (
+            {portfolioHistoryLive.map((h) => (
               <div key={h.month} className="flex-1 flex flex-col items-center gap-1">
                 <div
                   className="w-full bg-yellow-500/80 rounded-t-sm transition-all"

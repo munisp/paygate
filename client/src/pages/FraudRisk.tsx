@@ -125,6 +125,16 @@ export default function FraudRisk() {
         triggered: r.triggeredCount ?? 0, blocked: r.blockedCount ?? 0, type: r.ruleType ?? "custom",
       }))
     : RULES;
+  // Auto-seed demo alerts when merchant has no alerts yet
+  const seedDemoAlerts = trpc.fraudRisk.seedDemoAlerts.useMutation({
+    onSuccess: (d) => { if (d.seeded > 0) { utils.fraudRisk.list.invalidate(); toast.info(`${d.seeded} demo fraud alerts loaded`); } },
+  });
+  useEffect(() => {
+    if (dbAlerts !== undefined && (dbAlerts.rows?.length ?? 0) === 0 && !seedDemoAlerts.isPending && !seedDemoAlerts.isSuccess) {
+      seedDemoAlerts.mutate();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbAlerts]);
   const snoozeAlerts = trpc.fraudRisk.snoozeAlerts.useMutation({
     onSuccess: (data) => {
       toast.success(`Snoozed ${data.count} alert${data.count !== 1 ? "s" : ""} for 24 hours`);

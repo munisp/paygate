@@ -4628,3 +4628,42 @@
 - [x] AppNavigator.tsx — BillingEngine route registered in RootStackParamList and Stack.Navigator
 - [x] Write server/wave125.production-readiness.test.ts — 39 tests, all passing
 - [x] Total test count: 5,190 passing (10 pre-existing failures unchanged)
+
+## Wave 126 — Full Production Mandate (Round 54+)
+### Suggested Next Steps from Wave 125
+- [ ] GoldSIP portfolio history — real tRPC digitalGold.getPortfolioHistory procedure + DB aggregation
+- [ ] BillingEngineScreen live data — billing.listEvents + billing.listConfigs tRPC procedures wired to RN screen
+- [ ] FraudRisk seedDemoAlerts — admin procedure to seed realistic fraud alerts into DB
+
+### Deep Audit Gaps
+- [ ] Audit all orphaned services, stub CRUD, disconnected features
+- [ ] Wire all TODO/FIXME/placeholder items end-to-end
+- [ ] Replace remaining mock data with real implementations
+
+### Security Hardening
+- [ ] PBAC (Policy-Based Access Control) implementation in Go/Permify
+- [ ] Ransomware/DDoS mitigation (rate limiting, circuit breakers, WAF rules)
+- [ ] Security vulnerability scan and fix across all layers
+
+### Resilience Layer
+- [ ] Offline queue for low-bandwidth/African connectivity environments
+- [ ] Adaptive retry with exponential backoff across all API calls
+- [ ] WebSocket resilience (reconnect, heartbeat, offline detection)
+
+### Mobile Parity
+- [ ] Audit PWA/RN/Flutter parity — wire all missing screens to backend
+- [ ] Ensure all features have PWA + mobile UI/UX
+
+### Archive
+- [ ] Generate comprehensive archive (compare to previous)
+- [ ] Deliver manifest of all changes
+
+## Wave 126 — Suggested Next Steps (Round 54)
+
+- [x] GoldSIP.tsx: wire portfolio history chart to real tRPC getPortfolioHistory query (DB-aggregated monthly SIP totals)
+- [x] newFeaturesRouter: add getPortfolioHistory procedure with DB aggregation + bridge fallback + placeholder months
+- [x] FraudRisk.tsx: add seedDemoAlerts auto-seed on empty state (5 realistic Nigerian fraud scenarios)
+- [x] routers.ts fraudRiskRouter: add seedDemoAlerts mutation (idempotent, guards against double-seeding)
+- [x] BillingEngineScreen.tsx (RN): wire to real billing.getActive + billing.listBillingEvents tRPC queries
+- [x] BillingEngineScreen.tsx (RN): derive live summary metrics (fees today, pending count) from real data
+- [x] Wave 126 tests: 35 new tests covering all three features (5,225 total passing)

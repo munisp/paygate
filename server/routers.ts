@@ -3193,6 +3193,34 @@ const fraudRiskRouter = router({
       }
       return { success: true, snoozedUntil, count: input.ids.length };
     }),
+  // Seed realistic demo fraud alerts for first-time dashboard population.
+  // Only inserts when the merchant has fewer than 3 existing alerts.
+  seedDemoAlerts: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return { seeded: 0, message: 'DB unavailable' };
+      const { fraudAlerts } = await import('../drizzle/schema');
+      const { eq: dEq } = await import('drizzle-orm');
+      const existing = await db.select().from(fraudAlerts).where(dEq(fraudAlerts.merchantId, merchant.id)).limit(3);
+      if (existing.length >= 3) return { seeded: 0, message: 'Already has alerts' };
+      const DEMO_ALERTS = [
+        { riskScore: 92, riskLevel: 'high' as const, alertType: 'card_testing', description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionId: `TXN-DEMO-${Date.now()}-1`, transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
+        { riskScore: 78, riskLevel: 'high' as const, alertType: 'account_takeover', description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionId: `TXN-DEMO-${Date.now()}-2`, transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
+        { riskScore: 65, riskLevel: 'medium' as const, alertType: 'velocity_breach', description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionId: `TXN-DEMO-${Date.now()}-3`, transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
+        { riskScore: 88, riskLevel: 'high' as const, alertType: 'synthetic_identity', description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionId: `TXN-DEMO-${Date.now()}-4`, transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
+        { riskScore: 45, riskLevel: 'low' as const, alertType: 'unusual_pattern', description: 'Transaction amount 3× above customer average — flagged for review', transactionId: `TXN-DEMO-${Date.now()}-5`, transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
+      ];
+      let seeded = 0;
+      for (const alert of DEMO_ALERTS) {
+        try {
+          await db.insert(fraudAlerts).values({ ...alert, merchantId: merchant.id });
+          seeded++;
+        } catch { /* skip duplicates */ }
+      }
+      return { seeded, message: `Seeded ${seeded} demo fraud alerts` };
+    }),
 });
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
 const complianceKycRouter = router({

@@ -107,6 +107,53 @@ export const digitalGoldRouter = router({
       const res = await bridgeGet(`/digital-gold/history?userId=${ctx.user.id}&page=${input.page}&limit=${input.limit}`);
       return res as { transactions: { id: string; type: string; grams: number; pricePerGram: number; amountKobo: number; timestamp: string; status: string }[]; total: number };
     }),
+  // Portfolio history: monthly SIP investment totals aggregated from DB.
+  // Falls back to bridge if DB is unavailable.
+  getPortfolioHistory: protectedProcedure
+    .input(z.object({ months: z.number().int().min(1).max(24).default(6) }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const { getDb } = await import('./db');
+        const { digitalGoldTransactions, goldSipPlans } = await import('../drizzle/schema');
+        const { sql: drizzleSql, eq: dEq, gte: dGte, and: dAnd } = await import('drizzle-orm');
+        const db = await getDb();
+        if (!db) throw new Error('no db');
+        // Aggregate monthly investment amounts from digital_gold_transactions
+        const since = new Date();
+        since.setMonth(since.getMonth() - input.months);
+        const rows = await db
+          .select({
+            month: drizzleSql<string>`to_char(date_trunc('month', ${digitalGoldTransactions.createdAt}), 'Mon YYYY')`,
+            totalInvestedKobo: drizzleSql<number>`COALESCE(SUM(CASE WHEN ${digitalGoldTransactions.type} = 'buy' THEN ${digitalGoldTransactions.amountKobo} ELSE 0 END), 0)`,
+            totalGoldGrams: drizzleSql<number>`COALESCE(SUM(CASE WHEN ${digitalGoldTransactions.type} = 'buy' THEN CAST(${digitalGoldTransactions.goldGrams} AS NUMERIC) ELSE 0 END), 0)`,
+          })
+          .from(digitalGoldTransactions)
+          .where(dAnd(
+            dEq(digitalGoldTransactions.merchantId, String(ctx.user.id)),
+            dGte(digitalGoldTransactions.createdAt, since),
+          ))
+          .groupBy(drizzleSql`date_trunc('month', ${digitalGoldTransactions.createdAt})`)
+          .orderBy(drizzleSql`date_trunc('month', ${digitalGoldTransactions.createdAt})`);
+        // If no DB data, generate placeholder months
+        if (rows.length === 0) {
+          const placeholder = [];
+          for (let i = input.months - 1; i >= 0; i--) {
+            const d = new Date(); d.setMonth(d.getMonth() - i);
+            placeholder.push({ month: d.toLocaleDateString('en-NG', { month: 'short', year: 'numeric' }), totalInvestedKobo: 0, totalGoldGrams: 0 });
+          }
+          return { history: placeholder, source: 'placeholder' as const };
+        }
+        return { history: rows.map(r => ({ month: r.month, totalInvestedKobo: Number(r.totalInvestedKobo), totalGoldGrams: Number(r.totalGoldGrams) })), source: 'db' as const };
+      } catch {
+        // Bridge fallback
+        try {
+          const res = await bridgeGet(`/digital-gold/portfolio-history?userId=${ctx.user.id}&months=${input.months}`);
+          return res as { history: { month: string; totalInvestedKobo: number; totalGoldGrams: number }[]; source: 'bridge' };
+        } catch {
+          return { history: [], source: 'unavailable' as const };
+        }
+      }
+    }),
 });
 
 // ─── Mutual Funds ─────────────────────────────────────────────────────────────

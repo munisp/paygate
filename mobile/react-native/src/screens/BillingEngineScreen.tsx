@@ -2,7 +2,7 @@
  * PayGate Merchant Portal — Billing Engine Screen (React Native)
  * Displays billing configurations, fee schedules, and billing events.
  */
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,11 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { trpc } from "../lib/trpc";
 
 const colors = {
   primary: "#6366F1",
@@ -45,17 +49,11 @@ interface BillingEvent {
   createdAt: string;
 }
 
-// Sample billing configs matching the seed data
-const BILLING_CONFIGS: BillingConfig[] = [
-  { id: "1", tier: "Starter", flatFeeKobo: 10000, percentageBps: 150, capKobo: 500000, isActive: true },
-  { id: "2", tier: "Growth", flatFeeKobo: 5000, percentageBps: 100, capKobo: 300000, isActive: true },
-  { id: "3", tier: "Enterprise", flatFeeKobo: 0, percentageBps: 75, capKobo: 200000, isActive: true },
-];
-
-const BILLING_EVENTS: BillingEvent[] = [
-  { id: "evt-001", eventType: "transaction.completed", merchantId: "merch-001", amountKobo: 5000000, feeKobo: 85000, status: "processed", createdAt: new Date(Date.now() - 3600000).toISOString() },
-  { id: "evt-002", eventType: "payout.initiated", merchantId: "merch-002", amountKobo: 25000000, feeKobo: 250000, status: "processed", createdAt: new Date(Date.now() - 7200000).toISOString() },
-  { id: "evt-003", eventType: "subscription.renewed", merchantId: "merch-003", amountKobo: 1500000, feeKobo: 22500, status: "pending", createdAt: new Date(Date.now() - 10800000).toISOString() },
+// Static fallback configs shown when no DB config is provisioned yet
+const FALLBACK_CONFIGS: BillingConfig[] = [
+  { id: "starter", tier: "Starter", flatFeeKobo: 10000, percentageBps: 150, capKobo: 500000, isActive: true },
+  { id: "growth", tier: "Growth", flatFeeKobo: 5000, percentageBps: 100, capKobo: 300000, isActive: true },
+  { id: "enterprise", tier: "Enterprise", flatFeeKobo: 0, percentageBps: 75, capKobo: 200000, isActive: true },
 ];
 
 function fmtNGN(kobo: number): string {
@@ -75,16 +73,55 @@ function timeAgo(iso: string): string {
 }
 
 export default function BillingEngineScreen() {
+  const navigation = useNavigation();
   const [activeTab, setActiveTab] = useState<"configs" | "events">("configs");
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = () => {
+  // Real tRPC data — billing config and events
+  const { data: activeConfig, isLoading: configLoading, refetch: refetchConfig } =
+    (trpc as any)["billing"]?.["getActive"]?.useQuery?.({ tenantId: "" }) ??
+    { data: null, isLoading: false, refetch: async () => {} };
+
+  const { data: eventsData, isLoading: eventsLoading, refetch: refetchEvents } =
+    (trpc as any)["billing"]?.["listBillingEvents"]?.useQuery?.({ tenantId: "", limit: 50 }) ??
+    { data: [], isLoading: false, refetch: async () => {} };
+
+  const liveEvents: BillingEvent[] = (eventsData ?? []).map((e: any) => ({
+    id: e.id,
+    eventType: e.eventType ?? "transaction",
+    merchantId: e.merchantId ?? "",
+    amountKobo: e.transactionAmountKobo ?? e.amountKobo ?? 0,
+    feeKobo: e.grossFeeKobo ?? e.feeKobo ?? 0,
+    status: e.status ?? "unknown",
+    createdAt: e.occurredAt ?? e.createdAt ?? new Date().toISOString(),
+  }));
+
+  const displayConfigs: BillingConfig[] = activeConfig
+    ? [{ id: activeConfig.id ?? "active", tier: activeConfig.tier ?? "custom", flatFeeKobo: activeConfig.feeCapKobo ?? 0, percentageBps: Math.round((activeConfig.feeRate ?? 0) * 10000), capKobo: activeConfig.feeCapKobo ?? 0, isActive: true }]
+    : FALLBACK_CONFIGS;
+
+  const displayEvents: BillingEvent[] = liveEvents.length > 0 ? liveEvents : [];
+
+  const isLoading = configLoading || eventsLoading;
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    try {
+      await Promise.all([refetchConfig(), refetchEvents()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchConfig, refetchEvents]);
+
+  // Derive live summary metrics
+  const feesToday = displayEvents
+    .filter(e => new Date(e.createdAt).toDateString() === new Date().toDateString())
+    .reduce((s, e) => s + e.feeKobo, 0);
+  const pendingCount = displayEvents.filter(e => e.status === "pending").length;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Billing Engine</Text>
@@ -94,15 +131,15 @@ export default function BillingEngineScreen() {
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
         <View style={[styles.summaryCard, { borderLeftColor: colors.primary }]}>
-          <Text style={styles.summaryValue}>3</Text>
+          <Text style={styles.summaryValue}>{displayConfigs.length}</Text>
           <Text style={styles.summaryLabel}>Active Tiers</Text>
         </View>
         <View style={[styles.summaryCard, { borderLeftColor: colors.success }]}>
-          <Text style={styles.summaryValue}>{fmtNGN(357500)}</Text>
+          <Text style={styles.summaryValue}>{fmtNGN(feesToday)}</Text>
           <Text style={styles.summaryLabel}>Fees Today</Text>
         </View>
         <View style={[styles.summaryCard, { borderLeftColor: colors.warning }]}>
-          <Text style={styles.summaryValue}>1</Text>
+          <Text style={styles.summaryValue}>{pendingCount}</Text>
           <Text style={styles.summaryLabel}>Pending</Text>
         </View>
       </View>
@@ -131,9 +168,11 @@ export default function BillingEngineScreen() {
         style={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {activeTab === "configs" ? (
+        {isLoading ? (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+        ) : activeTab === "configs" ? (
           <View style={styles.section}>
-            {BILLING_CONFIGS.map((config) => (
+            {displayConfigs.map((config) => (
               <View key={config.id} style={styles.configCard}>
                 <View style={styles.configHeader}>
                   <Text style={styles.configTier}>{config.tier}</Text>
@@ -160,7 +199,12 @@ export default function BillingEngineScreen() {
           </View>
         ) : (
           <View style={styles.section}>
-            {BILLING_EVENTS.map((event) => (
+            {displayEvents.length === 0 ? (
+              <View style={{ alignItems: "center", paddingVertical: 40 }}>
+                <Text style={{ color: colors.muted, fontSize: 14 }}>No billing events yet.</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Events appear once transactions are processed.</Text>
+              </View>
+            ) : displayEvents.map((event) => (
               <View key={event.id} style={styles.eventCard}>
                 <View style={styles.eventHeader}>
                   <Text style={styles.eventType}>{event.eventType}</Text>
@@ -194,7 +238,7 @@ export default function BillingEngineScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
