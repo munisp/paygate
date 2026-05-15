@@ -4327,4 +4327,27 @@
 
 ### Phase 3: Test Suite & Checkpoint
 - [x] Run full test suite — confirmed 4772 tests passing across 122 test files
-- [ ] Save checkpoint for Round 20
+- [x] Save checkpoint for Round 20
+
+## Round 21 — Suggested Next Steps Implementation
+
+### Phase 1: KybStateMachine Pagination
+- [x] Add page-based pagination controls to KybStateMachine.tsx (prev/next, page indicator)
+- [x] Add debounced search input wired to listSubmissions search param
+- [x] Add status filter dropdown wired to listSubmissions status param
+- [x] Wire page state to cursor-based listSubmissions backend
+
+### Phase 2: InsuranceHub Live Stats
+- [x] Compute activePolicies count from real policies array
+- [x] Compute totalCoverage sum from real policies array
+- [x] Compute monthlyPremium sum from real policies array
+- [x] Compute openClaims count from real claims array (pending/under_review)
+
+### Phase 3: LoyaltyDashboard Live Chart
+- [x] Aggregate loyaltyMw.history by month into 6-month earned/redeemed buckets
+- [x] Replace CHART_DATA constant with computed live chart data
+- [x] Show loading state on chart while history is fetching
+
+### Phase 4: Test Suite & Checkpoint
+- [x] Run full test suite
+- [ ] Save checkpoint for Round 21

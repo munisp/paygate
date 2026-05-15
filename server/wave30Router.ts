@@ -445,8 +445,8 @@ const kybStateMachineRouter = router({
     .input(z.object({
       status: z.string().optional(),
       search: z.string().optional(),
-      limit: z.number().int().min(1).max(200).default(100),
-      offset: z.number().int().min(0).default(0),
+      limit: z.number().int().min(1).max(100).default(20),
+      cursor: z.string().optional(), // ISO timestamp cursor for keyset pagination
     }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -460,19 +460,32 @@ const kybStateMachineRouter = router({
         params.push(`%${input.search}%`);
         idx++;
       }
-      params.push(input.limit, input.offset);
+      // Keyset pagination: fetch rows updated before the cursor timestamp
+      if (input.cursor) {
+        conditions.push(`updated_at < $${idx++}`);
+        params.push(new Date(input.cursor));
+      }
+      // Fetch limit+1 to determine if there's a next page
+      const fetchLimit = input.limit + 1;
+      params.push(fetchLimit);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       try {
         const { rows } = await execRaw(db,
-          `SELECT id AS merchant_id, business_name, email, COALESCE(kyb_status, 'draft') AS status, created_at, updated_at
+          `SELECT id AS merchant_id, business_name, email,
+                  COALESCE(kyb_status, 'pending') AS status,
+                  risk_score, business_type, registration_number,
+                  submitted_at, created_at, updated_at
            FROM merchants ${where}
            ORDER BY updated_at DESC NULLS LAST
-           LIMIT $${idx} OFFSET $${idx + 1}`,
+           LIMIT $${idx}`,
           params
         );
-        return rows;
+        const hasMore = rows.length > input.limit;
+        const items = hasMore ? rows.slice(0, input.limit) : rows;
+        const nextCursor = hasMore ? items[items.length - 1]?.updated_at?.toISOString?.() ?? null : null;
+        return { items, nextCursor };
       } catch {
-        return [];
+        return { items: [], nextCursor: null };
       }
     }),
 

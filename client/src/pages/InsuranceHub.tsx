@@ -109,25 +109,43 @@ export default function InsuranceHub() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: "Active Policies", value: "3", icon: Shield, color: "text-emerald-600" },
-          { label: "Total Coverage", value: "₦7.3M", icon: Umbrella, color: "text-blue-600" },
-          { label: "Monthly Premium", value: "₦15,500", icon: FileText, color: "text-purple-600" },
-          { label: "Open Claims", value: "1", icon: AlertTriangle, color: "text-amber-600" },
-        ].map((s) => (
-          <Card key={s.label}>
-            <CardContent className="pt-5">
-              <div className="flex items-center gap-2 mb-1">
-                <s.icon className={`w-4 h-4 ${s.color}`} />
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-              </div>
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Stats — derived from live policies and claims */}
+      {(() => {
+        const activePolicies = policies.filter((p: any) => p.status === "active");
+        const activePoliciesCount = activePolicies.length;
+        const totalCoverageKobo = activePolicies.reduce((sum: number, p: any) => sum + (p.coverageKobo ?? p.sumAssured ?? 0), 0);
+        const monthlyPremiumKobo = activePolicies.reduce((sum: number, p: any) => sum + (p.premiumKoboPerMonth ?? p.premium ?? 0), 0);
+        const openClaimsCount = claims.filter((c: any) => ["submitted", "under_review", "pending"].includes(c.status)).length;
+
+        const formatCoverage = (kobo: number) => {
+          const ngn = kobo / 100;
+          if (ngn >= 1_000_000) return `₦${(ngn / 1_000_000).toFixed(1)}M`;
+          if (ngn >= 1_000) return `₦${(ngn / 1_000).toFixed(0)}k`;
+          return `₦${ngn.toLocaleString()}`;
+        };
+
+        const stats = [
+          { label: "Active Policies", value: policiesLoading ? "…" : String(activePoliciesCount), icon: Shield, color: "text-emerald-600" },
+          { label: "Total Coverage", value: policiesLoading ? "…" : formatCoverage(totalCoverageKobo), icon: Umbrella, color: "text-blue-600" },
+          { label: "Monthly Premium", value: policiesLoading ? "…" : formatCoverage(monthlyPremiumKobo), icon: FileText, color: "text-purple-600" },
+          { label: "Open Claims", value: claimsLoading ? "…" : String(openClaimsCount), icon: AlertTriangle, color: "text-amber-600" },
+        ];
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {stats.map((s) => (
+              <Card key={s.label}>
+                <CardContent className="pt-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <s.icon className={`w-4 h-4 ${s.color}`} />
+                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                  </div>
+                  <p className={`text-2xl font-bold ${s.color} ${(policiesLoading || claimsLoading) ? 'animate-pulse' : ''}`}>{s.value}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        );
+      })()}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

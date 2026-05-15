@@ -19,16 +19,34 @@ const TIER_CONFIG = {
   platinum: { color: "text-purple-600", bg: "bg-purple-50 border-purple-200", icon: "💎", min: 200_000, max: null, next: null },
 };
 
-// MOCK_HISTORY removed — now fetched from loyaltyMw.history
+// MOCK_HISTORY and CHART_DATA removed — both derived from loyaltyMw.history
 
-const CHART_DATA = [
-  { month: "Nov", earned: 8_000, redeemed: 3_000 },
-  { month: "Dec", earned: 12_000, redeemed: 5_000 },
-  { month: "Jan", earned: 9_500, redeemed: 4_000 },
-  { month: "Feb", earned: 15_000, redeemed: 7_000 },
-  { month: "Mar", earned: 11_000, redeemed: 5_500 },
-  { month: "Apr", earned: 8_400, redeemed: 7_000 },
-];
+/** Aggregate history rows into last-6-months chart buckets */
+function buildChartData(history: any[]): { month: string; earned: number; redeemed: number }[] {
+  const now = new Date();
+  const buckets: Record<string, { earned: number; redeemed: number }> = {};
+  // Initialise 6 month buckets (oldest first)
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = d.toLocaleString("default", { month: "short" });
+    buckets[key] = { earned: 0, redeemed: 0 };
+  }
+  for (const row of history) {
+    const dateStr = row.date ?? row.createdAt ?? row.created_at;
+    if (!dateStr) continue;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) continue;
+    const monthsAgo = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+    if (monthsAgo < 0 || monthsAgo > 5) continue;
+    const key = d.toLocaleString("default", { month: "short" });
+    if (!buckets[key]) continue;
+    const pts = Math.abs(row.points ?? row.amount ?? 0);
+    const isEarned = row.type === "earned" || (row.points ?? row.amount ?? 0) > 0;
+    if (isEarned) buckets[key].earned += pts;
+    else buckets[key].redeemed += pts;
+  }
+  return Object.entries(buckets).map(([month, v]) => ({ month, ...v }));
+}
 
 export default function LoyaltyDashboard() {
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -62,6 +80,8 @@ export default function LoyaltyDashboard() {
   const filteredHistory = allHistory.filter((h: any) =>
     historyFilter === "all" ? true : h.type === historyFilter
   );
+  // Build live 6-month chart data from history
+  const chartData = historyLoading ? [] : buildChartData(allHistory);
 
   const handleRedeem = () => {
     const amount = parseFloat(redeemAmount);
@@ -170,14 +190,22 @@ export default function LoyaltyDashboard() {
         </CardContent>
       </Card>
 
-      {/* Earnings Chart */}
+      {/* Earnings Chart — live data from loyaltyMw.history */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Cashback Earnings vs Redemptions (6 months)</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">Cashback Earnings vs Redemptions (6 months)</CardTitle>
+            {historyLoading && <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>}
+          </div>
         </CardHeader>
         <CardContent>
+          {historyLoading ? (
+            <div className="h-[200px] flex items-center justify-center">
+              <div className="w-full h-full bg-muted/40 animate-pulse rounded" />
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={CHART_DATA}>
+            <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="earnGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#eab308" stopOpacity={0.3} />
@@ -196,6 +224,7 @@ export default function LoyaltyDashboard() {
               <Area type="monotone" dataKey="redeemed" stroke="#6366f1" fill="url(#redeemGrad)" name="Redeemed" />
             </AreaChart>
           </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
