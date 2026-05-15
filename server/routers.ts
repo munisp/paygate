@@ -2870,6 +2870,93 @@ const middlewareRouter = router({
         }
         return getAnomalyConfigAuditLog(5);
       }),
+    // ── Full audit log with pagination ──
+    getAnomalyConfigAuditLogFull: protectedProcedure
+      .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().default(0) }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        return getAnomalyConfigAuditLog(input.limit, input.offset);
+      }),
+    // ── Export active sessions as CSV ──
+    exportSessions: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        // Re-use the listActiveSessions logic inline (no Keycloak = empty CSV)
+        const kcUrl = process.env.KEYCLOAK_URL ?? "";
+        const realm = process.env.KEYCLOAK_REALM ?? "paygate";
+        const adminUser = process.env.KEYCLOAK_ADMIN ?? "admin";
+        const adminPass = process.env.KEYCLOAK_ADMIN_PASSWORD ?? "";
+        let sessions: Array<Record<string, unknown>> = [];
+        if (kcUrl && adminPass) {
+          try {
+            const tokenRes = await fetch(`${kcUrl}/realms/master/protocol/openid-connect/token`, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ grant_type: "password", client_id: "admin-cli", username: adminUser, password: adminPass }),
+            });
+            if (tokenRes.ok) {
+              const { access_token } = await tokenRes.json() as { access_token: string };
+              const sessRes = await fetch(`${kcUrl}/admin/realms/${realm}/sessions?first=0&max=500`, { headers: { Authorization: `Bearer ${access_token}` } });
+              if (sessRes.ok) {
+                const raw = await sessRes.json() as Array<Record<string, unknown>>;
+                sessions = await Promise.all(raw.map(async (s) => {
+                  try {
+                    const known = await getKnownCountriesForUser(String(s.userId ?? ""), 90);
+                    const db2 = await getDb();
+                    if (!db2) return { ...s, isNewCountry: false, geoCountry: null };
+                    const recent = await db2.execute(sql`SELECT geo_country FROM keycloak_events WHERE user_id = ${String(s.userId ?? "")} AND event_type = 'LOGIN' AND geo_country IS NOT NULL ORDER BY received_at DESC LIMIT 1`);
+                    const latestCountry = (recent.rows[0] as { geo_country: string } | undefined)?.geo_country;
+                    return { ...s, isNewCountry: !!latestCountry && !known.includes(latestCountry), geoCountry: latestCountry ?? null };
+                  } catch { return { ...s, isNewCountry: false, geoCountry: null }; }
+                }));
+              }
+            }
+          } catch { /* ignore */ }
+        }
+        const header = ["sessionId", "userId", "username", "ipAddress", "geoCountry", "isNewCountry", "startedAt", "lastAccessAt"];
+        const rows = sessions.map((s) => [
+          String(s.id ?? ""),
+          String(s.userId ?? ""),
+          String(s.username ?? ""),
+          String(s.ipAddress ?? ""),
+          String(s.geoCountry ?? ""),
+          s.isNewCountry ? "yes" : "no",
+          s.start ? new Date(Number(s.start) * 1000).toISOString() : "",
+          s.lastAccess ? new Date(Number(s.lastAccess) * 1000).toISOString() : "",
+        ]);
+        const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+        return { csv, filename: `sessions_${new Date().toISOString().slice(0, 10)}.csv` };
+      }),
+    // ── Notification email config ──
+    getNotificationEmail: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const user = await resolveUser(ctx.user.openId);
+        const config = await getAnomalyConfig(user.id);
+        return { notificationEmail: (config as Record<string, unknown>).notificationEmail as string | null ?? null };
+      }),
+    setNotificationEmail: protectedProcedure
+      .input(z.object({ email: z.string().email().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const user = await resolveUser(ctx.user.openId);
+        // Update only the notificationEmail field via direct DB update
+        const db2 = await getDb();
+        if (!db2) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { adminNotificationPrefs } = await import("../drizzle/schema");
+        await db2.update(adminNotificationPrefs)
+          .set({ notificationEmail: input.email, updatedAt: new Date() })
+          .where(eq(adminNotificationPrefs.userId, user.id));
+        return { ok: true };
+      }),
     // ── Force-logout a specific Keycloak session (admin) ──
     forceLogoutSession: protectedProcedure
       .input(z.object({ sessionId: z.string().min(1) }))

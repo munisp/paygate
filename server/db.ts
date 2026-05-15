@@ -2993,7 +2993,7 @@ export async function recordAnomalyConfigChange(opts: {
 /**
  * Get the last N anomaly config audit entries (most recent first).
  */
-export async function getAnomalyConfigAuditLog(limit = 5): Promise<Array<{
+export async function getAnomalyConfigAuditLog(limit = 5, offset = 0): Promise<Array<{
   id: number;
   changedByUserId: number;
   isGlobal: boolean;
@@ -3011,7 +3011,7 @@ export async function getAnomalyConfigAuditLog(limit = 5): Promise<Array<{
              new_window_minutes, new_threshold, changed_at
       FROM anomaly_config_audit
       ORDER BY changed_at DESC
-      LIMIT ${limit}
+      LIMIT ${limit} OFFSET ${offset}
     `);
     return (rows.rows ?? []).map((r: any) => ({
       id: Number(r.id),

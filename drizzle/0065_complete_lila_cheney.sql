@@ -1,0 +1,1 @@
+ALTER TABLE "admin_notification_prefs" ADD COLUMN "notification_email" text;

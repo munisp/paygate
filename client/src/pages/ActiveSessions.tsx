@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Shield, RefreshCw, LogOut, Monitor, Search, AlertTriangle, Settings2, Globe } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Shield, RefreshCw, LogOut, Monitor, Search, AlertTriangle, Settings2, Globe, Download, Mail, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -31,12 +32,25 @@ export default function ActiveSessions() {
   const [showConfigForm, setShowConfigForm] = useState(false);
   const [configWindow, setConfigWindow] = useState(15);
   const [configThreshold, setConfigThreshold] = useState(5);
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditPage, setAuditPage] = useState(0);
+  const [notifEmail, setNotifEmail] = useState("");
+  const [editingEmail, setEditingEmail] = useState(false);
+  const PAGE_SIZE = 10;
   // Global anomaly config
   const globalConfigQuery = trpc.middleware.keycloak.getGlobalAnomalyConfig.useQuery(undefined, {
     enabled: isAdmin,
   });
   const auditLogQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLog.useQuery(undefined, {
     enabled: isAdmin && showConfigForm,
+  });
+  const auditLogFullQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLogFull.useQuery(
+    { limit: PAGE_SIZE, offset: auditPage * PAGE_SIZE },
+    { enabled: isAdmin && showAuditModal }
+  );
+  const notifEmailQuery = trpc.middleware.keycloak.getNotificationEmail.useQuery(undefined, {
+    enabled: isAdmin && showConfigForm,
+    onSuccess: (d) => { if (!editingEmail) setNotifEmail(d.notificationEmail ?? ""); },
   });
 
   const saveGlobalAnomalyConfig = trpc.middleware.keycloak.setGlobalAnomalyConfig.useMutation({
@@ -46,6 +60,33 @@ export default function ActiveSessions() {
     },
     onError: (err) => toast.error(`Failed to save global config: ${err.message}`),
   });
+
+  const setNotifEmailMutation = trpc.middleware.keycloak.setNotificationEmail.useMutation({
+    onSuccess: () => {
+      toast.success("Notification email updated");
+      setEditingEmail(false);
+      notifEmailQuery.refetch();
+    },
+    onError: (err) => toast.error(`Failed to update email: ${err.message}`),
+  });
+
+  const exportSessionsQuery = trpc.middleware.keycloak.exportSessions.useQuery(undefined, {
+    enabled: false, // manual trigger only
+  });
+
+  function handleExportCSV() {
+    exportSessionsQuery.refetch().then((res) => {
+      if (!res.data) return;
+      const blob = new Blob([res.data.csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Session list exported");
+    }).catch(() => toast.error("Export failed"));
+  }
 
   const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.listActiveSessions.useQuery(
     { userId: userIdFilter.trim() || undefined, limit: 100 },
@@ -124,6 +165,10 @@ export default function ActiveSessions() {
           <Button variant="outline" size="sm" onClick={() => setShowConfigForm(v => !v)} className="gap-2">
             <Settings2 className="w-4 h-4" />
             Configure
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={exportSessionsQuery.isFetching} className="gap-2">
+            <Download className="w-4 h-4" />
+            Export CSV
           </Button>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
             <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
@@ -206,10 +251,39 @@ export default function ActiveSessions() {
                 <Button size="sm" variant="outline" onClick={() => setShowConfigForm(false)}>Cancel</Button>
               </div>
             </div>
+            {/* Notification email config */}
+            <div className="mt-4 border-t pt-4">
+              <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
+                <Mail className="w-3.5 h-3.5" /> Alert Email
+              </p>
+              {editingEmail ? (
+                <div className="flex gap-2 items-center">
+                  <Input
+                    type="email"
+                    placeholder="alert@example.com"
+                    value={notifEmail}
+                    onChange={e => setNotifEmail(e.target.value)}
+                    className="w-64 h-8 text-sm"
+                  />
+                  <Button size="sm" className="h-8" onClick={() => setNotifEmailMutation.mutate({ email: notifEmail || null })} disabled={setNotifEmailMutation.isPending}>
+                    {setNotifEmailMutation.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8" onClick={() => { setEditingEmail(false); setNotifEmail(notifEmailQuery.data?.notificationEmail ?? ""); }}>Cancel</Button>
+                </div>
+              ) : (
+                <div className="flex gap-2 items-center">
+                  <span className="text-xs text-muted-foreground">{notifEmailQuery.data?.notificationEmail ?? <em>Not set — using SMTP_USER</em>}</span>
+                  <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingEmail(true)}>Edit</Button>
+                </div>
+              )}
+            </div>
             {/* Audit log */}
             {auditLogQuery.data && auditLogQuery.data.length > 0 && (
               <div className="mt-4 border-t pt-4">
-                <p className="text-xs font-semibold text-muted-foreground mb-2">Recent Changes</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-muted-foreground">Recent Changes</p>
+                  <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => { setShowAuditModal(true); setAuditPage(0); }}>View all</Button>
+                </div>
                 <div className="space-y-1">
                   {auditLogQuery.data.map((entry) => (
                     <div key={entry.id} className="text-xs text-muted-foreground flex items-center gap-2">
@@ -401,6 +475,42 @@ export default function ActiveSessions() {
           </div>
         </CardContent>
       </Card>
+      {/* Audit Log Full Modal */}
+      <Dialog open={showAuditModal} onOpenChange={setShowAuditModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Anomaly Config Audit Log</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {auditLogFullQuery.isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)
+            ) : (auditLogFullQuery.data ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No audit entries found.</p>
+            ) : (
+              (auditLogFullQuery.data ?? []).map((entry) => (
+                <div key={entry.id} className="flex items-center gap-3 text-sm border rounded px-3 py-2">
+                  <span className="font-mono text-xs text-muted-foreground w-40 shrink-0">{new Date(entry.changedAt).toLocaleString()}</span>
+                  <Badge variant={entry.isGlobal ? "default" : "outline"} className="text-xs shrink-0">{entry.isGlobal ? "Global" : `User ${entry.changedByUserId}`}</Badge>
+                  <span className="text-xs">
+                    {entry.oldWindowMinutes != null ? `${entry.oldWindowMinutes}m / ${entry.oldThreshold} fails` : "(default)"}
+                    {" → "}
+                    <strong>{entry.newWindowMinutes}m / {entry.newThreshold} fails</strong>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex items-center justify-between pt-2 border-t">
+            <Button size="sm" variant="outline" onClick={() => setAuditPage(p => Math.max(0, p - 1))} disabled={auditPage === 0 || auditLogFullQuery.isLoading}>
+              <ChevronLeft className="w-4 h-4" /> Prev
+            </Button>
+            <span className="text-xs text-muted-foreground">Page {auditPage + 1}</span>
+            <Button size="sm" variant="outline" onClick={() => setAuditPage(p => p + 1)} disabled={(auditLogFullQuery.data?.length ?? 0) < PAGE_SIZE || auditLogFullQuery.isLoading}>
+              Next <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

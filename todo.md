@@ -4609,3 +4609,11 @@
 - [x] Audit log displayed in config form (ActiveSessions.tsx) — shows timestamp, scope, old→new values
 - [x] Session country column — getLatestCountryForUsers in db.ts; listActiveSessions enriched with geoCountry; Country column in table
 - [x] Write server/keycloak.round51.test.ts (17 tests)
+
+## Round 52 — Audit log pagination, notification email config, session CSV export
+- [x] Audit log pagination modal — "View all" link opens full paginated modal (10 per page, Prev/Next) in config form
+- [x] Notification email config — getNotificationEmail/setNotificationEmail procedures + inline edit UI in config form
+- [x] Session CSV export — exportSessions procedure + Export CSV button in Active Sessions header with country column
+- [x] getAnomalyConfigAuditLog offset parameter — SQL OFFSET clause for pagination
+- [x] getAnomalyConfigAuditLogFull procedure — paginated full audit log for modal
+- [x] Write server/keycloak.round52.test.ts (19 tests)

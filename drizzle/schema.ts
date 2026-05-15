@@ -3415,6 +3415,8 @@ export const adminNotificationPrefs = pgTable("admin_notification_prefs", {
   // Auth anomaly detection thresholds
   loginAnomalyWindowMinutes: integer("login_anomaly_window_minutes").notNull().default(15),
   loginAnomalyThreshold:     integer("login_anomaly_threshold").notNull().default(5),
+  // Notification email override (defaults to SMTP_USER if null)
+  notificationEmail: text("notification_email"),
   // Digest frequency: 'realtime' | 'hourly' | 'daily' | 'weekly'
   digestFrequency: text("digest_frequency").notNull().default("daily"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
