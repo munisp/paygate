@@ -128,9 +128,8 @@ services:
       redis:
         condition: service_healthy
       keycloak:
-        condition: service_started
+        condition: service_healthy
     networks: [paygate]
-
   # ─── PostgreSQL ───────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
@@ -297,8 +296,28 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+      # ── SMTP (password-reset / email-verification emails) ──────────
+      # Leave KC_SMTP_HOST empty to disable email sending (e.g. in dev).
+      # Set all four vars to enable Keycloak's built-in SMTP sender.
+      KC_SMTP_HOST: ${KC_SMTP_HOST:-}
+      KC_SMTP_PORT: ${KC_SMTP_PORT:-587}
+      KC_SMTP_FROM: ${KC_SMTP_FROM:-no-reply@paygate.local}
+      KC_SMTP_FROM_DISPLAY_NAME: ${KC_SMTP_FROM_DISPLAY_NAME:-PayGate Identity}
+      KC_SMTP_USER: ${KC_SMTP_USER:-}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD:-}
+      KC_SMTP_SSL: ${KC_SMTP_SSL:-false}
+      KC_SMTP_STARTTLS: ${KC_SMTP_STARTTLS:-true}
+      KC_SMTP_AUTH: ${KC_SMTP_AUTH:-true}
     ports:
       - "${KEYCLOAK_PORT:-8081}:8080"
+    # Health-check: poll /health/ready so dependent services (portal, bootstrap
+    # script) only start once Keycloak is fully initialised and serving OIDC.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy

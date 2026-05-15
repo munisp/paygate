@@ -194,6 +194,174 @@ describe("docker-compose.production.yml — realm JSON volume mount", () => {
   });
 });
 
+// ─── Round 35 — SMTP + id_token_hint + Health-Check ────────────────────────────
+
+describe("docker-compose.production.yml — SMTP env vars", () => {
+  const src = readFileSync(resolve(ROOT, "docker-compose.production.yml"), "utf8");
+
+  it("includes KC_SMTP_HOST env var in keycloak service", () => {
+    expect(src).toContain("KC_SMTP_HOST");
+  });
+
+  it("includes KC_SMTP_PORT env var", () => {
+    expect(src).toContain("KC_SMTP_PORT");
+  });
+
+  it("includes KC_SMTP_FROM env var", () => {
+    expect(src).toContain("KC_SMTP_FROM");
+  });
+
+  it("includes KC_SMTP_USER env var", () => {
+    expect(src).toContain("KC_SMTP_USER");
+  });
+
+  it("includes KC_SMTP_PASSWORD env var", () => {
+    expect(src).toContain("KC_SMTP_PASSWORD");
+  });
+
+  it("includes KC_SMTP_STARTTLS env var", () => {
+    expect(src).toContain("KC_SMTP_STARTTLS");
+  });
+
+  it("includes KC_SMTP_AUTH env var", () => {
+    expect(src).toContain("KC_SMTP_AUTH");
+  });
+});
+
+describe("keycloak/paygate-realm.json — smtpServer block", () => {
+  const src = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(src.replace(/"_comment"[^,}]+,?/g, ''));
+
+  it("has a smtpServer block", () => {
+    expect(realm.smtpServer).toBeDefined();
+  });
+
+  it("smtpServer has a from field", () => {
+    expect(realm.smtpServer).toHaveProperty("from");
+  });
+
+  it("smtpServer has a port field", () => {
+    expect(realm.smtpServer).toHaveProperty("port");
+  });
+
+  it("smtpServer has starttls field", () => {
+    expect(realm.smtpServer).toHaveProperty("starttls");
+  });
+});
+
+describe("scripts/keycloak-bootstrap.sh — SMTP patch step", () => {
+  const src = readFileSync(resolve(ROOT, "scripts/keycloak-bootstrap.sh"), "utf8");
+
+  it("patches SMTP settings when KC_SMTP_HOST is provided", () => {
+    expect(src).toContain("Patching SMTP settings");
+  });
+
+  it("skips SMTP when KC_SMTP_HOST is not set", () => {
+    expect(src).toContain("KC_SMTP_HOST not set");
+  });
+
+  it("uses Admin REST API PUT to patch realm SMTP", () => {
+    // The bootstrap.sh uses shell-escaped JSON: \"smtpServer\"
+    expect(src).toContain('\\"smtpServer\\"');
+    expect(src).toContain("admin/realms/$REALM");
+  });
+});
+
+describe("server/_core/cookies.ts — id_token cookie helpers", () => {
+  const src = readFileSync(resolve(ROOT, "server/_core/cookies.ts"), "utf8");
+
+  it("exports ID_TOKEN_COOKIE_NAME constant", () => {
+    expect(src).toContain("export const ID_TOKEN_COOKIE_NAME");
+  });
+
+  it("exports getIdTokenCookieOptions function", () => {
+    expect(src).toContain("export function getIdTokenCookieOptions");
+  });
+
+  it("id_token cookie has httpOnly flag", () => {
+    expect(src).toContain("httpOnly: true");
+  });
+
+  it("id_token cookie has a maxAge based on expiresInSeconds", () => {
+    expect(src).toContain("maxAge: expiresInSeconds * 1000");
+  });
+});
+
+describe("server/_core/oauth.ts — id_token cookie stored after callback", () => {
+  const src = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+
+  it("imports ID_TOKEN_COOKIE_NAME from cookies", () => {
+    expect(src).toContain("ID_TOKEN_COOKIE_NAME");
+  });
+
+  it("imports getIdTokenCookieOptions from cookies", () => {
+    expect(src).toContain("getIdTokenCookieOptions");
+  });
+
+  it("stores id_token in cookie after successful callback", () => {
+    expect(src).toContain("res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken");
+  });
+
+  it("uses tokens.expiresIn for cookie maxAge", () => {
+    expect(src).toContain("tokens.expiresIn");
+  });
+
+  it("only sets id_token cookie when idToken is present", () => {
+    expect(src).toContain("if (tokens.idToken)");
+  });
+});
+
+describe("server/routers.ts auth.logout — id_token_hint passthrough", () => {
+  const src = readFileSync(resolve(ROOT, "server/routers.ts"), "utf8");
+
+  it("imports ID_TOKEN_COOKIE_NAME from cookies in auth.logout", () => {
+    expect(src).toContain("ID_TOKEN_COOKIE_NAME");
+  });
+
+  it("clears the id_token cookie on logout", () => {
+    expect(src).toContain("clearCookie(ID_TOKEN_COOKIE_NAME");
+  });
+
+  it("reads idTokenHint from request cookies", () => {
+    expect(src).toContain("ctx.req.cookies?.[ID_TOKEN_COOKIE_NAME]");
+  });
+
+  it("passes idTokenHint to buildEndSessionUrl", () => {
+    expect(src).toContain("buildEndSessionUrl(postLogoutRedirectUri, idTokenHint)");
+  });
+});
+
+describe("docker-compose.production.yml — Keycloak healthcheck", () => {
+  const src = readFileSync(resolve(ROOT, "docker-compose.production.yml"), "utf8");
+
+  it("keycloak service has a healthcheck", () => {
+    expect(src).toContain("/health/ready");
+  });
+
+  it("healthcheck has a start_period for slow startup", () => {
+    expect(src).toContain("start_period: 60s");
+  });
+
+  it("healthcheck has retries configured", () => {
+    expect(src).toContain("retries: 10");
+  });
+
+  it("app service depends on keycloak with service_healthy condition", () => {
+    // Verify service_started is no longer used for keycloak dependency
+    const keycloakDepsSection = src.match(/keycloak:\s*\n\s*condition:\s*(\S+)/)?.[1];
+    expect(keycloakDepsSection).toBe("service_healthy");
+  });
+
+  it("does not use service_started for keycloak dependency", () => {
+    // service_started should not appear anywhere near the keycloak depends_on
+    const appServiceSection = src.substring(
+      src.indexOf("container_name: paygate_portal"),
+      src.indexOf("container_name: paygate_keycloak")
+    );
+    expect(appServiceSection).not.toContain("service_started");
+  });
+});
+
 describe("scripts/keycloak-bootstrap.sh — --import-realm mode", () => {
   const src = readFileSync(resolve(ROOT, "scripts/keycloak-bootstrap.sh"), "utf8");
 
@@ -377,7 +545,9 @@ describe("docker-compose.production.yml — Keycloak env vars present in app ser
   });
 
   it("app service depends on keycloak service", () => {
-    expect(src).toContain("keycloak:\n        condition: service_started");
+    // After Round 35, the condition is service_healthy (not service_started)
+    expect(src).toContain("keycloak:");
+    expect(src).toContain("condition: service_healthy");
   });
 });
 

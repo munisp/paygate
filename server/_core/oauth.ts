@@ -19,7 +19,7 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
-import { getSessionCookieOptions } from "./cookies";
+import { getSessionCookieOptions, getIdTokenCookieOptions, ID_TOKEN_COOKIE_NAME } from "./cookies";
 import { ENV } from "./env";
 import {
   buildAuthorizationUrl,
@@ -145,6 +145,16 @@ async function handleKeycloakCallback(req: Request, res: Response) {
     const sessionToken = await createSessionToken(openId, name);
     const cookieOptions = getSessionCookieOptions(req);
     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+    // Store the Keycloak id_token in a short-lived httpOnly cookie.
+    // This is used exclusively as id_token_hint on the Keycloak end-session
+    // endpoint so the user is not shown a "do you want to log out?" page.
+    // The cookie expires with the Keycloak access token (default 5 min).
+    if (tokens.idToken) {
+      const idTokenOptions = getIdTokenCookieOptions(req, tokens.expiresIn || 300);
+      res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken, idTokenOptions);
+    }
+
     res.redirect(302, "/dashboard");
   } catch (error) {
     console.error("[Keycloak] Callback failed", error);

@@ -172,7 +172,32 @@ print(users[0]['id'] if users else '')
       -H "$AUTH_HEADER" \
       -H "Content-Type: application/json" \
       -d "[$ROLE_REP]"
-    echo "[bootstrap] 'paygate-admin' role assigned."
+     echo "[bootstrap] 'paygate-admin' role assigned."
+  fi
+
+  # Patch SMTP settings if KC_SMTP_HOST is provided
+  if [ -n "${KC_SMTP_HOST:-}" ]; then
+    echo "[bootstrap] Patching SMTP settings for realm '$REALM' ..."
+    curl -sf -X PUT "$KEYCLOAK_URL/admin/realms/$REALM" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"smtpServer\": {
+          \"host\": \"${KC_SMTP_HOST}\",
+          \"port\": \"${KC_SMTP_PORT:-587}\",
+          \"from\": \"${KC_SMTP_FROM:-no-reply@paygate.local}\",
+          \"fromDisplayName\": \"${KC_SMTP_FROM_DISPLAY_NAME:-PayGate Identity}\",
+          \"ssl\": \"${KC_SMTP_SSL:-false}\",
+          \"starttls\": \"${KC_SMTP_STARTTLS:-true}\",
+          \"auth\": \"${KC_SMTP_AUTH:-true}\",
+          \"user\": \"${KC_SMTP_USER:-}\",
+          \"password\": \"${KC_SMTP_PASSWORD:-}\"
+        }
+      }"
+    echo "[bootstrap] SMTP configured (host: ${KC_SMTP_HOST}, port: ${KC_SMTP_PORT:-587})."
+  else
+    echo "[bootstrap] KC_SMTP_HOST not set — skipping SMTP configuration."
+    echo "[bootstrap] Set KC_SMTP_HOST (and KC_SMTP_USER/KC_SMTP_PASSWORD) to enable email sending."
   fi
 
   echo ""

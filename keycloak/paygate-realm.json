@@ -137,7 +137,18 @@
     "xXSSProtection": "1; mode=block",
     "strictTransportSecurity": "max-age=31536000; includeSubDomains"
   },
-  "smtpServer": {},
+  "smtpServer": {
+    "_comment": "SMTP is configured at runtime via KC_SMTP_* env vars in docker-compose.production.yml. This block is intentionally empty — Keycloak merges runtime env vars into the realm SMTP config on startup.",
+    "host": "",
+    "port": "587",
+    "from": "no-reply@paygate.local",
+    "fromDisplayName": "PayGate Identity",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "",
+    "password": ""
+  },
   "eventsEnabled": true,
   "eventsListeners": ["jboss-logging"],
   "enabledEventTypes": [

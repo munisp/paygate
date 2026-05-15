@@ -4468,3 +4468,17 @@
 - [x] server/_core/env.ts: Add ALLOWED_ORIGINS to ENV object with validation
 - [x] docs/keycloak-deployment.md: Document ALLOWED_ORIGINS, realm import, and SSO logout setup
 - [x] Write vitest tests for SSO logout and ALLOWED_ORIGINS hardening
+
+## Round 35 — Keycloak SMTP + id_token_hint + Health-Check
+
+- [ ] docker-compose.production.yml: Add KC_SMTP_* env vars to keycloak service
+- [ ] keycloak/paygate-realm.json: Add smtpServer block with env-var placeholders comment
+- [ ] scripts/keycloak-bootstrap.sh: Add SMTP patch step after realm import
+- [ ] server/_core/keycloak.ts: Extend KeycloakTokenSet to include idToken field
+- [ ] server/_core/oauth.ts: Store id_token in a separate short-lived httpOnly cookie after callback
+- [ ] server/_core/cookies.ts: Add getIdTokenCookieOptions() helper
+- [ ] server/routers.ts auth.logout: Read id_token cookie and pass as idTokenHint to buildEndSessionUrl
+- [ ] server/routers.ts auth.logout: Clear id_token cookie on logout
+- [ ] docker-compose.production.yml: Replace service_started with healthcheck for keycloak
+- [ ] docs/keycloak-deployment.md: Document SMTP, id_token_hint, and health-check
+- [x] Write vitest tests for Round 35 changes

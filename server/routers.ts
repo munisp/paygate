@@ -280,12 +280,14 @@ const authRouter = router({
     }).optional())
     .mutation(async ({ ctx, input }) => {
       const { COOKIE_NAME } = await import("../shared/const");
-      const { getSessionCookieOptions } = await import("./_core/cookies");
+      const { getSessionCookieOptions, ID_TOKEN_COOKIE_NAME } = await import("./_core/cookies");
       const { ENV } = await import("./_core/env");
 
       // Clear the portal session cookie
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      // Clear the id_token cookie (used as id_token_hint on Keycloak end-session)
+      ctx.res.clearCookie(ID_TOKEN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
 
       // If Keycloak is configured, return the end-session URL so the client
       // can redirect the browser there to terminate the Keycloak SSO session.
@@ -295,7 +297,11 @@ const authRouter = router({
         const { buildEndSessionUrl } = await import("./_core/keycloak");
         const origin = input?.origin ?? `${ctx.req.protocol}://${ctx.req.get("host")}`;
         const postLogoutRedirectUri = `${origin}/`;
-        const ssoLogoutUrl = buildEndSessionUrl(postLogoutRedirectUri);
+        // Read the stored id_token from the short-lived cookie.
+        // Passing it as id_token_hint tells Keycloak to skip the logout
+        // confirmation page for a seamless UX on shared/kiosk machines.
+        const idTokenHint = ctx.req.cookies?.[ID_TOKEN_COOKIE_NAME] as string | undefined;
+        const ssoLogoutUrl = buildEndSessionUrl(postLogoutRedirectUri, idTokenHint);
         return { success: true, ssoLogoutUrl } as const;
       }
 
