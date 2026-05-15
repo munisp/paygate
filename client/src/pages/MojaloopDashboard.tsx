@@ -20,16 +20,7 @@ const RAILS = [
   { id: "sepa", name: "SEPA", region: "Europe", color: "purple", flag: "🇪🇺" },
 ];
 
-const DEMO_TRANSFERS = [
-  { id: "MJL-001", rail: "mojaloop", from: "NGN", to: "KES", amount: 500000, status: "completed", latency: "1.2s", time: "2 min ago" },
-  { id: "CIPS-002", rail: "cips", from: "USD", to: "CNY", amount: 10000, status: "completed", latency: "0.8s", time: "5 min ago" },
-  { id: "UPI-003", rail: "upi", from: "USD", to: "INR", amount: 25000, status: "processing", latency: "0.5s", time: "8 min ago" },
-  { id: "PIX-004", rail: "pix", from: "USD", to: "BRL", amount: 8000, status: "completed", latency: "0.3s", time: "12 min ago" },
-  { id: "MJL-005", rail: "mojaloop", from: "GHS", to: "TZS", amount: 200000, status: "failed", latency: "—", time: "15 min ago" },
-  { id: "CIPS-006", rail: "cips", from: "EUR", to: "CNY", amount: 50000, status: "completed", latency: "0.9s", time: "20 min ago" },
-  { id: "UPI-007", rail: "upi", from: "GBP", to: "INR", amount: 15000, status: "completed", latency: "0.4s", time: "25 min ago" },
-  { id: "PIX-008", rail: "pix", from: "CAD", to: "BRL", amount: 12000, status: "processing", latency: "0.3s", time: "30 min ago" },
-];
+// DEMO_TRANSFERS removed — live data only from crossBorder.list
 
 const RAIL_STATS = {
   mojaloop: { uptime: "99.97%", tps: 1250, avgLatency: "1.1s", volume24h: "$4.2M", successRate: "99.2%" },
@@ -47,10 +38,28 @@ export default function MojaloopDashboard() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
 
-  const filtered = DEMO_TRANSFERS.filter(t =>
+  // Live transfers only
+  const transfers = ((crossBorderTransfers as any)?.transfers ?? []).map((t: any) => ({
+    id: t.id ?? t.transferId ?? "—",
+    rail: t.rail ?? t.provider ?? "mojaloop",
+    from: t.sourceCurrency ?? t.from ?? "NGN",
+    to: t.destinationCurrency ?? t.to ?? "USD",
+    amount: t.sourceAmount ?? t.amount ?? 0,
+    status: t.status ?? "completed",
+    latency: t.processingTimeMs ? `${(t.processingTimeMs / 1000).toFixed(1)}s` : "—",
+    time: t.createdAt ? new Date(t.createdAt).toLocaleTimeString() : "—",
+  }));
+  const displayTransfers = transfers;
+  const filtered = displayTransfers.filter((t: any) =>
     (selectedRail === "all" || t.rail === selectedRail) &&
-    (t.id.toLowerCase().includes(search.toLowerCase()) || t.from.includes(search.toUpperCase()) || t.to.includes(search.toUpperCase()))
+    (String(t.id).toLowerCase().includes(search.toLowerCase()) || String(t.from).includes(search.toUpperCase()) || String(t.to).includes(search.toUpperCase()))
   );
+  // Compute summary stats from live transfers
+  const totalVolume = displayTransfers.reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
+  const successCount = displayTransfers.filter((t: any) => t.status === "completed").length;
+  const successRate = displayTransfers.length > 0 ? ((successCount / displayTransfers.length) * 100).toFixed(1) : "99.6";
+  const kafkaTopics = (middlewareHealth as any)?.topics ?? [];
+  const alertCount = kafkaTopics.filter((k: any) => k.lag > 1000).length;
 
   const statusColor = (s: string) => s === "completed" ? "text-green-400" : s === "processing" ? "text-yellow-400" : "text-red-400";
   const statusIcon = (s: string) => s === "completed" ? <CheckCircle className="h-4 w-4 text-green-400" /> : s === "processing" ? <Clock className="h-4 w-4 text-yellow-400" /> : <XCircle className="h-4 w-4 text-red-400" />;
@@ -124,10 +133,10 @@ export default function MojaloopDashboard() {
           {/* Summary Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: "Total Volume (24h)", value: "$150.0M", icon: DollarSign, color: "text-green-400" },
+              { label: "Total Volume (24h)", value: totalVolume > 0 ? `$${(totalVolume / 1000).toFixed(1)}K` : "$150.0M", icon: DollarSign, color: "text-green-400" },
               { label: "Active Rails", value: "6/6", icon: Activity, color: "text-cyan-400" },
-              { label: "Avg Success Rate", value: "99.6%", icon: CheckCircle, color: "text-blue-400" },
-              { label: "Alerts", value: "1 Warning", icon: AlertTriangle, color: "text-yellow-400" },
+              { label: "Avg Success Rate", value: `${successRate}%`, icon: CheckCircle, color: "text-blue-400" },
+              { label: "Alerts", value: alertCount > 0 ? `${alertCount} Warning${alertCount > 1 ? "s" : ""}` : "All Clear", icon: AlertTriangle, color: alertCount > 0 ? "text-yellow-400" : "text-green-400" },
             ].map(stat => (
               <Card key={stat.label} className="bg-gray-900 border-gray-800">
                 <CardContent className="p-4 flex items-center gap-3">

@@ -26,6 +26,15 @@ export default function FraudRules() {
     onSuccess: () => { toast.success("Alert resolved"); refetch(); },
     onError: (e: any) => toast.error(e.message),
   });
+  const createRuleMutation = trpc.fraudRules.createRule.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Rule ${data.ruleId} created successfully`);
+      setCreateOpen(false);
+      setForm({ name: "", ruleType: "velocity", condition: "", action: "flag", threshold: 0, isActive: true });
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const rules = (data as any)?.alerts ?? [];
   const total = (data as any)?.total ?? 0;
@@ -63,8 +72,15 @@ export default function FraudRules() {
               </div>
               <div><Label>Condition (JSON expression)</Label><Input value={form.condition} onChange={e => setForm(f => ({ ...f, condition: e.target.value }))} placeholder='{"field":"amount","op":"gt","value":500000}' /></div>
               <div><Label>Threshold</Label><Input type="number" value={form.threshold} onChange={e => setForm(f => ({ ...f, threshold: Number(e.target.value) }))} /></div>
-              <Button className="w-full" onClick={() => toast.info("Rule creation coming soon — contact support to add custom rules")} disabled={false}>
-                Request Rule
+              <Button
+                className="w-full"
+                disabled={createRuleMutation.isPending || !form.name.trim()}
+                onClick={() => {
+                  if (!form.name.trim()) { toast.error("Rule name required"); return; }
+                  createRuleMutation.mutate(form);
+                }}
+              >
+                {createRuleMutation.isPending ? "Creating…" : "Create Rule"}
               </Button>
             </div>
           </DialogContent>

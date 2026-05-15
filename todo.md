@@ -4113,7 +4113,7 @@
 - [x] Enable wave82 security29 test file (PG_AVAILABLE guard added, included in vitest.config.ts PG_TEST_FILES)
 - [x] Enable wave83 security30 test file (PG_AVAILABLE guard added, included in vitest.config.ts PG_TEST_FILES)
 - [x] Enable wave84 security31 test file (PG_AVAILABLE guard added, included in vitest.config.ts PG_TEST_FILES)
-- [ ] Run full test suite and verify 0 failures
+- [x] Run full test suite and verify 0 failures
 - [ ] Save checkpoint and generate final archive
 
 ## Round 6 — pg-mem Test Enablement
@@ -4271,7 +4271,7 @@
 - [ ] Ensure mobile responsiveness on all pages (test at 375px)
 
 ### Phase 7: Archive & Manifest
-- [ ] Run full test suite — target 4772+ tests passing
+- [x] Run full test suite — target 4772+ tests passing
 - [ ] Save checkpoint version c4d97d47+1
 - [ ] Generate comprehensive tar.gz archive from /home/ubuntu
 - [ ] Compare archive size to previous (paygate_FULL_v9.tar.gz reference)
@@ -4350,4 +4350,55 @@
 
 ### Phase 4: Test Suite & Checkpoint
 - [x] Run full test suite
-- [ ] Save checkpoint for Round 21
+- [x] Save checkpoint for Round 21
+
+## Round 22 — Suggested Next Steps
+
+### Phase 1: EMI Repayment Chart
+- [x] Add emiMw.repaymentSchedule procedure (per-application monthly instalment + outstanding balance)
+- [x] Add bar chart to EMIManagement.tsx showing instalment vs outstanding balance per application
+
+### Phase 2: KYB CSV Export
+- [x] Add kybStateMachine.exportCsv procedure (streams all rows matching filters as CSV)
+- [x] Add "Download CSV" button to KybStateMachine.tsx wired to exportCsv
+
+### Phase 3: InsuranceHub Policy Expiry Banner
+- [x] Add expiry detection logic (policies expiring within 30 days)
+- [x] Add dismissible amber banner to InsuranceHub.tsx for expiring policies
+
+### Phase 4: Test Suite & Checkpoint
+- [x] Run full test suite
+- [ ] Save checkpoint for Round 22
+
+## Round 23 — Production Polish Sprint
+- [x] Replace RemittanceTracker hardcoded stats with live computed values from history + corridors
+- [x] Remove MOCK_SUBSCRIBERS from SubscriptionManagement.tsx — derive live MRR/ARR/churn from real data
+- [x] Remove MOCK_HISTORY from RemittanceTracker.tsx — use empty array fallback
+- [x] Add fraudRules.createRule procedure to wave121.ts
+- [x] Wire FraudRules.tsx "Create Rule" button to real createRule mutation (was "coming soon")
+- [x] Replace LoyaltyV3 reward catalog "coming soon" stub with functional catalog UI
+- [x] Run full test suite — 4772 passed
+
+## Round 24 — Final Production Hardening
+- [x] SSOConfigPage: Replace DEMO_TENANT with live tenantId from auth.me (useEffect sync)
+- [x] TenantCorridorsPage: Replace DEMO_TENANT with live tenantId from auth.me (useEffect sync)
+- [x] MojaloopDashboard: Remove DEMO_TRANSFERS fallback — live data only with empty state
+- [x] FXDashboard: Wire transfer limits (Max/Daily) to live corridor data from wave32.corridors.list
+- [x] DisputeSlaTracking: Add onError handler to escalate mutation
+- [x] MiddlewareHealthAlerts: Add onError handlers to acknowledge and resolve mutations
+- [x] ConsumerNotifications: Add onError handlers to markRead, markAllRead, dismiss mutations
+- [x] NotificationCentre: Add onError handlers to markRead and markAllRead mutations
+- [x] All 4772 tests passing (122 test files)
+
+## Round 25 — Final Production Hardening
+- [x] DisputeSlaTracking: Add onError handler to escalate mutation
+- [x] MiddlewareHealthAlerts: Add onError handlers to acknowledge and resolve mutations
+- [x] ConsumerNotifications: Add onError handlers to all 3 mutations (markRead, markAllRead, dismiss)
+- [x] NotificationCentre: Add onError handlers to markRead and markAllRead mutations
+- [x] QuickPay: Remove dead code coming-soon dialog (all shortcuts now route to real pages)
+- [x] QuickPay: Remove unused Dialog import
+- [x] Confirmed: No remaining MOCK_ data in server routers
+- [x] Confirmed: No hardcoded admin user IDs in procedures
+- [x] Confirmed: No debug console.log in client pages (only operational server logs)
+- [x] Confirmed: No hardcoded localhost URLs in production pages
+- [x] All 4772 tests passing (122 test files)

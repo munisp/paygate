@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,11 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Shield, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
-const DEMO_TENANT = "ten_paygate_default";
-
 export default function SSOConfigPage() {
   const { toast } = useToast();
-  const [tenantId, setTenantId] = useState(DEMO_TENANT);
+  const { data: me } = trpc.auth.me.useQuery();
+  const [tenantId, setTenantId] = useState("ten_paygate_default");
+  // Sync tenantId once merchant data loads
+  useEffect(() => {
+    const liveTenantId = (me as any)?.merchant?.tenantId;
+    if (liveTenantId) setTenantId(liveTenantId);
+  }, [me]);
   const [testing, setTesting] = useState(false);
   const [form, setForm] = useState({
     protocol: "oidc" as const,

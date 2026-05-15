@@ -196,6 +196,8 @@ export default function FXDashboard() {
 
   // Live FX rates from DB
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false });
+  // Live corridor limits
+  const { data: corridorLimits } = trpc.wave32.corridors.list.useQuery({ tenantId: "ten_paygate_default" });
   const fetchAndStoreMutation = trpc.fx.fetchAndStore.useMutation({
     onSuccess: (d: any) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
     onError: () => toast.error("Failed to fetch live rates"),
@@ -275,9 +277,9 @@ export default function FXDashboard() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Currencies Supported", value: "54", sub: "African + Global", icon: Globe, cls: "text-primary" },
+          { label: "Currencies Supported", value: liveRates && liveRates.length > 0 ? String(liveRates.length) : String(Object.keys(rates).length), sub: "African + Global", icon: Globe, cls: "text-primary" },
           { label: "Avg FX Spread", value: "0.8%", sub: "vs 3.5% SWIFT avg", icon: TrendingDown, cls: "text-emerald-600" },
-          { label: "FX Volume (30d)", value: "$2.4M", sub: "Cross-border", icon: DollarSign, cls: "text-blue-600" },
+          { label: "Live Rates Cached", value: liveRates ? `${liveRates.length}` : "…", sub: "From external feed", icon: DollarSign, cls: "text-blue-600" },
           { label: "Settlement Time", value: "<2hr", sub: "PAPSS & BRICS Pay", icon: Zap, cls: "text-amber-600" },
         ].map(s => (
           <div key={s.label} className="stat-card">
@@ -730,13 +732,17 @@ export default function FXDashboard() {
             </div>
             <div className="bg-card rounded-xl border border-border p-4 space-y-2">
               <h4 className="font-semibold text-sm" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Transfer Limits</h4>
-              {[
-                { label: "Min", value: "$10 equivalent" },
-                { label: "Max (single)", value: "$50,000" },
-                { label: "Daily limit", value: "$200,000" },
-                { label: "FX fee", value: "0.8% – 1.5%" },
-                { label: "Settlement", value: "< 2 hours" },
-              ].map(r => (
+              {(() => {
+                const maxSingle = corridorLimits && corridorLimits.length > 0 ? Math.max(...corridorLimits.map((c: any) => c.maxAmountUsd ?? 10000)) : 50000;
+                const dailyLimit = corridorLimits && corridorLimits.length > 0 ? Math.max(...corridorLimits.map((c: any) => c.dailyLimitUsd ?? 200000)) : 200000;
+                return [
+                  { label: "Min", value: "$10 equivalent" },
+                  { label: "Max (single)", value: `$${maxSingle.toLocaleString()}` },
+                  { label: "Daily limit", value: `$${dailyLimit.toLocaleString()}` },
+                  { label: "FX fee", value: "0.8% – 1.5%" },
+                  { label: "Settlement", value: "< 2 hours" },
+                ];
+              })().map(r => (
                 <div key={r.label} className="flex justify-between text-xs py-1.5 border-b border-border last:border-0">
                   <span className="text-muted-foreground">{r.label}</span>
                   <span className="font-medium">{r.value}</span>

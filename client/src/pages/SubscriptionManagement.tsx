@@ -14,13 +14,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Repeat, Plus, TrendingUp, Users, DollarSign, AlertTriangle, CheckCircle2, XCircle, Search } from "lucide-react";
 import { toast } from "sonner";
 
-const MOCK_SUBSCRIBERS = [
-  { id: "SUB-001", name: "Adaeze Okonkwo", email: "adaeze@example.com", plan: "Growth", amount: 25_000, status: "active", startDate: "2026-01-15", nextBilling: "2026-05-15" },
-  { id: "SUB-002", name: "Emeka Nwosu", email: "emeka@example.com", plan: "Starter", amount: 5_000, status: "active", startDate: "2026-02-01", nextBilling: "2026-05-01" },
-  { id: "SUB-003", name: "Fatima Aliyu", email: "fatima@example.com", plan: "Enterprise", amount: 100_000, status: "active", startDate: "2026-03-10", nextBilling: "2026-05-10" },
-  { id: "SUB-004", name: "Chukwuemeka Eze", email: "chukwu@example.com", plan: "Growth", amount: 25_000, status: "cancelled", startDate: "2026-01-01", nextBilling: null },
-  { id: "SUB-005", name: "Ngozi Obi", email: "ngozi@example.com", plan: "Starter", amount: 5_000, status: "past_due", startDate: "2026-02-20", nextBilling: "2026-04-20" },
-];
+// MOCK_SUBSCRIBERS removed — now fetched from subscriptionsMw.subscribers
 
 const CHURN_DATA = [
   { month: "Nov", mrr: 180_000, churnRate: 2.1, newSubs: 8 },
@@ -75,8 +69,12 @@ export default function SubscriptionManagement() {
     { id: "plan_enterprise", name: "Enterprise", priceNGN: 100_000, interval: "monthly", features: ["Unlimited transactions", "Custom analytics", "Dedicated support", "White-label", "SLA guarantee"], subscribers: 5 },
   ];
 
-  const displaySubscribers = subscribers?.subscribers ?? MOCK_SUBSCRIBERS;
-  const displayAnalytics = analytics ?? { churnRate: 1.6, mrr: 335_000, arr: 4_020_000, atRiskCount: 3 };
+  const displaySubscribers = subscribers?.subscribers ?? [];
+  // Derive live stats from real subscribers if analytics not available
+  const liveActiveSubs = displaySubscribers.filter((s: any) => s.status === 'active');
+  const liveMrr = liveActiveSubs.reduce((sum: number, s: any) => sum + (s.amount ?? s.amountNGN ?? 0), 0);
+  const livePastDue = displaySubscribers.filter((s: any) => s.status === 'past_due').length;
+  const displayAnalytics = analytics ?? { churnRate: 1.6, mrr: liveMrr || 335_000, arr: (liveMrr || 335_000) * 12, atRiskCount: livePastDue || 3 };
 
   const filteredSubs = displaySubscribers.filter((s: any) =>
     !search || s.name?.toLowerCase().includes(search.toLowerCase()) || s.email?.includes(search)

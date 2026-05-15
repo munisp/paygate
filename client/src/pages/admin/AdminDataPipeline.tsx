@@ -44,12 +44,7 @@ const NIFI_FLOWS = [
   { id: "webhook-dispatcher", name: "Webhook Event Dispatcher", status: "stopped", throughput: "0 msg/s", backpressure: false, processors: 3 },
 ];
 
-const PIPELINE_METRICS = [
-  { label: "Total Records Processed Today", value: "14.2M", icon: Database, color: "text-indigo-500" },
-  { label: "Active DAG Runs", value: "3", icon: Workflow, color: "text-emerald-500" },
-  { label: "NiFi Throughput", value: "3.3K msg/s", icon: Zap, color: "text-amber-500" },
-  { label: "dbt Models Passing", value: "8/8", icon: CheckCircle, color: "text-green-500" },
-];
+// PIPELINE_METRICS are computed live from DAG/dbt/NiFi queries (see component body)
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
@@ -115,22 +110,44 @@ export default function AdminDataPipeline() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {PIPELINE_METRICS.map((m) => (
-          <Card key={m.label}>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <m.icon className={`w-8 h-8 ${m.color}`} />
-                <div>
-                  <p className="text-2xl font-bold">{m.value}</p>
-                  <p className="text-xs text-muted-foreground">{m.label}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* KPI Cards — computed from live data */}
+      {(() => {
+        const dags = (liveDags as any)?.dags ?? AIRFLOW_DAGS;
+        const dbtModels = (liveDbtRuns as any)?.runs ?? DBT_MODELS;
+        const nifi = (liveNifiFlows as any)?.flows ?? NIFI_FLOWS;
+        const activeDagRuns = dags.filter((d: any) => d.status === "running").length;
+        const nifiRunning = nifi.filter((f: any) => f.status === "running").length;
+        const nifiTotal = nifi.length;
+        const totalThroughput = nifi.reduce((acc: number, f: any) => {
+          const match = String(f.throughput ?? "").match(/([\d,]+)/);
+          return acc + (match ? parseInt(match[1].replace(/,/g, "")) : 0);
+        }, 0);
+        const throughputStr = totalThroughput >= 1000 ? `${(totalThroughput / 1000).toFixed(1)}K msg/s` : `${totalThroughput} msg/s`;
+        const dbtPassing = dbtModels.filter((m: any) => m.status === "success").length;
+        const metrics = [
+          { label: "Active DAG Runs", value: dagsLoading ? "…" : String(activeDagRuns), icon: Workflow, color: "text-emerald-500" },
+          { label: "NiFi Flows Running", value: nifiLoading ? "…" : `${nifiRunning}/${nifiTotal}`, icon: Zap, color: "text-amber-500" },
+          { label: "NiFi Throughput", value: nifiLoading ? "…" : throughputStr, icon: Activity, color: "text-indigo-500" },
+          { label: "dbt Models Passing", value: dbtLoading ? "…" : `${dbtPassing}/${dbtModels.length}`, icon: CheckCircle, color: "text-green-500" },
+        ];
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {metrics.map((m) => (
+              <Card key={m.label}>
+                <CardContent className="pt-4 pb-4">
+                  <div className="flex items-center gap-3">
+                    <m.icon className={`w-8 h-8 ${m.color}`} />
+                    <div>
+                      <p className="text-2xl font-bold">{m.value}</p>
+                      <p className="text-xs text-muted-foreground">{m.label}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        );
+      })()}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-4 w-full max-w-xl">

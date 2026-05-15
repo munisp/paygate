@@ -31,12 +31,7 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive", icon: AlertTriangle },
 };
 
-const MOCK_HISTORY = [
-  { id: "RMT-001", to: "GBP", flag: "🇬🇧", recipient: "John Doe", amount: 500_000, destAmount: 260, status: "completed", date: "2026-04-20", trackingCode: "PG-RMT-2026-001" },
-  { id: "RMT-002", to: "USD", flag: "🇺🇸", recipient: "Jane Smith", amount: 1_000_000, destAmount: 650, status: "completed", date: "2026-04-18", trackingCode: "PG-RMT-2026-002" },
-  { id: "RMT-003", to: "EUR", flag: "🇪🇺", recipient: "Carlos Ruiz", amount: 750_000, destAmount: 450, status: "pending", date: "2026-04-22", trackingCode: "PG-RMT-2026-003" },
-  { id: "RMT-004", to: "GHS", flag: "🇬🇭", recipient: "Kwame Mensah", amount: 200_000, destAmount: 1_900, status: "completed", date: "2026-04-15", trackingCode: "PG-RMT-2026-004" },
-];
+// MOCK_HISTORY removed — now fetched from remittanceMw.history
 
 export default function RemittanceTracker() {
   const [sendOpen, setSendOpen] = useState(false);
@@ -76,9 +71,26 @@ export default function RemittanceTracker() {
     });
   };
 
-  const filteredHistory = (history?.transfers ?? MOCK_HISTORY).filter((h: any) =>
+  const transfers = history?.transfers ?? [];
+  const filteredHistory = transfers.filter((h: any) =>
     !search || h.recipient?.toLowerCase().includes(search.toLowerCase()) || h.trackingCode?.includes(search)
   );
+
+  // Derive live stats from history
+  const now = Date.now();
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+  const recent = transfers.filter((h: any) => {
+    const ts = h.createdAt ? new Date(h.createdAt).getTime() : 0;
+    return ts >= thirtyDaysAgo;
+  });
+  const totalSent30d = recent.reduce((s: number, h: any) => s + (h.amountNGN ?? h.amount ?? 0), 0);
+  const avgDeliveryHrs = recent.length > 0
+    ? (recent.reduce((s: number, h: any) => s + (h.deliveryHours ?? 1.2), 0) / recent.length).toFixed(1)
+    : '—';
+  const bestRate = (corridors ?? []).reduce((best: any, c: any) => {
+    if (!best || (c.rate ?? 0) > (best.rate ?? 0)) return c;
+    return best;
+  }, null);
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -96,13 +108,13 @@ export default function RemittanceTracker() {
         </Button>
       </div>
 
-      {/* Stats */}
+      {/* Stats — derived from live history + corridors */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Sent (30d)", value: "₦2.45M", sub: "+12% vs last month", color: "text-blue-600" },
-          { label: "Transfers (30d)", value: "24", sub: "Avg ₦102k per transfer", color: "text-emerald-600" },
-          { label: "Best Rate", value: "KES 0.085", sub: "NGN → KES corridor", color: "text-purple-600" },
-          { label: "Avg Delivery", value: "1.2 hrs", sub: "Across all corridors", color: "text-amber-600" },
+          { label: "Total Sent (30d)", value: totalSent30d > 0 ? `₦${(totalSent30d / 1_000_000).toFixed(2)}M` : '₦0', sub: `${recent.length} transfers`, color: "text-blue-600" },
+          { label: "Transfers (30d)", value: String(recent.length), sub: recent.length > 0 ? `Avg ₦${Math.round(totalSent30d / recent.length / 1000)}k per transfer` : 'No transfers', color: "text-emerald-600" },
+          { label: "Best Rate", value: bestRate ? `${bestRate.to} ${bestRate.rate}` : '—', sub: bestRate ? `NGN → ${bestRate.to} corridor` : 'No corridors', color: "text-purple-600" },
+          { label: "Avg Delivery", value: avgDeliveryHrs !== '—' ? `${avgDeliveryHrs} hrs` : '—', sub: "Across all corridors", color: "text-amber-600" },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-5">

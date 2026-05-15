@@ -32,10 +32,12 @@ export default function MiddlewareHealthAlerts() {
 
   const acknowledge = trpc.wave31.middlewareHealthAlert.acknowledge.useMutation({
     onSuccess: () => { toast.success("Alert acknowledged"); refetch(); },
+    onError: (e) => toast.error(e.message ?? "Failed to acknowledge alert"),
   });
 
   const resolve = trpc.wave31.middlewareHealthAlert.resolve.useMutation({
     onSuccess: () => { toast.success("Alert resolved"); refetch(); },
+    onError: (e) => toast.error(e.message ?? "Failed to resolve alert"),
   });
 
   const alerts = (alertsData as any)?.alerts ?? [];

@@ -21,6 +21,7 @@ export default function DisputeSlaTracking() {
 
   const escalate = trpc.wave31.disputeSla.escalate.useMutation({
     onSuccess: () => { toast.success("Dispute escalated"); refetch(); },
+    onError: (e) => toast.error(e.message ?? "Failed to escalate dispute"),
   });
 
   const records = (trackingData as any)?.records ?? [];

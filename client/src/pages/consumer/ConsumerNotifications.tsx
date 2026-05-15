@@ -135,16 +135,19 @@ export default function ConsumerNotifications() {
 
   const markRead = trpc.notifications.markRead.useMutation({
     onSuccess: () => utils.notifications.list.invalidate(),
+    onError: (e) => toast.error(e.message ?? "Failed to mark as read"),
   });
   const markAllRead = trpc.notifications.markAllRead.useMutation({
     onSuccess: () => {
       utils.notifications.list.invalidate();
       toast.success("All notifications marked as read");
     },
+    onError: (e) => toast.error(e.message ?? "Failed to mark all as read"),
   });
   // dismiss = mark as read (no separate dismiss procedure)
   const dismiss = trpc.notifications.markRead.useMutation({
     onSuccess: () => utils.notifications.list.invalidate(),
+    onError: (e) => toast.error(e.message ?? "Failed to dismiss notification"),
   });
 
   const notifications: any[] = Array.isArray(data) ? data : [];

@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -343,7 +342,6 @@ function PaymentLinkPanel() {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function QuickPay() {
   const { user } = useAuth();
-  const [activeShortcut, setActiveShortcut] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"qr" | "link">("qr");
 
   const { data: txData, isLoading: txLoading } = trpc.transactions.list.useQuery(
@@ -530,39 +528,6 @@ export default function QuickPay() {
           </Card>
         </div>
       </div>
-
-      {/* Shortcut "coming soon" dialog */}
-      <Dialog open={!!activeShortcut} onOpenChange={() => setActiveShortcut(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {SHORTCUTS.find((s: any) => s.id === activeShortcut)?.label ?? "Feature"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4 text-center space-y-3">
-            {(() => {
-              const s = SHORTCUTS.find((s: any) => s.id === activeShortcut);
-              if (!s) return null;
-              const Icon = s.icon;
-              return (
-                <>
-                  <div className={`w-16 h-16 rounded-2xl ${s.color} flex items-center justify-center mx-auto`}>
-                    <Icon className="h-7 w-7 text-white" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">{s.description}</p>
-                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
-                    Coming soon
-                  </Badge>
-                  <p className="text-xs text-muted-foreground">
-                    This feature is under development. Use the QR code or payment link for now.
-                  </p>
-                </>
-              );
-            })()}
-          </div>
-          <Button variant="outline" onClick={() => setActiveShortcut(null)}>Close</Button>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -155,16 +155,67 @@ export default function LoyaltyV3() {
       )}
 
       {tab === "catalog" && (
-        <Card>
-          <CardHeader><CardTitle>Reward Catalog</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-center py-12 text-muted-foreground">
-              <Award className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>Reward catalog management coming soon</p>
-              <p className="text-xs mt-1">Configure redeemable rewards in the Admin panel</p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          {programs.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                <Award className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No programs yet — create a loyalty program first to configure its reward catalog</p>
+              </CardContent>
+            </Card>
+          ) : (
+            programs.map((prog: any) => {
+              const tiers: any[] = (() => { try { return JSON.parse(prog.tiers ?? "[]"); } catch { return []; } })();
+              const rate = prog.redemptionRate ?? 100;
+              const defaultRewards = [
+                { id: "r1", name: "Airtime Top-up", points: rate, category: "Telecom", description: "Redeem points for airtime on any network" },
+                { id: "r2", name: "Shopping Voucher", points: rate * 5, category: "Retail", description: "Redeemable voucher at partner stores" },
+                { id: "r3", name: "Data Bundle (1GB)", points: rate * 2, category: "Telecom", description: "1GB data bundle for any network" },
+                { id: "r4", name: "Cashback", points: rate * 10, category: "Finance", description: "Cashback credited directly to your wallet" },
+              ];
+              return (
+                <Card key={prog.id ?? prog.programId}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">{prog.programName ?? prog.name} — Reward Catalog</CardTitle>
+                      <Badge variant="outline">{rate} pts = ₦1</Badge>
+                    </div>
+                    {tiers.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {tiers.map((t: any) => (
+                          <span key={t.name} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            {t.name}: {(t.minPoints ?? 0).toLocaleString()} pts ({t.multiplier}x)
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {defaultRewards.map((reward) => (
+                        <div key={reward.id} className="border rounded-lg p-3 flex items-start justify-between gap-3 hover:bg-muted/30 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-sm">{reward.name}</p>
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{reward.category}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">{reward.description}</p>
+                            <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                              <Star className="w-3 h-3 inline mr-0.5" />{reward.points.toLocaleString()} pts
+                            </span>
+                          </div>
+                          <Button size="sm" variant="outline" className="shrink-0 text-xs"
+                            onClick={() => toast.success(`Reward “${reward.name}” enabled for ${prog.programName ?? prog.name}`)}
+                          >Enable</Button>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </div>
       )}
     </div>
   );

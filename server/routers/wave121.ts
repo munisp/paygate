@@ -299,6 +299,35 @@ export const fraudRulesRouter = router({
       byStatus: byStatus.map(r => ({ status: r.status, count: Number(r.count) })),
     };
   }),
+
+  createRule: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(200),
+      ruleType: z.string().min(1),
+      condition: z.string().optional(),
+      action: z.string().min(1),
+      threshold: z.number().min(0).default(0),
+      isActive: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const ruleId = `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await db.insert(fraudAlerts).values({
+        id: ruleId,
+        merchantId: ctx.user.merchantId ?? "",
+        alertType: input.ruleType,
+        status: input.isActive ? "open" : "resolved",
+        riskScore: input.threshold,
+        transactionId: null,
+        amount: 0,
+        currency: "NGN",
+        description: `Rule: ${input.name} — Action: ${input.action}${input.condition ? ` — Condition: ${input.condition}` : ""}`,
+        metadata: JSON.stringify({ name: input.name, ruleType: input.ruleType, action: input.action, condition: input.condition, threshold: input.threshold, isRule: true }),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      return { ruleId, success: true };
+    }),
 });
 
 // ─── 4. KYB Management ────────────────────────────────────────────────────────

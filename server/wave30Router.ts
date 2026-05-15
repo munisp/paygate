@@ -531,6 +531,49 @@ const kybStateMachineRouter = router({
       } catch { /* table may not exist yet */ }
       return { success: true, documentsRequested: input.documents };
     }),
+
+  // Export KYB submissions as CSV (returns CSV string)
+  exportCsv: protectedProcedure
+    .input(z.object({
+      status: z.string().optional(),
+      search: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let idx = 1;
+      if (input.status) { conditions.push(`kyb_status = $${idx++}`); params.push(input.status); }
+      if (input.search) {
+        conditions.push(`(business_name ILIKE $${idx} OR email ILIKE $${idx})`);
+        params.push(`%${input.search}%`);
+        idx++;
+      }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      try {
+        const { rows } = await execRaw(db,
+          `SELECT id, business_name, email, COALESCE(kyb_status, 'pending') AS status,
+                  risk_score, business_type, registration_number, submitted_at, created_at, updated_at
+           FROM merchants ${where}
+           ORDER BY updated_at DESC NULLS LAST
+           LIMIT 10000`,
+          params
+        );
+        const headers = ['ID', 'Business Name', 'Email', 'Status', 'Risk Score', 'Business Type', 'Registration #', 'Submitted At', 'Created At', 'Updated At'];
+        const escape = (v: unknown) => {
+          const s = v == null ? '' : String(v);
+          return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const lines = [headers.join(',')];
+        for (const r of rows) {
+          lines.push([r.id, r.business_name, r.email, r.status, r.risk_score, r.business_type, r.registration_number, r.submitted_at, r.created_at, r.updated_at].map(escape).join(','));
+        }
+        return { csv: lines.join('\n'), count: rows.length };
+      } catch {
+        return { csv: '', count: 0 };
+      }
+    }),
 });
 
 // ─── Payout Approval Workflow ─────────────────────────────────────────────────

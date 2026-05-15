@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,11 +10,14 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, TrendingUp } from "lucide-react";
 
-const DEMO_TENANT = "ten_paygate_default";
-
 export default function TenantCorridorsPage() {
   const { toast } = useToast();
-  const [tenantId, setTenantId] = useState(DEMO_TENANT);
+  const { data: me } = trpc.auth.me.useQuery();
+  const [tenantId, setTenantId] = useState("ten_paygate_default");
+  useEffect(() => {
+    const liveTenantId = (me as any)?.merchant?.tenantId;
+    if (liveTenantId) setTenantId(liveTenantId);
+  }, [me]);
   const [showCreate, setShowCreate] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({

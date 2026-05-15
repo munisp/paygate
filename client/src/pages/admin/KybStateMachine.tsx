@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Shield, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, FileText, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Shield, CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, FileText, ChevronLeft, ChevronRight, Search, Download } from "lucide-react";
 
 const KYB_STATES = [
   { id: "pending", label: "Pending", color: "bg-gray-100 text-gray-700" },
@@ -117,6 +117,33 @@ export default function KybStateMachine() {
     onError: (err) => toast.error(err.message),
   });
 
+  const [csvExporting, setCsvExporting] = useState(false);
+  const exportCsvQuery = trpc.wave30.kybStateMachine.exportCsv.useQuery(
+    { status: filterState || undefined, search: search || undefined },
+    { enabled: false }
+  );
+
+  const handleExportCsv = async () => {
+    setCsvExporting(true);
+    try {
+      const result = await exportCsvQuery.refetch();
+      const csv = result.data?.csv ?? '';
+      if (!csv) { toast.error('No data to export'); return; }
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kyb-submissions-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.data?.count ?? 0} records`);
+    } catch (e: any) {
+      toast.error(e.message ?? 'Export failed');
+    } finally {
+      setCsvExporting(false);
+    }
+  };
+
   const availableTransitions = selected ? (TRANSITIONS[selected.status] ?? []) : [];
 
   return (
@@ -170,6 +197,10 @@ export default function KybStateMachine() {
         </Select>
         <Button variant="outline" size="sm" onClick={() => refetch()} title="Refresh">
           <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={csvExporting} title="Download CSV">
+          <Download className={`w-4 h-4 mr-1 ${csvExporting ? "animate-pulse" : ""}`} />
+          {csvExporting ? "Exporting…" : "CSV"}
         </Button>
       </div>
 

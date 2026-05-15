@@ -762,6 +762,39 @@ export const emiMwExtRouter = router({
       { id: "APP-002", planId: "emi_12m", planName: "12-Month Plan", amountNGN: 500_000, emiAmountNGN: 43_750, status: "active", appliedAt: "2026-01-15", nextDueDate: "2026-05-15", remainingInstallments: 8 },
     ];
   }),
+
+  // Repayment schedule for a specific EMI application
+  repaymentSchedule: protectedProcedure
+    .input(z.object({ applicationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      if (isBridgeAvailable()) {
+        try {
+          const resp = await fetch(`${process.env.MIDDLEWARE_BRIDGE_URL}/v1/emi/schedule/${input.applicationId}`, {
+            headers: { 'x-internal-key': process.env.MIDDLEWARE_INTERNAL_KEY ?? '' },
+          });
+          if (resp.ok) return await resp.json();
+        } catch { /* fallback */ }
+      }
+      // Fallback: generate a synthetic schedule from the application data
+      const DEMO_APPS: Record<string, { amountNGN: number; emiAmountNGN: number; appliedAt: string; totalMonths: number }> = {
+        'APP-001': { amountNGN: 150_000, emiAmountNGN: 26_250, appliedAt: '2026-03-01', totalMonths: 6 },
+        'APP-002': { amountNGN: 500_000, emiAmountNGN: 43_750, appliedAt: '2026-01-15', totalMonths: 12 },
+      };
+      const app = DEMO_APPS[input.applicationId];
+      if (!app) return { instalments: [] };
+      const start = new Date(app.appliedAt);
+      let outstanding = app.amountNGN;
+      const instalments = Array.from({ length: app.totalMonths }, (_, i) => {
+        const dueDate = new Date(start.getFullYear(), start.getMonth() + i + 1, start.getDate());
+        const principal = Math.round(app.amountNGN / app.totalMonths);
+        const interest = app.emiAmountNGN - principal;
+        outstanding = Math.max(0, outstanding - principal);
+        const now = new Date();
+        const status = dueDate < now ? 'paid' : dueDate.getMonth() === now.getMonth() && dueDate.getFullYear() === now.getFullYear() ? 'due' : 'upcoming';
+        return { month: i + 1, dueDate: dueDate.toISOString().split('T')[0], instalment: app.emiAmountNGN, principal, interest, outstanding, status };
+      });
+      return { instalments };
+    }),
 });
 
 

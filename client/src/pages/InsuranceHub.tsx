@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Shield, Plus, CheckCircle2, Clock, AlertTriangle, FileText, Umbrella, Heart, Smartphone, Plane, Building2 } from "lucide-react";
+import { Shield, Plus, CheckCircle2, Clock, AlertTriangle, FileText, Umbrella, Heart, Smartphone, Plane, Building2, X, Bell } from "lucide-react";
 import { toast } from "sonner";
 
 const PRODUCT_ICONS: Record<string, any> = {
@@ -45,6 +45,7 @@ export default function InsuranceHub() {
   const [claimType, setClaimType] = useState("");
   const [claimAmount, setClaimAmount] = useState("");
   const [claimDesc, setClaimDesc] = useState("");
+  const [dismissedExpiry, setDismissedExpiry] = useState<Set<string>>(new Set());
 
   const { data: products } = trpc.insuranceMw.products.useQuery();
   const { data: policiesData, isLoading: policiesLoading, refetch: refetchPolicies } = trpc.insuranceMw.listPolicies.useQuery();
@@ -143,6 +144,60 @@ export default function InsuranceHub() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        );
+      })()}
+
+      {/* Policy Expiry Alert Banner */}
+      {(() => {
+        const now = new Date();
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        const expiring = policies.filter((p: any) => {
+          if (p.status !== 'active') return false;
+          if (dismissedExpiry.has(p.id)) return false;
+          const expiresAt = p.expiresAt ?? p.endDate ?? p.expiry_date;
+          if (!expiresAt) return false;
+          const exp = new Date(expiresAt);
+          return exp.getTime() - now.getTime() <= thirtyDays && exp > now;
+        });
+        if (expiring.length === 0) return null;
+        return (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
+            <Bell className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-800">
+                {expiring.length === 1 ? '1 policy is expiring' : `${expiring.length} policies are expiring`} within 30 days
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {expiring.map((p: any) => {
+                  const exp = new Date(p.expiresAt ?? p.endDate ?? p.expiry_date);
+                  const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+                  return (
+                    <li key={p.id} className="text-xs text-amber-700 flex items-center gap-2">
+                      <span className="font-mono">{p.policyNumber ?? p.id}</span>
+                      <span>—</span>
+                      <span>{p.productName ?? p.type ?? 'Policy'}</span>
+                      <span className="font-semibold">({daysLeft}d left)</span>
+                      <button
+                        onClick={() => setDismissedExpiry(prev => new Set([...prev, p.id]))}
+                        className="ml-1 text-amber-500 hover:text-amber-700 transition-colors"
+                        title="Dismiss this alert"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="text-xs text-amber-600 mt-1">Renew before coverage lapses to avoid gaps in protection.</p>
+            </div>
+            <button
+              onClick={() => setDismissedExpiry(new Set(expiring.map((p: any) => p.id)))}
+              className="text-amber-500 hover:text-amber-700 transition-colors shrink-0"
+              title="Dismiss all"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         );
       })()}
