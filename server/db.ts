@@ -2678,3 +2678,86 @@ export const db = new Proxy({} as ReturnType<typeof drizzle>, {
     return (...args: unknown[]) => ensureDb().then(d => (d as any)[prop](...args));
   },
 });
+
+// ─── Keycloak Event Logging ───────────────────────────────────────────────────
+
+/**
+ * Persist a Keycloak auth event to the keycloak_events table.
+ *
+ * Called by the /api/internal/keycloak-events webhook endpoint.
+ * Silently swallows errors so a DB hiccup never blocks the webhook response
+ * (Keycloak will retry if the endpoint returns non-2xx).
+ */
+export async function logKeycloakEvent(params: {
+  eventType: string;
+  realmId?: string | null;
+  clientId?: string | null;
+  userId?: string | null;
+  sessionId?: string | null;
+  ipAddress?: string | null;
+  error?: string | null;
+  details?: Record<string, unknown> | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO keycloak_events
+        (event_type, realm_id, client_id, user_id, session_id, ip_address, error, details, received_at)
+      VALUES (
+        ${params.eventType},
+        ${params.realmId ?? null},
+        ${params.clientId ?? null},
+        ${params.userId ?? null},
+        ${params.sessionId ?? null},
+        ${params.ipAddress ?? null},
+        ${params.error ?? null},
+        ${params.details ? JSON.stringify(params.details) : null}::jsonb,
+        NOW()
+      )
+    `);
+  } catch (err) {
+    console.error("[DB] logKeycloakEvent failed", err);
+  }
+}
+
+/**
+ * Retrieve recent Keycloak auth events for the audit log UI.
+ * Returns up to `limit` events ordered by most recent first.
+ */
+export async function getKeycloakEvents(params: {
+  limit?: number;
+  userId?: string;
+  eventType?: string;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const { limit = 100, userId, eventType } = params;
+    const rows = await db.execute(sql`
+      SELECT id, event_type, realm_id, client_id, user_id, session_id,
+             ip_address, error, details, received_at
+      FROM keycloak_events
+      WHERE
+        (${userId ?? null} IS NULL OR user_id = ${userId ?? null})
+        AND (${eventType ?? null} IS NULL OR event_type = ${eventType ?? null})
+      ORDER BY received_at DESC
+      LIMIT ${limit}
+    `);
+    return rows.rows as Array<{
+      id: number;
+      event_type: string;
+      realm_id: string | null;
+      client_id: string | null;
+      user_id: string | null;
+      session_id: string | null;
+      ip_address: string | null;
+      error: string | null;
+      details: Record<string, unknown> | null;
+      received_at: Date;
+    }>;
+  } catch (err) {
+    console.error("[DB] getKeycloakEvents failed", err);
+    return [];
+  }
+}

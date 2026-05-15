@@ -94,6 +94,17 @@
   "clientScopes": [],
   "identityProviders": [],
   "components": {},
+
+  "otpPolicy": {
+    "_comment": "TOTP policy enforced for paygate-admin users. Authenticator apps (Google Authenticator, Authy, etc.) generate 6-digit codes every 30 seconds using SHA1.",
+    "type": "totp",
+    "algorithm": "HmacSHA1",
+    "initialCounter": 0,
+    "digits": 6,
+    "lookAheadWindow": 1,
+    "period": 30
+  },
+
   "requiredActions": [
     {
       "alias": "CONFIGURE_TOTP",

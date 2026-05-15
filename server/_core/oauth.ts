@@ -19,7 +19,14 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
-import { getSessionCookieOptions, getIdTokenCookieOptions, ID_TOKEN_COOKIE_NAME } from "./cookies";
+import { createHmac, timingSafeEqual } from "crypto";
+import {
+  getSessionCookieOptions,
+  getIdTokenCookieOptions,
+  ID_TOKEN_COOKIE_NAME,
+  getRefreshTokenCookieOptions,
+  REFRESH_TOKEN_COOKIE_NAME,
+} from "./cookies";
 import { ENV } from "./env";
 import {
   buildAuthorizationUrl,
@@ -27,6 +34,7 @@ import {
   verifyAccessToken,
   extractRole,
   createSessionToken,
+  refreshAccessToken,
 } from "./keycloak";
 
 function getQueryParam(req: Request, key: string): string | undefined {
@@ -155,6 +163,14 @@ async function handleKeycloakCallback(req: Request, res: Response) {
       res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken, idTokenOptions);
     }
 
+    // Store the Keycloak refresh_token in a long-lived httpOnly cookie.
+    // The /api/auth/refresh endpoint reads this to silently re-issue the
+    // session JWT when the access token expires, without requiring re-login.
+    if (tokens.refreshToken) {
+      const refreshOptions = getRefreshTokenCookieOptions(req);
+      res.cookie(REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, refreshOptions);
+    }
+
     res.redirect(302, "/dashboard");
   } catch (error) {
     console.error("[Keycloak] Callback failed", error);
@@ -219,5 +235,156 @@ export function registerOAuthRoutes(app: Express) {
   // ── OAuth callback (Keycloak Authorization Code response) ───────────────
   app.get("/api/oauth/callback", (req: Request, res: Response) => {
     return handleKeycloakCallback(req, res);
+  });
+
+  // ── Keycloak event listener webhook ────────────────────────────────────────
+  // Keycloak's HTTP Event Listener SPI POSTs auth events (LOGIN, LOGOUT,
+  // LOGIN_ERROR, etc.) to this endpoint. We verify the request using an
+  // HMAC-SHA256 signature in the X-Keycloak-Signature header, then persist
+  // the event to the keycloak_events table for compliance reporting.
+  //
+  // Configuration in Keycloak Admin UI:
+  //   Realm Settings → Events → Event Listeners → add "http-event-listener"
+  //   Provider config: url = <PORTAL_URL>/api/internal/keycloak-events
+  //                    secret = value of KEYCLOAK_WEBHOOK_SECRET env var
+  //
+  // Alternatively, set it in paygate-realm.json → eventsListeners.
+  app.post("/api/internal/keycloak-events", async (req: Request, res: Response) => {
+    const webhookSecret = process.env.KEYCLOAK_WEBHOOK_SECRET;
+
+    // Verify HMAC signature if a secret is configured
+    if (webhookSecret) {
+      const signature = req.headers["x-keycloak-signature"] as string | undefined;
+      if (!signature) {
+        console.warn("[Keycloak Events] Missing X-Keycloak-Signature header");
+        res.status(401).json({ error: "Missing signature" });
+        return;
+      }
+      try {
+        const rawBody = JSON.stringify(req.body);
+        const expected = createHmac("sha256", webhookSecret)
+          .update(rawBody)
+          .digest("hex");
+        const expectedBuf = Buffer.from(expected, "utf8");
+        const actualBuf = Buffer.from(signature, "utf8");
+        const valid =
+          expectedBuf.length === actualBuf.length &&
+          timingSafeEqual(expectedBuf, actualBuf);
+        if (!valid) {
+          console.warn("[Keycloak Events] Invalid signature");
+          res.status(401).json({ error: "Invalid signature" });
+          return;
+        }
+      } catch {
+        res.status(400).json({ error: "Signature verification failed" });
+        return;
+      }
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const eventType = (body.type ?? body.eventType ?? "UNKNOWN") as string;
+
+    // Log to console for operator visibility
+    const isError = eventType.endsWith("_ERROR");
+    if (isError) {
+      console.warn(`[Keycloak Events] ${eventType}`, {
+        userId: body.userId,
+        ipAddress: body.ipAddress,
+        error: body.error,
+      });
+    } else {
+      console.log(`[Keycloak Events] ${eventType}`, {
+        userId: body.userId,
+        sessionId: body.sessionId,
+        ipAddress: body.ipAddress,
+      });
+    }
+
+    // Persist to DB (fire-and-forget — errors are swallowed in logKeycloakEvent)
+    await db.logKeycloakEvent({
+      eventType,
+      realmId: body.realmId as string | undefined,
+      clientId: body.clientId as string | undefined,
+      userId: body.userId as string | undefined,
+      sessionId: body.sessionId as string | undefined,
+      ipAddress: body.ipAddress as string | undefined,
+      error: body.error as string | undefined,
+      details: body.details as Record<string, unknown> | undefined,
+    });
+
+    // Also mirror to the existing audit_events table for cross-system correlation
+    if (body.userId) {
+      await db.logAuditEvent({
+        merchantId: "platform",
+        actorId: body.userId as string,
+        actorName: (body.details as Record<string, unknown> | undefined)?.username as string ?? "unknown",
+        action: eventType,
+        resource: "auth",
+        resourceId: body.sessionId as string | undefined,
+        metadata: {
+          realmId: body.realmId,
+          clientId: body.clientId,
+          ipAddress: body.ipAddress,
+          error: body.error,
+        },
+        ipAddress: body.ipAddress as string | undefined,
+      });
+    }
+
+    res.json({ ok: true });
+  });
+
+  // ── Silent token refresh ─────────────────────────────────────────────────
+  // Called by the frontend when the session JWT is approaching expiry.
+  // Reads the refresh_token cookie, exchanges it with Keycloak for a new
+  // access token, and re-issues the portal session JWT + id_token cookie.
+  // Returns 401 if the refresh_token is missing or expired (force re-login).
+  app.post("/api/auth/refresh", async (req: Request, res: Response) => {
+    const storedRefreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME] as string | undefined;
+
+    if (!storedRefreshToken) {
+      res.status(401).json({ error: "No refresh token — please log in again" });
+      return;
+    }
+
+    if (!ENV.keycloakUrl) {
+      res.status(503).json({ error: "Keycloak not configured" });
+      return;
+    }
+
+    try {
+      const tokens = await refreshAccessToken(storedRefreshToken);
+      const claims = await verifyAccessToken(tokens.accessToken);
+
+      const openId = claims.sub;
+      const name = claims.name ?? claims.preferred_username ?? "";
+
+      // Re-issue the portal session JWT
+      const sessionToken = await createSessionToken(openId, name);
+      const cookieOptions = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+      // Rotate the id_token cookie
+      if (tokens.idToken) {
+        const idTokenOptions = getIdTokenCookieOptions(req, tokens.expiresIn || 300);
+        res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken, idTokenOptions);
+      }
+
+      // Rotate the refresh_token cookie if Keycloak issued a new one
+      if (tokens.refreshToken) {
+        const refreshOptions = getRefreshTokenCookieOptions(req);
+        res.cookie(REFRESH_TOKEN_COOKIE_NAME, tokens.refreshToken, refreshOptions);
+      }
+
+      res.json({ ok: true, expiresIn: tokens.expiresIn });
+    } catch (error) {
+      console.error("[Auth] Token refresh failed", error);
+      // Clear all auth cookies — the user must re-authenticate
+      const cookieOptions = getSessionCookieOptions(req);
+      res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      res.clearCookie(ID_TOKEN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth", sameSite: "none", secure: true, maxAge: -1 });
+      res.status(401).json({ error: "Token refresh failed — please log in again" });
+    }
   });
 }

@@ -230,7 +230,8 @@ describe("docker-compose.production.yml — SMTP env vars", () => {
 
 describe("keycloak/paygate-realm.json — smtpServer block", () => {
   const src = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
-  const realm = JSON.parse(src.replace(/"_comment"[^,}]+,?/g, ''));
+  // Strip _comment keys (which may contain colons and special chars) before parsing
+  const realm = JSON.parse(src.replace(/"_comment"\s*:\s*"[^"]*",?\s*/g, ''));
 
   it("has a smtpServer block", () => {
     expect(realm.smtpServer).toBeDefined();
@@ -574,5 +575,128 @@ describe("scripts/keycloak-bootstrap.sh — realm provisioning script exists", (
 
   it("is idempotent — uses GET-then-CREATE pattern", () => {
     expect(src).toContain("already exists");
+  });
+});
+
+// ─── Round 36 — TOTP/MFA, Refresh Token Rotation, Keycloak Audit Events ────────
+
+describe("Round 36 — TOTP/MFA enforcement", () => {
+  const bootstrapSrc = readFileSync(resolve(ROOT, "scripts/keycloak-bootstrap.sh"), "utf8");
+  const realmSrc = readFileSync(resolve(ROOT, "keycloak/paygate-realm.json"), "utf8");
+  const realm = JSON.parse(realmSrc);
+
+  it("realm JSON has otpPolicy block with TOTP type", () => {
+    expect(realm.otpPolicy).toBeDefined();
+    expect(realm.otpPolicy.type).toBe("totp");
+    expect(realm.otpPolicy.digits).toBe(6);
+    expect(realm.otpPolicy.period).toBe(30);
+  });
+
+  it("realm JSON has CONFIGURE_TOTP in requiredActions", () => {
+    const totpAction = realm.requiredActions?.find(
+      (a: { alias: string }) => a.alias === "CONFIGURE_TOTP"
+    );
+    expect(totpAction).toBeDefined();
+    expect(totpAction.enabled).toBe(true);
+  });
+
+  it("bootstrap.sh enforces CONFIGURE_TOTP required action for admin user", () => {
+    expect(bootstrapSrc).toContain("CONFIGURE_TOTP");
+    expect(bootstrapSrc).toContain("requiredActions");
+    expect(bootstrapSrc).toContain("admin must enrol on first login");
+  });
+});
+
+describe("Round 36 — Refresh Token Rotation", () => {
+  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+  const keycloakSrc = readFileSync(resolve(ROOT, "server/_core/keycloak.ts"), "utf8");
+  const cookiesSrc = readFileSync(resolve(ROOT, "server/_core/cookies.ts"), "utf8");
+  const routersSrc = readFileSync(resolve(ROOT, "server/routers.ts"), "utf8");
+  const useAuthSrc = readFileSync(resolve(ROOT, "client/src/_core/hooks/useAuth.ts"), "utf8");
+
+  it("cookies.ts exports REFRESH_TOKEN_COOKIE_NAME", () => {
+    expect(cookiesSrc).toContain("REFRESH_TOKEN_COOKIE_NAME");
+    expect(cookiesSrc).toContain("paygate_refresh_token");
+  });
+
+  it("cookies.ts exports getRefreshTokenCookieOptions with path /api/auth", () => {
+    expect(cookiesSrc).toContain("getRefreshTokenCookieOptions");
+    expect(cookiesSrc).toContain('path: "/api/auth"');
+  });
+
+  it("keycloak.ts exports refreshAccessToken helper", () => {
+    expect(keycloakSrc).toContain("refreshAccessToken");
+    expect(keycloakSrc).toContain("grant_type");
+    expect(keycloakSrc).toContain("refresh_token");
+  });
+
+  it("oauth.ts stores refresh_token cookie after OIDC callback", () => {
+    expect(oauthSrc).toContain("REFRESH_TOKEN_COOKIE_NAME");
+    expect(oauthSrc).toContain("tokens.refreshToken");
+    expect(oauthSrc).toContain("getRefreshTokenCookieOptions");
+  });
+
+  it("oauth.ts registers /api/auth/refresh endpoint", () => {
+    expect(oauthSrc).toContain("/api/auth/refresh");
+    expect(oauthSrc).toContain("refreshAccessToken");
+    expect(oauthSrc).toContain("expiresIn");
+  });
+
+  it("auth.logout clears the refresh_token cookie", () => {
+    expect(routersSrc).toContain("REFRESH_TOKEN_COOKIE_NAME");
+    expect(routersSrc).toContain("clearCookie(REFRESH_TOKEN_COOKIE_NAME");
+  });
+
+  it("useAuth.ts has silent refresh interval", () => {
+    expect(useAuthSrc).toContain("silentRefresh");
+    expect(useAuthSrc).toContain("/api/auth/refresh");
+    expect(useAuthSrc).toContain("REFRESH_INTERVAL_MS");
+  });
+
+  it("useAuth.ts exposes silentRefresh in return value", () => {
+    expect(useAuthSrc).toContain("silentRefresh,");
+  });
+});
+
+describe("Round 36 — Keycloak Event Listener Webhook", () => {
+  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+  const dbSrc = readFileSync(resolve(ROOT, "server/db.ts"), "utf8");
+  const schemaSrc = readFileSync(resolve(ROOT, "drizzle/schema.ts"), "utf8");
+
+  it("drizzle/schema.ts has keycloak_events table", () => {
+    expect(schemaSrc).toContain("keycloak_events");
+    expect(schemaSrc).toContain("event_type");
+    expect(schemaSrc).toContain("user_id");
+    expect(schemaSrc).toContain("received_at");
+  });
+
+  it("db.ts exports logKeycloakEvent helper", () => {
+    expect(dbSrc).toContain("logKeycloakEvent");
+    expect(dbSrc).toContain("eventType");
+    expect(dbSrc).toContain("keycloak_events");
+  });
+
+  it("db.ts exports getKeycloakEvents helper", () => {
+    expect(dbSrc).toContain("getKeycloakEvents");
+    expect(dbSrc).toContain("ORDER BY received_at DESC");
+  });
+
+  it("oauth.ts registers /api/internal/keycloak-events endpoint", () => {
+    expect(oauthSrc).toContain("/api/internal/keycloak-events");
+    expect(oauthSrc).toContain("logKeycloakEvent");
+    expect(oauthSrc).toContain("logAuditEvent");
+  });
+
+  it("oauth.ts verifies HMAC signature on keycloak-events webhook", () => {
+    expect(oauthSrc).toContain("KEYCLOAK_WEBHOOK_SECRET");
+    expect(oauthSrc).toContain("x-keycloak-signature");
+    expect(oauthSrc).toContain("timingSafeEqual");
+    expect(oauthSrc).toContain("createHmac");
+  });
+
+  it("oauth.ts imports createHmac and timingSafeEqual from crypto", () => {
+    expect(oauthSrc).toContain('from "crypto"');
+    expect(oauthSrc).toContain("createHmac");
+    expect(oauthSrc).toContain("timingSafeEqual");
   });
 });

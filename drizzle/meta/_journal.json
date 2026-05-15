@@ -414,6 +414,13 @@
       "when": 1778773562481,
       "tag": "0058_serious_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1778847708634,
+      "tag": "0059_puzzling_chameleon",
+      "breakpoints": true
     }
   ]
 }

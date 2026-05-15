@@ -280,7 +280,7 @@ const authRouter = router({
     }).optional())
     .mutation(async ({ ctx, input }) => {
       const { COOKIE_NAME } = await import("../shared/const");
-      const { getSessionCookieOptions, ID_TOKEN_COOKIE_NAME } = await import("./_core/cookies");
+      const { getSessionCookieOptions, ID_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME } = await import("./_core/cookies");
       const { ENV } = await import("./_core/env");
 
       // Clear the portal session cookie
@@ -288,6 +288,8 @@ const authRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       // Clear the id_token cookie (used as id_token_hint on Keycloak end-session)
       ctx.res.clearCookie(ID_TOKEN_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      // Clear the refresh_token cookie (long-lived, path-restricted to /api/auth)
+      ctx.res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth", sameSite: "none", secure: true, maxAge: -1 });
 
       // If Keycloak is configured, return the end-session URL so the client
       // can redirect the browser there to terminate the Keycloak SSO session.

@@ -163,6 +163,46 @@ export function buildEndSessionUrl(
   return url.toString();
 }
 
+// ─── Refresh token exchange ──────────────────────────────────────────────────
+
+/**
+ * Exchange a Keycloak refresh_token for a new token set.
+ *
+ * Called by the /api/auth/refresh endpoint when the portal session JWT is
+ * approaching expiry. Returns a fresh KeycloakTokenSet (new access_token,
+ * id_token, and possibly a rotated refresh_token).
+ *
+ * Throws if the refresh_token is expired or revoked — the caller should
+ * clear the session and redirect to login.
+ */
+export async function refreshAccessToken(refreshToken: string): Promise<KeycloakTokenSet> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: ENV.keycloakClientId,
+    client_secret: ENV.keycloakClientSecret,
+    refresh_token: refreshToken,
+  });
+
+  const res = await fetch(getTokenEndpoint(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`[Keycloak] Token refresh failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json() as Record<string, unknown>;
+  return {
+    accessToken: data.access_token as string,
+    idToken: data.id_token as string,
+    refreshToken: data.refresh_token as string | undefined,
+    expiresIn: data.expires_in as number,
+  };
+}
+
 // ─── Session cookie helpers ───────────────────────────────────────────────────
 // We continue to issue our own HS256 session cookie (same as before) so the
 // rest of the application (protectedProcedure, ctx.user) is unchanged.

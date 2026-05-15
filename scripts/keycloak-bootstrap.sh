@@ -172,7 +172,19 @@ print(users[0]['id'] if users else '')
       -H "$AUTH_HEADER" \
       -H "Content-Type: application/json" \
       -d "[$ROLE_REP]"
-     echo "[bootstrap] 'paygate-admin' role assigned."
+    echo "[bootstrap] 'paygate-admin' role assigned."
+
+    # Enforce TOTP/MFA for the admin user.
+    # CONFIGURE_TOTP is added as a required action so the user must enrol
+    # in an authenticator app (Google Authenticator, Authy, etc.) on first login.
+    # This cannot be skipped — the portal is inaccessible until TOTP is configured.
+    echo "[bootstrap] Enforcing TOTP required action for admin user ..."
+    curl -sf -X PUT \
+      "$KEYCLOAK_URL/admin/realms/$REALM/users/$USER_UUID" \
+      -H "$AUTH_HEADER" \
+      -H "Content-Type: application/json" \
+      -d '{"requiredActions": ["CONFIGURE_TOTP"]}'
+    echo "[bootstrap] TOTP required action set — admin must enrol on first login."
   fi
 
   # Patch SMTP settings if KC_SMTP_HOST is provided

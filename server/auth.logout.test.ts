@@ -58,9 +58,11 @@ describe("auth.logout", () => {
     // When KEYCLOAK_URL is not set in the test environment, ssoLogoutUrl is null.
     // The cookie must still be cleared regardless.
     expect(result).toMatchObject({ success: true });
-    // auth.logout now clears 2 cookies: the session cookie AND the id_token cookie
-    // (used as id_token_hint on the Keycloak end-session endpoint)
-    expect(clearedCookies).toHaveLength(2);
+    // auth.logout now clears 3 cookies:
+    //   1. session cookie (COOKIE_NAME)
+    //   2. id_token cookie (ID_TOKEN_COOKIE_NAME) — used as id_token_hint
+    //   3. refresh_token cookie (REFRESH_TOKEN_COOKIE_NAME) — long-lived, path=/api/auth
+    expect(clearedCookies).toHaveLength(3);
     expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
     expect(clearedCookies[0]?.options).toMatchObject({
       maxAge: -1,

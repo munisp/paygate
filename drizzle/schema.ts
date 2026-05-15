@@ -4400,3 +4400,26 @@ export const posProducts = pgTable("pos_products", {
 ]);
 export type PosProduct = typeof posProducts.$inferSelect;
 export type InsertPosProduct = typeof posProducts.$inferInsert;
+
+// ─── Keycloak Auth Events ─────────────────────────────────────────────────────
+// Stores login, logout, and failed-login events forwarded from Keycloak's
+// event listener SPI via the /api/internal/keycloak-events webhook endpoint.
+// Used for compliance reporting, anomaly detection, and the audit log UI.
+export const keycloakEvents = pgTable("keycloak_events", {
+  id: serial("id").primaryKey(),
+  eventType: text("event_type").notNull(),       // LOGIN, LOGOUT, LOGIN_ERROR, etc.
+  realmId: text("realm_id"),
+  clientId: text("client_id"),
+  userId: text("user_id"),                        // Keycloak user UUID (sub)
+  sessionId: text("session_id"),
+  ipAddress: text("ip_address"),
+  error: text("error"),                           // populated for *_ERROR events
+  details: jsonb("details"),                      // raw Keycloak event details object
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+}, (t) => [
+  index("keycloak_events_type_idx").on(t.eventType),
+  index("keycloak_events_user_idx").on(t.userId),
+  index("keycloak_events_received_idx").on(t.receivedAt),
+]);
+export type KeycloakEvent = typeof keycloakEvents.$inferSelect;
+export type InsertKeycloakEvent = typeof keycloakEvents.$inferInsert;

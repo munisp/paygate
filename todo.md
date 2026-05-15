@@ -4482,3 +4482,19 @@
 - [ ] docker-compose.production.yml: Replace service_started with healthcheck for keycloak
 - [ ] docs/keycloak-deployment.md: Document SMTP, id_token_hint, and health-check
 - [x] Write vitest tests for Round 35 changes
+
+## Round 36 — TOTP/MFA, Refresh Token Rotation, Keycloak Audit Events
+- [x] keycloak/paygate-realm.json: Add CONFIGURE_TOTP required action for admin users
+- [x] keycloak/paygate-realm.json: Add otpPolicy block (TOTP, SHA1, 6 digits, 30s)
+- [x] scripts/keycloak-bootstrap.sh: Enforce TOTP required action on paygate-admin role via Admin REST API
+- [x] server/_core/cookies.ts: Add REFRESH_TOKEN_COOKIE_NAME and getRefreshTokenCookieOptions helper
+- [x] server/_core/oauth.ts: Store refresh_token in httpOnly cookie after OIDC callback
+- [x] server/_core/keycloak.ts: Add refreshAccessToken() helper using Keycloak token endpoint
+- [x] server/_core/oauth.ts: Add /api/auth/refresh endpoint for silent token re-issue
+- [x] server/routers.ts auth.logout: Clear refresh_token cookie on logout
+- [x] client/src/_core/hooks/useAuth.ts: Add silent refresh on 401 / token expiry
+- [x] server/routers.ts: Add POST /api/internal/keycloak-events tRPC-free Express route
+- [x] server/db.ts: Add logKeycloakEvent() helper to persist to auditLog table
+- [x] server/_core/oauth.ts: Register /api/internal/keycloak-events route with HMAC verification
+- [x] docs/keycloak-deployment.md: Document TOTP, refresh rotation, and event listener setup
+- [x] Write vitest tests for all Round 36 features
