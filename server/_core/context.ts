@@ -1,7 +1,17 @@
+/**
+ * tRPC request context builder.
+ *
+ * Authentication is Keycloak-only (on-premise compatible).
+ * The session cookie is an HS256 JWT issued by our own server after the
+ * Keycloak Authorization Code callback — no outbound cloud call is made
+ * per request.
+ *
+ * If KEYCLOAK_URL is not set (local dev without Keycloak), the email/password
+ * login path (auth.login tRPC procedure) still works because it also issues
+ * the same HS256 session cookie format via createSessionToken().
+ */
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
-import { ENV } from "./env";
 import { verifySessionToken } from "./keycloak";
 import * as db from "../db";
 import { COOKIE_NAME } from "@shared/const";
@@ -25,11 +35,15 @@ function parseCookies(cookieHeader: string | undefined): Map<string, string> {
   return map;
 }
 
-async function authenticateViaKeycloak(
+async function authenticateRequest(
   req: CreateExpressContextOptions["req"]
 ): Promise<User | null> {
   const cookies = parseCookies(req.headers.cookie);
   const sessionCookie = cookies.get(COOKIE_NAME);
+
+  // verifySessionToken validates our own HS256 JWT — no cloud call needed.
+  // Works whether the session was issued after Keycloak OIDC callback
+  // or after the email/password login path (auth.login tRPC procedure).
   const session = await verifySessionToken(sessionCookie);
   if (!session) return null;
 
@@ -47,13 +61,7 @@ export async function createContext(
   let user: User | null = null;
 
   try {
-    if (ENV.keycloakUrl) {
-      // Keycloak path: validate our own HS256 session cookie issued at /api/oauth/callback
-      user = await authenticateViaKeycloak(opts.req);
-    } else {
-      // Manus OAuth path: delegate to the platform SDK (legacy / sandbox)
-      user = await sdk.authenticateRequest(opts.req);
-    }
+    user = await authenticateRequest(opts.req);
   } catch {
     // Authentication is optional for public procedures.
     user = null;

@@ -213,7 +213,7 @@ const authRouter = router({
     return { ...user, merchant };
   }),
 
-  // Email/password login — bypasses Manus OAuth for demo/dev use
+  // Email/password login — works without Keycloak (local dev or direct user accounts)
   login: publicProcedure
     .input(z.object({ email: z.string().email(), password: z.string().min(6) }))
     .mutation(async ({ input, ctx }) => {
@@ -244,14 +244,15 @@ const authRouter = router({
         const newHash = await hashPassword(input.password);
         await db.update(schema.users).set({ passwordHash: newHash }).where(eq(schema.users.email, input.email));
       }
-      const { sdk } = await import("./_core/sdk");
+      // Issue the same HS256 session cookie format as the Keycloak OIDC callback.
+      // No dependency on Manus OAuth SDK or any cloud service.
+      const { createSessionToken } = await import("./_core/keycloak");
       const { COOKIE_NAME, ONE_YEAR_MS } = await import("../shared/const");
       const { getSessionCookieOptions } = await import("./_core/cookies");
-      const token = await sdk.signSession({
-        openId: user.openId,
-        appId: process.env.VITE_APP_ID ?? "paygate",
-        name: user.name ?? user.email ?? "Merchant",
-      }, { expiresInMs: ONE_YEAR_MS });
+      const token = await createSessionToken(
+        user.openId,
+        user.name ?? user.email ?? "Merchant",
+      );
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS / 1000 });
       // Audit log — fire-and-forget

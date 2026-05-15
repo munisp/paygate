@@ -113,11 +113,22 @@ services:
       YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY:-youverify_key_placeholder}
       TERMII_API_KEY: ${TERMII_API_KEY:-termii_key_placeholder}
       NIP_API_KEY: ${NIP_API_KEY:-nip_key_placeholder}
+      # ─── Keycloak OIDC ─────────────────────────────────────────────────────────────────────
+      # Required for on-premise auth. Run scripts/keycloak-bootstrap.sh once
+      # after first startup to provision the realm, client, and admin user.
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-paygate}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-merchant-portal}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me_run_bootstrap_script}
+      # Comma-separated list of allowed redirect origins (e.g. https://portal.acme.com)
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     networks: [paygate]
 
   # ─── PostgreSQL ───────────────────────────────────────────────────

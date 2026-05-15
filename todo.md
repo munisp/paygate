@@ -4423,3 +4423,34 @@
 - [x] DisputeSlaTracking: isLoading + skeleton loading guard added
 - [x] MiddlewareHealthAlerts: isLoading + skeleton loading guard added
 - [x] All 4772 tests passing (122 test files)
+
+## Round 33 — Keycloak Auth Migration (On-Premise Compatibility)
+
+- [x] server/_core/oauth.ts: Remove Manus OAuth fallback; make Keycloak the only auth path
+- [x] server/_core/context.ts: Remove sdk.authenticateRequest Manus fallback; Keycloak-only
+- [x] server/routers.ts auth.login: Replace sdk.signSession with createSessionToken from keycloak.ts
+- [x] server/_core/env.ts: Mark KEYCLOAK_URL as required; deprecate appId/oAuthServerUrl
+- [x] client/src/const.ts: Remove Manus OAuth fallback from getLoginUrl(); always use /api/auth/keycloak/login
+- [x] client/src/_core/hooks/useAuth.ts: Remove manus-runtime-user-info localStorage key
+- [x] client/index.html: Remove VITE_APP_ID og:url manus.space reference
+- [x] Add VITE_KEYCLOAK_URL to env so frontend can detect Keycloak mode without fallback
+- [x] scripts/keycloak-bootstrap.sh: Realm seed script (paygate realm, merchant-portal client, admin user)
+- [x] docker-compose.production.yml: Add KEYCLOAK_URL env var to portal service; add realm import volume
+- [x] Update SAFE_ORIGIN_PATTERNS in oauth.ts to support on-premise custom domains
+- [x] Write keycloak auth migration tests
+
+
+## Round 33 — Keycloak Auth Migration (On-Premise Compatibility)
+
+- [x] server/_core/oauth.ts: Remove Manus OAuth fallback; make Keycloak the only auth path
+- [x] server/_core/context.ts: Remove sdk.authenticateRequest Manus fallback; Keycloak-only
+- [x] server/routers.ts auth.login: Replace sdk.signSession with createSessionToken from keycloak.ts
+- [x] server/_core/env.ts: Mark KEYCLOAK_URL as required; deprecate appId/oAuthServerUrl
+- [x] client/src/const.ts: Remove Manus OAuth fallback from getLoginUrl(); always use /api/auth/keycloak/login
+- [x] client/src/_core/hooks/useAuth.ts: Remove manus-runtime-user-info localStorage key
+- [x] client/index.html: Remove VITE_APP_ID og:url manus.space reference
+- [x] Add VITE_KEYCLOAK_URL to env so frontend can detect Keycloak mode without fallback
+- [x] scripts/keycloak-bootstrap.sh: Realm seed script (paygate realm, merchant-portal client, admin user)
+- [x] docker-compose.production.yml: Add KEYCLOAK_URL env var to portal service; add realm import volume
+- [x] Update SAFE_ORIGIN_PATTERNS in oauth.ts to support on-premise custom domains
+- [x] Write keycloak auth migration tests

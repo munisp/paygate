@@ -40,10 +40,11 @@ export default function Login() {
     loginMutation.mutate({ email, password });
   };
 
-  /** Redirect to Keycloak SSO — the server handles the OIDC flow */
+  /** Redirect to Keycloak SSO — the server handles the OIDC Authorization Code flow */
   const handleSSOLogin = () => {
-    const returnPath = "/dashboard";
-    window.location.href = `/api/oauth/keycloak/login?returnPath=${encodeURIComponent(returnPath)}`;
+    const url = new URL("/api/auth/keycloak/login", window.location.origin);
+    url.searchParams.set("origin", window.location.origin);
+    window.location.href = url.toString();
   };
 
   return (

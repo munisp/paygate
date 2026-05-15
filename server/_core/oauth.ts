@@ -1,19 +1,25 @@
 /**
  * OAuth / OIDC route registration for the PayGate Merchant Portal.
  *
- * Strategy:
- *  - If KEYCLOAK_URL is configured → use Keycloak Authorization Code flow (RS256 JWT).
- *  - Otherwise → fall back to Manus OAuth (legacy sandbox behaviour).
+ * This platform is designed for on-premise / private-cloud deployment.
+ * Keycloak is the ONLY supported identity provider — there is no Manus OAuth
+ * dependency or any other cloud-hosted auth service.
  *
- * Both paths ultimately issue the same internal HS256 session cookie so the
- * rest of the application (protectedProcedure, ctx.user) is unchanged.
+ * Auth flow:
+ *   1. Browser → GET /api/auth/keycloak/login
+ *      Server builds Keycloak Authorization URL and redirects the browser.
+ *   2. Keycloak → GET /api/oauth/callback?code=...&state=...
+ *      Server exchanges code for tokens, verifies the RS256 access token,
+ *      upserts the user in the local DB, issues an HS256 session cookie,
+ *      and redirects to /dashboard.
+ *   3. All subsequent requests carry the session cookie.
+ *      context.ts verifies it locally — no outbound cloud call required.
  */
 
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
-import { sdk } from "./sdk";
 import { ENV } from "./env";
 import {
   buildAuthorizationUrl,
@@ -28,6 +34,32 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+// ─── Allowed origin validation ────────────────────────────────────────────────
+// Prevents open-redirect attacks on the login initiation endpoint.
+// Add your on-premise domain(s) to the ALLOWED_ORIGINS env var (comma-separated).
+
+function isOriginAllowed(rawOrigin: string, serverOrigin: string): boolean {
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  // Always allow the server's own origin
+  if (rawOrigin === serverOrigin) return true;
+
+  // Explicit allowlist from env
+  if (allowedOrigins.includes(rawOrigin)) return true;
+
+  // Safe patterns for local development
+  const SAFE_DEV_PATTERNS = [
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  ];
+  if (SAFE_DEV_PATTERNS.some((p) => p.test(rawOrigin))) return true;
+
+  return false;
+}
+
 // ─── Keycloak OIDC callback ───────────────────────────────────────────────────
 
 async function handleKeycloakCallback(req: Request, res: Response) {
@@ -40,7 +72,7 @@ async function handleKeycloakCallback(req: Request, res: Response) {
   }
 
   try {
-    // state = base64(redirectUri) — same convention as Manus OAuth
+    // state = base64(redirectUri)
     const redirectUri = Buffer.from(state, "base64").toString("utf8");
 
     const tokens = await exchangeCodeForTokens(code, redirectUri);
@@ -71,88 +103,49 @@ async function handleKeycloakCallback(req: Request, res: Response) {
   }
 }
 
-// ─── Manus OAuth callback (legacy fallback) ───────────────────────────────────
-
-async function handleManusCallback(req: Request, res: Response) {
-  const code = getQueryParam(req, "code");
-  const state = getQueryParam(req, "state");
-
-  if (!code || !state) {
-    res.status(400).json({ error: "code and state are required" });
-    return;
-  }
-
-  try {
-    const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-    const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
-
-    if (!userInfo.openId) {
-      res.status(400).json({ error: "openId missing from user info" });
-      return;
-    }
-
-    await db.upsertUser({
-      openId: userInfo.openId,
-      name: userInfo.name || null,
-      email: userInfo.email ?? null,
-      loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-      lastSignedIn: new Date(),
-      tenantId: "ten_default",
-    });
-
-    const sessionToken = await sdk.createSessionToken(userInfo.openId, {
-      name: userInfo.name || "",
-      expiresInMs: ONE_YEAR_MS,
-    });
-
-    const cookieOptions = getSessionCookieOptions(req);
-    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-    res.redirect(302, "/dashboard");
-  } catch (error) {
-    console.error("[OAuth] Manus callback failed", error);
-    res.status(500).json({ error: "OAuth callback failed" });
-  }
-}
-
 // ─── Route registration ───────────────────────────────────────────────────────
 
 export function registerOAuthRoutes(app: Express) {
-  const useKeycloak = !!ENV.keycloakUrl;
-
-  if (useKeycloak) {
-    console.log(`[Auth] Keycloak OIDC enabled — realm: ${ENV.keycloakRealm}`);
-
-    // Initiate Keycloak login — frontend redirects to this endpoint
-    app.get("/api/auth/keycloak/login", (req: Request, res: Response) => {
-      const rawOrigin = getQueryParam(req, "origin") ?? `${req.protocol}://${req.get("host")}`;
-      // VULN-003 FIX: Validate origin against allowlist to prevent open redirect
-      const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
-        .split(",").map((o) => o.trim()).filter(Boolean);
-      const SAFE_ORIGIN_PATTERNS = [
-        /^https?:\/\/localhost(:\d+)?$/,
-        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-        /^https:\/\/[a-zA-Z0-9-]+\.manus\.space$/,
-        /^https:\/\/[a-zA-Z0-9-]+\.manus\.computer$/,
-      ];
-      const serverOrigin = `${req.protocol}://${req.get("host")}`;
-      const isAllowed =
-        allowedOrigins.includes(rawOrigin) ||
-        SAFE_ORIGIN_PATTERNS.some((p) => p.test(rawOrigin)) ||
-        rawOrigin === serverOrigin;
-      const origin = isAllowed ? rawOrigin : serverOrigin;
-      const redirectUri = `${origin}/api/oauth/callback`;
-      const state = Buffer.from(redirectUri).toString("base64");
-      res.redirect(302, buildAuthorizationUrl(redirectUri, state));
-    });
+  if (!ENV.keycloakUrl) {
+    // In development without Keycloak configured, warn loudly but continue
+    // so the email/password login path (auth.login tRPC procedure) still works.
+    console.warn(
+      "[Auth] WARNING: KEYCLOAK_URL is not set. " +
+      "SSO login will be unavailable. " +
+      "Set KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, and KEYCLOAK_CLIENT_SECRET " +
+      "for production on-premise deployment."
+    );
   } else {
-    console.log("[Auth] Keycloak not configured — using Manus OAuth fallback");
+    console.log(`[Auth] Keycloak OIDC enabled — ${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}`);
   }
 
-  // Unified callback endpoint — handles both Keycloak and Manus OAuth
-  app.get("/api/oauth/callback", (req: Request, res: Response) => {
-    if (ENV.keycloakUrl) {
-      return handleKeycloakCallback(req, res);
+  // ── Initiate Keycloak login ──────────────────────────────────────────────
+  // Frontend redirects to this endpoint to start the Authorization Code flow.
+  // Also kept at the legacy path /api/oauth/keycloak/login for backwards compat.
+  const keycloakLoginHandler = (req: Request, res: Response) => {
+    if (!ENV.keycloakUrl) {
+      res.status(503).json({
+        error: "Keycloak not configured",
+        hint: "Set KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET",
+      });
+      return;
     }
-    return handleManusCallback(req, res);
+
+    const serverOrigin = `${req.protocol}://${req.get("host")}`;
+    const rawOrigin = getQueryParam(req, "origin") ?? serverOrigin;
+    const origin = isOriginAllowed(rawOrigin, serverOrigin) ? rawOrigin : serverOrigin;
+
+    const redirectUri = `${origin}/api/oauth/callback`;
+    const state = Buffer.from(redirectUri).toString("base64");
+    res.redirect(302, buildAuthorizationUrl(redirectUri, state));
+  };
+
+  app.get("/api/auth/keycloak/login", keycloakLoginHandler);
+  // Legacy path kept for backwards compatibility with existing bookmarks / clients
+  app.get("/api/oauth/keycloak/login", keycloakLoginHandler);
+
+  // ── OAuth callback (Keycloak Authorization Code response) ───────────────
+  app.get("/api/oauth/callback", (req: Request, res: Response) => {
+    return handleKeycloakCallback(req, res);
   });
 }
