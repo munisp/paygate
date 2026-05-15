@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Shield, RefreshCw, LogOut, Monitor, Search, AlertTriangle, Settings2 } from "lucide-react";
+import { Shield, RefreshCw, LogOut, Monitor, Search, AlertTriangle, Settings2, Globe } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -31,6 +31,17 @@ export default function ActiveSessions() {
   const [showConfigForm, setShowConfigForm] = useState(false);
   const [configWindow, setConfigWindow] = useState(15);
   const [configThreshold, setConfigThreshold] = useState(5);
+  // Global anomaly config
+  const globalConfigQuery = trpc.middleware.keycloak.getGlobalAnomalyConfig.useQuery(undefined, {
+    enabled: isAdmin,
+  });
+  const saveGlobalAnomalyConfig = trpc.middleware.keycloak.setGlobalAnomalyConfig.useMutation({
+    onSuccess: () => {
+      toast.success("Global anomaly config saved as default for all admins");
+      globalConfigQuery.refetch();
+    },
+    onError: (err) => toast.error(`Failed to save global config: ${err.message}`),
+  });
 
   const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.listActiveSessions.useQuery(
     { userId: userIdFilter.trim() || undefined, limit: 100 },
@@ -69,7 +80,16 @@ export default function ActiveSessions() {
     },
   });
 
-  const sessions = data?.sessions ?? [];
+  const sessions = (data?.sessions ?? []) as Array<{
+    id: string;
+    userId: string;
+    username: string;
+    ipAddress: string;
+    start: number;
+    lastAccess: number;
+    clients?: Record<string, string>;
+    isNewCountry?: boolean;
+  }>;
 
   if (!isAdmin) {
     return (
@@ -159,13 +179,24 @@ export default function ActiveSessions() {
                   className="w-32"
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button
                   size="sm"
                   onClick={() => saveAnomalyConfig.mutate({ windowMinutes: configWindow, threshold: configThreshold })}
                   disabled={saveAnomalyConfig.isPending}
                 >
-                  {saveAnomalyConfig.isPending ? "Saving…" : "Save"}
+                  {saveAnomalyConfig.isPending ? "Saving…" : "Save for me"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  onClick={() => saveGlobalAnomalyConfig.mutate({ windowMinutes: configWindow, threshold: configThreshold })}
+                  disabled={saveGlobalAnomalyConfig.isPending}
+                  title="Set these values as the global default for all admins"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  {saveGlobalAnomalyConfig.isPending ? "Saving…" : "Set as Global Default"}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setShowConfigForm(false)}>Cancel</Button>
               </div>
@@ -259,7 +290,18 @@ export default function ActiveSessions() {
                   sessions.map(session => (
                     <TableRow key={session.id}>
                       <TableCell className="text-xs font-mono">
-                        {session.id.slice(0, 12)}…
+                        <div className="flex items-center gap-1.5">
+                          {session.id.slice(0, 12)}…
+                          {session.isNewCountry && (
+                            <a
+                              href={`/auth-events?userId=${encodeURIComponent(session.userId)}&newCountryOnly=true`}
+                              title="New country login detected — click to review geo alerts"
+                              className="inline-flex items-center"
+                            >
+                              <Globe className="w-3.5 h-3.5 text-amber-500 hover:text-amber-600" />
+                            </a>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm font-medium">
                         {session.username ?? <span className="text-muted-foreground">—</span>}

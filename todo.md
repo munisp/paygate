@@ -4590,3 +4590,12 @@
 - [x] New-country alert dismissal — geo_anomaly_acknowledged column, acknowledgeGeoAnomaly procedure, dismiss button in AuthEvents.tsx
 - [x] Schema migration — loginAnomalyWindowMinutes + loginAnomalyThreshold in adminNotificationPrefs, geo_anomaly_acknowledged in keycloak_events
 - [x] Write server/keycloak.round49.test.ts (18 tests)
+## Round 50 — Global anomaly config, geo badge in Active Sessions, new-country filter
+- [x] Global anomaly config fallback — getGlobalAnomalyConfig/setGlobalAnomalyConfig using sentinel userId=0, fallback chain: per-user → global → hardcoded defaults
+- [x] Geo anomaly badge in Active Sessions — amber Globe icon on sessions with isNewCountry=true, links to Auth Events filtered by userId+newCountryOnly=true
+- [x] listActiveSessions enriched with isNewCountry flag — checks latest LOGIN country against getKnownCountriesForUser history
+- [x] Auth Events new-country filter — amber "New Country Only" toggle button, reads URL params for deep-linking from Active Sessions
+- [x] newCountryOnly filter in getKeycloakEvents — SQL WHERE clause filters unacknowledged LOGIN geo events
+- [x] getAuthEvents procedure — newCountryOnly input parameter added
+- [x] "Set as Global Default" button in anomaly config form
+- [x] Write server/keycloak.round50.test.ts (19 tests)

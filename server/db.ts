@@ -2759,11 +2759,13 @@ export async function getKeycloakEvents(params: {
   eventType?: string;
   fromDate?: Date;
   toDate?: Date;
+  /** When true, only return LOGIN events where geo_anomaly_acknowledged IS NOT TRUE */
+  newCountryOnly?: boolean;
 }) {
   const db = await getDb();
   if (!db) return [];
   try {
-    const { limit = 100, offset = 0, userId, eventType, fromDate, toDate } = params;
+    const { limit = 100, offset = 0, userId, eventType, fromDate, toDate, newCountryOnly } = params;
     const rows = await db.execute(sql`
       SELECT id, event_type, realm_id, client_id, user_id, session_id,
              ip_address, geo_country, geo_city, geo_anomaly_acknowledged, error, details, received_at
@@ -2773,6 +2775,11 @@ export async function getKeycloakEvents(params: {
         AND (${eventType ?? null} IS NULL OR event_type = ${eventType ?? null})
         AND (${fromDate ?? null} IS NULL OR received_at >= ${fromDate ?? null})
         AND (${toDate ?? null} IS NULL OR received_at <= ${toDate ?? null})
+        AND (${newCountryOnly ? true : null} IS NULL OR (
+          event_type = 'LOGIN'
+          AND geo_country IS NOT NULL
+          AND (geo_anomaly_acknowledged IS NULL OR geo_anomaly_acknowledged = FALSE)
+        ))
       ORDER BY received_at DESC
       LIMIT ${limit}
       OFFSET ${offset}
@@ -2901,5 +2908,56 @@ export async function acknowledgeGeoAnomaly(eventId: number): Promise<void> {
     `);
   } catch (err) {
     console.error("[DB] acknowledgeGeoAnomaly failed", err);
+  }
+}
+
+/** Sentinel userId for the global/default anomaly config row */
+export const GLOBAL_ANOMALY_CONFIG_USER_ID = 0;
+
+/**
+ * Get the global (admin-wide default) anomaly detection config.
+ * Falls back to hardcoded defaults if no global row exists.
+ */
+export async function getGlobalAnomalyConfig(): Promise<{
+  loginAnomalyWindowMinutes: number;
+  loginAnomalyThreshold: number;
+}> {
+  const db = await getDb();
+  if (!db) return { loginAnomalyWindowMinutes: 15, loginAnomalyThreshold: 5 };
+  try {
+    const rows = await db.execute(sql`
+      SELECT login_anomaly_window_minutes, login_anomaly_threshold
+      FROM admin_notification_prefs
+      WHERE user_id = ${GLOBAL_ANOMALY_CONFIG_USER_ID}
+      LIMIT 1
+    `);
+    const row = rows.rows[0] as { login_anomaly_window_minutes: number | null; login_anomaly_threshold: number | null } | undefined;
+    return {
+      loginAnomalyWindowMinutes: row?.login_anomaly_window_minutes ?? 15,
+      loginAnomalyThreshold: row?.login_anomaly_threshold ?? 5,
+    };
+  } catch (err) {
+    console.error("[DB] getGlobalAnomalyConfig failed", err);
+    return { loginAnomalyWindowMinutes: 15, loginAnomalyThreshold: 5 };
+  }
+}
+
+/**
+ * Set the global (admin-wide default) anomaly detection config.
+ * Uses the sentinel userId=0 row.
+ */
+export async function setGlobalAnomalyConfig(windowMinutes: number, threshold: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO admin_notification_prefs (user_id, login_anomaly_window_minutes, login_anomaly_threshold)
+      VALUES (${GLOBAL_ANOMALY_CONFIG_USER_ID}, ${windowMinutes}, ${threshold})
+      ON CONFLICT (user_id) DO UPDATE
+        SET login_anomaly_window_minutes = ${windowMinutes},
+            login_anomaly_threshold = ${threshold}
+    `);
+  } catch (err) {
+    console.error("[DB] setGlobalAnomalyConfig failed", err);
   }
 }

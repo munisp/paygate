@@ -135,6 +135,9 @@ import {
   getAnomalyConfig,
   setAnomalyConfig,
   acknowledgeGeoAnomaly,
+  getGlobalAnomalyConfig,
+  setGlobalAnomalyConfig,
+  getKnownCountriesForUser,
   getTenantBySlug,
   updateTenantBranding,
 } from "./db";
@@ -2604,6 +2607,7 @@ const middlewareRouter = router({
         eventType: z.string().optional(),
         fromDate: z.date().optional(),
         toDate: z.date().optional(),
+        newCountryOnly: z.boolean().optional(),
       }))
       .query(async ({ ctx, input }) => {
         const targetUserId =
@@ -2617,6 +2621,7 @@ const middlewareRouter = router({
           eventType: input.eventType,
           fromDate: input.fromDate,
           toDate: input.toDate,
+          newCountryOnly: input.newCountryOnly,
         });
         return { events, offset: input.offset, limit: input.limit };
       }),
@@ -2750,7 +2755,27 @@ const middlewareRouter = router({
           const sessRes = await fetch(url, { headers: { Authorization: `Bearer ${access_token}` } });
           if (!sessRes.ok) return { sessions: [], total: 0 };
           const sessions = await sessRes.json() as Array<{ id: string; userId: string; username: string; ipAddress: string; start: number; lastAccess: number; clients?: Record<string, string> }>;
-          return { sessions: sessions.slice(0, input.limit), total: sessions.length };
+          // Enrich each session with isNewCountry flag
+          const enriched = await Promise.all(
+            sessions.slice(0, input.limit).map(async (s) => {
+              try {
+                const known = await getKnownCountriesForUser(s.userId, 90);
+                const db2 = await getDb();
+                if (!db2) return { ...s, isNewCountry: false };
+                const recent = await db2.execute(sql`
+                  SELECT geo_country FROM keycloak_events
+                  WHERE user_id = ${s.userId} AND event_type = 'LOGIN' AND geo_country IS NOT NULL
+                  ORDER BY received_at DESC LIMIT 1
+                `);
+                const latestCountry = (recent.rows[0] as { geo_country: string } | undefined)?.geo_country;
+                const isNewCountry = !!latestCountry && !known.includes(latestCountry);
+                return { ...s, isNewCountry };
+              } catch {
+                return { ...s, isNewCountry: false };
+              }
+            })
+          );
+          return { sessions: enriched, total: sessions.length };
         } catch {
           return { sessions: [], total: 0 };
         }
@@ -2789,6 +2814,28 @@ const middlewareRouter = router({
         }
         await acknowledgeGeoAnomaly(input.eventId);
         return { ok: true, eventId: input.eventId };
+      }),
+
+    // ── Global anomaly config: get/set admin-wide default thresholds ──
+    getGlobalAnomalyConfig: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        return getGlobalAnomalyConfig();
+      }),
+
+    setGlobalAnomalyConfig: protectedProcedure
+      .input(z.object({
+        windowMinutes: z.number().int().min(1).max(1440),
+        threshold: z.number().int().min(1).max(1000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
+        return { ok: true };
       }),
 
     // ── Force-logout a specific Keycloak session (admin) ──

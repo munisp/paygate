@@ -105,6 +105,23 @@ export default function AuthEvents() {
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
   const [fromOpen, setFromOpen] = useState(false);
   const [toOpen, setToOpen] = useState(false);
+  const [newCountryOnly, setNewCountryOnly] = useState(false);
+
+  // Read URL params on mount (deep-link from Active Sessions geo badge)
+  const [urlParamsRead] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      userId: params.get("userId") ?? "",
+      newCountryOnly: params.get("newCountryOnly") === "true",
+    };
+  });
+  // Apply URL params once on mount
+  const [urlParamsApplied, setUrlParamsApplied] = useState(false);
+  if (!urlParamsApplied && (urlParamsRead.userId || urlParamsRead.newCountryOnly)) {
+    if (urlParamsRead.userId) setUserIdFilter(urlParamsRead.userId);
+    if (urlParamsRead.newCountryOnly) setNewCountryOnly(true);
+    setUrlParamsApplied(true);
+  }
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -118,7 +135,8 @@ export default function AuthEvents() {
     userId: isAdmin && userIdFilter.trim() ? userIdFilter.trim() : undefined,
     fromDate: fromDate ? startOfDay(fromDate) : undefined,
     toDate: toDate ? endOfDay(toDate) : undefined,
-  }), [page, eventTypeFilter, userIdFilter, fromDate, toDate, isAdmin]);
+    newCountryOnly: newCountryOnly || undefined,
+  }), [page, eventTypeFilter, userIdFilter, fromDate, toDate, isAdmin, newCountryOnly]);
 
   const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.getAuthEvents.useQuery(queryInput);
 
@@ -344,6 +362,24 @@ export default function AuthEvents() {
                     onChange={e => { setUserIdFilter(e.target.value); setPage(0); }}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* New Country Only toggle */}
+            {isAdmin && (
+              <div className="space-y-1">
+                <Label className="text-xs">Geo Alerts</Label>
+                <Button
+                  variant={newCountryOnly ? "default" : "outline"}
+                  size="sm"
+                  className={`gap-2 h-10 ${newCountryOnly ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-500" : ""}`}
+                  onClick={() => { setNewCountryOnly(v => !v); setPage(0); }}
+                  title="Show only unacknowledged new-country LOGIN events"
+                >
+                  <Globe className="w-4 h-4" />
+                  New Country Only
+                  {newCountryOnly && <X className="w-3 h-3 ml-1" />}
+                </Button>
               </div>
             )}
           </div>
