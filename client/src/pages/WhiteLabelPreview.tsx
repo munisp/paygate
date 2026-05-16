@@ -331,7 +331,7 @@ export default function WhiteLabelPreview() {
   const [previewHtml, setPreviewHtml] = useState("");
 
   // Load tenant data if tenantId provided
-  const { data: tenantData, isLoading } = trpc.wave28.tenantAdmin.getOverview.useQuery(
+  const { data: tenantData, isLoading, isError } = trpc.wave28.tenantAdmin.getOverview.useQuery(
     { tenantId },
     { enabled: !!tenantId }
   );

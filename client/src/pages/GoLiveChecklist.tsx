@@ -59,7 +59,7 @@ function SandboxCountdown({ expiry }: { expiry: string }) {
 
 export default function GoLiveChecklist() {
   const goLiveInterval = useAdaptiveInterval(60000);
-  const { data, isLoading, refetch, error } = trpc.system.goLiveChecklist.useQuery(undefined, {
+  const { data, isLoading, isError, refetch, error } = trpc.system.goLiveChecklist.useQuery(undefined, {
     refetchInterval: goLiveInterval,
   });
 

@@ -18,7 +18,7 @@ export default function AIInsights() {
   const [cohortBy, setCohortBy] = useState<"acquisition_channel" | "first_transaction_month" | "spending_tier">("first_transaction_month");
 
   const periodDays = period === 'last_7_days' ? 7 : period === 'last_30_days' ? 30 : period === 'last_90_days' ? 90 : 365;
-  const { data: insights, isLoading, refetch } = trpc.tier1to5.aiInsights.getInsights.useQuery({ periodDays });
+  const { data: insights, isLoading, isError, refetch } = trpc.tier1to5.aiInsights.getInsights.useQuery({ periodDays });
   const { data: cohort } = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 });
 
   if (!isLoading && !insights) {

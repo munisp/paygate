@@ -9,7 +9,7 @@ import { RefreshCw, Fingerprint, Shield, Clock, AlertTriangle } from "lucide-rea
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function SessionRisk() {
-  const { data: history, isLoading, refetch } = trpc.tier1to5.sessionRisk.getRiskHistory.useQuery({ limit: 50 });
+  const { data: history, isLoading, isError, refetch } = trpc.tier1to5.sessionRisk.getRiskHistory.useQuery({ limit: 50 });
 
   const riskColor = (score: number) => {
     if (score < 30) return "text-green-600 bg-green-50";

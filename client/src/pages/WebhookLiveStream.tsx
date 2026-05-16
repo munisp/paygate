@@ -50,7 +50,7 @@ const generateMockEvent = (): WebhookEvent => {
 
 export default function WebhookLiveStream() {
   // Real webhook deliveries from DB
-  const { data: realDeliveries, isLoading } = trpc.webhookDeliveries.list.useQuery({ limit: 20 });
+  const { data: realDeliveries, isLoading, isError } = trpc.webhookDeliveries.list.useQuery({ limit: 20 });
   const [events, setEvents] = useState<WebhookEvent[]>(() =>
     Array.from({ length: 8 }, generateMockEvent)
   );

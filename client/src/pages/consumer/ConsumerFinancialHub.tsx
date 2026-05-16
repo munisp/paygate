@@ -153,7 +153,7 @@ export default function ConsumerFinancialHub() {
   const { sseData, connected } = useMarketSSE();
   // Fallback polling (used when SSE is not delivering data)
   const marketInterval = useAdaptiveInterval(30_000);
-  const { data: polledSummary, isLoading } = trpc.newFeatures.marketData.summary.useQuery(undefined, {
+  const { data: polledSummary, isLoading, isError } = trpc.newFeatures.marketData.summary.useQuery(undefined, {
     refetchInterval: sseData ? false : marketInterval,
     staleTime: 20_000,
   });

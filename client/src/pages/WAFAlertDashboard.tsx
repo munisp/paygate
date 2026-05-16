@@ -57,7 +57,7 @@ const generateMockEvents = () => {
 
 export default function WAFAlertDashboard() {
   // Real WAF alerts from DB via wafAlerts router
-  const { data: wafAlertsData, isLoading, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 });
+  const { data: wafAlertsData, isLoading, isError, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 });
   const { data: wafStats } = trpc.wafAlerts.stats.useQuery();
   const { data: topAttackersData } = trpc.wafAlerts.getTopAttackers.useQuery({ limit: 10 });
   

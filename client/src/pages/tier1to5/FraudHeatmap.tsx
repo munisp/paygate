@@ -18,7 +18,7 @@ export default function FraudHeatmap() {
   const [fraudType, setFraudType] = useState("all");
 
   const hours = period === 'last_24h' ? 24 : period === 'last_7_days' ? 168 : 168;
-  const { data: heatmapData, isLoading, refetch } = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours });
+  const { data: heatmapData, isLoading, isError, refetch } = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours });
   const { data: clusters } = trpc.tier1to5.fraudHeatmap.getClusters.useQuery({ hours, radiusKm: 5 });
   const { data: velocity } = trpc.tier1to5.fraudHeatmap.getVelocityByRegion.useQuery({ hours });
   const { data: forecast } = trpc.tier1to5.aiInsights.getSettlementForecast.useQuery({ forecastDays: 7 });

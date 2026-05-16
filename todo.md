@@ -4937,3 +4937,5 @@
 - [x] Fixed wave90Router.ts: added TRPCError import and role check in partnerOnboardingRouter
 - [x] Admin routes wrapped with AdminGuard in App.tsx (frontend auth enforcement)
 - [x] 24 new Wave 144 production-readiness tests
+
+- [x] Wave 145: isError destructuring added to all PWA pages with tRPC calls (AIInsights, FraudHeatmap, SessionRisk, WebhookLiveStream, GoLiveChecklist, WAFAlertDashboard, WhiteLabelPreview, ConsumerFinancialHub). 6,425 tests passing.
