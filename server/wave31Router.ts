@@ -312,7 +312,7 @@ const middlewareHealthAlertRouter = router({
       serviceName: z.enum(['NIBSS', 'Mojaloop', 'VTPass', 'Termii', 'Youverify', 'USSD']),
       alertType: z.string(),
       severity: z.enum(['info', 'warning', 'critical']),
-      message: z.string(),
+      message: z.string().max(5000),
       errorRate: z.number().optional(),
       latencyP99Ms: z.number().optional(),
     }))
@@ -374,7 +374,7 @@ const payoutApprovalRouter = router({
     }),
 
   reject: protectedProcedure
-    .input(z.object({ id: z.number(), approverId: z.number(), reason: z.string() }))
+    .input(z.object({ id: z.number(), approverId: z.number(), reason: z.string().max(5000) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");

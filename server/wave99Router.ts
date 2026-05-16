@@ -139,7 +139,7 @@ const geofenceRulesRouter = router({
   }),
   create: protectedProcedure
     .input(z.object({
-      name: z.string(),
+      name: z.string().min(1).max(500),
       lat: z.number(),
       lng: z.number(),
       radiusMeters: z.number().positive(),
@@ -352,7 +352,7 @@ const loyaltyRouter = router({
   createProgram: protectedProcedure
     .input(z.object({
       merchantId: z.number(),
-      name: z.string(),
+      name: z.string().min(1).max(500),
       pointsPerNaira: z.number().default(1),
       redemptionRate: z.number().default(100),
       expiryDays: z.number().default(365),
@@ -502,7 +502,7 @@ const kdsStationsRouter = router({
     return row;
   }),
   create: protectedProcedure
-    .input(z.object({ merchantId: z.number(), name: z.string(), stationType: z.enum(["grill", "cold", "bar", "pastry", "main"]) }))
+    .input(z.object({ merchantId: z.number(), name: z.string().min(1).max(500), stationType: z.enum(["grill", "cold", "bar", "pastry", "main"]) }))
     .mutation(async ({ input }) => {
       const d = await db();
       const [row] = await d.insert(schema.kdsStations).values({ ...input, isActive: 1 }).$returningId();

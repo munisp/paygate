@@ -244,6 +244,20 @@ export const portalBillingRouter = router({
     });
 
     await updatePortalSubscription(merchantId, { cancelAtPeriodEnd: 1 });
+    // Audit: subscription cancellation is a critical billing event
+    try {
+      const { publishAuditEvent } = await import("../auditEvents");
+      await publishAuditEvent({
+        merchantId,
+        actorId: String(ctx.user.id),
+        actorName: ctx.user.name ?? "Unknown",
+        actorEmail: ctx.user.email ?? null,
+        action: "subscription.cancel",
+        resource: "portal_subscription",
+        resourceId: sub.stripeSubscriptionId,
+        metadata: { cancelAtPeriodEnd: true },
+      });
+    } catch { /* non-blocking */ }
     return { success: true };
   }),
 });

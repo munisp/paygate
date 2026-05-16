@@ -4940,3 +4940,7 @@
 
 - [x] Wave 145: isError destructuring added to all PWA pages with tRPC calls (AIInsights, FraudHeatmap, SessionRisk, WebhookLiveStream, GoLiveChecklist, WAFAlertDashboard, WhiteLabelPreview, ConsumerFinancialHub). 6,425 tests passing.
 - [x] Wave 146: Add limit/offset pagination to all list procedures (apiKeys, webhooks, virtualCards, paymentLinks, team, geofence, vendor, sip, orphanedCRUD, wave24/30/32/68/90/99 routers)
+- [x] Wave 147: Add length constraints to free-text mutation inputs (name/title/label: min(1).max(500), description/notes/reason/etc.: max(5000)) across 18 router files
+- [x] Wave 148: Add audit events to cancelSubscription (portalBillingRouter) and cancel (crud119) mutations
+- [x] Wave 149: Add .ok checks to fetch() calls in tier1to5Router.ts; verify tier6to8Router and newFeaturesRouter already handle errors
+- [x] Wave 150: Final comprehensive audit - schema index coverage (417 indexes, 216 tables), fire-and-forget audit events verified, stripe webhook signature verification confirmed, all wave 146-149 checks passing

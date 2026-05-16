@@ -308,7 +308,7 @@ export const reconciliationRouter = router({
     .input(z.object({
       discrepancyId: z.string(),
       resolution: z.string(),
-      notes: z.string(),
+      notes: z.string().max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
       return bridgePost('/reconciliation/resolve', {
@@ -329,7 +329,7 @@ export const invoiceBuilderRouter = router({
       customerName: z.string(),
       customerId: z.string().optional(),
       lineItems: z.array(z.object({
-        description: z.string(),
+        description: z.string().max(5000),
         quantity: z.number().positive(),
         unitPriceKobo: z.number().positive(),
         taxPct: z.number().min(0).max(100).default(0),
@@ -378,7 +378,7 @@ export const invoiceBuilderRouter = router({
     }),
 
   cancelInvoice: protectedProcedure
-    .input(z.object({ invoiceId: z.string(), reason: z.string() }))
+    .input(z.object({ invoiceId: z.string(), reason: z.string().max(5000) }))
     .mutation(async ({ ctx, input }) => {
       return bridgePost('/invoices/cancel', { invoice_id: input.invoiceId, merchant_id: ctx.user.id, reason: input.reason });
     }),
@@ -400,7 +400,7 @@ export const chargebackRouter = router({
       chargebackId: z.string(),
       evidenceType: z.enum(['receipt', 'delivery_proof', 'customer_communication', 'refund_proof', 'other']),
       evidenceUrl: z.string().url(),
-      description: z.string(),
+      description: z.string().max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
       return bridgePost('/chargebacks/evidence', {
@@ -439,6 +439,7 @@ export const amlRouter = router({
       if (input.severity !== 'all') params.set('severity', input.severity);
       if (input.status !== 'all') params.set('status', input.status);
       const res = await fetch(`${AML_MONITOR_URL}/alerts?${params}`);
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 
@@ -446,7 +447,7 @@ export const amlRouter = router({
     .input(z.object({
       alertId: z.string(),
       status: z.enum(['under_review', 'cleared', 'escalated', 'reported']),
-      notes: z.string(),
+      notes: z.string().max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
       const res = await fetch(`${AML_MONITOR_URL}/alerts/${input.alertId}`, {
@@ -459,12 +460,14 @@ export const amlRouter = router({
           reviewed_by: ctx.user.id,
         }),
       });
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 
   getMerchantRiskScore: protectedProcedure
     .query(async ({ ctx }) => {
       const res = await fetch(`${AML_MONITOR_URL}/risk-score/${ctx.user.id}`);
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 });
@@ -715,6 +718,7 @@ export const aiInsightsRouter = router({
           insight_types: input.insightTypes,
         }),
       });
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 
@@ -733,6 +737,7 @@ export const aiInsightsRouter = router({
           lookback_months: input.lookbackMonths,
         }),
       });
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 
@@ -747,6 +752,7 @@ export const aiInsightsRouter = router({
           forecast_days: input.forecastDays,
         }),
       });
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 });
@@ -762,6 +768,7 @@ export const fraudHeatmapRouter = router({
       const res = await fetch(
         `${FRAUD_HEATMAP_URL}/heatmap?hours=${input.hours}&merchant_id=${ctx.user.id}`
       );
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 
@@ -774,6 +781,7 @@ export const fraudHeatmapRouter = router({
       const res = await fetch(
         `${FRAUD_HEATMAP_URL}/clusters?hours=${input.hours}&radius_km=${input.radiusKm}&merchant_id=${ctx.user.id}`
       );
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 
@@ -781,6 +789,7 @@ export const fraudHeatmapRouter = router({
     .input(z.object({ hours: z.number().int().min(1).max(168).default(24) }))
     .query(async ({ ctx, input }) => {
       const res = await fetch(`${FRAUD_HEATMAP_URL}/velocity?hours=${input.hours}`);
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `External service returned ${res.status}` });
       return res.json();
     }),
 });

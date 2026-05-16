@@ -493,7 +493,7 @@ export const splitRulesCRUD = router({
       description: z.string().optional(),
       recipients: z.array(z.object({
         accountId: z.string(),
-        name: z.string(),
+        name: z.string().min(1).max(500),
         percentageBps: z.number().min(1).max(10000),
       })),
     }))
@@ -542,7 +542,7 @@ export const bulkSchedulesCRUD = router({
   create: protectedProcedure
     .input(z.object({
       scheduleName: z.string().min(2),
-      recipients: z.array(z.object({ accountId: z.string(), amountKobo: z.number(), name: z.string() })),
+      recipients: z.array(z.object({ accountId: z.string(), amountKobo: z.number(), name: z.string().min(1).max(500) })),
       totalAmountKobo: z.number(),
       scheduledAt: z.string(),
     }))
@@ -786,7 +786,7 @@ export const escrowContractsCRUD = router({
       return (rows as any[])[0] ?? null;
     }),
   create: protectedProcedure
-    .input(z.object({ buyerEmail: z.string().email(), sellerEmail: z.string().email(), amount: z.number().positive(), currency: z.string().length(3), description: z.string(), expiresAt: z.string().optional() }))
+    .input(z.object({ buyerEmail: z.string().email(), sellerEmail: z.string().email(), amount: z.number().positive(), currency: z.string().length(3), description: z.string().max(5000), expiresAt: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
@@ -807,7 +807,7 @@ export const escrowContractsCRUD = router({
       return { success: true };
     }),
   dispute: protectedProcedure
-    .input(z.object({ id: z.number(), reason: z.string() }))
+    .input(z.object({ id: z.number(), reason: z.string().max(5000) }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);

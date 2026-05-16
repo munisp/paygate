@@ -385,7 +385,7 @@ export const splitRulesRouter = router({
   }),
   create: protectedProcedure.input(z.object({
     merchantId: z.string(),
-    name: z.string(),
+    name: z.string().min(1).max(500),
     rules: z.array(z.object({
       subaccountCode: z.string(),
       sharePercent: z.number().min(0).max(100),
@@ -563,7 +563,7 @@ export const insuranceRouter = router({
   fileClaim: protectedProcedure.input(z.object({
     policyId: z.string(),
     claimType: z.string(),
-    description: z.string(),
+    description: z.string().max(5000),
     claimAmountKobo: z.number().int().positive(),
     incidentDate: z.string(),
   })).mutation(async ({ input }) => {
@@ -973,8 +973,8 @@ export const subscriptionV2Router = router({
     return row;
   }),
   createPlan: protectedProcedure.input(z.object({
-    name: z.string(),
-    description: z.string(),
+    name: z.string().min(1).max(500),
+    description: z.string().max(5000),
     monthlyPriceKobo: z.number().int().min(0),
     annualPriceKobo: z.number().int().min(0),
     features: z.array(z.string()),
@@ -1033,6 +1033,20 @@ export const subscriptionV2Router = router({
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     await db.update(portalSubscriptions).set({ status: "cancelled", cancelledAt: new Date(), updatedAt: new Date() } as any).where(eq((portalSubscriptions as any).userId, ctx.user.id));
+    // Audit: subscription cancellation
+    try {
+      const { publishAuditEvent } = await import("../../auditEvents");
+      await publishAuditEvent({
+        merchantId: String(ctx.user.id),
+        actorId: String(ctx.user.id),
+        actorName: ctx.user.name ?? "Unknown",
+        actorEmail: ctx.user.email ?? null,
+        action: "subscription.cancel",
+        resource: "portal_subscription",
+        resourceId: String(ctx.user.id),
+        metadata: {},
+      });
+    } catch { /* non-blocking */ }
     return { success: true };
   }),
 });
@@ -1048,7 +1062,7 @@ export const overheadRouter = router({
   }),
   create: protectedProcedure.input(z.object({
     category: z.enum(["infrastructure", "labor", "operations", "travel", "marketing", "legal", "other"]),
-    description: z.string(),
+    description: z.string().max(5000),
     amountKobo: z.number().int().positive(),
     currency: z.string().length(3).default("NGN"),
     periodMonth: z.string(),

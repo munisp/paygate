@@ -76,7 +76,7 @@ const insuranceRouter = router({
     .input(z.object({
       policyId: z.string(),
       claimType: z.string(),
-      description: z.string(),
+      description: z.string().max(5000),
       evidenceUrls: z.array(z.string()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -127,7 +127,7 @@ const nftBadgesRouter = router({
     .input(z.object({
       name: z.string().min(1),
       symbol: z.string().min(1).max(10),
-      description: z.string(),
+      description: z.string().max(5000),
       maxSupply: z.number().int().positive(),
       imageUrl: z.string().url(),
       badgeTiers: z.array(z.object({ tier: z.string(), minPoints: z.number(), imageUrl: z.string() })),
@@ -241,7 +241,7 @@ const escrowRouter = router({
       buyerId: z.string(),
       sellerId: z.string(),
       amountKobo: z.number().positive(),
-      description: z.string(),
+      description: z.string().max(5000),
       releaseConditions: z.string(),
       expiryDays: z.number().int().min(1).max(365).default(30),
       currency: z.enum(["NGN", "USD", "GBP", "EUR"]).default("NGN"),
@@ -263,7 +263,7 @@ const escrowRouter = router({
       return res as { status: string; releasedAt: string; settlementId: string };
     }),
   disputeEscrow: protectedProcedure
-    .input(z.object({ escrowId: z.string(), reason: z.string(), evidenceUrls: z.array(z.string()).optional() }))
+    .input(z.object({ escrowId: z.string(), reason: z.string().max(5000), evidenceUrls: z.array(z.string()).optional() }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/escrow/dispute", { ...input, merchantId: ctx.user.id });
       return res as { disputeId: string; status: string; arbitratorAssigned: boolean };
@@ -280,7 +280,7 @@ const escrowRouter = router({
 const bulkSchedulerRouter = router({
   createSchedule: protectedProcedure
     .input(z.object({
-      name: z.string(),
+      name: z.string().min(1).max(500),
       scheduleType: z.enum(["one_time", "daily", "weekly", "monthly"]),
       scheduledAt: z.string().datetime(),
       recipients: z.array(z.object({
@@ -662,7 +662,7 @@ const lakehouseV2Router = router({
   }),
   saveQuery: protectedProcedure
     .input(z.object({
-      name: z.string(),
+      name: z.string().min(1).max(500),
       sql: z.string(),
       schedule: z.string().optional(),
       notifyOnComplete: z.boolean().default(false),
@@ -827,7 +827,7 @@ const agentBankingV2Router = router({
       phoneNumber: z.string(),
       bvn: z.string(),
       nin: z.string(),
-      address: z.string(),
+      address: z.string().max(5000),
       lga: z.string(),
       state: z.string(),
       terminalType: z.enum(["POS", "mobile", "kiosk"]),
@@ -850,7 +850,7 @@ const agentBankingV2Router = router({
       return res as { transactionId: string; newFloatBalanceKobo: number; status: string };
     }),
   suspendAgent: protectedProcedure
-    .input(z.object({ agentId: z.string(), reason: z.string() }))
+    .input(z.object({ agentId: z.string(), reason: z.string().max(5000) }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/agent-banking-v2/suspend", { ...input, merchantId: ctx.user.id });
       return res as { status: string; suspendedAt: string };
@@ -1018,7 +1018,7 @@ const agentBankingV3Router = router({
       return res as { agents: { agentId: string; name: string; phone: string; location: string; floatBalanceKobo: number; status: string; totalTransactions: number }[]; total: number };
     }),
   registerAgent: protectedProcedure
-    .input(z.object({ name: z.string(), phone: z.string(), bvn: z.string(), location: z.string(), lgaCode: z.string(), initialFloatKobo: z.number().min(1000000) }))
+    .input(z.object({ name: z.string().min(1).max(500), phone: z.string(), bvn: z.string(), location: z.string(), lgaCode: z.string(), initialFloatKobo: z.number().min(1000000) }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/agent-banking/register", { ...input, merchantId: ctx.user.id });
       return res as { agentId: string; accountNumber: string; status: string };
@@ -1060,7 +1060,7 @@ const loyaltyMerchantRouter = router({
       return res as { members: { customerId: string; name: string; points: number; tier: string; totalSpendKobo: number }[] };
     }),
   issuePoints: protectedProcedure
-    .input(z.object({ customerId: z.string(), points: z.number().min(1), reason: z.string() }))
+    .input(z.object({ customerId: z.string(), points: z.number().min(1), reason: z.string().max(5000) }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/loyalty/points/issue", { ...input, merchantId: ctx.user.id });
       return res as { success: boolean; newBalance: number; transactionId: string };

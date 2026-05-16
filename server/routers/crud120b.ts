@@ -488,7 +488,7 @@ export const tenantMgmtRouter = router({
     await db.update(tenants).set(rest).where(eq(tenants.id, id));
     return { success: true };
   }),
-  suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string() })).mutation(async ({ input }) => {
+  suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, input.id));
     return { success: true };
@@ -753,7 +753,7 @@ export const usdcRouter = router({
     return { wallets: rows, total: rows.length };
   }),
   createV2Wallet: protectedProcedure.input(z.object({
-    label: z.string(),
+    label: z.string().min(1).max(500),
     network: z.enum(["ethereum", "polygon", "solana", "base", "arbitrum"]),
     walletAddress: z.string(),
   })).mutation(async ({ ctx, input }) => {
@@ -806,7 +806,7 @@ export const insuranceClaimsRouter = router({
     claimType: z.string(),
     claimAmountKobo: z.number().int().positive(),
     incidentDate: z.number(),
-    description: z.string(),
+    description: z.string().max(5000),
     documents: z.array(z.string()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -840,7 +840,7 @@ export const insuranceClaimsRouter = router({
   }),
   reject: protectedProcedure.input(z.object({
     id: z.string(),
-    reason: z.string(),
+    reason: z.string().max(5000),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(userInsuranceClaims).set({

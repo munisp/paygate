@@ -562,7 +562,7 @@ export const loyaltyV3Router = router({
       redemptionRate: z.number().int().min(1).default(100),
       expiryDays: z.number().int().min(1).default(365),
       tiers: z.array(z.object({
-        name: z.string(),
+        name: z.string().min(1).max(500),
         minPoints: z.number().int(),
         multiplier: z.number(),
       })).default([]),

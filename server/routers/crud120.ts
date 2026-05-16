@@ -445,7 +445,7 @@ const consumerFinanceRouter = router({
     return { payments: rows, total: rows.length };
   }),
   createRecurringPayment: protectedProcedure.input(z.object({
-    name: z.string(),
+    name: z.string().min(1).max(500),
     amountKobo: z.number().int().positive(),
     frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
     nextRunAt: z.number(),
@@ -509,7 +509,7 @@ const consumerFinanceRouter = router({
     return { sessions: rows, total: rows.length };
   }),
   createSplitSession: protectedProcedure.input(z.object({
-    title: z.string(),
+    title: z.string().min(1).max(500),
     totalAmountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
     participants: z.array(z.object({
@@ -749,9 +749,9 @@ const escrowRouter = router({
     sellerId: z.string(),
     amountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
-    description: z.string(),
+    description: z.string().max(5000),
     milestones: z.array(z.object({
-      title: z.string(),
+      title: z.string().min(1).max(500),
       amountKobo: z.number().int().positive(),
       dueDate: z.number().optional(),
     })).optional(),
@@ -773,7 +773,7 @@ const escrowRouter = router({
       .where(eq(escrowContracts.id, input.id));
     return { success: true };
   }),
-  dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string() })).mutation(async ({ input }) => {
+  dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(escrowContracts).set({ status: "disputed" })
       .where(eq(escrowContracts.id, input.id));
@@ -811,7 +811,7 @@ const featureFlagsRouter = router({
   }),
   create: protectedProcedure.input(z.object({
     key: z.string().regex(/^[a-z][a-zA-Z0-9_]*$/),
-    name: z.string(),
+    name: z.string().min(1).max(500),
     description: z.string().optional(),
     enabled: z.boolean().default(false),
     rolloutPercentage: z.number().int().min(0).max(100).default(0),
@@ -884,7 +884,7 @@ const geofenceRouter = router({
     return { rules: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
-    name: z.string(),
+    name: z.string().min(1).max(500),
     lat: z.number(),
     lng: z.number(),
     radiusMeters: z.number().positive(),
@@ -1156,7 +1156,7 @@ const invoicesRouter = router({
     customerName: z.string().optional(),
     customerId: z.string().optional(),
     lineItems: z.array(z.object({
-      description: z.string(),
+      description: z.string().max(5000),
       quantity: z.number().positive(),
       unitPriceKobo: z.number().int().positive(),
     })),
@@ -1222,7 +1222,7 @@ const kdsRouter = router({
     return { stations: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
-    name: z.string(),
+    name: z.string().min(1).max(500),
     location: z.string().optional(),
     categories: z.array(z.string()).optional(),
     displayMode: z.enum(["grid", "list"]).default("grid"),
@@ -1265,11 +1265,11 @@ const loyaltyProgramsRouter = router({
     return { programs: rows, total: rows.length };
   }),
   createProgram: protectedProcedure.input(z.object({
-    name: z.string(),
+    name: z.string().min(1).max(500),
     pointsPerNaira: z.number().positive().default(1),
     redeemRate: z.number().positive().default(0.01),
     expiryDays: z.number().int().positive().optional(),
-    tiers: z.array(z.object({ name: z.string(), minPoints: z.number() })).optional(),
+    tiers: z.array(z.object({ name: z.string().min(1).max(500), minPoints: z.number() })).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(loyaltyPrograms).values({
@@ -1453,7 +1453,7 @@ const moneyRequestsRouter = router({
     payerId: z.string(),
     amountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
-    description: z.string(),
+    description: z.string().max(5000),
     expiresAt: z.number().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -1576,7 +1576,7 @@ const nfcRouter = router({
   }),
   registerDevice: protectedProcedure.input(z.object({
     deviceId: z.string(),
-    label: z.string(),
+    label: z.string().min(1).max(500),
     location: z.string().optional(),
     terminalId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
@@ -1613,7 +1613,7 @@ const nftBadgesRouter = router({
     return { badges: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
-    name: z.string(),
+    name: z.string().min(1).max(500),
     description: z.string().optional(),
     imageUrl: z.string().url().optional(),
     criteria: z.record(z.unknown()).optional(),
@@ -2007,7 +2007,7 @@ const recipeRouter = router({
   }),
   create: protectedProcedure.input(z.object({
     recipeId: z.string(),
-    name: z.string(),
+    name: z.string().min(1).max(500),
     quantity: z.number().positive(),
     unit: z.string(),
     costPerUnitKobo: z.number().int().positive().optional(),
@@ -2174,7 +2174,7 @@ const restaurantRouter = router({
     tableId: z.string().optional(),
     items: z.array(z.object({
       menuItemId: z.string(),
-      name: z.string(),
+      name: z.string().min(1).max(500),
       quantity: z.number().int().positive(),
       unitPriceKobo: z.number().int().positive(),
       notes: z.string().optional(),
@@ -2237,7 +2237,7 @@ const sdkTokensRouter = router({
     return { tokens: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
-    label: z.string(),
+    label: z.string().min(1).max(500),
     platform: z.enum(["web", "ios", "android", "flutter", "react_native"]),
     permissions: z.array(z.string()).optional(),
     expiresAt: z.number().optional(),

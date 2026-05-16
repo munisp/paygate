@@ -6689,7 +6689,7 @@ const restaurantRouter = router({
     slug: z.string(),
     customerName: z.string().min(1),
     customerPhone: z.string().min(7),
-    items: z.array(z.object({ menuItemId: z.string(), name: z.string(), qty: z.number().min(1), unitPriceKobo: z.number().min(0) })),
+    items: z.array(z.object({ menuItemId: z.string(), name: z.string().min(1).max(500), qty: z.number().min(1), unitPriceKobo: z.number().min(0) })),
     notes: z.string().optional(),
     deliveryAddress: z.string().optional(),
   })).mutation(async ({ input }) => {
@@ -7633,7 +7633,7 @@ const aiRouter = router({
     .input(z.object({
       messages: z.array(z.object({
         role: z.enum(["system", "user", "assistant"]),
-        content: z.string(),
+        content: z.string().max(5000),
       })),
       systemPrompt: z.string().optional(),
     }))

@@ -617,7 +617,7 @@ const loyaltyTierRouter = router({
     .input(z.object({
       userId: z.string(),
       points: z.number().positive(),
-      reason: z.string(),
+      reason: z.string().max(5000),
       transactionId: z.string().optional(),
     }))
     .mutation(async ({ input }) => {

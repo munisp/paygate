@@ -321,7 +321,7 @@ const disputeMgmtRouter = router({
     }),
 
   escalateDispute: adminProcedure
-    .input(z.object({ disputeId: z.string(), reason: z.string() }))
+    .input(z.object({ disputeId: z.string(), reason: z.string().max(5000) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -362,7 +362,7 @@ const fraudOversightRouter = router({
     }),
 
   banMerchant: adminProcedure
-    .input(z.object({ merchantId: z.string(), reason: z.string() }))
+    .input(z.object({ merchantId: z.string(), reason: z.string().max(5000) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -555,7 +555,7 @@ const complianceRouter = router({
       merchantId: z.string(),
       startDate: z.string(),
       endDate: z.string(),
-      reason: z.string(),
+      reason: z.string().max(5000),
     }))
     .mutation(async ({ input }) => {
       // Generate a Suspicious Activity Report summary

@@ -252,7 +252,7 @@ const slaAlertingRouter = router({
 
   createIncident: protectedProcedure
     .input(z.object({
-      title: z.string(),
+      title: z.string().min(1).max(500),
       severity: z.enum(['critical', 'warning', 'info']),
       description: z.string().optional(),
       uptimePct: z.number().optional(),
@@ -606,7 +606,7 @@ const payoutApprovalRouter = router({
     }),
 
   reject: protectedProcedure
-    .input(z.object({ payoutId: z.string(), rejectedBy: z.number(), reason: z.string() }))
+    .input(z.object({ payoutId: z.string(), rejectedBy: z.number(), reason: z.string().max(5000) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
@@ -926,7 +926,7 @@ const grafanaDashboardRouter = router({
   upsert: protectedProcedure
     .input(z.object({
       uid: z.string(),
-      title: z.string(),
+      title: z.string().min(1).max(500),
       description: z.string().optional(),
       panelCount: z.number().default(0),
       tags: z.array(z.string()).default([]),

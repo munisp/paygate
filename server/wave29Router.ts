@@ -994,7 +994,7 @@ const rateLimitDashboardRouter = router({
     .input(z.object({
       tenantId: z.string(),
       overrideMultiplier: z.number().min(1).max(10),
-      reason: z.string(),
+      reason: z.string().max(5000),
     }))
     .mutation(async ({ input }) => {
       // Store override in tenant metadata

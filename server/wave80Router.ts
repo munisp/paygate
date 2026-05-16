@@ -166,7 +166,7 @@ const escrowV2Router = router({
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(escrowContractsV2).where(where);
     return { contracts, total: Number(count) };
   }),
-  createContract: protectedProcedure.input(z.object({ title: z.string(), description: z.string().optional(), amount: z.number().min(1), currency: z.string().default("NGN"), buyerId: z.string().optional(), sellerId: z.string().optional(), releaseConditions: z.string().optional(), expiryDays: z.number().default(30) })).mutation(async ({ input, ctx }) => {
+  createContract: protectedProcedure.input(z.object({ title: z.string().min(1).max(500), description: z.string().optional(), amount: z.number().min(1), currency: z.string().default("NGN"), buyerId: z.string().optional(), sellerId: z.string().optional(), releaseConditions: z.string().optional(), expiryDays: z.number().default(30) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     const [contract] = await db.insert(escrowContractsV2).values({ merchantId: ctx.user.id.toString().toString(), title: input.title, description: input.description, amount: input.amount, currency: input.currency, buyerId: input.buyerId, sellerId: input.sellerId, releaseConditions: input.releaseConditions, status: "pending", expiresAt: new Date(Date.now() + input.expiryDays * 24 * 60 * 60 * 1000) }).returning();
     return { contract };
@@ -176,7 +176,7 @@ const escrowV2Router = router({
     await db.update(escrowContractsV2).set({ status: "released", releasedAt: new Date(), updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
     return { success: true };
   }),
-  disputeContract: protectedProcedure.input(z.object({ contractId: z.string(), reason: z.string() })).mutation(async ({ input, ctx }) => {
+  disputeContract: protectedProcedure.input(z.object({ contractId: z.string(), reason: z.string().max(5000) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     await db.update(escrowContractsV2).set({ status: "disputed", disputeReason: input.reason, updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
     return { success: true };
@@ -198,7 +198,7 @@ const marketplacePayRouter = router({
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(marketplaceOrders).where(where);
     return { orders, total: Number(count) };
   }),
-  createOrder: protectedProcedure.input(z.object({ buyerEmail: z.string().email(), items: z.array(z.object({ name: z.string(), price: z.number(), qty: z.number() })), currency: z.string().default("NGN"), paymentMethod: z.string().default("card") })).mutation(async ({ input, ctx }) => {
+  createOrder: protectedProcedure.input(z.object({ buyerEmail: z.string().email(), items: z.array(z.object({ name: z.string().min(1).max(500), price: z.number(), qty: z.number() })), currency: z.string().default("NGN"), paymentMethod: z.string().default("card") })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     const subtotal = input.items.reduce((s, i) => s + i.price * i.qty, 0);
     const platformFee = Math.round(subtotal * 0.015);
@@ -536,7 +536,7 @@ const multiCurrencyLedgerRouter = router({
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(multiCurrencyLedgerEntries).where(where);
     return { entries, total: Number(count) };
   }),
-  postEntry: protectedProcedure.input(z.object({ currency: z.string(), type: z.enum(["credit", "debit"]), amount: z.number().min(1), description: z.string(), reference: z.string().optional() })).mutation(async ({ input, ctx }) => {
+  postEntry: protectedProcedure.input(z.object({ currency: z.string(), type: z.enum(["credit", "debit"]), amount: z.number().min(1), description: z.string().max(5000), reference: z.string().optional() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     const [account] = await db.select().from(multiCurrencyLedgerAccounts).where(and(eq(multiCurrencyLedgerAccounts.merchantId, ctx.user.id.toString()), eq(multiCurrencyLedgerAccounts.currency, input.currency)));
     if (!account) throw new TRPCError({ code: "NOT_FOUND", message: `No ${input.currency} account found` });
@@ -602,7 +602,7 @@ const temporalWorkflowMgmtRouter = router({
       ],
     };
   }),
-  cancelWorkflow: protectedProcedure.input(z.object({ workflowId: z.string(), reason: z.string() })).mutation(async ({ input, ctx }) => {
+  cancelWorkflow: protectedProcedure.input(z.object({ workflowId: z.string(), reason: z.string().max(5000) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
     const { payouts } = await import('../drizzle/schema');
     const { eq: eqOp, and: andOp } = await import('drizzle-orm');
@@ -737,7 +737,7 @@ const ussdSessionV2Router = router({
       { id: 'bills', title: 'Bill Payment', options: ['1. Electricity', '2. Water', '3. Cable TV', '0. Back'] },
     ] };
   }),
-  updateMenuFlow: protectedProcedure.input(z.object({ menus: z.array(z.object({ id: z.string(), title: z.string(), options: z.array(z.string()) })) })).mutation(async ({ input }) => {
+  updateMenuFlow: protectedProcedure.input(z.object({ menus: z.array(z.object({ id: z.string(), title: z.string().min(1).max(500), options: z.array(z.string()) })) })).mutation(async ({ input }) => {
     return { success: true, updatedMenus: input.menus.length };
   }),
   getDropOffAnalysis: protectedProcedure.input(z.object({ period: z.string().default('30d') })).query(async ({ ctx }) => {
@@ -797,7 +797,7 @@ const realtimeNotificationsRouter = router({
     const sent = history.length; const delivered = history.filter(h => h.status === "delivered").length; const failed = history.filter(h => h.status === "failed").length;
     return { sent, delivered, failed, deliveryRate: sent > 0 ? Math.round((delivered / sent) * 100) : 0 };
   }),
-  testNotification: protectedProcedure.input(z.object({ channel: z.string(), message: z.string() })).mutation(async ({ input, ctx }) => {
+  testNotification: protectedProcedure.input(z.object({ channel: z.string(), message: z.string().max(5000) })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     const messageId = `test-${Date.now()}`;
     await db.insert(realtimeNotificationHistory).values({ merchantId: ctx.user.id.toString().toString(), channel: input.channel, eventType: "test", title: "Test Notification", body: input.message, status: "delivered", deliveredAt: new Date() });

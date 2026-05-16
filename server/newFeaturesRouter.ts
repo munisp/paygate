@@ -210,7 +210,7 @@ export const consumerInsuranceRouter = router({
       return res;
     }),
   fileClaim: protectedProcedure
-    .input(z.object({ policyId: z.string(), claimType: z.string(), description: z.string(), amountKobo: z.number().positive(), evidenceUrls: z.array(z.string()).optional() }))
+    .input(z.object({ policyId: z.string(), claimType: z.string(), description: z.string().max(5000), amountKobo: z.number().positive(), evidenceUrls: z.array(z.string()).optional() }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/consumer-insurance/claim", { ...input, userId: ctx.user.id }) as { claimId: string; claimNumber: string; status: string; estimatedResolutionDate: string };
       onInsuranceClaimSubmitted(ctx.user.id.toString(), { claimId: res.claimId, policyId: input.policyId, claimAmountKobo: input.amountKobo, userId: ctx.user.id });
@@ -357,7 +357,7 @@ export const wealthManagementRouter = router({
     return res as { goals: { goalId: string; name: string; targetAmountKobo: number; currentAmountKobo: number; targetDate: string; progressPct: number; monthlyRequiredKobo: number }[] };
   }),
   createGoal: protectedProcedure
-    .input(z.object({ name: z.string(), targetAmountKobo: z.number().positive(), targetDate: z.string(), initialDepositKobo: z.number().optional() }))
+    .input(z.object({ name: z.string().min(1).max(500), targetAmountKobo: z.number().positive(), targetDate: z.string(), initialDepositKobo: z.number().optional() }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/wealth/goals/create", { ...input, userId: ctx.user.id });
       return res as { goalId: string; name: string; targetAmountKobo: number; monthlyRequiredKobo: number; status: string };
@@ -401,7 +401,7 @@ export const emiCheckoutRouter = router({
 export const bulkCollectionsRouter = router({
   createCollection: protectedProcedure
     .input(z.object({
-      name: z.string(),
+      name: z.string().min(1).max(500),
       description: z.string().optional(),
       items: z.array(z.object({
         customerName: z.string(), customerPhone: z.string(), customerEmail: z.string().optional(),
@@ -720,7 +720,7 @@ export const nodalAccountsRouter = router({
     return res as { accounts: { accountId: string; accountNumber: string; bankName: string; purpose: string; balanceKobo: number; status: string; createdAt: string }[] };
   }),
   createNodalAccount: protectedProcedure
-    .input(z.object({ purpose: z.enum(["escrow", "marketplace", "collections", "payroll", "insurance"]), bankCode: z.string(), description: z.string() }))
+    .input(z.object({ purpose: z.enum(["escrow", "marketplace", "collections", "payroll", "insurance"]), bankCode: z.string(), description: z.string().max(5000) }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/nodal-accounts/create", { ...input, merchantId: ctx.user.id });
       return res as { accountId: string; accountNumber: string; bankName: string; status: string };
@@ -747,7 +747,7 @@ export const smartRetailPOSRouter = router({
   }),
   processRetailSale: protectedProcedure
     .input(z.object({
-      items: z.array(z.object({ sku: z.string(), name: z.string(), quantity: z.number(), unitPriceKobo: z.number(), discount: z.number().default(0) })),
+      items: z.array(z.object({ sku: z.string(), name: z.string().min(1).max(500), quantity: z.number(), unitPriceKobo: z.number(), discount: z.number().default(0) })),
       paymentMethod: z.enum(["cash", "card", "transfer", "qr", "wallet", "split"]),
       customerId: z.string().optional(),
       applyLoyalty: z.boolean().default(false),
@@ -816,7 +816,7 @@ export const subscriptionBillingV2Router = router({
     return res as { plans: { planId: string; name: string; description: string; priceKobo: number; currency: string; interval: string; intervalCount: number; trialDays: number; features: string[]; activeSubscribers: number; status: string }[] };
   }),
   createPlan: protectedProcedure
-    .input(z.object({ name: z.string(), description: z.string(), priceKobo: z.number().positive(), currency: z.string().default("NGN"), interval: z.enum(["day", "week", "month", "year"]), intervalCount: z.number().int().min(1).default(1), trialDays: z.number().int().min(0).default(0), features: z.array(z.string()) }))
+    .input(z.object({ name: z.string().min(1).max(500), description: z.string().max(5000), priceKobo: z.number().positive(), currency: z.string().default("NGN"), interval: z.enum(["day", "week", "month", "year"]), intervalCount: z.number().int().min(1).default(1), trialDays: z.number().int().min(0).default(0), features: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
       const res = await bridgePost("/subscriptions-v2/plans/create", { ...input, merchantId: ctx.user.id });
       return res as { planId: string; status: string };

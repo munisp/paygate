@@ -44,7 +44,7 @@ export const ollamaRouter = router({
         messages: z.array(
           z.object({
             role: z.enum(["system", "user", "assistant"]),
-            content: z.string(),
+            content: z.string().max(5000),
           })
         ),
         model: z.string().optional(),
@@ -95,7 +95,7 @@ export const ollamaRouter = router({
           .array(
             z.object({
               role: z.enum(["user", "assistant"]),
-              content: z.string(),
+              content: z.string().max(5000),
             })
           )
           .optional(),

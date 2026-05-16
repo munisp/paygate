@@ -1008,7 +1008,7 @@ const sdkTokensRouter = router({
     return { total: Number(total), active: Number(active), revoked: Number(total) - Number(active) };
   }),
   create: protectedProcedure
-    .input(z.object({ name: z.string(), environment: z.enum(['live', 'test']).default('test'), expiresAt: z.date().optional() }))
+    .input(z.object({ name: z.string().min(1).max(500), environment: z.enum(['live', 'test']).default('test'), expiresAt: z.date().optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
