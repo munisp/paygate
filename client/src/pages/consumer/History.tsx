@@ -53,6 +53,7 @@ export default function ConsumerHistory() {
   const PAGE_SIZE = 20;
 
   const walletQuery = trpc.consumerWallet.getBalance.useQuery({ currency: 'NGN' });
+  const walletError = walletQuery.isError;
   const historyQuery = trpc.consumerWallet.history.useQuery({
     currency: 'NGN',
     limit: PAGE_SIZE,

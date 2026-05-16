@@ -18,7 +18,7 @@ export default function ConsumerReferrals() {
   const [page, setPage] = useState(0);
   const limit = 10;
 
-  const { data: myCode, isLoading: codeLoading } = trpc.wave24.referrals.getMyCode.useQuery();
+  const { data: myCode, isLoading: codeLoading, isError } = trpc.wave24.referrals.getMyCode.useQuery();
   const { data: stats } = trpc.wave24.referrals.getStats.useQuery();
   const { data: history } = trpc.wave24.referrals.list.useQuery({ limit, offset: page * limit });
 

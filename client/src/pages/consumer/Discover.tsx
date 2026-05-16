@@ -68,7 +68,7 @@ export default function Discover() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch wallet balance for the quick stats banner
-  const {isLoading, data: walletData} = trpc.consumerWallet.getBalance.useQuery(
+  const {isLoading, isError, data: walletData} = trpc.consumerWallet.getBalance.useQuery(
     { currency: "NGN" },
     { staleTime: 60_000 }
   );

@@ -4898,3 +4898,12 @@
 - [x] Production metrics: 350 PWA pages, 90 RN screens, 79 Flutter screens, 370 procedures, 37 audit events
 - [x] Audit coverage: settlement.created, payment_link.created, virtual_card.created, webhook.deleted, api_key.revoked
 - [x] 23 new tests, 6,318 total passing
+
+## Wave 141 — Completed
+- [x] All consumer pages (ClaimsTracker, ConsumerBnplRepayments, ConsumerInsuranceV2, ConsumerLoyaltyDashboard, ConsumerReferrals, Discover, History, PortfolioSummary, WalletStatement, ConsumerLayout) have error handling
+- [x] wave80 pages (GrpcHealthCheck, UssdSessionV2) have error handling
+- [x] tier1to5 CohortAnalytics has error handling
+- [x] All wave router files are registered in routers.ts (0 unregistered)
+- [x] No hardcoded return arrays in wave routers (excluding legitimate fallbacks)
+- [x] 100% PWA page error handling coverage verified by test
+- [x] 16 new tests, 6,334 total passing

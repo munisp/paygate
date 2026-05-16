@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 export default function UssdSessionV2() {
   const [tab, setTab] = useState("analytics");
 
-  const { isLoading, data: analyticsData } = trpc.wave80.ussdSessionV2.getSessionAnalytics.useQuery({ period: "7d" });
+  const { isLoading, data: analyticsData, isError } = trpc.wave80.ussdSessionV2.getSessionAnalytics.useQuery({ period: "7d" });
   const { data: menuData } = trpc.wave80.ussdSessionV2.getMenuFlow.useQuery();
   const { data: dropOffData } = trpc.wave80.ussdSessionV2.getDropOffAnalysis.useQuery({ period: "7d" });
 

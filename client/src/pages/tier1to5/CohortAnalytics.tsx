@@ -12,6 +12,7 @@ export default function CohortAnalytics() {
   const [period, setPeriod] = useState<"7d" | "30d" | "90d" | "180d">("30d");
 
   const cohortsQuery = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 }, { enabled: !!user });
+  const cohortError = cohortsQuery.isError;
   const fraudQuery = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours: 168 }, { enabled: !!user });
 
   return (

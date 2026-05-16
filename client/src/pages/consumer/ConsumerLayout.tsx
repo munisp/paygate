@@ -102,7 +102,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
   const [location, navigate] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const { data: unreadData, isLoading: unreadLoading } = trpc.notifications.unreadCount.useQuery(undefined, {
+  const { data: unreadData, isLoading: unreadLoading, isError: unreadError } = trpc.notifications.unreadCount.useQuery(undefined, {
     staleTime: 30_000,
     refetchInterval: consumerlayout_60s,
   });

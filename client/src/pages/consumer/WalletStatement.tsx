@@ -30,7 +30,7 @@ function downloadCSV(content: string, filename: string) {
 export default function WalletStatement() {
   const [period, setPeriod] = useState("30");
 
-  const { data: walletData } = trpc.consumerWallet.getOrCreate.useQuery({ currency: 'NGN' });
+  const { data: walletData, isError } = trpc.consumerWallet.getOrCreate.useQuery({ currency: 'NGN' });
   const { data: txns, isLoading } = trpc.consumerWallet.listTransactions.useQuery({
     limit: 200,
     offset: 0,

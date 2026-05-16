@@ -114,7 +114,7 @@ export default function PortfolioSummary() {
   // Fetch all three asset classes in parallel
   const { data: goldHoldings, isLoading: goldLoading, refetch: refetchGold } =
     trpc.newFeatures.digitalGold.getHoldings.useQuery();
-  const { data: goldPrice } = trpc.newFeatures.digitalGold.getPrice.useQuery();
+  const { data: goldPrice, isError } = trpc.newFeatures.digitalGold.getPrice.useQuery();
   const { data: goldHistory } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 30 });
 
   const { data: mfPortfolio, isLoading: mfLoading, refetch: refetchMF } =

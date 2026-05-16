@@ -81,7 +81,7 @@ export default function ClaimsTracker() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  const { data, isLoading, refetch } = trpc.newFeatures.consumerInsurance.getClaims.useQuery();
+  const { data, isLoading, refetch, isError } = trpc.newFeatures.consumerInsurance.getClaims.useQuery();
 
   const claims = (data?.claims ?? []).filter((c: any) => {
     const matchesSearch =
