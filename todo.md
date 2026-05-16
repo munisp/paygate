@@ -4812,3 +4812,14 @@
 - [x] server/wave130.production-readiness.test.ts: 66 new tests, all passing
 - [x] Full test suite: 5,476 passing, 0 failures (140 test files)
 - [x] Checkpoint saved (Wave 130)
+
+## Wave 131 (Round 59) — Completed
+- [x] publishAuditEvent wired to webhook.delete and api_key.revoke
+- [x] BillingConfig.tsx billing.listBillingEvents live data tab
+- [x] Flutter digital_gold_screen wired to getPortfolioHistory
+- [x] RN DigitalGoldScreen wired to getPortfolioHistory
+- [x] TypeScript fix: ctx.user.merchantId -> ctx.user.tenantId (wave121, crud120, crud120b)
+- [x] TypeScript fix: and(...conditions) safe spread pattern (wave121, crud119)
+- [x] FraudRisk.tsx rules array access fix (no .rules property on array)
+- [x] sdk.ts env fix: oAuthServerUrl -> keycloakUrl, kafkaBootstrapServers
+- [x] 28 new tests in wave131.production-readiness.test.ts

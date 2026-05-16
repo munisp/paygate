@@ -119,6 +119,7 @@ export default function BillingConfig() {
   const auditLog = trpc.billing.getAuditLog.useQuery({ tenantId, limit: 20 });
   const metrics = trpc.billing.getMetricsSummary.useQuery({ tenantId, periodStart, periodEnd });
   const overheadByCategory = trpc.billing.getOverheadByCategory.useQuery({ tenantId, periodStart, periodEnd });
+  const billingEvents = trpc.billing.listBillingEvents.useQuery({ tenantId, limit: 50 });
 
   const utils = trpc.useUtils();
 
@@ -476,6 +477,7 @@ export default function BillingConfig() {
           <TabsTrigger value="versions">Config Versions</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
           <TabsTrigger value="overhead">Overhead Costs</TabsTrigger>
+          <TabsTrigger value="events">Billing Events</TabsTrigger>
         </TabsList>
 
         {/* Config Versions */}
@@ -674,6 +676,54 @@ export default function BillingConfig() {
                   <p className="text-sm text-muted-foreground">No overhead costs recorded for this period.</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Use the API or settlement bridge to record infrastructure, labor, and other operational costs.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* Billing Events */}
+        <TabsContent value="events">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Billing Events</CardTitle>
+              <CardDescription>
+                Recent billing lifecycle events — fee calculations, overrides, and adjustments.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {billingEvents.isLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                </div>
+              ) : billingEvents.data?.length ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Event Type</TableHead>
+                      <TableHead>Amount (₦)</TableHead>
+                      <TableHead>Reference</TableHead>
+                      <TableHead>Occurred At</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {billingEvents.data.map((ev) => (
+                      <TableRow key={ev.id}>
+                        <TableCell className="font-medium capitalize">{(ev.eventType ?? '').replace(/_/g, ' ')}</TableCell>
+                        <TableCell>{ev.amountKobo != null ? koboToNaira(Number(ev.amountKobo)) : '—'}</TableCell>
+                        <TableCell className="font-mono text-xs">{ev.referenceId ?? '—'}</TableCell>
+                        <TableCell className="text-muted-foreground text-xs">
+                          {ev.occurredAt ? new Date(ev.occurredAt).toLocaleString() : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-center">
+                  <p className="text-sm text-muted-foreground">No billing events recorded yet.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Events are generated automatically as transactions are processed.
                   </p>
                 </div>
               )}

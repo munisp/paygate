@@ -119,8 +119,8 @@ export default function FraudRisk() {
     onError: (e) => toast.error(e.message),
   });
   // Map DB rules to display format, fallback to static RULES if no DB rules yet
-  const rules = dbRulesData?.rules?.length
-    ? dbRulesData.rules.map((r: any) => ({
+  const rules = (dbRulesData as any[])?.length
+    ? (dbRulesData as any[]).map((r: any) => ({
         id: r.id, name: r.name, desc: r.description ?? "", enabled: r.status === "active",
         triggered: r.triggeredCount ?? 0, blocked: r.blockedCount ?? 0, type: r.ruleType ?? "custom",
       }))
@@ -833,7 +833,7 @@ export default function FraudRisk() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => {
-                        if (dbRulesData?.rules?.length) {
+                        if ((dbRulesData as any[])?.length) {
                           toggleRuleMutation.mutate({ id: rule.id, status: rule.enabled ? "inactive" : "active" });
                         } else {
                           toast.info("Connect to DB to manage rules");

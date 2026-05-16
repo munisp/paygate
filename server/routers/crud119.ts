@@ -195,7 +195,7 @@ export const merchantNotificationsRouter = router({
     const offset = (input.page - 1) * input.limit;
     const conditions = [(merchantNotifications as any).merchantId ? eq((merchantNotifications as any).merchantId, (ctx.user as any).merchantId) : sql`1=1`];
     if (input.unreadOnly) conditions.push(eq((merchantNotifications as any).isRead, false));
-    return db.select().from(merchantNotifications).where(and(...conditions)).orderBy(desc((merchantNotifications as any).createdAt)).limit(input.limit).offset(offset);
+    return db.select().from(merchantNotifications).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]])).orderBy(desc((merchantNotifications as any).createdAt)).limit(input.limit).offset(offset);
   }),
   markRead: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
@@ -1151,7 +1151,7 @@ export const fraudFlagsRouter = router({
     if (input.customerId) conditions.push(eq((consumerFraudFlags as any).customerId, input.customerId));
     if (input.resolved !== undefined) conditions.push(eq((consumerFraudFlags as any).isResolved, input.resolved));
     const q = db.select().from(consumerFraudFlags);
-    if (conditions.length) return q.where(and(...conditions)).orderBy(desc((consumerFraudFlags as any).createdAt)).limit(input.limit).offset(offset);
+    if (conditions.length) return q.where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]])).orderBy(desc((consumerFraudFlags as any).createdAt)).limit(input.limit).offset(offset);
     return q.orderBy(desc((consumerFraudFlags as any).createdAt)).limit(input.limit).offset(offset);
   }),
   resolve: protectedProcedure.input(z.object({
@@ -1399,7 +1399,7 @@ export const billingEventsRouter = router({
     if (input.merchantId) conditions.push(eq(billingEvents.merchantId, input.merchantId));
     if (input.status) conditions.push(eq(billingEvents.status, input.status as any));
     const q = db.select().from(billingEvents);
-    if (conditions.length) return q.where(and(...conditions)).orderBy(desc(billingEvents.createdAt)).limit(input.limit).offset(offset);
+    if (conditions.length) return q.where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]])).orderBy(desc(billingEvents.createdAt)).limit(input.limit).offset(offset);
     return q.orderBy(desc(billingEvents.createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.number().int() })).query(async ({ input, ctx }) => {

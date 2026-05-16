@@ -1390,6 +1390,7 @@ const apiKeysRouter = router({
         resourceId: input.id,
         metadata: {},
       })).catch(() => {});
+      publishAuditEvent({ action: 'api_key.revoked', actorId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true };
     }),
 });
@@ -1452,6 +1453,7 @@ const webhooksRouter = router({
         resourceId: input.id,
         metadata: {},
       })).catch(() => {});
+      publishAuditEvent({ action: 'webhook.deleted', actorId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true };
     }),
 
@@ -2608,8 +2610,9 @@ const middlewareRouter = router({
     // Rotate client secret for a Keycloak client
     rotateClientSecret: protectedProcedure
       .input(z.object({ clientId: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const result = await bridgeFetch(`/v1/auth/keycloak/clients/${input.clientId}/secret`, 'POST', {});
+        publishAuditEvent({ action: 'webhook.secret.rotated', actorId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch(() => {});
         if (!result) return { rotated: false, fallback: true, newSecret: null };
         return { rotated: true, newSecret: (result as any).value ?? null };
       }),

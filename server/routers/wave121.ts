@@ -44,15 +44,15 @@ export const feeSchedulesRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
-      const conditions = [eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? "")];
+      const conditions = [eq(tenantFeeOverrides.tenantId, ctx.user.tenantId ?? "")];
       if (input.isActive !== undefined) conditions.push(eq(tenantFeeOverrides.isActive, input.isActive));
       if (input.transactionType) conditions.push(eq(tenantFeeOverrides.transactionType, input.transactionType));
       const rows = await db.select().from(tenantFeeOverrides)
-        .where(and(...conditions))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(tenantFeeOverrides.createdAt))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
-        .from(tenantFeeOverrides).where(and(...conditions));
+        .from(tenantFeeOverrides).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]));
       return { schedules: rows, total: Number(count) };
     }),
 
@@ -63,7 +63,7 @@ export const feeSchedulesRouter = router({
       const [row] = await db.select().from(tenantFeeOverrides)
         .where(and(
           eq(tenantFeeOverrides.id, input.id),
-          eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? "")
+          eq(tenantFeeOverrides.tenantId, ctx.user.tenantId ?? "")
         )).limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -82,7 +82,7 @@ export const feeSchedulesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.insert(tenantFeeOverrides).values({
-        tenantId: ctx.user.merchantId ?? "",
+        tenantId: ctx.user.tenantId ?? "",
         transactionType: input.transactionType,
         flatFeeNgn: input.flatFeeNgn,
         percentageFee: input.percentageFee,
@@ -116,7 +116,7 @@ export const feeSchedulesRouter = router({
       if (updates.isActive !== undefined) setData.isActive = updates.isActive;
       if (updates.effectiveTo) setData.effectiveTo = new Date(updates.effectiveTo);
       await db.update(tenantFeeOverrides).set(setData)
-        .where(and(eq(tenantFeeOverrides.id, id), eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? "")));
+        .where(and(eq(tenantFeeOverrides.id, id), eq(tenantFeeOverrides.tenantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -125,17 +125,17 @@ export const feeSchedulesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
       await db.delete(tenantFeeOverrides)
-        .where(and(eq(tenantFeeOverrides.id, input.id), eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? "")));
+        .where(and(eq(tenantFeeOverrides.id, input.id), eq(tenantFeeOverrides.tenantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
   stats: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
     const [{ total }] = await db.select({ total: sql<number>`count(*)` })
-      .from(tenantFeeOverrides).where(eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? ""));
+      .from(tenantFeeOverrides).where(eq(tenantFeeOverrides.tenantId, ctx.user.tenantId ?? ""));
     const [{ active }] = await db.select({ active: sql<number>`count(*)` })
       .from(tenantFeeOverrides).where(and(
-        eq(tenantFeeOverrides.tenantId, ctx.user.merchantId ?? ""),
+        eq(tenantFeeOverrides.tenantId, ctx.user.tenantId ?? ""),
         eq(tenantFeeOverrides.isActive, true)
       ));
     return { total: Number(total), active: Number(active) };
@@ -154,14 +154,14 @@ export const chargebackMgmtRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
-      const conditions = [eq(chargebacks.merchantId, ctx.user.merchantId ?? "")];
+      const conditions = [eq(chargebacks.merchantId, ctx.user.tenantId ?? "")];
       if (input.status) conditions.push(eq(chargebacks.status, input.status));
       const rows = await db.select().from(chargebacks)
-        .where(and(...conditions))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(chargebacks.createdAt))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
-        .from(chargebacks).where(and(...conditions));
+        .from(chargebacks).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]));
       return { chargebacks: rows, total: Number(count) };
     }),
 
@@ -170,7 +170,7 @@ export const chargebackMgmtRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.select().from(chargebacks)
-        .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.merchantId ?? "")))
+        .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.tenantId ?? "")))
         .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -191,7 +191,7 @@ export const chargebackMgmtRouter = router({
         evidenceFileName: input.evidenceFileName,
         evidenceSubmitted: true,
         updatedAt: new Date(),
-      }).where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.merchantId ?? "")));
+      }).where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -210,7 +210,7 @@ export const chargebackMgmtRouter = router({
       if (input.notes) setData.notes = input.notes;
       if (input.status === "won" || input.status === "lost") setData.resolvedAt = new Date();
       await db.update(chargebacks).set(setData)
-        .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.merchantId ?? "")));
+        .where(and(eq(chargebacks.id, input.id), eq(chargebacks.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -221,7 +221,7 @@ export const chargebackMgmtRouter = router({
       count: sql<number>`count(*)`,
       totalAmount: sql<number>`sum(amount_kobo)`,
     }).from(chargebacks)
-      .where(eq(chargebacks.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(chargebacks.merchantId, ctx.user.tenantId ?? ""))
       .groupBy(chargebacks.status);
     return rows.map(r => ({ status: r.status, count: Number(r.count), totalAmountKobo: Number(r.totalAmount ?? 0) }));
   }),
@@ -239,15 +239,15 @@ export const fraudRulesRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
-      const conditions = [eq(fraudAlerts.merchantId, ctx.user.merchantId ?? "")];
+      const conditions = [eq(fraudAlerts.merchantId, ctx.user.tenantId ?? "")];
       if (input.status) conditions.push(eq(fraudAlerts.status, input.status));
       if (input.alertType) conditions.push(eq(fraudAlerts.alertType, input.alertType));
       const rows = await db.select().from(fraudAlerts)
-        .where(and(...conditions))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(fraudAlerts.createdAt))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
-        .from(fraudAlerts).where(and(...conditions));
+        .from(fraudAlerts).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]));
       return { alerts: rows, total: Number(count) };
     }),
 
@@ -256,7 +256,7 @@ export const fraudRulesRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.select().from(fraudAlerts)
-        .where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.merchantId ?? "")))
+        .where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.tenantId ?? "")))
         .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -270,7 +270,7 @@ export const fraudRulesRouter = router({
         status: "investigating",
         notes: input.notes,
         updatedAt: new Date(),
-      }).where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.merchantId ?? "")));
+      }).where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -284,7 +284,7 @@ export const fraudRulesRouter = router({
         resolvedBy: ctx.user.openId,
         notes: input.resolution,
         updatedAt: new Date(),
-      }).where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.merchantId ?? "")));
+      }).where(and(eq(fraudAlerts.id, input.id), eq(fraudAlerts.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -294,7 +294,7 @@ export const fraudRulesRouter = router({
       status: fraudAlerts.status,
       count: sql<number>`count(*)`,
     }).from(fraudAlerts)
-      .where(eq(fraudAlerts.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(fraudAlerts.merchantId, ctx.user.tenantId ?? ""))
       .groupBy(fraudAlerts.status);
     return {
       byStatus: byStatus.map(r => ({ status: r.status, count: Number(r.count) })),
@@ -315,7 +315,7 @@ export const fraudRulesRouter = router({
       const ruleId = `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await db.insert(fraudAlerts).values({
         id: ruleId,
-        merchantId: ctx.user.merchantId ?? "",
+        merchantId: ctx.user.tenantId ?? "",
         alertType: input.ruleType,
         status: input.isActive ? "open" : "resolved",
         riskScore: input.threshold,
@@ -343,15 +343,15 @@ export const kybMgmtRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
-      const conditions = [eq(kybVerifications.merchantId, ctx.user.merchantId ?? "")];
+      const conditions = [eq(kybVerifications.merchantId, ctx.user.tenantId ?? "")];
       if (input.status) conditions.push(eq(kybVerifications.status, input.status));
       if (input.riskLevel) conditions.push(eq(kybVerifications.riskLevel, input.riskLevel));
       const rows = await db.select().from(kybVerifications)
-        .where(and(...conditions))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(kybVerifications.createdAt))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
-        .from(kybVerifications).where(and(...conditions));
+        .from(kybVerifications).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]));
       return { verifications: rows, total: Number(count) };
     }),
 
@@ -360,7 +360,7 @@ export const kybMgmtRouter = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.select().from(kybVerifications)
-        .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.merchantId ?? "")))
+        .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.tenantId ?? "")))
         .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -378,7 +378,7 @@ export const kybMgmtRouter = router({
       const db = (await getDb())!;
       const [row] = await db.insert(kybVerifications).values({
         verificationId: crypto.randomUUID(),
-        merchantId: ctx.user.merchantId ?? "",
+        merchantId: ctx.user.tenantId ?? "",
         businessName: input.businessName,
         rcNumber: input.rcNumber,
         taxId: input.taxId,
@@ -402,7 +402,7 @@ export const kybMgmtRouter = router({
       const setData: Record<string, unknown> = { status: input.status, updatedAt: new Date() };
       if (input.riskLevel) setData.riskLevel = input.riskLevel;
       await db.update(kybVerifications).set(setData)
-        .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.merchantId ?? "")));
+        .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.tenantId ?? "")));
       if (input.status === 'approved' || input.status === 'rejected') {
         publishAuditEvent({ action: 'kyb.status.updated', actorId: ctx.user.openId, targetId: input.id, metadata: { status: input.status }, timestamp: new Date().toISOString() }).catch(() => {});
       }
@@ -415,7 +415,7 @@ export const kybMgmtRouter = router({
       status: kybVerifications.status,
       count: sql<number>`count(*)`,
     }).from(kybVerifications)
-      .where(eq(kybVerifications.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(kybVerifications.merchantId, ctx.user.tenantId ?? ""))
       .groupBy(kybVerifications.status);
     return rows.map(r => ({ status: r.status, count: Number(r.count) }));
   }),
@@ -432,14 +432,14 @@ export const invoiceFinV2Router = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
-      const conditions = [eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? "")];
+      const conditions = [eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")];
       if (input.status) conditions.push(eq(invoiceFinancingV2Applications.status, input.status));
       const rows = await db.select().from(invoiceFinancingV2Applications)
-        .where(and(...conditions))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(invoiceFinancingV2Applications.createdAt))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
-        .from(invoiceFinancingV2Applications).where(and(...conditions));
+        .from(invoiceFinancingV2Applications).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]));
       return { applications: rows, total: Number(count) };
     }),
 
@@ -448,7 +448,7 @@ export const invoiceFinV2Router = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.select().from(invoiceFinancingV2Applications)
-        .where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? "")))
+        .where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")))
         .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -468,7 +468,7 @@ export const invoiceFinV2Router = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Requested amount cannot exceed invoice amount" });
       }
       const [row] = await db.insert(invoiceFinancingV2Applications).values({
-        merchantId: ctx.user.merchantId ?? "",
+        merchantId: ctx.user.tenantId ?? "",
         invoiceId: input.invoiceId,
         invoiceAmount: input.invoiceAmount,
         requestedAmount: input.requestedAmount,
@@ -487,7 +487,7 @@ export const invoiceFinV2Router = router({
         status: "approved",
         approvedAmount: input.approvedAmount,
         updatedAt: new Date(),
-      }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? "")));
+      }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -499,7 +499,7 @@ export const invoiceFinV2Router = router({
         status: "disbursed",
         disbursedAt: new Date(),
         updatedAt: new Date(),
-      }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? "")));
+      }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -511,7 +511,7 @@ export const invoiceFinV2Router = router({
       totalRequested: sql<number>`sum(requested_amount)`,
       totalApproved: sql<number>`sum(approved_amount)`,
     }).from(invoiceFinancingV2Applications)
-      .where(eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? ""))
       .groupBy(invoiceFinancingV2Applications.status);
     return rows.map(r => ({
       status: r.status,
@@ -533,14 +533,14 @@ export const loyaltyV3Router = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
-      const conditions = [eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? "")];
+      const conditions = [eq(loyaltyV3Programs.merchantId, ctx.user.tenantId ?? "")];
       if (input.status) conditions.push(eq(loyaltyV3Programs.status, input.status));
       const rows = await db.select().from(loyaltyV3Programs)
-        .where(and(...conditions))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(loyaltyV3Programs.createdAt))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
-        .from(loyaltyV3Programs).where(and(...conditions));
+        .from(loyaltyV3Programs).where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]));
       return { programs: rows, total: Number(count) };
     }),
 
@@ -549,7 +549,7 @@ export const loyaltyV3Router = router({
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.select().from(loyaltyV3Programs)
-        .where(and(eq(loyaltyV3Programs.id, input.id), eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? "")))
+        .where(and(eq(loyaltyV3Programs.id, input.id), eq(loyaltyV3Programs.merchantId, ctx.user.tenantId ?? "")))
         .limit(1);
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       return row;
@@ -570,7 +570,7 @@ export const loyaltyV3Router = router({
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
       const [row] = await db.insert(loyaltyV3Programs).values({
-        merchantId: ctx.user.merchantId ?? "",
+        merchantId: ctx.user.tenantId ?? "",
         programName: input.programName,
         pointsPerNaira: input.pointsPerNaira,
         redemptionRate: input.redemptionRate,
@@ -594,7 +594,7 @@ export const loyaltyV3Router = router({
       const db = (await getDb())!;
       const { id, ...updates } = input;
       await db.update(loyaltyV3Programs).set(updates as Record<string, unknown>)
-        .where(and(eq(loyaltyV3Programs.id, id), eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? "")));
+        .where(and(eq(loyaltyV3Programs.id, id), eq(loyaltyV3Programs.merchantId, ctx.user.tenantId ?? "")));
       return { success: true };
     }),
 
@@ -610,14 +610,14 @@ export const loyaltyV3Router = router({
       const rows = await db.select().from(loyaltyV3Members)
         .where(and(
           eq(loyaltyV3Members.programId, input.programId),
-          eq(loyaltyV3Members.merchantId, ctx.user.merchantId ?? "")
+          eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? "")
         ))
         .orderBy(desc(loyaltyV3Members.totalPoints))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
         .from(loyaltyV3Members).where(and(
           eq(loyaltyV3Members.programId, input.programId),
-          eq(loyaltyV3Members.merchantId, ctx.user.merchantId ?? "")
+          eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? "")
         ));
       return { members: rows, total: Number(count) };
     }),
@@ -625,11 +625,11 @@ export const loyaltyV3Router = router({
   stats: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
     const [{ programs }] = await db.select({ programs: sql<number>`count(*)` })
-      .from(loyaltyV3Programs).where(eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? ""));
+      .from(loyaltyV3Programs).where(eq(loyaltyV3Programs.merchantId, ctx.user.tenantId ?? ""));
     const [{ members }] = await db.select({ members: sql<number>`count(*)` })
-      .from(loyaltyV3Members).where(eq(loyaltyV3Members.merchantId, ctx.user.merchantId ?? ""));
+      .from(loyaltyV3Members).where(eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? ""));
     const [{ totalPoints }] = await db.select({ totalPoints: sql<number>`sum(total_points)` })
-      .from(loyaltyV3Members).where(eq(loyaltyV3Members.merchantId, ctx.user.merchantId ?? ""));
+      .from(loyaltyV3Members).where(eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? ""));
     return {
       totalPrograms: Number(programs),
       totalMembers: Number(members),
@@ -651,7 +651,7 @@ export const openSearchAuditRouter = router({
       limit: z.number().int().min(1).max(200).default(50),
     }))
     .query(async ({ ctx, input }) => {
-      const merchantId = ctx.user.merchantId ?? "";
+      const merchantId = ctx.user.tenantId ?? "";
       const fromDate = input.from ?? new Date(Date.now() - 30 * 86400_000).toISOString();
       const toDate = input.to ?? new Date().toISOString();
 
@@ -708,7 +708,7 @@ export const openSearchAuditRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const result = await indexAuditEventViaOpenSearch({
-        merchantId: ctx.user.merchantId ?? "",
+        merchantId: ctx.user.tenantId ?? "",
         actorId: ctx.user.openId,
         ...input,
         timestamp: new Date().toISOString(),
@@ -720,7 +720,7 @@ export const openSearchAuditRouter = router({
     const db = (await getDb())!;
     const { sql: sqlFn } = await import("drizzle-orm");
     const result = await db.execute(
-      sqlFn`SELECT DISTINCT action FROM audit_events WHERE merchant_id = ${ctx.user.merchantId ?? ""} ORDER BY action`
+      sqlFn`SELECT DISTINCT action FROM audit_events WHERE merchant_id = ${ctx.user.tenantId ?? ""} ORDER BY action`
     );
     return (result.rows ?? []).map((r: any) => r.action as string);
   }),
@@ -729,7 +729,7 @@ export const openSearchAuditRouter = router({
     const db = (await getDb())!;
     const { sql: sqlFn } = await import("drizzle-orm");
     const result = await db.execute(
-      sqlFn`SELECT DISTINCT actor_id, actor_name FROM audit_events WHERE merchant_id = ${ctx.user.merchantId ?? ""} ORDER BY actor_name`
+      sqlFn`SELECT DISTINCT actor_id, actor_name FROM audit_events WHERE merchant_id = ${ctx.user.tenantId ?? ""} ORDER BY actor_name`
     );
     return (result.rows ?? []).map((r: any) => ({ id: r.actor_id as string, name: r.actor_name as string }));
   }),

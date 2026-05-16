@@ -99,7 +99,12 @@ describe("Wave 125 — FraudRisk rules wired to real tRPC data", () => {
 
   it("falls back to static RULES when no DB rules", () => {
     const content = getContent();
-    expect(content).toContain("dbRulesData?.rules?.length");
+    // Accepts old pattern (dbRulesData?.rules?.length) or new type-safe pattern
+    const hasRulesCheck =
+      content.includes("dbRulesData?.rules?.length") ||
+      content.includes("(dbRulesData as any[])?.length") ||
+      content.includes("dbRulesData?.length");
+    expect(hasRulesCheck).toBe(true);
     expect(content).toContain(": RULES");
   });
 

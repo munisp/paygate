@@ -14,6 +14,7 @@ class __DigitalGoldScreenState extends State<DigitalGoldScreen> {
   bool _isLoading = false;
   String? _error;
   dynamic _data;
+  dynamic _historyData;
 
   @override
   void initState() {
@@ -27,7 +28,8 @@ class __DigitalGoldScreenState extends State<DigitalGoldScreen> {
       final auth = context.read<AuthProvider>();
       final api = ApiService(baseUrl: auth.apiBaseUrl, token: auth.token);
       final result = await api.query('digitalGold.portfolio');
-      setState(() { _data = result; });
+      final history = await api.query('digitalGold.getPortfolioHistory', input: {'months': 6});
+      setState(() { _data = result; _historyData = history; });
     } catch (e) {
       setState(() { _error = e.toString(); });
     } finally {

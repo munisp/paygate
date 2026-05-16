@@ -166,7 +166,7 @@ const agentBankingV4Router = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(agentBankingV4Agents)
-      .where(eq(agentBankingV4Agents.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(agentBankingV4Agents.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(agentBankingV4Agents.createdAt ?? sql`now()`))
       .offset(offset).limit(limit);
     return { agents: rows, total: rows.length };
@@ -189,7 +189,7 @@ const agentBankingV4Router = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(agentBankingV4Agents).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
     }).returning();
@@ -211,7 +211,7 @@ const agentBankingV4Router = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(agentNetwork)
-      .where(eq(agentNetwork.superAgentMerchantId, ctx.user.merchantId ?? ""))
+      .where(eq(agentNetwork.superAgentMerchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { networks: rows, total: rows.length };
   }),
@@ -230,7 +230,7 @@ const auditEventsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(auditEvents)
-      .where(eq(auditEvents.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(auditEvents.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(auditEvents.createdAt))
       .offset(offset).limit(limit);
     return { events: rows, total: rows.length };
@@ -255,7 +255,7 @@ const auditEventsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(auditEvents).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
     }).returning();
@@ -302,7 +302,7 @@ const carbonCreditsV2Router = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(carbonCreditTransactionsV2)
-      .where(eq(carbonCreditTransactionsV2.merchantId, input.merchantId ?? ctx.user.merchantId ?? ""))
+      .where(eq(carbonCreditTransactionsV2.merchantId, input.merchantId ?? ctx.user.tenantId ?? ""))
       .orderBy(desc(carbonCreditTransactionsV2.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -317,7 +317,7 @@ const carbonCreditsV2Router = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(carbonCreditTransactionsV2).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "pending",
     }).returning();
@@ -335,7 +335,7 @@ const complianceReportsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(complianceReports)
-      .where(eq(complianceReports.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(complianceReports.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(complianceReports.createdAt))
       .offset(offset).limit(limit);
     return { reports: rows, total: rows.length };
@@ -355,7 +355,7 @@ const complianceReportsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(complianceReports).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       data: input.data ? JSON.stringify(input.data) : null,
       status: "draft",
@@ -583,7 +583,7 @@ const couponRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(couponRedemptions)
-      .where(eq(couponRedemptions.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(couponRedemptions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(couponRedemptions.redeemedAt))
       .offset(offset).limit(limit);
     return { redemptions: rows, total: rows.length };
@@ -595,7 +595,7 @@ const couponRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(couponRedemptions).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "applied",
       redeemedAt: new Date(),
@@ -613,7 +613,7 @@ const cryptoOfframpRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(cryptoOfframpV2Transactions)
-      .where(eq(cryptoOfframpV2Transactions.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(cryptoOfframpV2Transactions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(cryptoOfframpV2Transactions.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -637,7 +637,7 @@ const cryptoOfframpRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(cryptoOfframpV2Transactions).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "pending",
     }).returning();
@@ -655,7 +655,7 @@ const emiLoansRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(emiLoans)
-      .where(eq(emiLoans.merchantId, input.merchantId ?? ctx.user.merchantId ?? ""))
+      .where(eq(emiLoans.merchantId, input.merchantId ?? ctx.user.tenantId ?? ""))
       .orderBy(desc(emiLoans.createdAt))
       .offset(offset).limit(limit);
     return { loans: rows, total: rows.length };
@@ -680,7 +680,7 @@ const emiLoansRouter = router({
       ? Math.round(input.principalKobo * monthlyRate * Math.pow(1 + monthlyRate, input.tenureMonths) / (Math.pow(1 + monthlyRate, input.tenureMonths) - 1))
       : Math.round(input.principalKobo / input.tenureMonths);
     const [row] = await db.insert(emiLoans).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       emiAmountKobo: emi,
       totalAmountKobo: emi * input.tenureMonths,
@@ -733,7 +733,7 @@ const escrowRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(escrowContracts)
-      .where(eq(escrowContracts.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(escrowContracts.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(escrowContracts.createdAt))
       .offset(offset).limit(limit);
     return { contracts: rows, total: rows.length };
@@ -759,7 +759,7 @@ const escrowRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(escrowContracts).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       milestones: input.milestones ? JSON.stringify(input.milestones) : null,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -783,7 +783,7 @@ const escrowRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(escrowContractsV2)
-      .where(eq(escrowContractsV2.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(escrowContractsV2.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(escrowContractsV2.createdAt))
       .offset(offset).limit(limit);
     return { contracts: rows, total: rows.length };
@@ -879,7 +879,7 @@ const geofenceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(geofenceRules)
-      .where(eq(geofenceRules.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(geofenceRules.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { rules: rows, total: rows.length };
   }),
@@ -893,7 +893,7 @@ const geofenceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(geofenceRules).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       enabled: true,
     }).returning();
@@ -964,7 +964,7 @@ const inventoryRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryTransactions)
-      .where(eq(inventoryTransactions.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(inventoryTransactions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inventoryTransactions.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -979,7 +979,7 @@ const inventoryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(inventoryTransactions).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
     }).returning();
     return row;
@@ -991,7 +991,7 @@ const inventoryRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryReservations)
-      .where(eq(inventoryReservations.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(inventoryReservations.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { reservations: rows, total: rows.length };
   }),
@@ -1003,7 +1003,7 @@ const inventoryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(inventoryReservations).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "active",
@@ -1014,7 +1014,7 @@ const inventoryRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryAuditLog)
-      .where(eq(inventoryAuditLog.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(inventoryAuditLog.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inventoryAuditLog.createdAt))
       .offset(offset).limit(limit);
     return { logs: rows, total: rows.length };
@@ -1030,7 +1030,7 @@ const inviteCodesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inviteCodes)
-      .where(eq(inviteCodes.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(inviteCodes.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inviteCodes.createdAt))
       .offset(offset).limit(limit);
     return { codes: rows, total: rows.length };
@@ -1044,7 +1044,7 @@ const inviteCodesRouter = router({
     const db = (await getDb())!;
     const code = `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(inviteCodes).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       code,
       role: input.role,
       email: input.email ?? null,
@@ -1082,7 +1082,7 @@ const invoiceFinancingRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(invoiceFinancingV2Applications)
-      .where(eq(invoiceFinancingV2Applications.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(invoiceFinancingV2Applications.createdAt))
       .offset(offset).limit(limit);
     return { applications: rows, total: rows.length };
@@ -1105,7 +1105,7 @@ const invoiceFinancingRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(invoiceFinancingV2Applications).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       invoiceDueDate: new Date(input.invoiceDueDate),
       documents: input.documents ? JSON.stringify(input.documents) : null,
@@ -1140,7 +1140,7 @@ const invoicesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(invoices)
-      .where(eq(invoices.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(invoices.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(invoices.createdAt))
       .offset(offset).limit(limit);
     return { invoices: rows, total: rows.length };
@@ -1171,7 +1171,7 @@ const invoicesRouter = router({
     const invoiceId = `INV-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const [row] = await db.insert(invoices).values({
       invoiceId,
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       customerEmail: input.customerEmail ?? null,
       customerName: input.customerName ?? null,
       customerId: input.customerId ?? null,
@@ -1217,7 +1217,7 @@ const kdsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(kdsStations)
-      .where(eq(kdsStations.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(kdsStations.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { stations: rows, total: rows.length };
   }),
@@ -1229,7 +1229,7 @@ const kdsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(kdsStations).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       categories: input.categories ? JSON.stringify(input.categories) : null,
       status: "online",
@@ -1260,7 +1260,7 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyPrograms)
-      .where(eq(loyaltyPrograms.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(loyaltyPrograms.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { programs: rows, total: rows.length };
   }),
@@ -1273,7 +1273,7 @@ const loyaltyProgramsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(loyaltyPrograms).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       tiers: input.tiers ? JSON.stringify(input.tiers) : null,
       status: "active",
@@ -1320,7 +1320,7 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyV3Programs)
-      .where(eq(loyaltyV3Programs.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(loyaltyV3Programs.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { programs: rows, total: rows.length };
   }),
@@ -1347,7 +1347,7 @@ const marketplaceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(marketplaceOrders)
-      .where(eq(marketplaceOrders.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(marketplaceOrders.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(marketplaceOrders.createdAt))
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
@@ -1372,7 +1372,7 @@ const marketplaceRouter = router({
     const db = (await getDb())!;
     const totalKobo = input.items.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const [row] = await db.insert(marketplaceOrders).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       buyerId: input.buyerId,
       sellerId: input.sellerId,
       items: JSON.stringify(input.items),
@@ -1400,7 +1400,7 @@ const merchantRiskRouter = router({
   getRiskScore: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(merchantRiskScores)
-      .where(eq(merchantRiskScores.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(merchantRiskScores.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(merchantRiskScores.scoredAt))
       .limit(1);
     return rows[0] ?? null;
@@ -1409,7 +1409,7 @@ const merchantRiskRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(merchantStatusLog)
-      .where(eq(merchantStatusLog.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(merchantStatusLog.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(merchantStatusLog.changedAt))
       .offset(offset).limit(limit);
     return { logs: rows, total: rows.length };
@@ -1417,7 +1417,7 @@ const merchantRiskRouter = router({
   getSolanaWallet: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(merchantSolanaWallets)
-      .where(eq(merchantSolanaWallets.merchantId, ctx.user.merchantId ?? "")).limit(1);
+      .where(eq(merchantSolanaWallets.merchantId, ctx.user.tenantId ?? "")).limit(1);
     return rows[0] ?? null;
   }),
   createSolanaWallet: protectedProcedure.input(z.object({
@@ -1426,7 +1426,7 @@ const merchantRiskRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(merchantSolanaWallets).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
     }).returning();
@@ -1444,7 +1444,7 @@ const moneyRequestsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(moneyRequests)
-      .where(eq(moneyRequests.requesterId, ctx.user.merchantId ?? ""))
+      .where(eq(moneyRequests.requesterId, ctx.user.tenantId ?? ""))
       .orderBy(desc(moneyRequests.createdAt))
       .offset(offset).limit(limit);
     return { requests: rows, total: rows.length };
@@ -1458,7 +1458,7 @@ const moneyRequestsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(moneyRequests).values({
-      requesterId: ctx.user.merchantId ?? "",
+      requesterId: ctx.user.tenantId ?? "",
       ...input,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
@@ -1485,7 +1485,7 @@ const multiCurrencyRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(multiCurrencyLedgerAccounts)
-      .where(eq(multiCurrencyLedgerAccounts.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(multiCurrencyLedgerAccounts.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -1495,7 +1495,7 @@ const multiCurrencyRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerAccounts).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       balanceKobo: 0,
       status: "active",
@@ -1509,7 +1509,7 @@ const multiCurrencyRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(multiCurrencyLedgerEntries)
-      .where(eq(multiCurrencyLedgerEntries.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(multiCurrencyLedgerEntries.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(multiCurrencyLedgerEntries.createdAt))
       .offset(offset).limit(limit);
     return { entries: rows, total: rows.length };
@@ -1524,7 +1524,7 @@ const multiCurrencyRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerEntries).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
     }).returning();
     return row;
@@ -1541,7 +1541,7 @@ const mutualFundsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(mutualFundTransactions)
-      .where(eq(mutualFundTransactions.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(mutualFundTransactions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(mutualFundTransactions.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -1555,7 +1555,7 @@ const mutualFundsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(mutualFundTransactions).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "pending",
     }).returning();
@@ -1570,7 +1570,7 @@ const nfcRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nfcDevices)
-      .where(eq(nfcDevices.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(nfcDevices.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { devices: rows, total: rows.length };
   }),
@@ -1582,7 +1582,7 @@ const nfcRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(nfcDevices).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
     }).returning();
@@ -1594,7 +1594,7 @@ const nfcRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nfcTransactions)
-      .where(eq(nfcTransactions.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(nfcTransactions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(nfcTransactions.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -1608,7 +1608,7 @@ const nftBadgesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nftBadges)
-      .where(eq(nftBadges.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(nftBadges.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { badges: rows, total: rows.length };
   }),
@@ -1621,7 +1621,7 @@ const nftBadgesRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(nftBadges).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       criteria: input.criteria ? JSON.stringify(input.criteria) : null,
       mintedCount: 0,
@@ -1648,7 +1648,7 @@ const openBankingRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(openBankingAccountsV2)
-      .where(eq(openBankingAccountsV2.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(openBankingAccountsV2.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -1658,7 +1658,7 @@ const openBankingRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(openBankingConsentsV2)
-      .where(eq(openBankingConsentsV2.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(openBankingConsentsV2.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(openBankingConsentsV2.createdAt))
       .offset(offset).limit(limit);
     return { consents: rows, total: rows.length };
@@ -1672,7 +1672,7 @@ const openBankingRouter = router({
     const db = (await getDb())!;
     const consentId = `CON-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(openBankingConsentsV2).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       consentId,
       customerId: input.customerId,
       permissions: JSON.stringify(input.permissions),
@@ -1737,7 +1737,7 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(payrollRuns)
-      .where(eq(payrollRuns.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(payrollRuns.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(payrollRuns.createdAt))
       .offset(offset).limit(limit);
     return { runs: rows, total: rows.length };
@@ -1759,7 +1759,7 @@ const payrollRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(payrollRuns).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       payDate: new Date(input.payDate),
       status: "draft",
@@ -1785,7 +1785,7 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(payrollV3Employees)
-      .where(eq(payrollV3Employees.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(payrollV3Employees.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { employees: rows, total: rows.length };
   }),
@@ -1804,7 +1804,7 @@ const payrollRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(payrollV3Employees).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
     }).returning();
@@ -1814,7 +1814,7 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(payrollV3Runs)
-      .where(eq(payrollV3Runs.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(payrollV3Runs.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(payrollV3Runs.createdAt))
       .offset(offset).limit(limit);
     return { runs: rows, total: rows.length };
@@ -1830,7 +1830,7 @@ const portfolioRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(portfolioRebalancingOrders)
-      .where(eq(portfolioRebalancingOrders.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(portfolioRebalancingOrders.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(portfolioRebalancingOrders.createdAt))
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
@@ -1842,7 +1842,7 @@ const portfolioRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(portfolioRebalancingOrders).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       portfolioId: input.portfolioId,
       targetAllocations: JSON.stringify(input.targetAllocations),
       notes: input.notes ?? null,
@@ -1868,7 +1868,7 @@ const ptspRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(ptspBatches)
-      .where(eq(ptspBatches.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(ptspBatches.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(ptspBatches.createdAt))
       .offset(offset).limit(limit);
     return { batches: rows, total: rows.length };
@@ -1887,7 +1887,7 @@ const ptspRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(ptspBatches).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       settlementDate: new Date(input.settlementDate),
       status: "pending",
@@ -2001,7 +2001,7 @@ const recipeRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(recipeIngredients)
-      .where(eq(recipeIngredients.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(recipeIngredients.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { ingredients: rows, total: rows.length };
   }),
@@ -2016,7 +2016,7 @@ const recipeRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(recipeIngredients).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       allergens: input.allergens ? JSON.stringify(input.allergens) : null,
     }).returning();
@@ -2049,7 +2049,7 @@ const reconciliationRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(reconciliationAlerts)
-      .where(eq(reconciliationAlerts.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(reconciliationAlerts.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(reconciliationAlerts.createdAt))
       .offset(offset).limit(limit);
     return { alerts: rows, total: rows.length };
@@ -2092,7 +2092,7 @@ const regulatoryReportsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(regulatoryReports)
-      .where(eq(regulatoryReports.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(regulatoryReports.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(regulatoryReports.createdAt))
       .offset(offset).limit(limit);
     return { reports: rows, total: rows.length };
@@ -2110,7 +2110,7 @@ const regulatoryReportsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(regulatoryReports).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       data: input.data ? JSON.stringify(input.data) : null,
       status: "draft",
@@ -2132,7 +2132,7 @@ const restaurantRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(restaurantTables)
-      .where(eq(restaurantTables.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(restaurantTables.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { tables: rows, total: rows.length };
   }),
@@ -2144,7 +2144,7 @@ const restaurantRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(restaurantTables).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "available",
     }).returning();
@@ -2165,7 +2165,7 @@ const restaurantRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(restaurantOrders)
-      .where(eq(restaurantOrders.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(restaurantOrders.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(restaurantOrders.createdAt))
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
@@ -2185,7 +2185,7 @@ const restaurantRouter = router({
     const db = (await getDb())!;
     const totalKobo = input.items.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const [order] = await db.insert(restaurantOrders).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       tableId: input.tableId ?? null,
       items: JSON.stringify(input.items),
       totalKobo,
@@ -2197,7 +2197,7 @@ const restaurantRouter = router({
       await db.insert(restaurantOrderItems).values(
         input.items.map(item => ({
           orderId: order.id,
-          merchantId: ctx.user.merchantId ?? "",
+          merchantId: ctx.user.tenantId ?? "",
           ...item,
           status: "pending",
         }))
@@ -2231,7 +2231,7 @@ const sdkTokensRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(sdkTokens)
-      .where(eq(sdkTokens.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(sdkTokens.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(sdkTokens.createdAt))
       .offset(offset).limit(limit);
     return { tokens: rows, total: rows.length };
@@ -2245,7 +2245,7 @@ const sdkTokensRouter = router({
     const db = (await getDb())!;
     const token = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
     const [row] = await db.insert(sdkTokens).values({
-      merchantId: ctx.user.merchantId ?? "",
+      merchantId: ctx.user.tenantId ?? "",
       token,
       label: input.label,
       platform: input.platform,
@@ -2280,7 +2280,7 @@ const settlementSlaRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(settlementSlaEvents)
-      .where(eq(settlementSlaEvents.merchantId, ctx.user.merchantId ?? ""))
+      .where(eq(settlementSlaEvents.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(settlementSlaEvents.createdAt))
       .offset(offset).limit(limit);
     return { events: rows, total: rows.length };

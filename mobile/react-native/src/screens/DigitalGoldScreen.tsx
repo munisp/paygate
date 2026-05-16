@@ -36,6 +36,7 @@ export default function DigitalGoldScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const { data, isLoading, error, refetch } = (trpc as any)['digitalGold']?.['getHoldings']?.useQuery?.() ?? { data: null, isLoading: false, error: null, refetch: async () => {} };
+  const { data: historyData } = (trpc as any)['digitalGold']?.['getPortfolioHistory']?.useQuery?.({ months: 6 }) ?? { data: null };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
