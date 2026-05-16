@@ -424,10 +424,10 @@ function Router() {
           <Route path="/onboarding" component={Onboarding} />
           <Route path="/invite/accept" component={AcceptInvite} />
           <Route path="/admin/support"><AdminGuard><SupportAdmin /></AdminGuard></Route>
-          <Route path="/admin/gnn-training" component={AdminGNNTraining} />
-          <Route path="/admin/keycloak" component={AdminKeycloak} />
-          <Route path="/admin/settlement-sla" component={AdminSettlementSLA} />
-          <Route path="/admin/dispute-lifecycle" component={AdminDisputeLifecycle} />
+          <Route path="/admin/gnn-training"><AdminGuard><AdminGNNTraining /></AdminGuard></Route>
+          <Route path="/admin/keycloak"><AdminGuard><AdminKeycloak /></AdminGuard></Route>
+          <Route path="/admin/settlement-sla"><AdminGuard><AdminSettlementSLA /></AdminGuard></Route>
+          <Route path="/admin/dispute-lifecycle"><AdminGuard><AdminDisputeLifecycle /></AdminGuard></Route>
           <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
         </Switch>
       </Suspense>
@@ -559,47 +559,47 @@ function Router() {
           <Route path="/payroll" component={Payroll} />
           <Route path="/geofence-alerts" component={GeofenceAlerts} />
           <Route path="/microservice-health" component={MicroserviceHealth} />
-          <Route path="/admin-setup" component={AdminSetup} />
-          <Route path="/admin" component={AdminPlatformOverview} />
-          <Route path="/admin/merchants" component={AdminMerchantManagement} />
-          <Route path="/admin/kyc" component={AdminKYCReview} />
-          <Route path="/admin/disputes" component={AdminDisputeManagement} />
-          <Route path="/admin/fraud" component={AdminFraudOversight} />
-          <Route path="/admin/revenue" component={AdminRevenue} />
-          <Route path="/admin/settlements" component={AdminSettlements} />
-          <Route path="/admin/compliance" component={AdminCompliance} />
-          <Route path="/admin/health" component={AdminSystemHealth} />
-          <Route path="/admin/audit" component={AdminAuditTrail} />
-          <Route path="/admin/notifications" component={AdminNotifications} />
-          <Route path="/admin/notifications/preferences" component={AdminNotificationPreferences} />
-          <Route path="/admin/webhook-alerts" component={AdminWebhookAlerts} />
-          <Route path="/admin/config" component={AdminConfig} />
-          <Route path="/admin/feature-flags" component={AdminFeatureFlags} />
-          <Route path="/admin/merchant-risk" component={AdminMerchantRisk} />
-          <Route path="/admin/chargebacks" component={AdminChargebacks} />
-          <Route path="/admin/help-analytics" component={AdminHelpAnalytics} />
-          <Route path="/admin/audit-log" component={AdminAuditLog} />
-          <Route path="/admin/api-playground" component={AdminApiPlayground} />
-          <Route path="/admin/rate-limits" component={AdminRateLimitDashboard} />
-          <Route path="/admin/sdk-tokens" component={AdminSdkTokens} />
-          <Route path="/admin/tenants" component={AdminTenantManagement} />
-          <Route path="/admin/white-label" component={AdminWhiteLabel} />
-          <Route path="/admin/kyb-review" component={AdminKybReview} />
-          <Route path="/admin/fx-hedging" component={AdminFxHedging} />
-          <Route path="/admin/payout-approval" component={AdminPayoutApproval} />
-          <Route path="/admin/compliance-reports" component={AdminComplianceReports} />
-          <Route path="/admin/security-score" component={AdminSecurityScore} />
-          <Route path="/admin/webhook-retry" component={AdminWebhookRetry} />
+          <Route path="/admin-setup"><AdminGuard><AdminSetup /></AdminGuard></Route>
+          <Route path="/admin"><AdminGuard><AdminPlatformOverview /></AdminGuard></Route>
+          <Route path="/admin/merchants"><AdminGuard><AdminMerchantManagement /></AdminGuard></Route>
+          <Route path="/admin/kyc"><AdminGuard><AdminKYCReview /></AdminGuard></Route>
+          <Route path="/admin/disputes"><AdminGuard><AdminDisputeManagement /></AdminGuard></Route>
+          <Route path="/admin/fraud"><AdminGuard><AdminFraudOversight /></AdminGuard></Route>
+          <Route path="/admin/revenue"><AdminGuard><AdminRevenue /></AdminGuard></Route>
+          <Route path="/admin/settlements"><AdminGuard><AdminSettlements /></AdminGuard></Route>
+          <Route path="/admin/compliance"><AdminGuard><AdminCompliance /></AdminGuard></Route>
+          <Route path="/admin/health"><AdminGuard><AdminSystemHealth /></AdminGuard></Route>
+          <Route path="/admin/audit"><AdminGuard><AdminAuditTrail /></AdminGuard></Route>
+          <Route path="/admin/notifications"><AdminGuard><AdminNotifications /></AdminGuard></Route>
+          <Route path="/admin/notifications/preferences"><AdminGuard><AdminNotificationPreferences /></AdminGuard></Route>
+          <Route path="/admin/webhook-alerts"><AdminGuard><AdminWebhookAlerts /></AdminGuard></Route>
+          <Route path="/admin/config"><AdminGuard><AdminConfig /></AdminGuard></Route>
+          <Route path="/admin/feature-flags"><AdminGuard><AdminFeatureFlags /></AdminGuard></Route>
+          <Route path="/admin/merchant-risk"><AdminGuard><AdminMerchantRisk /></AdminGuard></Route>
+          <Route path="/admin/chargebacks"><AdminGuard><AdminChargebacks /></AdminGuard></Route>
+          <Route path="/admin/help-analytics"><AdminGuard><AdminHelpAnalytics /></AdminGuard></Route>
+          <Route path="/admin/audit-log"><AdminGuard><AdminAuditLog /></AdminGuard></Route>
+          <Route path="/admin/api-playground"><AdminGuard><AdminApiPlayground /></AdminGuard></Route>
+          <Route path="/admin/rate-limits"><AdminGuard><AdminRateLimitDashboard /></AdminGuard></Route>
+          <Route path="/admin/sdk-tokens"><AdminGuard><AdminSdkTokens /></AdminGuard></Route>
+          <Route path="/admin/tenants"><AdminGuard><AdminTenantManagement /></AdminGuard></Route>
+          <Route path="/admin/white-label"><AdminGuard><AdminWhiteLabel /></AdminGuard></Route>
+          <Route path="/admin/kyb-review"><AdminGuard><AdminKybReview /></AdminGuard></Route>
+          <Route path="/admin/fx-hedging"><AdminGuard><AdminFxHedging /></AdminGuard></Route>
+          <Route path="/admin/payout-approval"><AdminGuard><AdminPayoutApproval /></AdminGuard></Route>
+          <Route path="/admin/compliance-reports"><AdminGuard><AdminComplianceReports /></AdminGuard></Route>
+          <Route path="/admin/security-score"><AdminGuard><AdminSecurityScore /></AdminGuard></Route>
+          <Route path="/admin/webhook-retry"><AdminGuard><AdminWebhookRetry /></AdminGuard></Route>
           <Route path="/admin/data-pipeline"><AdminGuard><AdminDataPipeline /></AdminGuard></Route>
-          <Route path="/admin/bnpl-underwriting" component={AdminBnplUnderwriting} />
-          <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
-          <Route path="/admin/invite-codes" component={AdminInviteCodes} />
-          <Route path="/admin/tenant-billing" component={AdminTenantBilling} />
-          <Route path="/admin/sla-monitor" component={AdminSlaMonitorPage} />
-          <Route path="/admin/tenant-revenue" component={AdminTenantRevenuePage} />
+          <Route path="/admin/bnpl-underwriting"><AdminGuard><AdminBnplUnderwriting /></AdminGuard></Route>
+          <Route path="/admin/loyalty-tiers"><AdminGuard><AdminLoyaltyTierEngine /></AdminGuard></Route>
+          <Route path="/admin/invite-codes"><AdminGuard><AdminInviteCodes /></AdminGuard></Route>
+          <Route path="/admin/tenant-billing"><AdminGuard><AdminTenantBilling /></AdminGuard></Route>
+          <Route path="/admin/sla-monitor"><AdminGuard><AdminSlaMonitorPage /></AdminGuard></Route>
+          <Route path="/admin/tenant-revenue"><AdminGuard><AdminTenantRevenuePage /></AdminGuard></Route>
           <Route path="/sdk" component={WhiteLabelSDKPage} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
-          <Route path="/admin/tenant" component={TenantAdminDashboard} />
+          <Route path="/admin/tenant"><AdminGuard><TenantAdminDashboard /></AdminGuard></Route>
           <Route path="/partner/preview" component={WhiteLabelPreview} />
           <Route path="/ollama-chat" component={OllamaChat} />
           <Route path="/go-live" component={GoLiveChecklist} />
@@ -715,37 +715,37 @@ function Router() {
           <Route path="/tenant/corridors" component={CorridorManagement} />
           <Route path="/tenant/sso" component={TenantSsoConfig} />
           <Route path="/tenant/api-keys" component={TenantApiKeys} />
-          <Route path="/admin/rate-limit-dashboard" component={RateLimitDashboard} />
+          <Route path="/admin/rate-limit-dashboard"><AdminGuard><RateLimitDashboard /></AdminGuard></Route>
           <Route path="/loyalty/auto-promotion" component={LoyaltyAutoPromotion} />
           <Route path="/bnpl/repayment-tracker" component={BnplRepaymentTracker} />
           <Route path="/disputes/escalation" component={DisputeEscalation} />
-          <Route path="/admin/revenue-analytics" component={AdminRevenueAnalytics} />
-          <Route path="/admin/sla-monitoring" component={AdminSlaMonitoring} />
-          <Route path="/admin/chargeback-management" component={AdminChargebackManagement} />
+          <Route path="/admin/revenue-analytics"><AdminGuard><AdminRevenueAnalytics /></AdminGuard></Route>
+          <Route path="/admin/sla-monitoring"><AdminGuard><AdminSlaMonitoring /></AdminGuard></Route>
+          <Route path="/admin/chargeback-management"><AdminGuard><AdminChargebackManagement /></AdminGuard></Route>
           <Route path="/tenant/stripe-billing" component={TenantStripeBilling} />
-          <Route path="/admin/onboarding-emails" component={OnboardingEmailFlow} />
-          <Route path="/admin/sla-alerts" component={SlaAlertDashboard} />
-          <Route path="/admin/kyb-state-machine" component={KybStateMachine} />
-          <Route path="/admin/middleware-integrations" component={MiddlewareIntegrations} />
+          <Route path="/admin/onboarding-emails"><AdminGuard><OnboardingEmailFlow /></AdminGuard></Route>
+          <Route path="/admin/sla-alerts"><AdminGuard><SlaAlertDashboard /></AdminGuard></Route>
+          <Route path="/admin/kyb-state-machine"><AdminGuard><KybStateMachine /></AdminGuard></Route>
+          <Route path="/admin/middleware-integrations"><AdminGuard><MiddlewareIntegrations /></AdminGuard></Route>
           <Route path="/fx/hedging" component={FxHedgingWorkflow} />
-          <Route path="/admin/billing-cron" component={TenantBillingCron} />
-          <Route path="/admin/ussd-menu-builder" component={UssdMenuBuilder} />
-          <Route path="/admin/middleware-health-alerts" component={MiddlewareHealthAlerts} />
-          <Route path="/admin/payout-approval-workflow" component={PayoutApprovalWorkflow} />
-          <Route path="/admin/bnpl-delinquency" component={BnplDelinquencyManagement} />
-          <Route path="/admin/dispute-sla" component={DisputeSlaTracking} />
-          <Route path="/admin/invite-codes-v2" component={AdminInviteCodesPage} />
-          <Route path="/admin/partner-onboarding" component={PartnerOnboardingPage} />
-          <Route path="/admin/corridors" component={TenantCorridorsPage} />
-          <Route path="/admin/plan-limits" component={PlanLimitsPage} />
-          <Route path="/admin/billing-invoices" component={BillingInvoicesPage} />
+          <Route path="/admin/billing-cron"><AdminGuard><TenantBillingCron /></AdminGuard></Route>
+          <Route path="/admin/ussd-menu-builder"><AdminGuard><UssdMenuBuilder /></AdminGuard></Route>
+          <Route path="/admin/middleware-health-alerts"><AdminGuard><MiddlewareHealthAlerts /></AdminGuard></Route>
+          <Route path="/admin/payout-approval-workflow"><AdminGuard><PayoutApprovalWorkflow /></AdminGuard></Route>
+          <Route path="/admin/bnpl-delinquency"><AdminGuard><BnplDelinquencyManagement /></AdminGuard></Route>
+          <Route path="/admin/dispute-sla"><AdminGuard><DisputeSlaTracking /></AdminGuard></Route>
+          <Route path="/admin/invite-codes-v2"><AdminGuard><AdminInviteCodesPage /></AdminGuard></Route>
+          <Route path="/admin/partner-onboarding"><AdminGuard><PartnerOnboardingPage /></AdminGuard></Route>
+          <Route path="/admin/corridors"><AdminGuard><TenantCorridorsPage /></AdminGuard></Route>
+          <Route path="/admin/plan-limits"><AdminGuard><PlanLimitsPage /></AdminGuard></Route>
+          <Route path="/admin/billing-invoices"><AdminGuard><BillingInvoicesPage /></AdminGuard></Route>
           <Route path="/billing-engine/analytics" component={BillingAnalyticsPage} />
           <Route path="/billing-engine" component={BillingConfigPage} />
-          <Route path="/admin/sso-config" component={SSOConfigPage} />
+          <Route path="/admin/sso-config"><AdminGuard><SSOConfigPage /></AdminGuard></Route>
           <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
           <Route path="/subscriptions-v2" component={SubscriptionsPage} />
-          <Route path="/admin/fraud-rings" component={FraudRingDashboard} />
-          <Route path="/admin/gnn-threshold" component={GNNThresholdPage} />
+          <Route path="/admin/fraud-rings"><AdminGuard><FraudRingDashboard /></AdminGuard></Route>
+          <Route path="/admin/gnn-threshold"><AdminGuard><GNNThresholdPage /></AdminGuard></Route>
           <Route path="/pricing" component={PricingPage} />
           <Route path="/webhook-events" component={WebhookEventsPage} />
           <Route path="/emi-loans" component={EMILoansPage} />
@@ -758,7 +758,7 @@ function Router() {
           <Route path="/gold/sip" component={GoldSIP} />
           <Route path="/consumer/loyalty-app" component={ConsumerLoyaltyApp} />
           <Route path="/webhook-live" component={WebhookLiveStream} />
-          <Route path="/admin/middleware-dashboard" component={MiddlewareDashboard} />
+          <Route path="/admin/middleware-dashboard"><AdminGuard><MiddlewareDashboard /></AdminGuard></Route>
           <Route path="/staff-management" component={StaffManagementPage} />
           <Route path="/insurance-claims" component={InsuranceClaimsPage} />
           <Route path="/support-chat" component={SupportChatPage} />
@@ -774,7 +774,7 @@ function Router() {
           <Route path="/kyb-verifications" component={KYBVerificationsPage} />
           <Route path="/invoice-financing" component={InvoiceFinancingPage} />
           <Route path="/loyalty-v3" component={LoyaltyV3Page} />
-          <Route path="/admin/tenant-provisioning" component={TenantProvisioningPage} />
+          <Route path="/admin/tenant-provisioning"><AdminGuard><TenantProvisioningPage /></AdminGuard></Route>
           <Route path="/audit-log" component={AuditLogViewerPage} />
           {/* Wave 122 routes */}
           <Route path="/fraud-rule-engine" component={FraudRuleEnginePage} />

@@ -628,7 +628,7 @@ export const loyaltyRouter = router({
     const user = await resolveUser(ctx.user.openId);
     // Try middleware bridge first
     if (isBridgeAvailable()) {
-      const result = await getCashbackBalanceViaMiddleware(user.id);
+      const result = await getCashbackBalanceViaMiddleware(String(user.id));
       if (result) return { userId: user.id, pointsBalance: Math.round(result.balance * 100), lifetimePoints: Math.round(result.balance * 100), tier: 'bronze', pendingBalance: result.pendingBalance };
     }
     const db = (await getDb())!;
@@ -677,7 +677,7 @@ export const loyaltyRouter = router({
       const user = await resolveUser(ctx.user.openId);
       // Try middleware bridge first
       if (isBridgeAvailable()) {
-        const result = await redeemCashbackViaMiddleware(user.id, input.points / 100, input.merchantId ?? user.id);
+        const result = await redeemCashbackViaMiddleware(String(user.id), input.points / 100, input.merchantId ?? user.id);
         if (result) return { success: result.success, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
       }
       const db = (await getDb())!;
@@ -841,10 +841,12 @@ export const consumerCardRouter = router({
       // Try middleware bridge first
       if (isBridgeAvailable()) {
         const result = await issueVirtualCardViaMiddleware({
-          userId: user.id,
+          cardId: `card-${user.id}-${Date.now()}`,
+          merchantId: String(user.id),
+          spendingLimit: input.spendingLimitKobo / 100,
           currency: input.currency,
-          cardBrand: input.cardBrand,
-          spendingLimitKobo: input.spendingLimitKobo,
+          label: input.cardBrand ?? 'virtual',
+          issuerId: String(user.id),
         });
         if (result) return result;
       }
@@ -931,7 +933,7 @@ export const recurringRouter = router({
       const user = await resolveUser(ctx.user.openId);
       // Try middleware bridge first
       if (isBridgeAvailable()) {
-        const result = await listSubscriptionPlansViaMiddleware(user.id);
+        const result = await listSubscriptionPlansViaMiddleware(String(user.id));
         if (result?.plans?.length) return result.plans;
       }
       const db = (await getDb())!;

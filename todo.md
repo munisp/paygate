@@ -4823,3 +4823,10 @@
 - [x] FraudRisk.tsx rules array access fix (no .rules property on array)
 - [x] sdk.ts env fix: oAuthServerUrl -> keycloakUrl, kafkaBootstrapServers
 - [x] 28 new tests in wave131.production-readiness.test.ts
+
+## Wave 132 (Round 60) — Completed
+- [x] wave68Router.ts: number->string fixes for all ViaMiddleware calls
+- [x] wave68Router.ts: issueVirtualCardViaMiddleware correct IssueVirtualCardRequest fields
+- [x] App.tsx: 41 admin routes wrapped with AdminGuard (security fix)
+- [x] App.tsx: admin/gnn-training, admin/keycloak, admin/settlement-sla, admin/dispute-lifecycle wrapped
+- [x] 21 new tests in wave132.production-readiness.test.ts
