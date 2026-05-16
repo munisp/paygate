@@ -13,7 +13,7 @@ import { getDb } from "./db";
 import { ENV } from "./_core/env";
 import { isSuppressedWorkerError } from './workerErrorFilter';
 
-const PORTAL_URL = ENV.merchantPortalUrl ?? "https://paygate.manus.space";
+const PORTAL_URL = ENV.merchantPortalUrl ?? "https://portal.paygate.africa";
 
 // ─── HTML Email Templates ────────────────────────────────────────────────────
 

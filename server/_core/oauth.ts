@@ -462,7 +462,7 @@ export function registerOAuthRoutes(app: Express) {
                 const { sendEmail, geoAnomalyEmail } = await import("../emailService");
                 const { ENV } = await import("./env");
                 const ownerEmail = ENV.smtpUser; // fallback: use SMTP user as owner email
-                const portalUrl = process.env.MERCHANT_PORTAL_URL ?? "https://paygate.manus.space";
+                const portalUrl = process.env.MERCHANT_PORTAL_URL ?? "https://portal.paygate.africa";
                 const emailOpts = geoAnomalyEmail({
                   ownerEmail,
                   userId: body.userId as string,

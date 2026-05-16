@@ -666,8 +666,8 @@ describe("SettlementForecast: predictive settlement timing", () => {
       }
       return result;
     };
-    // 2026-01-03 is a Friday (day 5)
-    const friday = new Date("2026-01-03");
+    // 2026-01-02 is a Friday (day 5)
+    const friday = new Date("2026-01-02");
     expect(friday.getDay()).toBe(5); // confirm it's Friday
     const nextBusinessDay = addBusinessDays(friday, 1);
     expect(nextBusinessDay.getDay()).toBe(1); // Monday (skips weekend)
