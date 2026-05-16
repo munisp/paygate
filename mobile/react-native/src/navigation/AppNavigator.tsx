@@ -93,6 +93,10 @@ export type MainTabParamList = {
   Customers: undefined;
   Payouts: undefined;
   Analytics: undefined;
+  Loyalty: undefined;
+  NIP: undefined;
+  MobileMoney: undefined;
+  Insurance: undefined;
 };
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -117,6 +121,10 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     Customers: "◉",
     Payouts: "↑",
     Analytics: "▲",
+    Loyalty: "★",
+    NIP: "⚡",
+    "M-Money": "₦",
+    Insurance: "🛡",
   };
   return (
     <View style={styles.tabIcon}>
@@ -196,6 +204,42 @@ function MainTabs() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon label="Analytics" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Loyalty"
+        component={LoyaltyScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Loyalty" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="NIP"
+        component={NIPScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="NIP" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="MobileMoney"
+        component={MobileMoneyScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="M-Money" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Insurance"
+        component={InsuranceScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="Insurance" focused={focused} />
           ),
         }}
       />

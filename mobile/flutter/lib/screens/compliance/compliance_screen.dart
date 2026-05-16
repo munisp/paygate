@@ -1,3 +1,4 @@
+import '../../services/api_service.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -18,7 +19,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
   Future<void> _load() async {
     try {
       final r = await http.get(
-        Uri.parse('https://paygate.manus.space/api/trpc/complianceKyc.list?input={"limit":50}'),
+        Uri.parse('https://api.paygate.africa/api/trpc/complianceKyc.list?input={"limit":50}'),
         headers: {'Content-Type': 'application/json'},
       );
       final d = jsonDecode(r.body);

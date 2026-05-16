@@ -54,6 +54,8 @@ export function validateExternalUrl(rawUrl: string): { safe: boolean; reason?: s
 // ─── VULN-032: Open Redirect Prevention ───────────────────────────────────────
 const ALLOWED_REDIRECT_DOMAINS = [
   "paygate.io",
+  "paygate.africa",
+  "portal.paygate.africa",
   "manus.space",
   "manus.computer",
   "localhost",
@@ -161,7 +163,7 @@ export function buildCspHeader(nonce?: string): string {
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `font-src 'self' https://fonts.gstatic.com`,
     `img-src 'self' data: https: blob:`,
-    `connect-src 'self' https://api.stripe.com https://*.manus.space wss://*.manus.space`,
+    `connect-src 'self' https://api.stripe.com https://*.paygate.africa wss://*.paygate.africa https://*.manus.space wss://*.manus.space`,
     `frame-src 'self' https://js.stripe.com https://hooks.stripe.com`,
     `object-src 'none'`,
     `base-uri 'self'`,

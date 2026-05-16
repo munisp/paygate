@@ -1,25 +1,85 @@
-
+import '../../services/api_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
-class FraudRuleEngineScreen extends StatefulWidget {
+// Assuming dioProvider is defined elsewhere, e.g., in a providers.dart file
+final dioProvider = Provider<Dio>((ref) => Dio());
+
+class FraudRuleEngineScreen extends ConsumerStatefulWidget {
   const FraudRuleEngineScreen({super.key});
+
   @override
-  State<FraudRuleEngineScreen> createState() => _FraudRuleEngineScreenState();
+  ConsumerState<FraudRuleEngineScreen> createState() => _FraudRuleEngineScreenState();
 }
 
-class _FraudRuleEngineScreenState extends State<FraudRuleEngineScreen> {
-  final List<Map<String, dynamic>> _rules = [
-    {'name': 'High Amount Block', 'condition': 'amount > 500000', 'action': 'block', 'enabled': true},
-    {'name': 'Velocity Check', 'condition': 'tx_count_1h > 10', 'action': 'flag', 'enabled': true},
-    {'name': 'Foreign Card Alert', 'condition': 'card_country != NG', 'action': 'notify', 'enabled': false},
-  ];
+class _FraudRuleEngineScreenState extends ConsumerState<FraudRuleEngineScreen> {
+  List<Map<String, dynamic>> _rules = [];
+  bool _isLoading = true;
+  String? _error;
 
-  Color _actionColor(String action) {
-    switch (action) {
-      case 'block': return Colors.red;
-      case 'flag': return Colors.orange;
-      case 'notify': return Colors.blue;
-      default: return Colors.grey;
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final dio = ref.read(dioProvider);
+      final response = await dio.get('/api/trpc/fraudRuleEngine.list');
+      setState(() {
+        _rules = List<Map<String, dynamic>>.from(response.data['data']); // Assuming 'data' key holds the list
+      });
+    } on DioException catch (e) {
+      setState(() {
+        _error = 'Failed to load rules: ${e.message}';
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'An unexpected error occurred: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _toggleRuleStatus(String ruleId, bool newValue) async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final dio = ref.read(dioProvider);
+      await dio.post(
+        '/api/trpc/fraudRuleEngine.toggleStatus',
+        data: {'id': ruleId, 'enabled': newValue},
+      );
+      // Update the local state after successful API call
+      setState(() {
+        final ruleIndex = _rules.indexWhere((rule) => rule['id'] == ruleId);
+        if (ruleIndex != -1) {
+          _rules[ruleIndex]['enabled'] = newValue;
+        }
+      });
+    } on DioException catch (e) {
+      setState(() {
+        _error = 'Failed to toggle rule status: ${e.message}';
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'An unexpected error occurred: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -28,35 +88,51 @@ class _FraudRuleEngineScreenState extends State<FraudRuleEngineScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Fraud Rule Engine'),
-        actions: [IconButton(icon: const Icon(Icons.add), onPressed: () {})],
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _rules.length,
-        itemBuilder: (ctx, i) {
-          final rule = _rules[i];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: ListTile(
-              leading: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _actionColor(rule['action']).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(rule['action'].toString().toUpperCase(),
-                    style: TextStyle(color: _actionColor(rule['action']), fontSize: 10, fontWeight: FontWeight.bold)),
-              ),
-              title: Text(rule['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text(rule['condition'], style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-              trailing: Switch(
-                value: rule['enabled'],
-                onChanged: (v) => setState(() => _rules[i]['enabled'] = v),
-              ),
-            ),
-          );
-        },
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text('Error: $_error'))
+              : _rules.isEmpty
+                  ? const Center(child: Text('No fraud rules found.'))
+                  : ListView.builder(
+                      itemCount: _rules.length,
+                      itemBuilder: (context, index) {
+                        final rule = _rules[index];
+                        return Card(
+                          margin: const EdgeInsets.all(8.0),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  rule['name']!,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(rule['description']!),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text('Enabled:'),
+                                    Switch(
+                                      value: rule['enabled']!,
+                                      onChanged: (bool value) {
+                                        _toggleRuleStatus(rule['id']!, value);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
     );
   }
 }

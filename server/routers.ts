@@ -5436,12 +5436,19 @@ const adminMgmtRouter = router({
       if (caller.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN' });
       const { Pool } = await import('pg');
       const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-      await pool.query(`UPDATE users SET role=$1 WHERE id=$2`, [input.role, input.userId]);
+            await pool.query(`UPDATE users SET role=$1 WHERE id=$2`, [input.role, input.userId]);
       await pool.end();
+      // Fire-and-forget Kafka audit event
+      publishAuditEvent({
+        action: 'user.role.changed',
+        actorId: ctx.user.openId,
+        targetId: input.userId,
+        metadata: { newRole: input.role },
+        timestamp: new Date().toISOString(),
+      }).catch((e: Error) => logger.warn('[kafka] publishAuditEvent failed (non-fatal):', e.message));
       return { updated: true };
     }),
 });
-
 // ─── Push Token Router ─────────────────────────────────────────────────────
 // Registers FCM/APNs device tokens from the mobile app for push delivery.
 
@@ -6784,11 +6791,18 @@ const payrollRouter = router({
   approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
     const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
-    await approvePayrollRun(input.id, merchant.id);
+        await approvePayrollRun(input.id, merchant.id);
+    // Fire-and-forget Kafka audit event
+    publishAuditEvent({
+      action: 'payroll.run.approved',
+      actorId: ctx.user.openId,
+      targetId: input.id,
+      metadata: { merchantId: merchant.id },
+      timestamp: new Date().toISOString(),
+    }).catch((e: Error) => logger.warn('[kafka] publishAuditEvent failed (non-fatal):', e.message));
     return { ok: true };
   }),
 });
-
 // ─── Audit Log Router ──────────────────────────────────────────────────────
 
 const auditLogRouter = router({

@@ -112,6 +112,7 @@ const BLOCKED_DOMAINS = new Set([
   "metadata.google.internal",
   "manus.space",
   "manus.computer",
+  "paygate.africa",
 ]);
 
 export function validateCustomDomain(domain: string): { valid: boolean; reason?: string } {

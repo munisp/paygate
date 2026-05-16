@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/api_service.dart';
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
@@ -151,13 +152,32 @@ class NotificationPreferencesScreen extends ConsumerWidget {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           TextButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Preferences saved'),
-                  backgroundColor: Color(0xFF10B981),
-                ),
-              );
+            onPressed: () async {
+              final prefs = ref.read(notificationPrefsProvider);
+              final prefsMap = {
+                for (final p in prefs)
+                  p.id: {'email': p.email, 'push': p.push, 'sms': p.sms}
+              };
+              try {
+                await ApiService.instance.post('/notifications/preferences', prefsMap);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Preferences saved'),
+                      backgroundColor: Color(0xFF10B981),
+                    ),
+                  );
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Failed to save preferences'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text('Save', style: TextStyle(color: Color(0xFF6366F1))),
           ),

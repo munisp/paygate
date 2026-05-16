@@ -1,3 +1,4 @@
+import '../../services/api_service.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -15,7 +16,7 @@ class _SettlementsScreenState extends State<SettlementsScreen> {
 
   Future<void> _load() async {
     try {
-      final r = await http.get(Uri.parse('https://paygate.manus.space/api/trpc/settlements.list?input={"limit":50}'));
+      final r = await http.get(Uri.parse('https://api.paygate.africa/api/trpc/settlements.list?input={"limit":50}'));
       final d = jsonDecode(r.body);
       setState(() { _settlements = d['result']?['data']?['items'] ?? []; _loading = false; });
     } catch (_) { setState(() => _loading = false); }

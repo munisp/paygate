@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 const String _kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://your-paygate-domain.manus.space/api',
+  defaultValue: 'https://api.paygate.africa/api',
 );
 
 const _storage = FlutterSecureStorage();

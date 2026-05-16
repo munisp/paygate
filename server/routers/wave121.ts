@@ -14,6 +14,7 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq, and, gte, lte, like, sql } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
+import { publishAuditEvent } from "../kafkaClient";
 import { getDb } from "../db";
 import {
   tenantFeeOverrides,
@@ -402,6 +403,9 @@ export const kybMgmtRouter = router({
       if (input.riskLevel) setData.riskLevel = input.riskLevel;
       await db.update(kybVerifications).set(setData)
         .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.merchantId ?? "")));
+      if (input.status === 'approved' || input.status === 'rejected') {
+        publishAuditEvent({ action: 'kyb.status.updated', actorId: ctx.user.openId, targetId: input.id, metadata: { status: input.status }, timestamp: new Date().toISOString() }).catch(() => {});
+      }
       return { success: true };
     }),
 
