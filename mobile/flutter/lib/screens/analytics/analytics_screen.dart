@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 
 // Note: In a real project, these would be imported from their respective files.
 // For the purpose of this task, they are included as placeholders or mocks.
-// import 'package:paygate/services/api_service.dart';
+import 'package:paygate/services/api_service.dart';
 // import 'package:paygate/providers/api_provider.dart';
 
 // --- Providers ---
@@ -24,28 +24,8 @@ final channelBreakdownProvider = FutureProvider.autoDispose((ref) async {
   return api.getChannelBreakdown(period);
 });
 
-// Placeholder for the actual ApiService provider
+// ApiService is imported from package:paygate/services/api_service.dart
 final apiServiceProvider = Provider((ref) => ApiService());
-
-// --- Models & Service Mock ---
-
-class ApiService {
-  Future<AnalyticsData> getAnalytics(String period) async {
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 1));
-    return AnalyticsData.mock(period);
-  }
-
-  Future<List<ChannelData>> getChannelBreakdown(String period) async {
-    // Simulate API call
-    await Future.delayed(const Duration(milliseconds: 800));
-    return [
-      ChannelData('Card', 65, const Color(0xFF3B82F6)),
-      ChannelData('Bank Transfer', 20, const Color(0xFF10B981)),
-      ChannelData('E-Wallet', 15, const Color(0xFFF59E0B)),
-    ];
-  }
-}
 
 class AnalyticsData {
   final double totalVolume;

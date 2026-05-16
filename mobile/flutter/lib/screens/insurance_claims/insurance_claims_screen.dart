@@ -17,13 +17,21 @@ class _InsuranceClaimsScreenState extends State<InsuranceClaimsScreen> {
   void initState() { super.initState(); _loadClaims(); }
 
   Future<void> _loadClaims() async {
+    try {
     setState(() => _loading = true);
     try {
       final resp = await http.get(Uri.parse('/api/trpc/insuranceClaims.list?input=%7B%22page%22%3A1%7D'));
       if (resp.statusCode == 200) {
         final data = json.decode(resp.body);
         setState(() { _claims = data['result']?['data']?['claims'] ?? []; });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(\'Error loading data\'), backgroundColor: Colors.red),
+        );
       }
+    }
+  }
     } finally { setState(() => _loading = false); }
   }
 

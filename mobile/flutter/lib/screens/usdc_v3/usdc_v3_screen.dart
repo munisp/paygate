@@ -17,13 +17,21 @@ class _UsdcV3ScreenState extends State<UsdcV3Screen> {
   void initState() { super.initState(); _loadTxns(); }
 
   Future<void> _loadTxns() async {
+    try {
     setState(() => _loading = true);
     try {
       final resp = await http.get(Uri.parse('/api/trpc/usdcV3.listTransactions?input=%7B%22page%22%3A1%7D'));
       if (resp.statusCode == 200) {
         final data = json.decode(resp.body);
         setState(() { _txns = data['result']?['data']?['transactions'] ?? []; });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(\'Error loading data\'), backgroundColor: Colors.red),
+        );
       }
+    }
+  }
     } finally { setState(() => _loading = false); }
   }
 

@@ -4863,3 +4863,15 @@
 - [x] Wired PartnerAdminDashboard.tsx to use real revenueData
 - [x] Wired SubscriptionManagement.tsx to use real monthlyChurnData
 - [x] 19 new tests in wave136.production-readiness.test.ts
+
+## Wave 137 — Completed
+- [x] All 215 database tables verified to have indexes (409 total index definitions)
+- [x] Security middleware verified: rate limiting (6 limiters), CORS, helmet, CSP
+- [x] Stripe webhook endpoint verified with raw body parser and signature verification
+- [x] No raw process.env usage outside env.ts
+- [x] No TODO/FIXME in production code
+- [x] 6 Flutter screens fixed: removed mock ApiService stubs, now use real api_service.dart
+- [x] Audit event coverage: 34+ calls in routers.ts + wave121.ts
+- [x] Pagination coverage: 35+ patterns for 24 list procedures
+- [x] 3 new RN screens: AgentBankingScreen, BNPLCalculatorScreen, AuditLogScreen (now 90 total)
+- [x] 25 new tests in wave137.production-readiness.test.ts

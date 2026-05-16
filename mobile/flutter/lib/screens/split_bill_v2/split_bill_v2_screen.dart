@@ -17,13 +17,21 @@ class _SplitBillV2ScreenState extends State<SplitBillV2Screen> {
   void initState() { super.initState(); _loadSessions(); }
 
   Future<void> _loadSessions() async {
+    try {
     setState(() => _loading = true);
     try {
       final resp = await http.get(Uri.parse('/api/trpc/splitBillV2.listSessions?input=%7B%22page%22%3A1%7D'));
       if (resp.statusCode == 200) {
         final data = json.decode(resp.body);
         setState(() { _sessions = data['result']?['data']?['sessions'] ?? []; });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(\'Error loading data\'), backgroundColor: Colors.red),
+        );
       }
+    }
+  }
     } finally { setState(() => _loading = false); }
   }
 
