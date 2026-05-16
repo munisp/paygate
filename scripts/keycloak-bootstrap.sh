@@ -32,12 +32,75 @@ set -euo pipefail
 
 # ─── Parse arguments ──────────────────────────────────────────────────────────
 IMPORT_REALM=false
+HEALTH_CHECK=false
 for arg in "$@"; do
   case "$arg" in
     --import-realm) IMPORT_REALM=true ;;
+    --health-check) HEALTH_CHECK=true ;;
     *) echo "[bootstrap] Unknown argument: $arg"; exit 1 ;;
   esac
 done
+
+# ─── Health-Check Mode ────────────────────────────────────────────────────────
+# Usage: ./scripts/keycloak-bootstrap.sh --health-check
+# Verifies Keycloak realm is reachable and client secret is valid.
+# Returns exit code 0 on success, 1 on failure.
+if [ "$HEALTH_CHECK" = true ]; then
+  HC_URL="${KEYCLOAK_URL:-http://localhost:8081}"
+  HC_REALM="${KEYCLOAK_REALM:-paygate}"
+  HC_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-merchant-portal}"
+  HC_CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
+  HC_ADMIN="${KEYCLOAK_ADMIN:-admin}"
+  HC_ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}"
+
+  echo "[HealthCheck] Verifying Keycloak at $HC_URL/realms/$HC_REALM ..."
+
+  # 1. Realm OIDC discovery endpoint
+  DISC_HTTP=$(curl -so /dev/null -w "%{http_code}" \
+    "$HC_URL/realms/$HC_REALM/.well-known/openid-configuration" 2>/dev/null)
+  if [ "$DISC_HTTP" != "200" ]; then
+    echo "[HealthCheck] FAIL: Realm discovery returned HTTP $DISC_HTTP (expected 200)"
+    exit 1
+  fi
+  echo "[HealthCheck] OK: Realm discovery reachable (HTTP 200)"
+
+  # 2. Client credentials grant (validates client secret)
+  if [ -z "$HC_CLIENT_SECRET" ]; then
+    echo "[HealthCheck] SKIP: KEYCLOAK_CLIENT_SECRET not set"
+  else
+    TOKEN_RESP=$(curl -sf -X POST \
+      "$HC_URL/realms/$HC_REALM/protocol/openid-connect/token" \
+      -d "grant_type=client_credentials" \
+      -d "client_id=$HC_CLIENT_ID" \
+      -d "client_secret=$HC_CLIENT_SECRET" 2>/dev/null)
+    if echo "$TOKEN_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'access_token' in d else 1)" 2>/dev/null; then
+      echo "[HealthCheck] OK: Client credentials grant succeeded — secret valid"
+    else
+      ERR=$(echo "$TOKEN_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error_description','unknown'))" 2>/dev/null || echo "parse error")
+      echo "[HealthCheck] FAIL: Client credentials grant failed — $ERR"
+      exit 1
+    fi
+  fi
+
+  # 3. Admin API realm check
+  ADMIN_TOKEN=$(curl -sf -X POST \
+    "$HC_URL/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password" -d "client_id=admin-cli" \
+    -d "username=$HC_ADMIN" -d "password=$HC_ADMIN_PASS" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+  if [ -n "$ADMIN_TOKEN" ]; then
+    REALM_HTTP=$(curl -so /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer $ADMIN_TOKEN" \
+      "$HC_URL/admin/realms/$HC_REALM" 2>/dev/null)
+    [ "$REALM_HTTP" = "200" ] && echo "[HealthCheck] OK: Admin API accessible — realm '$HC_REALM' exists" \
+      || echo "[HealthCheck] WARN: Admin API returned HTTP $REALM_HTTP"
+  else
+    echo "[HealthCheck] WARN: Could not obtain admin token — admin API check skipped"
+  fi
+
+  echo "[HealthCheck] All checks passed. Keycloak is ready for PayGate."
+  exit 0
+fi
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8081}"

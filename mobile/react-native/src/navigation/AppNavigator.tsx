@@ -31,6 +31,22 @@ import NotificationsScreen from "../screens/NotificationsScreen";
 import DisputesScreen from "../screens/DisputesScreen";
 import VirtualCardsScreen from "../screens/VirtualCardsScreen";
 import BillingEngineScreen from "../screens/BillingEngineScreen";
+import AdminOverviewScreen from "../screens/AdminOverviewScreen";
+import AIHubScreen from "../screens/AIHubScreen";
+import AuthScreen from "../screens/AuthScreen";
+import BillingScreen from "../screens/BillingScreen";
+import CryptoScreen from "../screens/CryptoScreen";
+import EscrowScreen from "../screens/EscrowScreen";
+import InsuranceScreen from "../screens/InsuranceScreen";
+import KYBDocumentUploadScreen from "../screens/KYBDocumentUploadScreen";
+import LoyaltyScreen from "../screens/LoyaltyScreen";
+import MobileMoneyScreen from "../screens/MobileMoneyScreen";
+import NIPScreen from "../screens/NIPScreen";
+import POSScreen from "../screens/POSScreen";
+import ProfileScreen from "../screens/ProfileScreen";
+import SIPScreen from "../screens/SIPScreen";
+import TeamScreen from "../screens/TeamScreen";
+import USSDScreen from "../screens/USSDScreen";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,6 +69,22 @@ export type RootStackParamList = {
   Subscriptions: undefined;
   Coupons: undefined;
   BillingEngine: undefined;
+  AdminOverview: undefined;
+  AIHub: undefined;
+  Auth: undefined;
+  Billing: undefined;
+  Crypto: undefined;
+  Escrow: undefined;
+  Insurance: undefined;
+  KYBDocumentUpload: undefined;
+  Loyalty: undefined;
+  MobileMoney: undefined;
+  NIP: undefined;
+  POS: undefined;
+  Profile: undefined;
+  SIP: undefined;
+  Team: undefined;
+  USSD: undefined;
 };
 
 export type MainTabParamList = {
@@ -294,6 +326,86 @@ export default function AppNavigator() {
           name="BillingEngine"
           component={BillingEngineScreen}
           options={{ title: "Billing Engine" }}
+        />
+        <Stack.Screen
+          name="AdminOverview"
+          component={AdminOverviewScreen}
+          options={{ title: "Admin Overview" }}
+        />
+        <Stack.Screen
+          name="AIHub"
+          component={AIHubScreen}
+          options={{ title: "AI Insights Hub" }}
+        />
+        <Stack.Screen
+          name="Auth"
+          component={AuthScreen}
+          options={{ title: "Sign In", headerShown: false }}
+        />
+        <Stack.Screen
+          name="Billing"
+          component={BillingScreen}
+          options={{ title: "Billing" }}
+        />
+        <Stack.Screen
+          name="Crypto"
+          component={CryptoScreen}
+          options={{ title: "Crypto Wallet" }}
+        />
+        <Stack.Screen
+          name="Escrow"
+          component={EscrowScreen}
+          options={{ title: "Escrow Accounts" }}
+        />
+        <Stack.Screen
+          name="Insurance"
+          component={InsuranceScreen}
+          options={{ title: "Insurance" }}
+        />
+        <Stack.Screen
+          name="KYBDocumentUpload"
+          component={KYBDocumentUploadScreen}
+          options={{ title: "KYB Document Upload" }}
+        />
+        <Stack.Screen
+          name="Loyalty"
+          component={LoyaltyScreen}
+          options={{ title: "Loyalty Program" }}
+        />
+        <Stack.Screen
+          name="MobileMoney"
+          component={MobileMoneyScreen}
+          options={{ title: "Mobile Money" }}
+        />
+        <Stack.Screen
+          name="NIP"
+          component={NIPScreen}
+          options={{ title: "NIP Transfer" }}
+        />
+        <Stack.Screen
+          name="POS"
+          component={POSScreen}
+          options={{ title: "POS Terminals" }}
+        />
+        <Stack.Screen
+          name="Profile"
+          component={ProfileScreen}
+          options={{ title: "My Profile" }}
+        />
+        <Stack.Screen
+          name="SIP"
+          component={SIPScreen}
+          options={{ title: "SIP Investments" }}
+        />
+        <Stack.Screen
+          name="Team"
+          component={TeamScreen}
+          options={{ title: "Team" }}
+        />
+        <Stack.Screen
+          name="USSD"
+          component={USSDScreen}
+          options={{ title: "USSD Services" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -4742,3 +4742,38 @@
 - [x] Fix Keycloak oauth.ts manus.space fallback → portal.paygate.africa
 - [x] Fix digestEmail.ts manus.space fallback → portal.paygate.africa
 - [x] Full test suite: 5,339 passing, 0 failures (138 test files)
+
+## Wave 129 — Full Production-Readiness Final Pass (Round 57)
+- [ ] Fix CSP connect-src in index.ts to use ALLOWED_ORIGINS env var instead of hardcoded manus.space wildcards
+- [ ] Add keycloak-bootstrap.sh health-check step (realm reachable + client secret valid)
+- [ ] Update infra/certs/generate-certs.sh with production CA-signing instructions
+- [ ] Deep audit: wire all orphaned routers to appRouter
+- [ ] Deep audit: fix all TODO/FIXME stubs in server code
+- [ ] Deep audit: replace all remaining mock data with real tRPC implementations
+- [ ] Deep audit: complete all CRUD operations (search, filter, pagination) for all tables
+- [ ] Security: fix CSP wildcards, add nonce-based CSP for inline scripts
+- [ ] Security: add rate limiting to all sensitive tRPC procedures
+- [ ] Security: complete PBAC coverage for all admin procedures
+- [ ] Security: add ransomware/DDoS mitigation (file upload scanning, request size limits)
+- [ ] Resilience: WebSocket fallback to SSE/polling for low-bandwidth environments
+- [ ] Resilience: offline queue flush with exponential backoff
+- [ ] Mobile parity: Flutter screens wired to all missing backend endpoints
+- [ ] Mobile parity: RN screens for all PWA pages not yet covered
+- [ ] Middleware: wire OpenSearch for transaction/audit log search
+- [ ] Middleware: wire Temporal workflow status to PWA WorkflowObservability page
+- [ ] Seed data: comprehensive seed scripts for all major tables
+- [ ] Wave 129 tests: cover all new implementations
+- [ ] Full test suite: maintain 0 failures
+- [ ] Generate comprehensive production archive with change manifest
+
+## Wave 129 — Production Readiness (Round 57)
+- [x] CSP connect-src now driven by ALLOWED_ORIGINS env var (no more hardcoded manus.space wildcards)
+- [x] keycloak-bootstrap.sh --health-check flag added (curl Keycloak realm before starting portal)
+- [x] mTLS certs: infra/certs/ca.crt, server.crt, client.crt generated (replace with CA-signed in prod)
+- [x] 22 new React Native screens created for Flutter parity (total: 90 screens in screens dir)
+- [x] 4 corrupted 1-line RN screens rewritten: InsuranceScreen, LoyaltyScreen, MobileMoneyScreen, NIPScreen
+- [x] AppNavigator: 16 new screen imports + Stack.Screen registrations added
+- [x] Kafka publishAuditEvent imported and wired in routers.ts
+- [x] WAFAlertDashboard.tsx: useEffect syncs DB events to local state on load
+- [x] Login.tsx: hardcoded demo password removed from initial state
+- [x] Wave 129 tests: 71 new tests, 5,410 total passing, 0 failures

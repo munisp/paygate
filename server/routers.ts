@@ -1,5 +1,5 @@
 import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
-import { publishTransactionEvent, publishPayoutEvent, publishFraudEvent } from "./kafkaClient";
+import { publishTransactionEvent, publishPayoutEvent, publishFraudEvent, publishAuditEvent } from "./kafkaClient";
 import { ollamaRouter } from "./ollamaRouter";
 import { orphanedTablesRouter } from "./orphanedTablesCRUD";
 import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';

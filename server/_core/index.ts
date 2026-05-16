@@ -243,9 +243,22 @@ async function startServer() {
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],
-        connectSrc: isDev
-          ? ["'self'", "ws:", "wss:", "https://api.stripe.com", "https://*.manus.space", "wss://*.manus.space", "https://*.manus.computer", "wss://*.manus.computer"]
-          : ["'self'", "https://api.stripe.com", "https://*.manus.space", "wss://*.manus.space"],
+        connectSrc: (() => {
+          // Build connect-src from ALLOWED_ORIGINS env var so CSP stays in sync
+          // with the OAuth allowlist — no hardcoded domain wildcards.
+          const base = ["'self'", "https://api.stripe.com"];
+          if (isDev) base.push("ws:", "wss:");
+          const extra = (process.env.ALLOWED_ORIGINS ?? "")
+            .split(",")
+            .map(o => o.trim())
+            .filter(Boolean)
+            .flatMap(o => {
+              // Add both https and wss variants for each allowed origin
+              const wsVariant = o.replace(/^https:\/\//, "wss://");
+              return [o, wsVariant];
+            });
+          return [...base, ...extra];
+        })(),
         frameSrc: ["https://js.stripe.com", "https://hooks.stripe.com"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
