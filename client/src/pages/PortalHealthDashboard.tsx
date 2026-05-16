@@ -46,6 +46,7 @@ export default function PortalHealthDashboard() {
     refetchInterval: rateLimitInterval,
   });
   const depsQuery = trpc.portalHealth.getDependencyMap.useQuery();
+  const isError = healthQuery.isError || goLiveQuery.isError;
 
   const health = healthQuery.data;
   const goLive = goLiveQuery.data;

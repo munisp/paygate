@@ -677,7 +677,7 @@ export const loyaltyRouter = router({
       const user = await resolveUser(ctx.user.openId);
       // Try middleware bridge first
       if (isBridgeAvailable()) {
-        const result = await redeemCashbackViaMiddleware(String(user.id), input.points / 100, input.merchantId ?? user.id);
+        const result = await redeemCashbackViaMiddleware(String(user.id), input.points / 100, String(input.merchantId ?? user.id));
         if (result) return { success: result.success, amountCreditedKobo: input.points, newPointsBalance: Math.round(result.newBalance * 100), redemptionId: result.redemptionId };
       }
       const db = (await getDb())!;
@@ -843,7 +843,7 @@ export const consumerCardRouter = router({
         const result = await issueVirtualCardViaMiddleware({
           cardId: `card-${user.id}-${Date.now()}`,
           merchantId: String(user.id),
-          spendingLimit: input.spendingLimitKobo / 100,
+          spendingLimit: (input.spendingLimitKobo ?? 0) / 100,
           currency: input.currency,
           label: input.cardBrand ?? 'virtual',
           issuerId: String(user.id),

@@ -44,7 +44,7 @@ export default function AuditLogViewer() {
     useOpenSearch,
   }), [page, search, actorId, actionType, resourceType, dateFrom, dateTo, useOpenSearch]);
 
-  const { data, isLoading, refetch } = trpc.auditLog.search.useQuery(queryParams);
+  const { data, isLoading, isError, refetch } = trpc.auditLog.search.useQuery(queryParams);
 
   const logs = data?.logs ?? [];
   const total = data?.total ?? 0;

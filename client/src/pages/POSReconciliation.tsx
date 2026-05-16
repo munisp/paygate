@@ -57,7 +57,7 @@ export default function POSReconciliation() {
     channel,
   }), [from, to, channel]);
 
-  const { data, isLoading, refetch } = trpc.pos.reconciliationReport.useQuery(queryInput);
+  const { data, isLoading, isError, refetch } = trpc.pos.reconciliationReport.useQuery(queryInput);
 
   function downloadCsv() {
     if (!data?.csv) return;

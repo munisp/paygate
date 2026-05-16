@@ -100,7 +100,7 @@ export default function CrossBorderRailMonitor() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const railInterval = useAdaptiveInterval(15_000);
 
-  const { data, isLoading, refetch, isFetching } = trpc.crossBorder.getRailHealth.useQuery(undefined, {
+  const { data, isLoading, isError, refetch, isFetching } = trpc.crossBorder.getRailHealth.useQuery(undefined, {
     refetchInterval: railInterval,
     onSuccess: () => setLastRefresh(new Date()),
   } as any);

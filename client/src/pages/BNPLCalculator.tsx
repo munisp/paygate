@@ -32,7 +32,7 @@ export default function BNPLCalculator() {
   const [principalInput, setPrincipalInput] = useState("500000");
   const [activePreset, setActivePreset] = useState(2);
 
-  const { data: schedule, isLoading } = trpc.bnplAmortisation.calculateSchedule.useQuery({
+  const { data: schedule, isLoading, isError, isError } = trpc.bnplAmortisation.calculateSchedule.useQuery({
     principalKobo: principal,
     months,
     annualInterestRatePct: rate,

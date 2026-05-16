@@ -4830,3 +4830,11 @@
 - [x] App.tsx: 41 admin routes wrapped with AdminGuard (security fix)
 - [x] App.tsx: admin/gnn-training, admin/keycloak, admin/settlement-sla, admin/dispute-lifecycle wrapped
 - [x] 21 new tests in wave132.production-readiness.test.ts
+
+## Wave 133 (Round 61) — Completed
+- [x] wave68Router.ts: redeemCashbackViaMiddleware third arg String() coercion
+- [x] wave68Router.ts: spendingLimitKobo nullish coalescing fix
+- [x] usageMeteringRouter.ts: 5 non-awaited getDb() calls fixed
+- [x] corridorRouter.ts: 8 non-awaited getDb() calls fixed
+- [x] 10 PWA pages: added isError handling (AuditLogViewer, BNPLCalculator, CrossBorderRailMonitor, MicroserviceHealth, MobileMoneyRecon, MojaloopDashboard, POSReconciliation, QRGenerator, APIDocsPortal, PortalHealthDashboard)
+- [x] 22 new tests in wave133.production-readiness.test.ts

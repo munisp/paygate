@@ -279,7 +279,7 @@ services:
 export default function MicroserviceHealth() {
   const microserviceInterval = useAdaptiveInterval(30000);
   const [showCompose, setShowCompose] = useState(false);
-  const { data, isLoading, refetch } = trpc.system.microservicesHealth.useQuery(undefined, {
+  const { data, isLoading, isError, refetch } = trpc.system.microservicesHealth.useQuery(undefined, {
     refetchInterval: microserviceInterval,
   });
 

@@ -54,7 +54,7 @@ export default function QRGenerator() {
   const [selectedLinkId, setSelectedLinkId] = useState("");
   const [generatedUrl, setGeneratedUrl] = useState("");
 
-  const {isLoading, data: merchantData} = trpc.settings.get.useQuery();
+  const {isLoading, isError, data: merchantData} = trpc.settings.get.useQuery();
   const { data: linksData } = trpc.paymentLinks.list.useQuery();
 
   const merchantId = merchantData?.merchant?.id ?? "mid_demo";

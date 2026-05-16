@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 export default function APIDocsPortal() {
-  const {isLoading, data: spec} = trpc.newFeatures.apiDocs.getOpenAPISpec.useQuery();
+  const {isLoading, isError, data: spec} = trpc.newFeatures.apiDocs.getOpenAPISpec.useQuery();
   const { data: sdkInfo } = trpc.newFeatures.apiDocs.getSDKInfo.useQuery();
   const { data: changelog } = trpc.newFeatures.apiDocs.getChangelog.useQuery();
 
