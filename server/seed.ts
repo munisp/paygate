@@ -487,6 +487,20 @@ for (const merchant of merchantData.slice(0, 3)) {
 }
 console.log(`  ✓ ${teamCount} team members`);
 
+// ─── Payment Links ────────────────────────────────────────────────────────────
+console.log("\n→ Seeding payment links...");
+let paymentLinksCount = 0;
+const paymentLinkData = [
+  { id: "pl_001", tenantId: tenantData[0].id, merchantId: merchantData[0].id, slug: "checkout-basic", title: "Basic Checkout", description: "Standard payment link", amount: 500000, currency: "NGN", isActive: true },
+  { id: "pl_002", tenantId: tenantData[0].id, merchantId: merchantData[0].id, slug: "premium-plan", title: "Premium Plan", description: "Premium subscription payment", amount: 1500000, currency: "NGN", isActive: true },
+  { id: "pl_003", tenantId: tenantData[0].id, merchantId: merchantData[0].id, slug: "donation-link", title: "Donation", description: "Accept donations", amount: null, currency: "NGN", isActive: true },
+];
+for (const pl of paymentLinkData) {
+  await db.insert(schema.paymentLinks).values(pl).onConflictDoUpdate({ target: schema.paymentLinks.id, set: { updatedAt: new Date() } }).catch(() => {});
+  paymentLinksCount++;
+}
+console.log(`  ✓ ${paymentLinksCount} payment links`);
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 console.log("\n✅ Seed complete!");
 console.log("   Tenants:       ", tenantData.length);
@@ -504,5 +518,6 @@ console.log("   KYC:           ", kycCount);
 console.log("   FX Rates:      ", fxCount);
 console.log("   NIP Banks:     ", nipCount);
 console.log("   Team Members:  ", teamCount);
+   console.log("   Payment Links: ", paymentLinksCount);
 
 await pool.end();

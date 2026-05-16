@@ -470,6 +470,13 @@
       "when": 1778933919611,
       "tag": "0066_opposite_sasquatch",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1778951537284,
+      "tag": "0067_glorious_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

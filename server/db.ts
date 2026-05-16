@@ -3119,3 +3119,25 @@ export async function deleteFxAlert(id: number, merchantId: string) {
     return false;
   }
 }
+
+// ─── Re-exports for legacy wave routers ──────────────────────────────────────
+// wave90Router and other early routers import these from ./db instead of ./routers
+export async function resolveUser(openId: string) {
+  const db = await getDb();
+  if (!db) throw new Error('DB unavailable');
+  const { users } = await import('../drizzle/schema');
+  const { eq } = await import('drizzle-orm');
+  const [u] = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  if (!u) throw new Error('User not found');
+  return u;
+}
+
+export async function requireMerchant(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('DB unavailable');
+  const { merchants } = await import('../drizzle/schema');
+  const { eq } = await import('drizzle-orm');
+  const [m] = await db.select().from(merchants).where(eq(merchants.ownerId, userId)).limit(1);
+  if (!m) throw new Error('Merchant not found');
+  return m;
+}

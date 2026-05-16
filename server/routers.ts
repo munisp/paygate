@@ -184,6 +184,13 @@ import {
 import { notificationPreferencesRouter } from './routers/notificationPreferences';
 import { consumerNotifPrefsRouter } from './routers/consumerNotifPrefs';
 import { adminNotifPrefsRouter } from './routers/adminNotifPrefs';
+import { wave159Router } from './routers/wave159';
+import { wave160Router } from './routers/wave160';
+import { wave161Router } from './routers/wave161';
+import { wave162Router } from './routers/wave162';
+import { wave163Router } from './routers/wave163';
+import { wave164Router } from './routers/wave164';
+import { wave165Router } from './routers/wave165';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -8929,6 +8936,13 @@ export const appRouter = router({
   offlineResilience: offlineResilienceRouter,
   // Tenants — White-Label Branding (getBranding / updateBranding)
   tenants: tenantsRouter,
+  livenessReplay: wave159Router,
+  securityAudit: wave160Router,
+  resilientConnectivity: wave161Router,
+  middlewareWiringAudit: wave162Router,
+  serviceIntegrationAudit: wave163Router,
+  uiUxAudit: wave164Router,
+  productionReadiness: wave165Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

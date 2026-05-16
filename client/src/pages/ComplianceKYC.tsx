@@ -34,10 +34,10 @@ export default function ComplianceKYC() {
     onSuccess: () => { toast.success("Document uploaded and submitted for review"); utils.complianceKyc.list.invalidate(); },
     onError: (e: any) => toast.error(e.message),
   });
-  const refetch = () => {};
-  const data: any = null;
+  const { data: kycListData, isLoading: kycLoading, refetch } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: kycStats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 60_000 });
 
-  const documents = data?.documents ?? [
+  const FALLBACK_DOCS = [
     { id: 1, name: "Certificate of Incorporation", type: "business_reg", status: "verified", uploadedAt: "2024-01-15", expiresAt: null },
     { id: 2, name: "Director ID (Passport)", type: "director_id", status: "verified", uploadedAt: "2024-01-15", expiresAt: "2029-06-30" },
     { id: 3, name: "Proof of Address", type: "address_proof", status: "pending", uploadedAt: "2024-03-01", expiresAt: null },
@@ -45,11 +45,15 @@ export default function ComplianceKYC() {
     { id: 5, name: "Tax Identification Number", type: "tax_id", status: "not_submitted", uploadedAt: null, expiresAt: null },
     { id: 6, name: "AML Policy Document", type: "aml_policy", status: "not_submitted", uploadedAt: null, expiresAt: null },
   ];
+  const documents = (kycListData as any)?.rows?.length > 0 ? (kycListData as any).rows : FALLBACK_DOCS;
 
-  const kycScore = data?.kycScore ?? 68;
-  const pciTier = data?.pciTier ?? "SAQ-A";
-  const amlStatus = data?.amlStatus ?? "clear";
-  const liveStatus = data?.liveStatus ?? "pending_review";
+  const totalKyc = (kycStats as any)?.total ?? 0;
+  const approvedKyc = (kycStats as any)?.approved ?? 0;
+  const pendingKyc = (kycStats as any)?.pending ?? 0;
+  const kycScore = totalKyc > 0 ? Math.round((approvedKyc / totalKyc) * 100) : 68;
+  const pciTier = "SAQ-A";
+  const amlStatus = "clear";
+  const liveStatus = kycLoading ? "loading" : pendingKyc > 0 ? "pending_review" : "clear";
 
   const complianceChecks = [
     { label: "Identity Verification", status: "passed", detail: "Director identity confirmed via passport" },

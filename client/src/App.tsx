@@ -410,6 +410,20 @@ const CorridorLiveStatsPage = lz(() => import("./pages/CorridorLiveStats"));
 const PortfolioRebalancingPage = lz(() => import("./pages/PortfolioRebalancing"));
 // Wave 155-156: Liveness verification
 const LivenessCheckPage = lz(() => import("./pages/LivenessCheck"));
+// Wave 159: Liveness Replay Viewer
+// Wave 160: Security Audit Dashboard
+// Wave 161: Resilience Center
+// Wave 162: Middleware Wiring Audit
+const MiddlewareWiringAuditPage = lz(() => import("./pages/MiddlewareWiringAudit"));
+const ResilienceCenterPage = lz(() => import("./pages/ResilienceCenter"));
+const SecurityAuditDashboardPage = lz(() => import("./pages/SecurityAuditDashboard"));
+const LivenessReplayViewerPage = lz(() => import("./pages/LivenessReplayViewer"));
+// Wave 163: Service Integration Audit
+const ServiceIntegrationAuditPage = lz(() => import("./pages/ServiceIntegrationAudit"));
+// Wave 164: UI/UX Audit Dashboard
+const UIUXAuditDashboardPage = lz(() => import("./pages/UIUXAuditDashboard"));
+// Wave 165: Production Readiness Dashboard
+const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionReadinessDashboard"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -834,6 +848,13 @@ function Router() {
           <Route path="/corridor-live" component={CorridorLiveStatsPage} />
           <Route path="/portfolio-rebalancing" component={PortfolioRebalancingPage} />
           <Route path="/liveness-check" component={LivenessCheckPage} />
+          <Route path="/liveness-replay" component={LivenessReplayViewerPage} />
+          <Route path="/security-audit" component={SecurityAuditDashboardPage} />
+          <Route path="/resilience-center" component={ResilienceCenterPage} />
+          <Route path="/middleware-wiring-audit" component={MiddlewareWiringAuditPage} />
+          <Route path="/service-integration-audit" component={ServiceIntegrationAuditPage} />
+          <Route path="/uiux-audit" component={UIUXAuditDashboardPage} />
+          <Route path="/production-readiness" component={ProductionReadinessDashboardPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

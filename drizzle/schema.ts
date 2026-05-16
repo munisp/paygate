@@ -4469,3 +4469,112 @@ export const fxAlerts = pgTable("fx_alerts", {
 ]);
 export type FxAlert = typeof fxAlerts.$inferSelect;
 export type InsertFxAlert = typeof fxAlerts.$inferInsert;
+
+// ─── Liveness Sessions (Replay Viewer) ───────────────────────────────────────
+// Stores per-session liveness check results for admin replay and audit.
+export const livenessDecisionEnum = pgEnum("liveness_decision", ["real", "spoof", "uncertain"]);
+export const livenessSessions = pgTable("liveness_sessions", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  submissionId: text("submission_id").references(() => kycSubmissions.id, { onDelete: "set null" }),
+  sessionRef: text("session_ref"),
+  mode: text("mode", { enum: ["passive", "active", "full"] }).default("passive").notNull(),
+  challengeType: text("challenge_type"),
+  decision: livenessDecisionEnum("decision"),
+  livenessScore: real("liveness_score"),
+  confidenceScore: real("confidence_score"),
+  spoofType: text("spoof_type"),
+  rustSignalScore: real("rust_signal_score"),
+  goGatewayScore: real("go_gateway_score"),
+  pythonMlScore: real("python_ml_score"),
+  ensembleWeights: jsonb("ensemble_weights"),
+  frameCount: integer("frame_count").default(0).notNull(),
+  passiveFrameUrl: text("passive_frame_url"),
+  challengeFrameUrls: jsonb("challenge_frame_urls"),
+  overrideDecision: livenessDecisionEnum("override_decision"),
+  overrideNote: text("override_note"),
+  overrideBy: text("override_by"),
+  overrideAt: timestamp("override_at"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  deviceType: text("device_type"),
+  durationMs: integer("duration_ms"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("liveness_sessions_merchant_idx").on(t.merchantId),
+  index("liveness_sessions_submission_idx").on(t.submissionId),
+  index("liveness_sessions_decision_idx").on(t.decision),
+  index("liveness_sessions_created_idx").on(t.createdAt),
+]);
+export type LivenessSession = typeof livenessSessions.$inferSelect;
+export type InsertLivenessSession = typeof livenessSessions.$inferInsert;
+
+// ─── Wave 161: Offline Queue (merchant-side operations queued while offline) ──
+export const offlineQueueStatusEnum = pgEnum("offline_queue_status", ["pending", "syncing", "synced", "failed", "cancelled"]);
+export const offlineQueuePriorityEnum = pgEnum("offline_queue_priority", ["critical", "high", "normal", "low"]);
+
+export const offlineQueue = pgTable("offline_queue", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  operationType: text("operation_type").notNull(),
+  payload: jsonb("payload").notNull(),
+  status: offlineQueueStatusEnum("status").default("pending").notNull(),
+  priority: offlineQueuePriorityEnum("priority").default("normal").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  nextRetryAt: timestamp("next_retry_at"),
+  lastError: text("last_error"),
+  syncedAt: timestamp("synced_at"),
+  deviceId: text("device_id"),
+  networkType: text("network_type"),
+  bandwidthKbps: integer("bandwidth_kbps"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("offline_queue_merchant_idx").on(t.merchantId),
+  index("offline_queue_status_idx").on(t.status),
+  index("offline_queue_priority_idx").on(t.priority),
+  index("offline_queue_next_retry_idx").on(t.nextRetryAt),
+  index("offline_queue_created_idx").on(t.createdAt),
+]);
+export type OfflineQueueItem = typeof offlineQueue.$inferSelect;
+export type InsertOfflineQueueItem = typeof offlineQueue.$inferInsert;
+
+// ─── Wave 161: Retry Policies ─────────────────────────────────────────────────
+export const retryPolicies = pgTable("retry_policies", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id"),
+  operationType: text("operation_type").notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  initialDelayMs: integer("initial_delay_ms").default(1000).notNull(),
+  backoffMultiplier: real("backoff_multiplier").default(2.0).notNull(),
+  maxDelayMs: integer("max_delay_ms").default(60000).notNull(),
+  retryOnStatuses: jsonb("retry_on_statuses").$type<number[]>().default([500, 502, 503, 504]),
+  enabled: boolean("enabled").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("retry_policies_merchant_idx").on(t.merchantId),
+  index("retry_policies_op_idx").on(t.operationType),
+]);
+export type RetryPolicy = typeof retryPolicies.$inferSelect;
+export type InsertRetryPolicy = typeof retryPolicies.$inferInsert;
+
+// ─── Wave 161: Network Quality Events ────────────────────────────────────────
+export const networkQualityEvents = pgTable("network_quality_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  deviceId: text("device_id"),
+  networkType: text("network_type").notNull(),
+  bandwidthKbps: integer("bandwidth_kbps"),
+  latencyMs: integer("latency_ms"),
+  packetLossPct: real("packet_loss_pct"),
+  wsConnected: boolean("ws_connected").default(true).notNull(),
+  wsFallbackActive: boolean("ws_fallback_active").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("network_quality_merchant_idx").on(t.merchantId),
+  index("network_quality_created_idx").on(t.createdAt),
+]);
+export type NetworkQualityEvent = typeof networkQualityEvents.$inferSelect;
+export type InsertNetworkQualityEvent = typeof networkQualityEvents.$inferInsert;
