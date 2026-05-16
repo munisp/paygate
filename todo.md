@@ -4944,3 +4944,31 @@
 - [x] Wave 148: Add audit events to cancelSubscription (portalBillingRouter) and cancel (crud119) mutations
 - [x] Wave 149: Add .ok checks to fetch() calls in tier1to5Router.ts; verify tier6to8Router and newFeaturesRouter already handle errors
 - [x] Wave 150: Final comprehensive audit - schema index coverage (417 indexes, 216 tables), fire-and-forget audit events verified, stripe webhook signature verification confirmed, all wave 146-149 checks passing
+
+## Wave 151-152: Orphaned Feature Implementation
+
+- [ ] Wave 151a: Referral Program page (trpc.referrals.*)
+- [ ] Wave 151b: Saved Beneficiaries page (trpc.savedBeneficiaries.*)
+- [ ] Wave 151c: POS Transactions page (trpc.posTransactions.*)
+- [ ] Wave 151d: Coupon Management page (trpc.couponsMgmt.*)
+- [ ] Wave 151e: Loyalty Program page (trpc.loyalty.*)
+- [ ] Wave 151f: Market Data / Gold Price page (trpc.marketData.*)
+- [ ] Wave 151g: SLA Breaches page (trpc.slaBreaches.*)
+- [ ] Wave 151h: Fraud Alert Comments panel (trpc.fraudAlertComments.*)
+- [ ] Wave 151i: Consumer Finance Loans page (trpc.consumerFinanceLoans.*)
+- [ ] Wave 151j: Tenant Management page (trpc.tenantMgmt.*)
+- [ ] Wave 152a: Wire POSTerminals.tsx to trpc.posTerminals.* (currently uses trpc.pos.*)
+- [ ] Wave 152b: Wire SlaAlertDashboard.tsx to trpc.settlementSLA.* (currently uses trpc.wave30.*)
+- [ ] Wave 152c: Wire PricingPage.tsx to trpc.pricing.* (currently uses trpc.portalBilling.*)
+- [ ] Wave 152d: Wire InsurancePage.tsx to trpc.insurancePolicies.* (currently uses trpc.consumerFinancial.*)
+- [ ] Wave 152e: Wire EMILoansPage.tsx to trpc.loanRepayments.* (currently uses trpc.consumerFinancial.*)
+- [ ] Wave 152f: Add domain logic to corridorRouter (currently pure CRUD)
+- [ ] Wave 152g: Add domain logic to sipRouter (currently pure CRUD)
+- [ ] Wave 152h: Implement orphanedTablesCRUD domain logic (currently generic)
+- [ ] Wave 152i: Add create/update/delete to wave124 routers exposed in appRouter
+- [ ] Wave 152j: Add audit events to wave124 create/update/delete mutations
+- [x] Wave 152: Wire 8 orphaned routers to new merchant pages (RedEnvelopes, SuperAgentManagement, SettlementSLA, DataExport, OnboardingStatus, ClaimDocuments, CorridorLiveStats, PortfolioRebalancing)
+- [x] Wave 152: Add corridorLiveEnhanced.setDailyLimit to CorridorLiveStats page
+- [x] Wave 152: Register all 8 new pages in App.tsx with correct routes
+- [x] Wave 152: Add all 8 new pages to Layout.tsx sidebar navigation
+- [x] Wave 152: 162 test files / 6,647 tests / 0 failures

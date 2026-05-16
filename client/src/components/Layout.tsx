@@ -14,7 +14,7 @@ import {
   Umbrella, Leaf, Gem, Bitcoin, Lock, CalendarClock, Clock, Receipt, FlaskConical,
   Landmark, Radio, MessageSquareCode, Network, Layers3, Tablet, Satellite, Palette,
   Database, ShieldPlus, Briefcase, PercentSquare, Volume2, PiggyBank,
-  SplitSquareHorizontal, ListChecks, BookMarked, UserCheck, EyeOff,
+  SplitSquareHorizontal, ListChecks, BookMarked, Bookmark, UserCheck, EyeOff,
   BarChart2, Building, ShoppingBag, Send, ChevronDown,
   Calendar, CheckSquare, Mic, Split, TrendingDown, Wifi, MessageSquare, Calculator, MapPin} from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ const navGroups: NavGroup[] = [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
       { icon: BarChart3, label: "Analytics", path: "/analytics" },
       { icon: BarChart2, label: "Merchant Analytics", path: "/merchant-analytics", badge: "New" },
+      { icon: TrendingUp, label: "Market Data", path: "/market-data", badge: "New" },
       { icon: FileText, label: "Reports Center", path: "/reports" },
       { icon: Brain, label: "AI Insights", path: "/ai-insights", badge: "AI" },
       { icon: Bell, label: "Notifications", path: "/notifications" },
@@ -58,6 +59,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: ArrowLeftRight, label: "Transactions", path: "/transactions" },
       { icon: Users, label: "Customers", path: "/customers" },
+      { icon: Bookmark, label: "Saved Beneficiaries", path: "/saved-beneficiaries", badge: "New" },
       { icon: ShoppingCart, label: "Checkout", path: "/checkout" },
       { icon: Link2, label: "Payment Links", path: "/payment-links" },
       { icon: QrCode, label: "QR Payments", path: "/qr-payments" },
@@ -109,6 +111,7 @@ const navGroups: NavGroup[] = [
     icon: Globe,
     items: [
       { icon: TrendingUp, label: "FX & Rates", path: "/fx" },
+      { icon: Activity, label: "Corridor Live Stats", path: "/corridor-live", badge: "New" },
       { icon: Globe, label: "Cross-Border", path: "/cross-border" },
       { icon: Send, label: "Remittance", path: "/remittance" },
       { icon: MapPin, label: "Remittance Tracker", path: "/remittance/tracker" },
@@ -158,6 +161,8 @@ const navGroups: NavGroup[] = [
       { icon: ShieldAlert, label: "Fraud Rules", path: "/fraud-rules", badge: "New" },
       { icon: Zap, label: "Fraud Rule Engine", path: "/fraud-rule-engine", badge: "New" },
       { icon: DollarSign, label: "Fee Schedules", path: "/fee-schedules", badge: "New" },
+      { icon: MessageSquare, label: "Alert Comments", path: "/fraud-alert-comments", badge: "New" },
+      { icon: Activity, label: "SLA Breaches", path: "/sla-breaches", badge: "New" },
     ],
   },
   {
@@ -195,6 +200,8 @@ const navGroups: NavGroup[] = [
       { icon: Shield, label: "Escrow V2", path: "/escrow-v2", badge: "New" },
       { icon: Shield, label: "Escrow Contracts", path: "/escrow-contracts", badge: "New" },
       { icon: Cpu, label: "Embedded Finance", path: "/embedded-finance" },
+      { icon: Banknote, label: "Consumer Loans", path: "/consumer-loans", badge: "New" },
+      { icon: RefreshCw, label: "Loan Repayments", path: "/loan-repayments", badge: "New" },
     ],
   },
   {
@@ -216,6 +223,10 @@ const navGroups: NavGroup[] = [
       { icon: Leaf, label: "Carbon Credits", path: "/carbon-credit" },
       { icon: Leaf, label: "Carbon Credits V2", path: "/carbon-credits-v2", badge: "New" },
       { icon: Leaf, label: "Carbon Ledger", path: "/carbon-credits-ledger", badge: "New" },
+      { icon: Shield, label: "Insurance Policies", path: "/insurance-policies", badge: "New" },
+      { icon: FileText, label: "Claim Documents", path: "/claim-documents", badge: "New" },
+      { icon: BarChart2, label: "Portfolio Rebalancing", path: "/portfolio-rebalancing", badge: "New" },
+      { icon: CreditCard, label: "Stripe Subscriptions", path: "/stripe-subscriptions", badge: "New" },
     ],
   },
   {
@@ -233,6 +244,10 @@ const navGroups: NavGroup[] = [
       // Wave 124
       { icon: Receipt, label: "Bill Payments", path: "/bill-payments", badge: "New" },
       { icon: Leaf, label: "Carbon Credits", path: "/carbon-credits", badge: "New" },
+      { icon: Gift, label: "Referral Program", path: "/referral-program", badge: "New" },
+      { icon: Tag, label: "Coupon Management", path: "/coupon-management", badge: "New" },
+      { icon: Star, label: "Loyalty Program", path: "/loyalty-program", badge: "New" },
+      { icon: Gift, label: "Red Envelopes", path: "/red-envelopes", badge: "New" },
       { icon: PercentSquare, label: "Cashback & Rewards", path: "/cashback-rewards" },
       { icon: Gem, label: "NFT Badges", path: "/nft-badges" },
       { icon: BookOpen, label: "Open Banking", path: "/open-banking" },
@@ -246,6 +261,7 @@ const navGroups: NavGroup[] = [
     icon: Monitor,
     items: [
       { icon: Monitor, label: "POS Terminals", path: "/pos-terminals" },
+      { icon: ArrowLeftRight, label: "POS Transactions", path: "/pos-transactions", badge: "New" },
       { icon: Map, label: "Terminal Map", path: "/terminal-map" },
       { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
       { icon: ShoppingBag, label: "Smart Retail POS", path: "/smart-pos" },
@@ -262,6 +278,7 @@ const navGroups: NavGroup[] = [
       { icon: Users, label: "Agent Banking V4", path: "/agent-banking-v4", badge: "New" },
       { icon: Network, label: "Agent Network v2", path: "/agent-network" },
       { icon: Network, label: "Super-Agent V2", path: "/super-agent-v2", badge: "New" },
+      { icon: Users2, label: "Super Agent Mgmt", path: "/super-agent-management", badge: "New" },
       { icon: Radio, label: "USSD Session V2", path: "/ussd-v2", badge: "New" },
       { icon: Radio, label: "USSD Sessions", path: "/ussd-sessions", badge: "New" },
     ],
@@ -309,6 +326,9 @@ const navGroups: NavGroup[] = [
       { icon: CalendarClock, label: "Bulk Scheduler", path: "/bulk-scheduler" },
       { icon: Bot, label: "Ollama AI Chat", path: "/ollama-chat", badge: "AI" },
       { icon: Bell, label: "Realtime Notifications", path: "/realtime-notifications", badge: "New" },
+      { icon: Clock, label: "Settlement SLA", path: "/settlement-sla", badge: "New" },
+      { icon: Download, label: "Data Export", path: "/data-export", badge: "New" },
+      { icon: Rocket, label: "Onboarding Status", path: "/onboarding-status", badge: "New" },
     ],
   },
   {

@@ -618,6 +618,27 @@ export const loanRepaymentsRouter = router({
         .where(conditions.length ? and(...conditions) : undefined);
       return stats;
     }),
+
+  // markPaid is a semantic alias for record — used by the LoanRepayments UI
+  markPaid: protectedProcedure
+    .input(z.object({
+      loanId: z.string(),
+      merchantId: z.string().optional(),
+      amountKobo: z.number().positive(),
+      transferId: z.string().optional(),
+      method: z.string().optional().default("manual"),
+    }))
+    .mutation(async ({ input }) => {
+      const [row] = await db.insert(schema.loanRepayments).values({
+        loanId: input.loanId,
+        merchantId: input.merchantId ?? "",
+        amountKobo: input.amountKobo,
+        transferId: input.transferId ?? null,
+        method: input.method ?? "manual",
+        createdAt: new Date(),
+      } as any).returning();
+      return row;
+    }),
 });
 
 // ─── 10. POS Terminals ────────────────────────────────────────────────────────

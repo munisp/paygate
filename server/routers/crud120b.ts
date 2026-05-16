@@ -251,6 +251,28 @@ export const stripeSubscriptionsRouter = router({
       .offset(offset).limit(limit);
     return { charges: rows, total: rows.length };
   }),
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const db = (await getDb())!;
+    const [stats] = await db.select({
+      total: sql<number>`count(*)`,
+      active: sql<number>`count(*) filter (where status = 'active')`,
+      cancelled: sql<number>`count(*) filter (where status = 'cancelled')`,
+      pastDue: sql<number>`count(*) filter (where status = 'past_due')`,
+    }).from(stripeSubscriptions)
+      .where(eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? ""));
+    return stats ?? { total: 0, active: 0, cancelled: 0, pastDue: 0 };
+  }),
+  cancel: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ ctx, input }) => {
+    const db = (await getDb())!;
+    const rows = await db.select().from(stripeSubscriptions)
+      .where(and(eq(stripeSubscriptions.id, input.id), eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? "")))
+      .limit(1);
+    if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
+    await db.update(stripeSubscriptions)
+      .set({ status: "cancelled" as any })
+      .where(eq(stripeSubscriptions.id, input.id));
+    return { success: true };
+  }),
 });
 
 // ─── 44. Super Agent V2 Networks ─────────────────────────────────────────────

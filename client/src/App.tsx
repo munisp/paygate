@@ -386,6 +386,28 @@ const PortalHealthDashboardPage = lz(() => import("./pages/PortalHealthDashboard
 // Wave 124
 const BillPaymentsPage = lz(() => import("./pages/BillPayments"));
 const CarbonCreditsPage = lz(() => import("./pages/CarbonCredits"));
+// ── Wave 151: Orphaned feature pages ──────────────────────────────────────────
+const ReferralProgramPage = lz(() => import("./pages/ReferralProgram"));
+const SavedBeneficiariesPage = lz(() => import("./pages/SavedBeneficiaries"));
+const POSTransactionsPage = lz(() => import("./pages/POSTransactions"));
+const CouponManagementPage = lz(() => import("./pages/CouponManagement"));
+const LoyaltyProgramPage = lz(() => import("./pages/LoyaltyProgram"));
+const MarketDataDashboardPage = lz(() => import("./pages/MarketDataDashboard"));
+const SlaBreachesPage = lz(() => import("./pages/SlaBreaches"));
+const ConsumerLoansPage = lz(() => import("./pages/ConsumerLoans"));
+const FraudAlertCommentsPage = lz(() => import("./pages/FraudAlertComments"));
+const InsurancePoliciesPage = lz(() => import("./pages/InsurancePolicies"));
+const LoanRepaymentsPage = lz(() => import("./pages/LoanRepayments"));
+const StripeSubscriptionsPage = lz(() => import("./pages/StripeSubscriptions"));
+// Wave 152: Orphaned router pages
+const RedEnvelopesPage = lz(() => import("./pages/RedEnvelopes"));
+const SuperAgentManagementPage = lz(() => import("./pages/SuperAgentManagement"));
+const SettlementSLAPage = lz(() => import("./pages/SettlementSLA"));
+const DataExportPage = lz(() => import("./pages/DataExport"));
+const OnboardingStatusPage = lz(() => import("./pages/OnboardingStatus"));
+const ClaimDocumentsPage = lz(() => import("./pages/ClaimDocuments"));
+const CorridorLiveStatsPage = lz(() => import("./pages/CorridorLiveStats"));
+const PortfolioRebalancingPage = lz(() => import("./pages/PortfolioRebalancing"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -787,6 +809,28 @@ function Router() {
           {/* Wave 124 */}
           <Route path="/bill-payments" component={BillPaymentsPage} />
           <Route path="/carbon-credits" component={CarbonCreditsPage} />
+          {/* Wave 151: Orphaned feature pages */}
+          <Route path="/referral-program" component={ReferralProgramPage} />
+          <Route path="/saved-beneficiaries" component={SavedBeneficiariesPage} />
+          <Route path="/pos-transactions" component={POSTransactionsPage} />
+          <Route path="/coupon-management" component={CouponManagementPage} />
+          <Route path="/loyalty-program" component={LoyaltyProgramPage} />
+          <Route path="/market-data" component={MarketDataDashboardPage} />
+          <Route path="/sla-breaches" component={SlaBreachesPage} />
+          <Route path="/consumer-loans" component={ConsumerLoansPage} />
+          <Route path="/fraud-alert-comments" component={FraudAlertCommentsPage} />
+          <Route path="/insurance-policies" component={InsurancePoliciesPage} />
+          <Route path="/loan-repayments" component={LoanRepaymentsPage} />
+          <Route path="/stripe-subscriptions" component={StripeSubscriptionsPage} />
+          {/* Wave 152: Orphaned router pages */}
+          <Route path="/red-envelopes" component={RedEnvelopesPage} />
+          <Route path="/super-agent-management" component={SuperAgentManagementPage} />
+          <Route path="/settlement-sla" component={SettlementSLAPage} />
+          <Route path="/data-export" component={DataExportPage} />
+          <Route path="/onboarding-status" component={OnboardingStatusPage} />
+          <Route path="/claim-documents" component={ClaimDocumentsPage} />
+          <Route path="/corridor-live" component={CorridorLiveStatsPage} />
+          <Route path="/portfolio-rebalancing" component={PortfolioRebalancingPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
