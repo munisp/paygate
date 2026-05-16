@@ -67,7 +67,11 @@ export default function PartnerAdminDashboard() {
   });
 
   const partners = partnerData?.partners ?? [];
+  const [partnerPage, setPartnerPage] = useState(1);
+  const PARTNER_PAGE_SIZE = 10;
   const filteredPartners = partners;
+  const totalPartnerPages = Math.max(1, Math.ceil(filteredPartners.length / PARTNER_PAGE_SIZE));
+  const pagedPartners = filteredPartners.slice((partnerPage - 1) * PARTNER_PAGE_SIZE, partnerPage * PARTNER_PAGE_SIZE);
   const totalRevenue = partnerData?.totalRevenue ?? 0;
   const totalMerchants = partnerData?.totalMerchants ?? 0;
   const activePartners = partners.filter((p) => p.status === "active").length;
@@ -151,7 +155,7 @@ export default function PartnerAdminDashboard() {
                     ))
                   ) : filteredPartners.length === 0 ? (
                     <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No partners found</TableCell></TableRow>
-                  ) : filteredPartners.map((p) => {
+                  ) : pagedPartners.map((p) => {
                     const tier = TIER_STYLES[p.tier] ?? TIER_STYLES.bronze;
                     const st = STATUS_STYLES[p.status] ?? STATUS_STYLES.pending;
                     return (
@@ -202,6 +206,15 @@ export default function PartnerAdminDashboard() {
                   })}
                 </TableBody>
               </Table>
+              {filteredPartners.length > PARTNER_PAGE_SIZE && (
+                <div className="p-4 border-t">
+                  <PaginationControls
+                    page={partnerPage}
+                    totalPages={totalPartnerPages}
+                    onPageChange={setPartnerPage}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

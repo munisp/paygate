@@ -16,6 +16,7 @@ import { ArrowLeft, Users, Plus, Trash2, Copy, Loader2, Share2 } from "lucide-re
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 
 interface Participant {
   name: string;
@@ -35,6 +36,11 @@ export default function SplitBill() {
 
   const utils = trpc.useUtils();
   const { data: sessions, isLoading } = trpc.splitBill.list.useQuery(undefined, { staleTime: 30_000 });
+  const SESSIONS_PAGE_SIZE = 10;
+  const [sessionsPage, setSessionsPage] = useState(1);
+  const allSessions = (sessions as any[]) ?? [];
+  const totalSessionsPages = Math.max(1, Math.ceil(allSessions.length / SESSIONS_PAGE_SIZE));
+  const pagedSessions = allSessions.slice((sessionsPage - 1) * SESSIONS_PAGE_SIZE, sessionsPage * SESSIONS_PAGE_SIZE);
 
   const create = trpc.splitBill.create.useMutation({
     onSuccess: (data) => {
@@ -118,7 +124,7 @@ export default function SplitBill() {
         </div>
       ) : (
         <div className="space-y-3">
-          {((sessions as any[]) ?? []).map((s: any) => (
+          {pagedSessions.map((s: any) => (
             <Card key={s.id}>
               <CardContent className="pt-4 pb-3">
                 <div className="flex items-start justify-between mb-2">
@@ -141,6 +147,13 @@ export default function SplitBill() {
             </Card>
           ))}
         </div>
+      )}
+      {allSessions.length > SESSIONS_PAGE_SIZE && (
+        <PaginationControls
+          page={sessionsPage}
+          totalPages={totalSessionsPages}
+          onPageChange={setSessionsPage}
+        />
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

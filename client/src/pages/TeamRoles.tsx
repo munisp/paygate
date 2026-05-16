@@ -3,6 +3,7 @@ import {
   Users, UserPlus, Trash2, Shield, Eye, Code2, Crown,
   ChevronDown, Check, X, Clock, RefreshCw, Mail, Lock, Unlock
 } from "lucide-react";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -183,6 +184,10 @@ export default function TeamRoles() {
   });
 
   const members = data ?? [];
+  const MEMBERS_PAGE_SIZE = 10;
+  const [membersPage, setMembersPage] = useState(1);
+  const totalMembersPages = Math.max(1, Math.ceil(members.length / MEMBERS_PAGE_SIZE));
+  const pagedMembers = members.slice((membersPage - 1) * MEMBERS_PAGE_SIZE, membersPage * MEMBERS_PAGE_SIZE);
   const activeCount = members.filter((m: any) => m.status === "active").length;
   const invitedCount = members.filter((m: any) => m.status === "invited").length;
 
@@ -289,7 +294,7 @@ export default function TeamRoles() {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {members.map((member: any) => (
+            {pagedMembers.map((member: any) => (
               <div key={member.id} className="flex items-center justify-between px-6 py-4 hover:bg-muted/20 transition-colors">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center text-sm font-bold text-primary shrink-0">
@@ -316,11 +321,19 @@ export default function TeamRoles() {
                   </Button>
                 </div>
               </div>
-            ))}
+            )            )}
+          </div>
+        )}
+        {members.length > MEMBERS_PAGE_SIZE && (
+          <div className="p-4 border-t">
+            <PaginationControls
+              page={membersPage}
+              totalPages={totalMembersPages}
+              onPageChange={setMembersPage}
+            />
           </div>
         )}
       </div>
-
       {showMatrix && <PermissionsMatrix onClose={() => setShowMatrix(false)} />}
     </div>
   );

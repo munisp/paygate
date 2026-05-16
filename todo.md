@@ -5014,3 +5014,11 @@
 - [x] GeofenceAlerts page: pagination with PaginationControls component
 - [x] PaginationControls reusable component created
 - [x] All P0-P2 blockers in wave164 marked as resolved
+
+- [ ] Add pagination to KeycloakRoleSync page
+- [ ] Add pagination to PartnerAdminDashboard page
+- [ ] Add pagination to TeamRoles page
+- [ ] Add pagination to Contacts page
+- [ ] Add pagination to SplitBill page
+- [ ] Activate nightly heartbeat cron (register in code via manus-config)
+- [ ] Harden db:seed script: idempotency, dry-run flag, per-entity error reporting

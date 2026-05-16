@@ -54,6 +54,10 @@ export default function KeycloakRoleSync() {
   };
 
   const members = (teamData as Array<{ id: string; name?: string; email?: string; role?: string; openId?: string }> | undefined) ?? [];
+  const MEMBERS_PAGE_SIZE = 10;
+  const [membersPage, setMembersPage] = useState(1);
+  const totalMembersPages = Math.max(1, Math.ceil(members.length / MEMBERS_PAGE_SIZE));
+  const pagedMembers = members.slice((membersPage - 1) * MEMBERS_PAGE_SIZE, membersPage * MEMBERS_PAGE_SIZE);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -180,7 +184,7 @@ export default function KeycloakRoleSync() {
             </div>
           ) : (
             <div className="space-y-2">
-              {members.map(member => (
+              {pagedMembers.map(member => (
                 <div
                   key={member.id}
                   className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
@@ -213,6 +217,15 @@ export default function KeycloakRoleSync() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {members.length > MEMBERS_PAGE_SIZE && (
+            <div className="mt-4">
+              <PaginationControls
+                page={membersPage}
+                totalPages={totalMembersPages}
+                onPageChange={setMembersPage}
+              />
             </div>
           )}
         </CardContent>

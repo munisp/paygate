@@ -15,6 +15,7 @@ import { ArrowLeft, UserPlus, User, Trash2, Send, Search, Loader2 } from "lucide
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 
 export default function Contacts() {
   useOnboardingGate();
@@ -30,6 +31,10 @@ export default function Contacts() {
     keepPreviousData: true,
   } as any);
   const contacts = (data as any)?.rows ?? data ?? [];
+  const CONTACTS_PAGE_SIZE = 15;
+  const [contactsPage, setContactsPage] = useState(1);
+  const totalContactsPages = Math.max(1, Math.ceil((contacts as any[]).length / CONTACTS_PAGE_SIZE));
+  const pagedContacts = (contacts as any[]).slice((contactsPage - 1) * CONTACTS_PAGE_SIZE, contactsPage * CONTACTS_PAGE_SIZE);
 
   const addContact = trpc.contacts.add.useMutation({
     onSuccess: () => {
@@ -84,7 +89,7 @@ export default function Contacts() {
         </div>
       ) : (
         <div className="space-y-2">
-          {(contacts as any[]).map((c: any) => (
+          {pagedContacts.map((c: any) => (
             <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -110,6 +115,13 @@ export default function Contacts() {
             </div>
           ))}
         </div>
+      )}
+      {(contacts as any[]).length > CONTACTS_PAGE_SIZE && (
+        <PaginationControls
+          page={contactsPage}
+          totalPages={totalContactsPages}
+          onPageChange={setContactsPage}
+        />
       )}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
