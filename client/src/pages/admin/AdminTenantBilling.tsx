@@ -94,7 +94,7 @@ export default function AdminTenantBilling() {
   const [search, setSearch] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
 
-  const { data: tenantsData, isLoading } = trpc.wave26.tenants.list.useQuery({ page: 1, pageSize: 50 });
+  const { data: tenantsData, isLoading, isError } = trpc.wave26.tenants.list.useQuery({ page: 1, pageSize: 50 });
   const { data: usageData } = trpc.wave26.usageMetering.getUsage.useQuery(
     { tenantId: selectedTenantId! },
     { enabled: !!selectedTenantId },

@@ -13,7 +13,7 @@ export default function AdminRateLimitDashboard() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, refetch } = trpc.wave25.rateLimits.list.useQuery({ page, limit: 50 });
+  const { data, isLoading, isError, refetch } = trpc.wave25.rateLimits.list.useQuery({ page, limit: 50 });
   const { data: stats } = trpc.wave25.rateLimits.getStats.useQuery();
 
   const filtered = data?.rows.filter(r =>

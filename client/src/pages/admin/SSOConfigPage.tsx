@@ -11,7 +11,7 @@ import { Shield, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
 export default function SSOConfigPage() {
   const { toast } = useToast();
-  const { data: me } = trpc.auth.me.useQuery();
+  const { data, isLoading: me } = trpc.auth.me.useQuery();
   const [tenantId, setTenantId] = useState("ten_paygate_default");
   // Sync tenantId once merchant data loads
   useEffect(() => {

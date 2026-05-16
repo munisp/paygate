@@ -20,7 +20,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function AdminSlaMonitoring() {
   const adminslamonitoring_60s = useAdaptiveInterval(60_000);
-  const { data: slaStats, refetch } = trpc.wave29.slaMonitoring.getStats.useQuery(
+  const { data: slaStats, isLoading, isError, refetch } = trpc.wave29.slaMonitoring.getStats.useQuery(
     {},
     { refetchInterval: adminslamonitoring_60s }
   );

@@ -12,7 +12,7 @@ import { Plus, Pencil, Trash2, TrendingUp } from "lucide-react";
 
 export default function TenantCorridorsPage() {
   const { toast } = useToast();
-  const { data: me } = trpc.auth.me.useQuery();
+  const { data, isLoading: me } = trpc.auth.me.useQuery();
   const [tenantId, setTenantId] = useState("ten_paygate_default");
   useEffect(() => {
     const liveTenantId = (me as any)?.merchant?.tenantId;

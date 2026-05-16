@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function BnplDelinquencyManagement() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
-  const { data: recordsData, refetch } = trpc.wave31.bnplDelinquency.list.useQuery({ status: statusFilter });
+  const { data: recordsData, refetch, isLoading, isError } = trpc.wave31.bnplDelinquency.list.useQuery({ status: statusFilter });
   const { data: statsData } = trpc.wave31.bnplDelinquency.getStats.useQuery();
 
   const updateStatus = trpc.wave31.bnplDelinquency.updateCollectionStatus.useMutation({

@@ -141,17 +141,17 @@ export const usageMeteringRouter = router({
           activeUsers: usage.activeUsers,
         },
         limits: {
-          maxApiCalls: limits.maxApiCalls,
-          maxTxVolume: limits.maxTxVolume,
+          maxApiCalls: limits.maxApiCallsPerMonth,
+          maxTxVolume: limits.maxTxVolumeUsdPerMonth,
           maxUsers: limits.maxUsers,
           maxCorridors: limits.maxCorridors,
         },
         quotaStatus: {
-          apiCallsOk: usage.apiCalls < limits.maxApiCalls,
-          txVolumeOk: usage.txVolume < limits.maxTxVolume,
+          apiCallsOk: usage.apiCalls < limits.maxApiCallsPerMonth,
+          txVolumeOk: usage.txVolume < limits.maxTxVolumeUsdPerMonth,
           usersOk: usage.activeUsers < limits.maxUsers,
-          apiCallsPct: Math.round((usage.apiCalls / limits.maxApiCalls) * 100),
-          txVolumePct: Math.round((usage.txVolume / limits.maxTxVolume) * 100),
+          apiCallsPct: Math.round((usage.apiCalls / limits.maxApiCallsPerMonth) * 100),
+          txVolumePct: Math.round((usage.txVolume / limits.maxTxVolumeUsdPerMonth) * 100),
         },
       };
     }),

@@ -14,7 +14,7 @@ export default function AdminAuditLog() {
   const [search, setSearch] = useState("");
   const [entityType, setEntityType] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, refetch } = trpc.wave25.auditLog.list.useQuery({
+  const { data, isLoading, isError, refetch } = trpc.wave25.auditLog.list.useQuery({
     page,
     limit: 50,
     entityType: entityType === "all" ? undefined : entityType,

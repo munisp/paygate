@@ -10,7 +10,7 @@ import AdminLayout from "./AdminLayout";
 
 export default function AdminTenantRevenue() {
   const [days, setDays] = useState(30);
-  const { data = [], isLoading, refetch } = (trpc.adminTenantRevenue.getRevenueBreakdown.useQuery({ days }) as any);
+  const { data = [], isLoading, isError, refetch } = (trpc.adminTenantRevenue.getRevenueBreakdown.useQuery({ days }) as any);
 
   const totalFees = data.reduce((s: number, r: any) => s + (r.totalFeesKobo ?? 0), 0);
   const totalVolume = data.reduce((s: number, r: any) => s + (r.grossVolumeKobo ?? 0), 0);

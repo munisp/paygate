@@ -37,7 +37,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 export default function AdminSecurityScore() {
-  const { data, isLoading, refetch } = trpc.wave27.security.getScore.useQuery();
+  const { data, isLoading, isError, refetch } = trpc.wave27.security.getScore.useQuery();
 
   const score = data?.score ?? 100;
   const grade = score >= 95 ? "A+" : score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : "F";

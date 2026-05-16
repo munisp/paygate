@@ -10,7 +10,7 @@ import { useAdaptiveInterval } from "@/lib/networkQuality";
 export default function AdminSlaMonitor() {
   const adminSlaInterval = useAdaptiveInterval(30000);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data, isLoading, refetch } = trpc.adminSlaMonitor.getBreachMetrics.useQuery(undefined, {
+  const { data, isLoading, isError, refetch } = trpc.adminSlaMonitor.getBreachMetrics.useQuery(undefined, {
     refetchInterval: adminSlaInterval,
   });
 

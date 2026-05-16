@@ -28,7 +28,7 @@ export default function AdminComplianceReports() {
     onError: (e) => toast.error(e.message),
   });
 
-  const { data: recentReports, refetch } = trpc.wave27.compliance.listReports.useQuery();
+  const { data: recentReports, refetch, isLoading, isError } = trpc.wave27.compliance.listReports.useQuery();
 
   const handleGenerate = () => {
     if (!reportType) { toast.error("Please select a report type"); return; }

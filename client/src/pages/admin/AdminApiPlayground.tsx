@@ -31,7 +31,7 @@ export default function AdminApiPlayground() {
     status: number; statusText: string; body: unknown; durationMs: number; headers: Record<string, string>;
   } | null>(null);
 
-  const { data: samples } = trpc.wave25.apiPlayground.getSampleRequests.useQuery();
+  const { data: samples, isLoading, isError } = trpc.wave25.apiPlayground.getSampleRequests.useQuery();
 
   const execute = trpc.wave25.apiPlayground.execute.useMutation({
     onSuccess: (data) => {

@@ -46,7 +46,7 @@ export default function AdminKeycloak() {
   const [syncUserId, setSyncUserId] = useState("");
 
   // Real tRPC data
-  const { data: keycloakConfig } = trpc.settings.keycloak.isConfigured.useQuery();
+  const { data: keycloakConfig, isLoading, isError } = trpc.settings.keycloak.isConfigured.useQuery();
   const syncRolesMutation = trpc.settings.keycloak.syncRoles.useMutation({
     onSuccess: (r) => toast.success(`Synced ${r.synced} role(s): ${(r.roles ?? []).join(", ") || "none"}${r.fallback ? " (bridge unavailable)" : ""}`),
     onError: (e) => toast.error(`Sync failed: ${e.message}`),

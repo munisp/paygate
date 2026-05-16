@@ -51,7 +51,7 @@ export default function AdminCorridorMonitor() {
   const [fxMarkup, setFxMarkup] = useState("");
   const [dailyLimit, setDailyLimit] = useState("");
 
-  const { data: corridorsData, refetch } = trpc.wave26.corridors.list.useQuery({});
+  const { data: corridorsData, refetch, isLoading, isError } = trpc.wave26.corridors.list.useQuery({});
   const toggleMutation = trpc.wave26.corridors.toggle.useMutation({
     onSuccess: () => { toast.success("Corridor status updated"); refetch(); },
     onError: (e: any) => toast.error(e.message),

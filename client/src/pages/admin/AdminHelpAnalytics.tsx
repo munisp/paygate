@@ -10,13 +10,13 @@ export default function AdminHelpAnalytics() {
   const [userType, setUserType] = useState<"all" | "merchant" | "consumer" | "admin">("all");
   const [days, setDays] = useState(30);
 
-  const { data: topQueries, isLoading: topLoading } = trpc.wave24.helpAnalytics.getTopQueries.useQuery({
+  const { data: topQueries, isLoading, isError: topLoading } = trpc.wave24.helpAnalytics.getTopQueries.useQuery({
     userType,
     days,
     limit: 20,
   });
 
-  const { data: unanswered, isLoading: unansweredLoading } = trpc.wave24.helpAnalytics.getUnansweredQueries.useQuery({
+  const { data: unanswered, isLoading, isError: unansweredLoading } = trpc.wave24.helpAnalytics.getUnansweredQueries.useQuery({
     days,
     limit: 20,
   });

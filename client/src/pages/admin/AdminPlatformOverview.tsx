@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AdminPlatformOverview() {
   const kpiQuery = trpc.admin.overview.getKPIs.useQuery();
+  const isError = kpiQuery.isError;
   const revenueQuery = trpc.admin.overview.getRevenueTimeSeries.useQuery({ days: 30 });
   const topMerchantsQuery = trpc.admin.overview.getTopMerchants.useQuery({ limit: 10 });
 
