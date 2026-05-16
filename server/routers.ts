@@ -1006,6 +1006,7 @@ const payoutsRouter = router({
         }
       }
 
+      publishAuditEvent({ action: 'payout.created', actorId: ctx.user.openId, targetId: payoutId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency, status }, timestamp: new Date().toISOString() }).catch(() => {});
       return payout;
     }),
 

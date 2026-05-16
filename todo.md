@@ -4926,3 +4926,14 @@
 - [x] fx.listAlerts wired to real DB (not hardcoded mock)
 - [x] fx.setAlert persists to fxAlerts DB table via upsertFxAlert
 - [x] 24 new tests (6,374 total)
+
+## Wave 144 — Completed
+- [x] Added publishAuditEvent to payout.create mutation in routers.ts
+- [x] Fixed wave130 test: Flutter screen count changed to >= 79 (now 85)
+- [x] Fixed wave144 test: audit event threshold counts both publishAuditEvent + logAuditEvent (44 total)
+- [x] Added 5 new Flutter screens: AgentBanking, BillingEngine, AdminKYCReview, AdminFraudOversight, AdminPayoutApproval
+- [x] Added error handling to 6 consumer pages (Discover, History, CohortAnalytics, etc.)
+- [x] Fixed usageMeteringRouter.ts property name mismatches
+- [x] Fixed wave90Router.ts: added TRPCError import and role check in partnerOnboardingRouter
+- [x] Admin routes wrapped with AdminGuard in App.tsx (frontend auth enforcement)
+- [x] 24 new Wave 144 production-readiness tests
