@@ -63,9 +63,11 @@ export default function GoldSIP() {
     onSuccess: () => { toast.success("SIP cancelled"); refetchSIPs(); },
     onError: (e) => toast.error(e.message),
   });
+  // Time-range selector for portfolio history chart (default: months: 6)
+  const [historyMonths, setHistoryMonths] = useState<1 | 3 | 6 | 12>(6);
   // Real portfolio history from DB (monthly SIP investment totals)
   const { data: historyData } = trpc.newFeatures.digitalGold.getPortfolioHistory.useQuery(
-    { months: 6 },
+    { months: historyMonths },
     { staleTime: 300_000 }
   );
   const portfolioHistoryLive = historyData?.history?.length
@@ -187,9 +189,26 @@ export default function GoldSIP() {
       {/* Portfolio Growth Chart */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" /> Portfolio Growth (6 months)
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" /> Portfolio Growth ({historyMonths === 1 ? "1 Month" : historyMonths === 12 ? "1 Year" : `${historyMonths} Months`})
+            </CardTitle>
+            <div className="flex gap-1">
+              {([1, 3, 6, 12] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setHistoryMonths(m)}
+                  className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${
+                    historyMonths === m
+                      ? "bg-yellow-500 text-white"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {m === 12 ? "1Y" : `${m}M`}
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-3 h-32">

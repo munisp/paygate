@@ -76,6 +76,11 @@ export default function WAFAlertDashboard() {
   }));
   
   const [events, setEvents] = useState(dbEvents.length > 0 ? dbEvents : generateMockEvents());
+  // Sync events state when real DB data loads (avoids stale mock data after query resolves)
+  useEffect(() => {
+    if (dbEvents.length > 0) setEvents(dbEvents);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wafAlertsData]);
   const [liveEvents, setLiveEvents] = useState<any[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [filterSeverity, setFilterSeverity] = useState("all");

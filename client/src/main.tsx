@@ -31,11 +31,34 @@ function showRateLimitToast(message: string) {
 // ── Each tRPC client gets its own QueryClient to prevent context collision ────
 // When multiple tRPC providers share the same queryClient, the innermost
 // provider's client wins for ALL hooks — causing wrong endpoint routing.
-const queryClient = new QueryClient();
-const queryClient2 = new QueryClient();
-const queryClient3 = new QueryClient();
-const queryClient4 = new QueryClient();
-const queryClient5 = new QueryClient();
+
+/** Adaptive retry: exponential backoff, skip retry on 4xx client errors */
+const adaptiveRetry = (failureCount: number, error: unknown): boolean => {
+  if (error instanceof TRPCClientError) {
+    const code = (error.data as any)?.code;
+    // Don't retry auth errors, validation errors, or not-found
+    if (['UNAUTHORIZED', 'FORBIDDEN', 'BAD_REQUEST', 'NOT_FOUND', 'CONFLICT'].includes(code)) return false;
+    // Don't retry rate-limit errors immediately
+    if (code === 'TOO_MANY_REQUESTS') return false;
+  }
+  return failureCount < 3; // max 3 retries for network/server errors
+};
+
+const adaptiveRetryDelay = (attempt: number) =>
+  Math.min(1000 * 2 ** attempt, 30_000); // exponential: 1s, 2s, 4s, max 30s
+
+const qcDefaults = {
+  defaultOptions: {
+    queries: { retry: adaptiveRetry as any, retryDelay: adaptiveRetryDelay, staleTime: 30_000 },
+    mutations: { retry: 0 as const }, // mutations should not auto-retry
+  },
+};
+
+const queryClient = new QueryClient(qcDefaults);
+const queryClient2 = new QueryClient(qcDefaults);
+const queryClient3 = new QueryClient(qcDefaults);
+const queryClient4 = new QueryClient(qcDefaults);
+const queryClient5 = new QueryClient(qcDefaults);
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;

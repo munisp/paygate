@@ -1,4 +1,5 @@
 import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
+import { publishTransactionEvent, publishPayoutEvent, publishFraudEvent } from "./kafkaClient";
 import { ollamaRouter } from "./ollamaRouter";
 import { orphanedTablesRouter } from "./orphanedTablesCRUD";
 import { consumerAnalyticsRouter, consumerDisputeRouter, consumerFraudRouter } from './routers/consumerFeatures';
@@ -742,6 +743,17 @@ const transactionsRouter = router({
             }).catch(e => logger.warn("[loyalty] earn failed (non-fatal):", e.message));
           }
         }
+        // Fire-and-forget Kafka event for downstream consumers (analytics, fraud, settlement)
+        if (tx) {
+          publishTransactionEvent({
+            transactionId: tx.id,
+            merchantId: merchant.id,
+            amount: chargedAmount,
+            currency: input.currency ?? 'NGN',
+            status: tx.status,
+            channel: input.channel ?? 'card',
+          }).catch(e => logger.warn('[kafka] publishTransactionEvent failed (non-fatal):', e.message));
+        }
         return tx;
       };
       if (input.idempotencyKey) {
@@ -947,6 +959,15 @@ const payoutsRouter = router({
         status,
       });
 
+      // Fire-and-forget Kafka event for downstream consumers
+      publishPayoutEvent({
+        payoutId,
+        merchantId: merchant.id,
+        amount: input.amount,
+        currency: input.currency,
+        status,
+        bankCode: input.bankCode ?? '',
+      }).catch(e => logger.warn('[kafka] publishPayoutEvent failed (non-fatal):', e.message));
       // Notify owner of new payout
       notifyPayoutInitiated({
         merchantName: merchant.businessName ?? merchant.id,
@@ -2479,10 +2500,10 @@ const middlewareRouter = router({
 
     recordPayment: protectedProcedure
       .input(z.object({
-        reference: z.string(),
-        amount: z.number(),
-        ledger: z.number().default(700),
-        feeRate: z.number().default(0.015),
+        reference: z.string().min(1).max(128),
+        amount: z.number().positive(),
+        ledger: z.number().nonnegative().default(700),
+        feeRate: z.number().min(0).max(1).default(0.015),
       }))
       .mutation(async ({ ctx, input }) => {
         const user = await resolveUser(ctx.user.openId);
@@ -2494,9 +2515,9 @@ const middlewareRouter = router({
   workflow: router({
     startPayment: protectedProcedure
       .input(z.object({
-        reference: z.string(),
-        amount: z.number(),
-        currency: z.string().default("NGN"),
+        reference: z.string().min(1).max(128),
+        amount: z.number().positive(),
+        currency: z.string().length(3).default("NGN"),
       }))
       .mutation(async ({ ctx, input }) => {
         const user = await resolveUser(ctx.user.openId);
@@ -3054,6 +3075,14 @@ const fraudRiskRouter = router({
         transactionId: input.transactionId,
         status: 'open',
       });
+      // Fire-and-forget Kafka event for fraud downstream consumers
+      publishFraudEvent({
+        alertId: alert.id,
+        merchantId: merchant.id,
+        alertType: input.alertType,
+        riskScore: finalRiskScore,
+        transactionId: input.transactionId,
+      }).catch(e => logger.warn('[kafka] publishFraudEvent failed (non-fatal):', e.message));
       // Notify owner of new high-risk fraud alert
       if (input.riskScore >= 75) {
         await notifyOwner({

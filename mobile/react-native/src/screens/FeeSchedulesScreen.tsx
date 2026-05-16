@@ -1,50 +1,107 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import React from 'react';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, StyleSheet, Alert } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-interface Item { id: string; label: string; status: string; }
-
-export default function FeeSchedulesScreen() {
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
-
-  const loadData = async () => {
-    await new Promise(r => setTimeout(r, 500));
-    setItems(Array.from({ length: 6 }, (_, i) => ({ id: `item-${i}`, label: `FeeSchedules #${i}`, status: i % 2 === 0 ? 'active' : 'pending' })));
-    setLoading(false);
-    setRefreshing(false);
-  };
-
-  useEffect(() => { loadData(); }, []);
-
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#6366f1" /></View>;
-
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={items}
-        keyExtractor={item => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.label}>{item.label}</Text>
-            <View style={[styles.badge, item.status === 'active' ? styles.active : styles.pending]}>
-              <Text style={styles.badgeText}>{item.status}</Text>
-            </View>
-          </View>
-        )}
-      />
-    </View>
-  );
+interface FeeScheduleItem {
+  id: string;
+  name: string;
+  description: string;
+  // Add other relevant fields based on your fee schedule data structure
 }
 
+const FeeSchedulesScreen: React.FC = () => {
+  const { data, isLoading, isError, error, refetch, isRefetching } = trpc.feeSchedules.list.useQuery(undefined, {
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
+  const onRefresh = React.useCallback(() => {
+    refetch();
+  }, [refetch]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+        <Text>Loading fee schedules...</Text>
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Error: {error?.message || 'Failed to load fee schedules.'}</Text>
+      </View>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text>No fee schedules found.</Text>
+      </View>
+    );
+  }
+
+  const renderItem = ({ item }: { item: FeeScheduleItem }) => (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{item.name}</Text>
+      <Text style={styles.cardDescription}>{item.description}</Text>
+      {/* Add more details or badges here based on item structure */}
+    </View>
+  );
+
+  return (
+    <FlatList
+      data={data as FeeScheduleItem[]}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} />
+      }
+    />
+  );
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  label: { fontSize: 15, fontWeight: '600', color: '#1e293b' },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  active: { backgroundColor: '#dcfce7' },
-  pending: { backgroundColor: '#fef3c7' },
-  badgeText: { fontSize: 12, fontWeight: '600' },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  listContainer: {
+    padding: 10,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 15,
+    marginVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  cardDescription: {
+    fontSize: 14,
+    color: '#555',
+  },
 });
+
+export default FeeSchedulesScreen;

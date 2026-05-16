@@ -11,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 export default function Login() {
   const [, navigate] = useLocation();
   const [email, setEmail] = useState("merchant@acme.ng");
-  const [password, setPassword] = useState("merchant123");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const { data: me, isLoading: meLoading } = trpc.auth.me.useQuery();

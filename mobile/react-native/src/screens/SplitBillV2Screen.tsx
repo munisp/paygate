@@ -1,52 +1,166 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+} from 'react-native';
+import { trpc } from '../lib/trpc'; // Assuming this path is correct
 
-export default function SplitBillV2Screen() {
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const resp = await fetch('/api/trpc/splitBillV2.listSessions?input=%7B%22page%22%3A1%7D', { credentials: 'include' });
-      const data = await resp.json();
-      setSessions(data?.result?.data?.sessions ?? []);
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Split Bill V2</Text>
-        <TouchableOpacity onPress={load}><Text style={styles.refresh}>↻</Text></TouchableOpacity>
-      </View>
-      {loading ? <ActivityIndicator size="large" color="#6366f1" style={{ marginTop: 40 }} /> :
-        <FlatList data={sessions} keyExtractor={i => i.id}
-          ListEmptyComponent={<Text style={styles.empty}>No split sessions</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{item.title ?? 'Split Session'}</Text>
-              <Text style={styles.cardSub}>₦{item.totalAmount} · {item.participantCount} people</Text>
-              <View style={[styles.badge, { backgroundColor: item.status === 'completed' ? '#dcfce7' : '#dbeafe' }]}>
-                <Text style={styles.badgeText}>{item.status}</Text>
-              </View>
-            </View>
-          )} />}
-    </View>
-  );
+// Define a type for the data item, based on common patterns for list queries
+// This is a placeholder; actual type would come from tRPC\'s generated types
+interface SplitBillItem {
+  id: string;
+  billName: string;
+  amount: number;
+  status: 'pending' | 'completed' | 'cancelled';
+  // Add other relevant fields as needed
 }
 
+const SplitBillV2Screen: React.FC = () => {
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isRefetching, // Use isRefetching for RefreshControl to differentiate initial load from pull-to-refresh
+  } = trpc.splitBillV2.list.useQuery(undefined, {
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
+  const onRefresh = React.useCallback(() => {
+    refetch();
+  }, [refetch]);
+
+  if (isLoading && !isRefetching) { // Show full screen loader only on initial load
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+        <Text style={styles.loadingText}>Loading split bills...</Text>
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Failed to load split bills: {error?.message}</Text>
+        <Text style={styles.errorText}>Please try again later.</Text>
+      </View>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <FlatList
+        contentContainerStyle={styles.centered}
+        data={[]}
+        renderItem={() => null}
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>No split bills found.</Text>
+        }
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} />
+        }
+      />
+    );
+  }
+
+  const renderItem = ({ item }: { item: SplitBillItem }) => (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{item.billName}</Text>
+      <Text style={styles.cardAmount}>Amount: ${item.amount.toFixed(2)}</Text>
+      <View style={[styles.badge, item.status === 'completed' ? styles.badgeCompleted : item.status === 'pending' ? styles.badgePending : styles.badgeCancelled]}>
+        <Text style={styles.badgeText}>{item.status.toUpperCase()}</Text>
+      </View>
+    </View>
+  );
+
+  return (
+    <FlatList
+      data={data}
+      renderItem={renderItem}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} />
+      }
+    />
+  );
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  title: { fontSize: 20, fontWeight: '700', color: '#111827' },
-  refresh: { fontSize: 20, color: '#6366f1' },
-  card: { backgroundColor: '#fff', margin: 8, marginHorizontal: 16, borderRadius: 12, padding: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  cardSub: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-  badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginTop: 6 },
-  badgeText: { fontSize: 12, fontWeight: '600', color: '#374151' },
-  empty: { textAlign: 'center', color: '#9ca3af', marginTop: 40, fontSize: 15 },
+  listContainer: {
+    padding: 16,
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#555',
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  cardAmount: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 8,
+  },
+  badge: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  badgeCompleted: {
+    backgroundColor: 'green',
+  },
+  badgePending: {
+    backgroundColor: 'orange',
+  },
+  badgeCancelled: {
+    backgroundColor: 'red',
+  },
 });
+
+export default SplitBillV2Screen;

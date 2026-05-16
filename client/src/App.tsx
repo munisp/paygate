@@ -25,7 +25,6 @@ import EMIManagement from "./pages/EMIManagement";
 import SubscriptionManagement from "./pages/SubscriptionManagement";
 import PartnerAdminDashboard from "./pages/PartnerAdminDashboard";
 import TenantBrandingAdmin from "./pages/TenantBrandingAdmin";
-import PartnerOnboardingWizard from "./pages/partner/PartnerOnboarding";
 import GoldSIP from "./pages/GoldSIP";
 import ConsumerLoyaltyApp from "./pages/ConsumerLoyaltyApp";
 import WebhookLiveStream from "./pages/WebhookLiveStream";
@@ -429,7 +428,6 @@ function Router() {
           <Route path="/admin/keycloak" component={AdminKeycloak} />
           <Route path="/admin/settlement-sla" component={AdminSettlementSLA} />
           <Route path="/admin/dispute-lifecycle" component={AdminDisputeLifecycle} />
-          <Route path="/admin/data-pipeline" component={AdminDataPipeline} />
           <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
         </Switch>
       </Suspense>
@@ -597,12 +595,10 @@ function Router() {
           <Route path="/admin/loyalty-tiers" component={AdminLoyaltyTierEngine} />
           <Route path="/admin/invite-codes" component={AdminInviteCodes} />
           <Route path="/admin/tenant-billing" component={AdminTenantBilling} />
-          <Route path="/admin/corridors" component={AdminCorridorMonitor} />
           <Route path="/admin/sla-monitor" component={AdminSlaMonitorPage} />
           <Route path="/admin/tenant-revenue" component={AdminTenantRevenuePage} />
           <Route path="/sdk" component={WhiteLabelSDKPage} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
-          <Route path="/partner/onboard/wizard" component={PartnerOnboardingWizard} />
           <Route path="/admin/tenant" component={TenantAdminDashboard} />
           <Route path="/partner/preview" component={WhiteLabelPreview} />
           <Route path="/ollama-chat" component={OllamaChat} />
@@ -614,7 +610,6 @@ function Router() {
           <Route path="/quick-pay" component={QuickPay} />
           <Route path="/notifications" component={NotificationsCenter} />
           <Route path="/notifications/preferences" component={MerchantNotificationPreferences} />
-          <Route path="/audit-log" component={AuditLog} />
           <Route path="/purchase-orders" component={PurchaseOrders} />
           <Route path="/vendors" component={Vendors} />
           <Route path="/refunds" component={RefundWorkflow} />
@@ -696,7 +691,6 @@ function Router() {
           <Route path="/carbon-credits-ledger" component={CarbonCreditsLedger} />
           <Route path="/escrow-contracts" component={EscrowContractsPage} />
           <Route path="/marketplace-pay" component={MarketplacePay} />
-          <Route path="/loyalty-v3" component={LoyaltyV3} />
           <Route path="/crypto-offramp-v2" component={CryptoOfframpV2} />
           <Route path="/crypto-offramp" component={CryptoOfframpV2} />
           <Route path="/nfc-pay" component={NfcPay} />

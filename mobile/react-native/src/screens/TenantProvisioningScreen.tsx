@@ -1,50 +1,127 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, StyleSheet, Alert } from 'react-native';
+import { trpc } from '../lib/trpc';
+import { Card, Badge } from 'react-native-paper';
 
-interface Item { id: string; label: string; status: string; }
+interface TenantProvisionItem {
+  id: string;
+  name: string;
+  status: 'active' | 'pending' | 'inactive';
+  provisionedDate: string;
+}
 
-export default function TenantProvisioningScreen() {
-  const [loading, setLoading] = useState(true);
+const TenantProvisioningScreen: React.FC = () => {
+  const { data, isLoading, isError, error, refetch } = trpc.tenantProvision.list.useQuery(undefined, {
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
   const [refreshing, setRefreshing] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
 
-  const loadData = async () => {
-    await new Promise(r => setTimeout(r, 500));
-    setItems(Array.from({ length: 6 }, (_, i) => ({ id: `item-${i}`, label: `TenantProvisioning #${i}`, status: i % 2 === 0 ? 'active' : 'pending' })));
-    setLoading(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
     setRefreshing(false);
   };
 
-  useEffect(() => { loadData(); }, []);
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+        <Text>Loading tenant provisions...</Text>
+      </View>
+    );
+  }
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#6366f1" /></View>;
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Error: {error?.message || 'Failed to load tenant provisions'}</Text>
+      </View>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text>No tenant provisions found.</Text>
+      </View>
+    );
+  }
+
+  const renderItem = ({ item }: { item: TenantProvisionItem }) => (
+    <Card style={styles.card}>
+      <Card.Content>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>{item.name}</Text>
+          <Badge style={item.status === 'active' ? styles.badgeActive : item.status === 'pending' ? styles.badgePending : styles.badgeInactive}>
+            {item.status.toUpperCase()}
+          </Badge>
+        </View>
+        <Text>ID: {item.id}</Text>
+        <Text>Provisioned Date: {new Date(item.provisionedDate).toLocaleDateString()}</Text>
+      </Card.Content>
+    </Card>
+  );
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={items}
-        keyExtractor={item => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.label}>{item.label}</Text>
-            <View style={[styles.badge, item.status === 'active' ? styles.active : styles.pending]}>
-              <Text style={styles.badgeText}>{item.status}</Text>
-            </View>
-          </View>
-        )}
-      />
-    </View>
+    <FlatList
+      data={data as TenantProvisionItem[]}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={['#0000ff']}
+          tintColor={'#0000ff'}
+        />
+      }
+    />
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  label: { fontSize: 15, fontWeight: '600', color: '#1e293b' },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  active: { backgroundColor: '#dcfce7' },
-  pending: { backgroundColor: '#fef3c7' },
-  badgeText: { fontSize: 12, fontWeight: '600' },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  listContainer: {
+    padding: 10,
+  },
+  card: {
+    marginVertical: 8,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  badgeActive: {
+    backgroundColor: 'green',
+    color: 'white',
+  },
+  badgePending: {
+    backgroundColor: 'orange',
+    color: 'white',
+  },
+  badgeInactive: {
+    backgroundColor: 'gray',
+    color: 'white',
+  },
 });
+
+export default TenantProvisioningScreen;

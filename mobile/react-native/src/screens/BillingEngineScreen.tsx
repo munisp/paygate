@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { trpc } from "../lib/trpc";
+import { useAuth } from "../contexts/AuthContext";
 
 const colors = {
   primary: "#6366F1",
@@ -74,16 +75,18 @@ function timeAgo(iso: string): string {
 
 export default function BillingEngineScreen() {
   const navigation = useNavigation();
+  const { user } = useAuth();
+  const tenantId = user ? String(user.id) : "";
   const [activeTab, setActiveTab] = useState<"configs" | "events">("configs");
   const [refreshing, setRefreshing] = useState(false);
 
-  // Real tRPC data — billing config and events
+  // Real tRPC data — billing config and events wired to authenticated merchant
   const { data: activeConfig, isLoading: configLoading, refetch: refetchConfig } =
-    (trpc as any)["billing"]?.["getActive"]?.useQuery?.({ tenantId: "" }) ??
+    (trpc as any)["billing"]?.["getActive"]?.useQuery?.({ tenantId }) ??
     { data: null, isLoading: false, refetch: async () => {} };
 
   const { data: eventsData, isLoading: eventsLoading, refetch: refetchEvents } =
-    (trpc as any)["billing"]?.["listBillingEvents"]?.useQuery?.({ tenantId: "", limit: 50 }) ??
+    (trpc as any)["billing"]?.["listBillingEvents"]?.useQuery?.({ tenantId, limit: 50 }) ??
     { data: [], isLoading: false, refetch: async () => {} };
 
   const liveEvents: BillingEvent[] = (eventsData ?? []).map((e: any) => ({

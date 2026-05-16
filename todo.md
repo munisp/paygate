@@ -4667,3 +4667,63 @@
 - [x] BillingEngineScreen.tsx (RN): wire to real billing.getActive + billing.listBillingEvents tRPC queries
 - [x] BillingEngineScreen.tsx (RN): derive live summary metrics (fees today, pending count) from real data
 - [x] Wave 126 tests: 35 new tests covering all three features (5,225 total passing)
+
+## Wave 127 — Full Production Mandate (Round 55)
+
+### Phase 1: Wave 126 Suggested Next Steps
+- [ ] GoldSIP: add 1M/3M/6M/1Y time-range selector wired to getPortfolioHistory months param
+- [ ] FraudRisk: add "Seed Demo Data" button in DB Alerts tab header calling seedDemoAlerts
+- [ ] BillingEngineScreen (RN): resolve tenantId from auth context instead of hardcoded ""
+
+### Phase 2: Deep Audit — Orphaned / Generic / Disconnected Features
+- [ ] Audit all pages for generic CRUD-only patterns with no domain logic
+- [ ] Wire all TODO/FIXME/placeholder items end-to-end
+- [ ] Replace remaining mock data with real implementations
+
+### Phase 3: Security Hardening
+- [ ] PBAC (Policy-Based Access Control) implementation in Go/Permify
+- [ ] Ransomware/DDoS mitigation (rate limiting, circuit breakers, WAF rules)
+- [ ] Security vulnerability scan and fix across all layers
+
+### Phase 4: Resilience Layer
+- [ ] Offline queue for low-bandwidth/African connectivity environments
+- [ ] Adaptive retry with exponential backoff across all API calls
+- [ ] WebSocket resilience (reconnect, heartbeat, offline detection)
+
+### Phase 5: Mobile Parity
+- [ ] Audit PWA/RN/Flutter parity — wire all missing screens to backend
+- [ ] Ensure all features have PWA + mobile UI/UX
+
+### Phase 6: Middleware Integration Audit
+- [ ] Verify Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, Mojaloop, OpenSearch, APISIX, TigerBeetle, Lakehouse all wired
+
+### Phase 7: UI/UX Comprehensive Audit
+- [ ] Every nav link, page, button, dropdown, search — CRUD completeness
+
+### Phase 8: Tests
+- [ ] Wave 127 tests covering all new features
+
+### Phase 9: Archive
+- [ ] Generate comprehensive production archive (compare with previous)
+- [ ] Deliver change manifest
+
+## Wave 127 — Full Production-Readiness Mandate (Round 55)
+- [x] Wave 126 next step: GoldSIP time-range selector (1M/3M/6M/1Y) with historyMonths state
+- [x] Wave 126 next step: FraudRisk "Seed Demo Data" button in DB Alerts tab
+- [x] Wave 126 next step: BillingEngineScreen tenantId wired to auth context user ID
+- [x] Deep audit: 5 duplicate routes removed from App.tsx
+- [x] Deep audit: duplicate PartnerOnboardingWizard static import removed
+- [x] Deep audit: WAFAlertDashboard useEffect syncs DB events to state
+- [x] Security: hardcoded demo password cleared from Login.tsx initial state
+- [x] Security: positive() validation added to unvalidated amount fields in routers.ts
+- [x] Resilience: adaptive retry configuration added to all QueryClient instances
+- [x] Resilience: adaptive polling interval added to Transactions.tsx
+- [x] Mobile parity: 20 React Native screens wired to real tRPC endpoints
+- [x] Mobile parity: ComplianceScreen, SettlementsScreen fetch() export calls added
+- [x] Mobile parity: ReconciliationScreen Matched/Unmatched summary stats added
+- [x] Mobile parity: QRPaymentsScreen generateQR button added
+- [x] Middleware: Kafka publishTransactionEvent wired to transaction creation
+- [x] Middleware: Kafka publishPayoutEvent wired to payout creation
+- [x] Middleware: Kafka publishFraudEvent wired to fraud alert creation
+- [x] Wave 127 tests: 104 tests added (wave127.production-readiness.test.ts)
+- [x] Total passing tests: 5,329

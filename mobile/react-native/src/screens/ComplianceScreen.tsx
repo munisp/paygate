@@ -1,63 +1,107 @@
-// @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
+import React from 'react';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, StyleSheet, Alert } from 'react-native';
+import { trpc } from '../lib/trpc';
+// Uses fetch() for compliance report export
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://paygate.manus.space';
-
-export default function ComplianceScreen({ navigation }: any) {
-  const [kycList, setKycList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/trpc/complianceKyc.list?input={"limit":50}`, { credentials: 'include' })
-      .then(r => r.json())
-      .then(d => setKycList(d?.result?.data?.items || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const filtered = kycList.filter((k: any) =>
-    k.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-    k.status?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const statusColor = (s: string) => s === 'approved' ? '#10b981' : s === 'rejected' ? '#ef4444' : '#f59e0b';
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Compliance & KYC</Text>
-      <TextInput style={styles.search} placeholder="Search customers..." value={search} onChangeText={setSearch} placeholderTextColor="#94a3b8" />
-      {loading ? <ActivityIndicator color="#6366f1" style={{ marginTop: 40 }} /> : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item: any) => item.id}
-          renderItem={({ item }: any) => (
-            <View style={styles.card}>
-              <Text style={styles.name}>{item.customerName || 'Unknown'}</Text>
-              <Text style={styles.email}>{item.email}</Text>
-              <View style={[styles.badge, { backgroundColor: statusColor(item.status) + '20' }]}>
-                <Text style={[styles.badgeText, { color: statusColor(item.status) }]}>{item.status?.toUpperCase()}</Text>
-              </View>
-              <Text style={styles.date}>{item.submittedAt ? new Date(item.submittedAt).toLocaleDateString() : ''}</Text>
-            </View>
-          )}
-          ListEmptyComponent={<Text style={styles.empty}>No KYC records found</Text>}
-        />
-      )}
-    </View>
-  );
+interface ComplianceItem {
+  id: string;
+  ruleName: string;
+  status: string;
+  date: string;
 }
 
+const ComplianceScreen: React.FC = () => {
+  const exportReport = async () => {
+    try {
+      const res = await fetch('/api/compliance/export', { credentials: 'include' });
+      if (!res.ok) throw new Error('Export failed');
+      Alert.alert('Export', 'Compliance report exported successfully');
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    }
+  };
+
+  const { data, isLoading, isError, error, refetch, isRefetching } = trpc.adminCompliance.list.useQuery(undefined, {
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
+  const renderItem = ({ item }: { item: ComplianceItem }) => (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{item.ruleName}</Text>
+      <Text>Status: {item.status}</Text>
+      <Text>Date: {item.date}</Text>
+    </View>
+  );
+
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Failed to load compliance data: {error?.message}</Text>
+      </View>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text>No compliance data found.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={data as ComplianceItem[]}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+        />
+      }
+    />
+  );
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: '#f1f5f9', marginBottom: 16 },
-  search: { backgroundColor: '#1e293b', color: '#f1f5f9', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 14 },
-  card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 },
-  name: { fontSize: 16, fontWeight: '600', color: '#f1f5f9' },
-  email: { fontSize: 13, color: '#94a3b8', marginTop: 4 },
-  badge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 8 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  date: { fontSize: 12, color: '#64748b', marginTop: 6 },
-  empty: { textAlign: 'center', color: '#64748b', marginTop: 40 },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listContainer: {
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+  },
 });
+
+export default ComplianceScreen;

@@ -1006,7 +1006,7 @@ export default function FraudRisk() {
             ))}
           </div>
 
-          {/* Controls: status filter */}
+          {/* Controls: status filter + seed demo data */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted-foreground font-medium">Status:</span>
             {["all", "open", "investigating", "resolved", "false_positive"].map(s => (
@@ -1018,6 +1018,16 @@ export default function FraudRisk() {
               </button>
             ))}
             <span className="ml-auto text-xs text-muted-foreground">{sortedDbAlerts.length} alert{sortedDbAlerts.length !== 1 ? "s" : ""}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1"
+              onClick={() => seedDemoAlerts.mutate()}
+              disabled={seedDemoAlerts.isPending}
+              title="Seed 5 realistic demo fraud alerts for testing"
+            >
+              {seedDemoAlerts.isPending ? "Seeding..." : "Seed Demo Data"}
+            </Button>
           </div>
 
           {/* Bulk action toolbar — visible when ≥1 row selected */}

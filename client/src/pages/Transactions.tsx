@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy, Package, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -340,9 +341,10 @@ export default function Transactions() {
     }
   };
 
+  const txInterval = useAdaptiveInterval(60_000);
   const { data, isLoading, refetch, isFetching } = trpc.transactions.list.useQuery(
     { limit, offset: page * limit, search: search || undefined, status: statusFilter as any },
-    { staleTime: 30_000 }
+    { staleTime: 30_000, refetchInterval: txInterval }
   );
 
   const rows = data?.rows ?? [];

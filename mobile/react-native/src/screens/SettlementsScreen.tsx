@@ -1,63 +1,157 @@
-// @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TextInput } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, FlatList, ActivityIndicator, StyleSheet, RefreshControl, Alert } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'https://paygate.manus.space';
-
-export default function SettlementsScreen() {
-  const [settlements, setSettlements] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/trpc/settlements.list?input={"limit":50}`, { credentials: 'include' })
-      .then(r => r.json())
-      .then(d => setSettlements(d?.result?.data?.items || d?.result?.data || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const filtered = settlements.filter((s: any) =>
-    s.reference?.toLowerCase().includes(search.toLowerCase()) ||
-    s.status?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const statusColor = (s: string) => s === 'completed' ? '#10b981' : s === 'failed' ? '#ef4444' : '#f59e0b';
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Settlements</Text>
-      <TextInput style={styles.search} placeholder="Search settlements..." value={search} onChangeText={setSearch} placeholderTextColor="#94a3b8" />
-      {loading ? <ActivityIndicator color="#6366f1" style={{ marginTop: 40 }} /> : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item: any) => item.id}
-          renderItem={({ item }: any) => (
-            <View style={styles.card}>
-              <Text style={styles.ref}>{item.reference || item.id}</Text>
-              <Text style={styles.amount}>₦{Number(item.amount || 0).toLocaleString()}</Text>
-              <View style={[styles.badge, { backgroundColor: statusColor(item.status) + '20' }]}>
-                <Text style={[styles.badgeText, { color: statusColor(item.status) }]}>{item.status?.toUpperCase()}</Text>
-              </View>
-              <Text style={styles.date}>{item.settledAt ? new Date(item.settledAt).toLocaleDateString() : ''}</Text>
-            </View>
-          )}
-          ListEmptyComponent={<Text style={styles.empty}>No settlements found</Text>}
-        />
-      )}
-    </View>
-  );
+// Define a basic type for settlement items, adjust as per actual tRPC response
+interface SettlementItem {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  date: string;
+  // Add other relevant fields from your settlement data
 }
 
+const SettlementsScreen: React.FC = () => {
+  const exportCSV = async () => {
+    try {
+      const res = await fetch('/api/settlements/export?format=csv', { credentials: 'include' });
+      if (!res.ok) throw new Error('Export failed');
+      Alert.alert('Export', 'Settlement CSV exported successfully');
+    } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+
+  const { data, isLoading, isError, error, refetch } = trpc.settlements.list.useQuery(
+    { limit: 20 },
+    {
+      onError: (e) => Alert.alert('Error', e.message),
+    }
+  );
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  if (isLoading && !refreshing) { // Show spinner only on initial load, not during pull-to-refresh
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Failed to load settlements: {error?.message}</Text>
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      </View>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.emptyText}>No settlements found.</Text>
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      </View>
+    );
+  }
+
+  const renderItem = ({ item }: { item: SettlementItem }) => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardTitle}>Settlement ID: {item.id}</Text>
+        <View style={[styles.badge, item.status === 'completed' ? styles.badgeCompleted : styles.badgePending]}>
+          <Text style={styles.badgeText}>{item.status.toUpperCase()}</Text>
+        </View>
+      </View>
+      <Text style={styles.cardText}>Amount: {item.currency} {item.amount.toFixed(2)}</Text>
+      <Text style={styles.cardText}>Date: {item.date}</Text>
+    </View>
+  );
+
+  return (
+    <FlatList
+      data={data}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    />
+  );
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: '#f1f5f9', marginBottom: 16 },
-  search: { backgroundColor: '#1e293b', color: '#f1f5f9', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 14 },
-  card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12 },
-  ref: { fontSize: 13, color: '#94a3b8', fontFamily: 'monospace' },
-  amount: { fontSize: 20, fontWeight: '700', color: '#f1f5f9', marginTop: 4 },
-  badge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 8 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  date: { fontSize: 12, color: '#64748b', marginTop: 6 },
-  empty: { textAlign: 'center', color: '#64748b', marginTop: 40 },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  listContainer: {
+    padding: 10,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.20,
+    shadowRadius: 1.41,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  cardText: {
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  badge: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  badgeCompleted: {
+    backgroundColor: '#4CAF50',
+  },
+  badgePending: {
+    backgroundColor: '#FFC107',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
 });
+
+export default SettlementsScreen;

@@ -1,50 +1,157 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, FlatList, ActivityIndicator, RefreshControl, Alert, StyleSheet } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-interface Item { id: string; label: string; status: string; }
+interface InvoiceItem {
+  id: string;
+  name: string;
+  status: string;
+  amount: number;
+  dueDate: string;
+}
 
-export default function InvoiceFinancingScreen() {
-  const [loading, setLoading] = useState(true);
+const InvoiceFinancingScreen = () => {
+  const { data, isLoading, isError, error, refetch, isRefetching } = trpc.invoiceFinV2.list.useQuery(
+    { limit: 20 },
+    { onError: (e) => Alert.alert('Error', e.message) }
+  );
+
   const [refreshing, setRefreshing] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
 
-  const loadData = async () => {
-    await new Promise(r => setTimeout(r, 500));
-    setItems(Array.from({ length: 6 }, (_, i) => ({ id: `item-${i}`, label: `InvoiceFinancing #${i}`, status: i % 2 === 0 ? 'active' : 'pending' })));
-    setLoading(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
     setRefreshing(false);
   };
 
-  useEffect(() => { loadData(); }, []);
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+        <Text style={styles.loadingText}>Loading invoice financing data...</Text>
+      </View>
+    );
+  }
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#6366f1" /></View>;
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Error: {error?.message || 'Failed to fetch invoice financing data'}</Text>
+      </View>
+    );
+  }
 
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={items}
-        keyExtractor={item => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.label}>{item.label}</Text>
-            <View style={[styles.badge, item.status === 'active' ? styles.active : styles.pending]}>
-              <Text style={styles.badgeText}>{item.status}</Text>
-            </View>
-          </View>
-        )}
-      />
+  const invoiceData: InvoiceItem[] = data || [];
+
+  if (invoiceData.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.emptyText}>No invoice financing data available.</Text>
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      </View>
+    );
+  }
+
+  const renderItem = ({ item }: { item: InvoiceItem }) => (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{item.name || `Invoice #${item.id}`}</Text>
+      <Text style={styles.cardDetail}>Amount: ${item.amount ? item.amount.toFixed(2) : 'N/A'}</Text>
+      <Text style={styles.cardDetail}>Due Date: {item.dueDate || 'N/A'}</Text>
+      <View style={styles.badgeContainer}>
+        <Text style={[styles.badge, item.status === 'Approved' && styles.badgeApproved, item.status === 'Pending' && styles.badgePending, item.status === 'Rejected' && styles.badgeRejected]}>
+          {item.status || 'Unknown'}
+        </Text>
+      </View>
     </View>
   );
-}
+
+  return (
+    <FlatList
+      data={invoiceData}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl refreshing={refreshing || isRefetching} onRefresh={onRefresh} />
+      }
+    />
+  );
+};
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  label: { fontSize: 15, fontWeight: '600', color: '#1e293b' },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  active: { backgroundColor: '#dcfce7' },
-  pending: { backgroundColor: '#fef3c7' },
-  badgeText: { fontSize: 12, fontWeight: '600' },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8f8f8',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#555',
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#777',
+    textAlign: 'center',
+  },
+  listContainer: {
+    padding: 10,
+    backgroundColor: '#f8f8f8',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  cardDetail: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 3,
+  },
+  badgeContainer: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  badge: {
+    backgroundColor: '#e0e0e0',
+    color: '#333',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 15,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  badgeApproved: {
+    backgroundColor: '#d4edda',
+    color: '#155724',
+  },
+  badgePending: {
+    backgroundColor: '#fff3cd',
+    color: '#856404',
+  },
+  badgeRejected: {
+    backgroundColor: '#f8d7da',
+    color: '#721c24',
+  },
 });
+
+export default InvoiceFinancingScreen;

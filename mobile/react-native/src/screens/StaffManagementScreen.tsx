@@ -1,66 +1,152 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { trpc } from '../lib/trpc';
 
-interface StaffMember { id: string; name: string; role: string; department: string; status: string; }
-
-export default function StaffManagementScreen() {
-  const [members, setMembers] = useState<StaffMember[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const loadMembers = async () => {
-    setLoading(true);
-    try {
-      const resp = await fetch('/api/trpc/staffMgmt.listMembers?input=%7B%22page%22%3A1%7D', { credentials: 'include' });
-      const data = await resp.json();
-      setMembers(data?.result?.data?.members ?? []);
-    } catch (e) { Alert.alert('Error', String(e)); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { loadMembers(); }, []);
-
-  const statusColor = (s: string) => s === 'active' ? '#22c55e' : '#9ca3af';
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Staff Management</Text>
-        <TouchableOpacity onPress={loadMembers} style={styles.refreshBtn}><Text style={styles.refreshText}>↻</Text></TouchableOpacity>
-      </View>
-      {loading ? <ActivityIndicator size="large" color="#6366f1" style={{ marginTop: 40 }} /> :
-        <FlatList data={members} keyExtractor={i => i.id}
-          ListEmptyComponent={<Text style={styles.empty}>No staff members found</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <View style={[styles.avatar, { backgroundColor: '#6366f1' }]}>
-                <Text style={styles.avatarText}>{(item.name || '?')[0].toUpperCase()}</Text>
-              </View>
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
-                <Text style={styles.cardSub}>{item.role} · {item.department}</Text>
-              </View>
-              <View style={[styles.badge, { backgroundColor: statusColor(item.status) + '33' }]}>
-                <Text style={[styles.badgeText, { color: statusColor(item.status) }]}>{item.status}</Text>
-              </View>
-            </View>
-          )} />}
-    </View>
-  );
+interface StaffMember {
+  id: string;
+  name: string;
+  role: string;
+  status: 'Active' | 'Inactive' | 'Pending';
+  email: string;
 }
 
+const StaffManagementScreen: React.FC = () => {
+  const { data, isLoading, isError, error, refetch } = trpc.staffMgmt.list.useQuery(
+    undefined,
+    { onError: (e) => Alert.alert('Error', e.message) }
+  );
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0000ff" />
+        <Text style={styles.loadingText}>Loading staff data...</Text>
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Failed to load staff: {error?.message}</Text>
+      </View>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.emptyText}>No staff members found.</Text>
+      </View>
+    );
+  }
+
+  const renderStaffCard = ({ item }: { item: StaffMember }) => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.name}>{item.name}</Text>
+        <View style={[styles.badge, item.status === 'Active' ? styles.badgeActive : styles.badgeInactive]}>
+          <Text style={styles.badgeText}>{item.status}</Text>
+        </View>
+      </View>
+      <Text style={styles.role}>{item.role}</Text>
+      <Text style={styles.email}>{item.email}</Text>
+    </View>
+  );
+
+  return (
+    <FlatList
+      data={data}
+      keyExtractor={(item) => item.id}
+      renderItem={renderStaffCard}
+      contentContainerStyle={styles.listContainer}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    />
+  );
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  title: { fontSize: 20, fontWeight: '700', color: '#111827' },
-  refreshBtn: { padding: 8 },
-  refreshText: { fontSize: 20, color: '#6366f1' },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', margin: 8, marginHorizontal: 16, borderRadius: 12, padding: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  avatar: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  avatarText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  cardContent: { flex: 1 },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  cardSub: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
-  empty: { textAlign: 'center', color: '#9ca3af', marginTop: 40, fontSize: 15 },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#555',
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+  },
+  listContainer: {
+    padding: 10,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  role: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 3,
+  },
+  email: {
+    fontSize: 14,
+    color: '#007bff',
+  },
+  badge: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 15,
+  },
+  badgeActive: {
+    backgroundColor: '#28a745',
+  },
+  badgeInactive: {
+    backgroundColor: '#dc3545',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
 });
+
+export default StaffManagementScreen;

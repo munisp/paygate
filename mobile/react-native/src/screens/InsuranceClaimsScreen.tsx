@@ -1,52 +1,45 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React from 'react';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { trpc } from '../lib/trpc';
 
 export default function InsuranceClaimsScreen() {
-  const [claims, setClaims] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const resp = await fetch('/api/trpc/insuranceClaims.list?input=%7B%22page%22%3A1%7D', { credentials: 'include' });
-      const data = await resp.json();
-      setClaims(data?.result?.data?.claims ?? []);
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, []);
-
+  const { data, isLoading, refetch, isRefetching } = trpc.insuranceClaims.list.useQuery({ limit: 20 }, {
+    onError: (e: any) => Alert.alert('Error', e.message),
+  } as any);
+  const claims: any[] = Array.isArray(data) ? data : (data as any)?.rows ?? (data as any)?.claims ?? [];
+  if (isLoading) return <View style={s.center}><ActivityIndicator size="large" color="#6366f1" /></View>;
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Insurance Claims</Text>
-        <TouchableOpacity onPress={load}><Text style={styles.refresh}>↻</Text></TouchableOpacity>
-      </View>
-      {loading ? <ActivityIndicator size="large" color="#6366f1" style={{ marginTop: 40 }} /> :
-        <FlatList data={claims} keyExtractor={i => i.id}
-          ListEmptyComponent={<Text style={styles.empty}>No claims found</Text>}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{item.claimNumber ?? item.id}</Text>
-              <Text style={styles.cardSub}>{item.claimType} · ₦{item.claimAmount}</Text>
-              <View style={[styles.badge, { backgroundColor: item.status === 'approved' ? '#dcfce7' : '#fef9c3' }]}>
-                <Text style={styles.badgeText}>{item.status}</Text>
-              </View>
+    <View style={s.container}>
+      <Text style={s.title}>Insurance Claims</Text>
+      <FlatList
+        data={claims}
+        keyExtractor={(item: any) => String(item.id ?? Math.random())}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+        ListEmptyComponent={<Text style={s.empty}>No insurance claims found.</Text>}
+        renderItem={({ item }: { item: any }) => (
+          <View style={s.card}>
+            <Text style={s.label}>{item.claimNumber ?? item.policyNumber ?? `Claim #${item.id}`}</Text>
+            <Text style={s.meta}>{item.type ?? item.claimType ?? 'General'} · {item.amount ? `₦${Number(item.amount).toLocaleString()}` : ''}</Text>
+            <View style={[s.badge, item.status === 'approved' ? s.approved : item.status === 'rejected' ? s.rejected : s.pending]}>
+              <Text style={s.badgeText}>{item.status ?? 'pending'}</Text>
             </View>
-          )} />}
+          </View>
+        )}
+      />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  title: { fontSize: 20, fontWeight: '700', color: '#111827' },
-  refresh: { fontSize: 20, color: '#6366f1' },
-  card: { backgroundColor: '#fff', margin: 8, marginHorizontal: 16, borderRadius: 12, padding: 14, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  cardSub: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-  badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginTop: 6 },
-  badgeText: { fontSize: 12, fontWeight: '600', color: '#374151' },
-  empty: { textAlign: 'center', color: '#9ca3af', marginTop: 40, fontSize: 15 },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 22, fontWeight: '700', color: '#1e293b', marginBottom: 16 },
+  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  label: { fontSize: 15, fontWeight: '600', color: '#1e293b', marginBottom: 4 },
+  meta: { fontSize: 13, color: '#64748b', marginBottom: 8 },
+  badge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  approved: { backgroundColor: '#dcfce7' },
+  rejected: { backgroundColor: '#fee2e2' },
+  pending: { backgroundColor: '#fef3c7' },
+  badgeText: { fontSize: 12, fontWeight: '600', color: '#1e293b' },
+  empty: { textAlign: 'center', color: '#94a3b8', marginTop: 40, fontSize: 14 },
 });
