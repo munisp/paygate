@@ -3671,6 +3671,97 @@ const complianceKycRouter = router({
       const page = filtered.slice(input.offset, input.offset + input.limit);
       return { submissions: page, total, minScore: input.minScore, maxScore: input.maxScore };
     }),
+
+  // ─── Liveness Gateway: Face Detection ────────────────────────────────────────
+  faceDetect: protectedProcedure
+    .input(z.object({
+      imageB64: z.string().min(1),
+      sessionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { ENV: envCfg } = await import('./_core/env');
+      const resp = await fetch(`${envCfg.livenessGatewayUrl}/liveness/detect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envCfg.internalApiKey },
+        body: JSON.stringify({ image_b64: input.imageB64, session_id: input.sessionId }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!resp.ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Face detection service error' });
+      return resp.json() as Promise<{
+        session_id: string; face_detected: boolean; face_count: number;
+        faces: Array<{ bbox: number[]; confidence: number; landmarks_5: number[][] }>;
+        quality_score: number; image_width: number; image_height: number; processing_ms: number;
+      }>;
+    }),
+
+  // ─── Liveness Gateway: 68-Point Landmarks ────────────────────────────────────
+  landmarks: protectedProcedure
+    .input(z.object({
+      imageB64: z.string().min(1),
+      sessionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { ENV: envCfg } = await import('./_core/env');
+      const resp = await fetch(`${envCfg.livenessGatewayUrl}/liveness/landmarks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envCfg.internalApiKey },
+        body: JSON.stringify({ image_b64: input.imageB64, session_id: input.sessionId }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!resp.ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Landmark extraction service error' });
+      return resp.json() as Promise<{
+        session_id: string; face_detected: boolean; face_count: number;
+        landmarks_68: Array<{ x: number; y: number; z: number; visibility: number }>;
+        landmark_count: number; processing_ms: number;
+      }>;
+    }),
+
+  // ─── Liveness Gateway: ArcFace Embedding Extraction ──────────────────────────
+  extractEmbedding: protectedProcedure
+    .input(z.object({
+      imageB64: z.string().min(1),
+      sessionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { ENV: envCfg } = await import('./_core/env');
+      const resp = await fetch(`${envCfg.livenessGatewayUrl}/liveness/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envCfg.internalApiKey },
+        body: JSON.stringify({ image_b64: input.imageB64, session_id: input.sessionId }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!resp.ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Embedding extraction service error' });
+      return resp.json() as Promise<{
+        session_id: string; face_detected: boolean;
+        embedding: number[]; embedding_dim: number; processing_ms: number;
+      }>;
+    }),
+
+  // ─── Liveness Gateway: Face Match (cosine similarity) ────────────────────────
+  faceMatch: protectedProcedure
+    .input(z.object({
+      embedding1: z.array(z.number()).min(128).max(512),
+      embedding2: z.array(z.number()).min(128).max(512),
+      sessionId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { ENV: envCfg } = await import('./_core/env');
+      const resp = await fetch(`${envCfg.livenessGatewayUrl}/liveness/face-match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envCfg.internalApiKey },
+        body: JSON.stringify({
+          embedding1: input.embedding1,
+          embedding2: input.embedding2,
+          session_id: input.sessionId,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!resp.ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Face match service error' });
+      return resp.json() as Promise<{
+        session_id: string; similarity: number; match: boolean;
+        threshold: number; processing_ms: number;
+      }>;
+    }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
 const bnplRouter = router({

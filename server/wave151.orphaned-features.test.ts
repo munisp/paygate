@@ -163,7 +163,7 @@ describe("Wave 151: Server routers have required procedures", () => {
     // stats is present
     const couponSection = content.substring(
       content.indexOf("export const couponsRouter"),
-      content.indexOf("export const couponsRouter") + 4500
+      content.indexOf("export const couponsRouter") + 5500
     );
     expect(couponSection).toContain("stats:");
     expect(couponSection).toContain("create:");

@@ -170,6 +170,7 @@ const navGroups: NavGroup[] = [
     icon: FileCheck,
     items: [
       { icon: FileCheck, label: "Compliance & KYC", path: "/compliance" },
+      { icon: Fingerprint, label: "Liveness Check", path: "/liveness-check", badge: "New" },
       { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow" },
       { icon: Building2, label: "KYB Verification", path: "/kyb-verification", badge: "New" },
       { icon: FileCheck, label: "Compliance Reports", path: "/compliance-reports", badge: "New" },

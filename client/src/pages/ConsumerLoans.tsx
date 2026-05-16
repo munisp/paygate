@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Banknote, CheckCircle, XCircle, Clock, TrendingUp, RefreshCw, Eye } from "lucide-react";
+import { Banknote, CheckCircle, XCircle, Clock, TrendingUp, RefreshCw, Eye, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -23,6 +25,8 @@ export default function ConsumerLoans() {
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
 
   const limit = 20;
   const utils = trpc.useUtils();
@@ -54,6 +58,27 @@ export default function ConsumerLoans() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const bulkApproveMutation = trpc.consumerFinanceLoans.bulkApprove.useMutation({
+    onSuccess: (r) => { toast.success(`${r.updated} loan(s) approved`); setSelectedIds(new Set()); utils.consumerFinanceLoans.list.invalidate(); utils.consumerFinanceLoans.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const bulkRejectMutation = trpc.consumerFinanceLoans.bulkReject.useMutation({
+    onSuccess: (r) => { toast.success(`${r.updated} loan(s) rejected`); setSelectedIds(new Set()); utils.consumerFinanceLoans.list.invalidate(); utils.consumerFinanceLoans.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const rows = data?.rows ?? [];
+  const allSelected = rows.length > 0 && rows.every((r: any) => selectedIds.has(r.id));
+  const toggleAll = () => allSelected ? setSelectedIds(new Set()) : setSelectedIds(new Set(rows.map((r: any) => r.id)));
+  const toggleOne = (id: string) => { const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n); };
+  const isBulkLoading = bulkApproveMutation.isPending || bulkRejectMutation.isPending;
+  const confirmBulk = () => {
+    const ids = Array.from(selectedIds);
+    if (bulkAction === "approve") bulkApproveMutation.mutate({ ids });
+    else if (bulkAction === "reject") bulkRejectMutation.mutate({ ids, reason: "Bulk rejection" });
+    setBulkAction(null);
+  };
 
   const formatKobo = (k: number) => `₦${(k / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
 
@@ -107,6 +132,14 @@ export default function ConsumerLoans() {
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground self-center ml-auto">{data?.total ?? 0} loans</span>
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-lg px-3 py-1.5">
+            <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("approve")} disabled={isBulkLoading}><CheckCircle className="w-3 h-3 mr-1" /> Approve</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("reject")} disabled={isBulkLoading}><XCircle className="w-3 h-3 mr-1" /> Reject</Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -120,6 +153,7 @@ export default function ConsumerLoans() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10"><Checkbox checked={allSelected} onCheckedChange={toggleAll} /></TableHead>
                   <TableHead>Loan ID</TableHead>
                   <TableHead>User ID</TableHead>
                   <TableHead>Amount</TableHead>
@@ -137,8 +171,9 @@ export default function ConsumerLoans() {
                     <TableCell colSpan={9} className="text-center text-muted-foreground py-8">No loans found</TableCell>
                   </TableRow>
                 )}
-                {data?.rows.map((r: any) => (
-                  <TableRow key={r.id}>
+                {rows.map((r: any) => (
+                  <TableRow key={r.id} className={selectedIds.has(r.id) ? "bg-primary/5" : ""}>
+                    <TableCell><Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleOne(r.id)} /></TableCell>
                     <TableCell className="font-mono text-xs">{r.id}</TableCell>
                     <TableCell>{r.userId}</TableCell>
                     <TableCell className="font-semibold">{formatKobo(r.principalKobo)}</TableCell>
@@ -198,6 +233,22 @@ export default function ConsumerLoans() {
           <Button variant="outline" size="sm" disabled={(page + 1) * limit >= data.total} onClick={() => setPage((p) => p + 1)}>Next</Button>
         </div>
       )}
+
+      {/* Bulk Confirm Dialog */}
+      <Dialog open={!!bulkAction} onOpenChange={(o) => !o && setBulkAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500" /> Confirm Bulk {bulkAction === "approve" ? "Approval" : "Rejection"}</DialogTitle>
+            <DialogDescription>You are about to {bulkAction} <strong>{selectedIds.size}</strong> loan application(s).</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkAction(null)}>Cancel</Button>
+            <Button variant={bulkAction === "reject" ? "destructive" : "default"} onClick={confirmBulk} disabled={isBulkLoading}>
+              {isBulkLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null} Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Detail Dialog */}
       {selected && (

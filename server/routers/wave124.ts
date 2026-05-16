@@ -7,7 +7,7 @@ import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { db } from "../db";
 import * as schema from "../../drizzle/schema";
-import { eq, desc, and, gte, lte, like, sql, asc } from "drizzle-orm";
+import { eq, desc, and, gte, lte, like, sql, asc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
 // ─── 1. Bill Payments ─────────────────────────────────────────────────────────
@@ -233,6 +233,22 @@ export const consumerFinanceLoansRouter = router({
       return row;
     }),
 
+  bulkApprove: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.consumerFinanceLoans)
+        .set({ status: "active" as any, updatedAt: new Date() } as any)
+        .where(inArray(schema.consumerFinanceLoans.loanId, input.ids));
+      return { updated: input.ids.length };
+    }),
+  bulkReject: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100), reason: z.string().max(500).optional() }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.consumerFinanceLoans)
+        .set({ status: "rejected" as any, updatedAt: new Date() } as any)
+        .where(inArray(schema.consumerFinanceLoans.loanId, input.ids));
+      return { updated: input.ids.length };
+    }),
   stats: protectedProcedure.query(async () => {
     const [stats] = await db.select({
       total: sql<number>`count(*)`,
@@ -341,6 +357,28 @@ export const couponsRouter = router({
       return { success: true };
     }),
 
+  bulkDeactivate: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.coupons)
+        .set({ isActive: false } as any)
+        .where(inArray(schema.coupons.id, input.ids));
+      return { updated: input.ids.length };
+    }),
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.delete(schema.coupons).where(inArray(schema.coupons.id, input.ids));
+      return { deleted: input.ids.length };
+    }),
+  bulkActivate: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.coupons)
+        .set({ isActive: true } as any)
+        .where(inArray(schema.coupons.id, input.ids));
+      return { updated: input.ids.length };
+    }),
   stats: protectedProcedure.query(async () => {
     const [stats] = await db.select({
       total: sql<number>`count(*)`,
@@ -1123,6 +1161,36 @@ export const referralsRouter = router({
       }).from(schema.referrals)
         .where(conditions.length ? and(...conditions) : undefined);
       return stats;
+    }),
+  bulkApprove: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.referrals)
+        .set({ status: "completed" as any, updatedAt: new Date() } as any)
+        .where(inArray(schema.referrals.referralId, input.ids));
+      return { updated: input.ids.length };
+    }),
+  bulkReject: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.referrals)
+        .set({ status: "cancelled" as any, updatedAt: new Date() } as any)
+        .where(inArray(schema.referrals.referralId, input.ids));
+      return { updated: input.ids.length };
+    }),
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.delete(schema.referrals).where(inArray(schema.referrals.referralId, input.ids));
+      return { deleted: input.ids.length };
+    }),
+  bulkComplete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      await db.update(schema.referrals)
+        .set({ status: "completed" as any, updatedAt: new Date() } as any)
+        .where(inArray(schema.referrals.referralId, input.ids));
+      return { updated: input.ids.length };
     }),
 });
 

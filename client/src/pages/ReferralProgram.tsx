@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Gift, TrendingUp, Plus, RefreshCw, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Users, Gift, TrendingUp, Plus, RefreshCw, CheckCircle, Clock, XCircle, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,6 +31,8 @@ export default function ReferralProgram() {
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"approve" | "reject" | "delete" | null>(null);
   const [form, setForm] = useState({
     referrerId: "",
     referrerRewardKobo: "50000",
@@ -38,6 +42,32 @@ export default function ReferralProgram() {
 
   const limit = 20;
   const utils = trpc.useUtils();
+
+  const bulkApproveMutation = trpc.referrals.bulkApprove.useMutation({
+    onSuccess: (r) => { toast.success(`${r.updated} referral(s) approved`); setSelectedIds(new Set()); utils.referrals.list.invalidate(); utils.referrals.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const bulkRejectMutation = trpc.referrals.bulkReject.useMutation({
+    onSuccess: (r) => { toast.success(`${r.updated} referral(s) rejected`); setSelectedIds(new Set()); utils.referrals.list.invalidate(); utils.referrals.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const bulkDeleteMutation = trpc.referrals.bulkDelete.useMutation({
+    onSuccess: (r) => { toast.success(`${r.deleted} referral(s) deleted`); setSelectedIds(new Set()); utils.referrals.list.invalidate(); utils.referrals.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const rows = data?.rows ?? [];
+  const allSelected = rows.length > 0 && rows.every((r: any) => selectedIds.has(r.id));
+  const toggleAll = () => allSelected ? setSelectedIds(new Set()) : setSelectedIds(new Set(rows.map((r: any) => r.id)));
+  const toggleOne = (id: string) => { const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n); };
+  const isBulkLoading = bulkApproveMutation.isPending || bulkRejectMutation.isPending || bulkDeleteMutation.isPending;
+  const confirmBulk = () => {
+    const ids = Array.from(selectedIds);
+    if (bulkAction === "approve") bulkApproveMutation.mutate({ ids });
+    else if (bulkAction === "reject") bulkRejectMutation.mutate({ ids });
+    else if (bulkAction === "delete") bulkDeleteMutation.mutate({ ids });
+    setBulkAction(null);
+  };
 
   const { data, isLoading, isError, refetch } = trpc.referrals.list.useQuery({
     limit,
@@ -132,9 +162,16 @@ export default function ReferralProgram() {
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
-        <span className="text-sm text-muted-foreground ml-auto">
-          {data?.total ?? 0} total referrals
-        </span>
+        <span className="text-sm text-muted-foreground ml-auto">{data?.total ?? 0} total referrals</span>
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-lg px-3 py-1.5">
+            <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("approve")} disabled={isBulkLoading}><CheckCircle className="w-3 h-3 mr-1" /> Approve</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("reject")} disabled={isBulkLoading}><XCircle className="w-3 h-3 mr-1" /> Reject</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setBulkAction("delete")} disabled={isBulkLoading}><Trash2 className="w-3 h-3 mr-1" /> Delete</Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -148,6 +185,7 @@ export default function ReferralProgram() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10"><Checkbox checked={allSelected} onCheckedChange={toggleAll} /></TableHead>
                   <TableHead>Code</TableHead>
                   <TableHead>Referrer ID</TableHead>
                   <TableHead>Referee ID</TableHead>
@@ -166,10 +204,11 @@ export default function ReferralProgram() {
                     </TableCell>
                   </TableRow>
                 )}
-                {data?.rows.map((r: any) => {
+                {rows.map((r: any) => {
                   const StatusIcon = STATUS_ICONS[r.status] ?? Clock;
                   return (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} className={selectedIds.has(r.id) ? "bg-primary/5" : ""}>
+                      <TableCell><Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleOne(r.id)} /></TableCell>
                       <TableCell className="font-mono text-sm font-semibold">{r.referralCode}</TableCell>
                       <TableCell>{r.referrerId}</TableCell>
                       <TableCell>{r.refereeId ?? <span className="text-muted-foreground">—</span>}</TableCell>
@@ -215,6 +254,22 @@ export default function ReferralProgram() {
           <Button variant="outline" size="sm" disabled={(page + 1) * limit >= data.total} onClick={() => setPage((p) => p + 1)}>Next</Button>
         </div>
       )}
+
+      {/* Bulk Confirm Dialog */}
+      <Dialog open={!!bulkAction} onOpenChange={(o) => !o && setBulkAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500" /> Confirm Bulk {bulkAction === "approve" ? "Approval" : bulkAction === "reject" ? "Rejection" : "Deletion"}</DialogTitle>
+            <DialogDescription>You are about to {bulkAction} <strong>{selectedIds.size}</strong> referral(s).{bulkAction === "delete" ? " This cannot be undone." : ""}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkAction(null)}>Cancel</Button>
+            <Button variant={bulkAction === "delete" ? "destructive" : "default"} onClick={confirmBulk} disabled={isBulkLoading}>
+              {isBulkLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null} Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

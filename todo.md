@@ -4972,3 +4972,21 @@
 - [x] Wave 152: Register all 8 new pages in App.tsx with correct routes
 - [x] Wave 152: Add all 8 new pages to Layout.tsx sidebar navigation
 - [x] Wave 152: 162 test files / 6,647 tests / 0 failures
+
+## Wave 153-156: Liveness & UX Completion
+- [ ] Wave 153: Bulk actions (Coupon, Referral, Consumer Loans pages)
+- [ ] Wave 154: Data Export auto-download + OnboardingStatus Go-Live modal
+- [ ] Wave 155: Python liveness service — face-match endpoint, face-detect endpoint, 68-point landmarks, deepfake classifier, 6 granular spoof types
+- [ ] Wave 156: Web liveness UI — LivenessCheck.tsx (camera capture, passive+active+full, spoof rejection, result display), wire ComplianceKYC.tsx to real tRPC data
+
+## Wave 153-158: Bulk Actions, UX Polish, Liveness System
+- [x] Wave 153: Bulk actions on CouponManagement, ReferralProgram, ConsumerLoans (checkbox select, bulk approve/reject/delete/complete)
+- [x] Wave 154: DataExport auto-download trigger (anchor click on success), OnboardingStatus multi-step Go-Live confirmation modal
+- [x] Wave 155: Rust liveness-signal-processor (Fourier/FFT, LBP texture, colour depth, 6-type spoof classification, Rayon parallel)
+- [x] Wave 156: Go liveness-gateway (HTTP/2, face-match cosine similarity, face-detect routing, landmarks, circuit breaker, rate limiting)
+- [x] Wave 157: Python ML service v3.0 (InsightFace ArcFace 512-dim, MediaPipe 468-landmark, SilentFace, active challenge, deepfake detection)
+- [x] Wave 158: Web LivenessCheck.tsx (camera capture, passive/active/full modes, challenge flow, spoof rejection UI, result display)
+- [x] kyc.faceDetect, kyc.landmarks, kyc.extractEmbedding, kyc.faceMatch tRPC procedures added
+- [x] Internal liveness callback endpoint added to index.ts
+- [x] LIVENESS_GATEWAY_URL env var added to env.ts
+- [x] LivenessCheck route registered in App.tsx and sidebar nav

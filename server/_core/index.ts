@@ -1386,6 +1386,59 @@ async function startServer() {
     } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
   });
 
+  // Internal: liveness result callback from Python liveness-detection service
+  // Called by persist_liveness_result() in main.py after each analysis
+  app.post("/api/internal/liveness/result", verifyInternalKey, async (req: any, res: any) => {
+    try {
+      const {
+        submissionId, decision, livenessScore, confidence,
+        passiveScore, activeScore, faceDetected, faceCount,
+        spoofType, spoofConfidence, spoofScores,
+        challengePassed, qualityScore, processingMs,
+      } = req.body;
+      if (!submissionId || !decision) {
+        return res.status(400).json({ error: "submissionId and decision are required" });
+      }
+      const { getDb } = await import("../db");
+      const { kycSubmissions } = await import("../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "Database unavailable" });
+      // Update the KYC submission with liveness result from the Python service
+      await db.update(kycSubmissions)
+        .set({
+          livenessScore: livenessScore ?? null,
+          livenessMode: 'passive',
+          livenessPassedAt: decision === 'live' ? new Date() : null,
+          livenessSessionId: submissionId,
+          ...(decision === 'spoof' ? {
+            status: 'rejected',
+            rejectionReason: `Liveness spoof detected: ${spoofType ?? 'unknown'} (confidence: ${String(spoofConfidence ?? 0)})`,
+          } : {}),
+        })
+        .where(eq(kycSubmissions.sessionId, submissionId));
+      // Publish audit event (non-fatal)
+      try {
+        const { publishAuditEvent } = await import("../auditEvents");
+        await publishAuditEvent({
+          action: 'kyc.liveness.callback',
+          resourceType: 'kyc_submission',
+          resourceId: submissionId,
+          metadata: {
+            decision, livenessScore, confidence, spoofType,
+            spoofConfidence, challengePassed, qualityScore, processingMs,
+            faceDetected, faceCount,
+          },
+        });
+      } catch { /* audit non-fatal */ }
+      logger.info(`[liveness.callback] sub=${submissionId} decision=${decision} score=${livenessScore} spoof=${spoofType}`);
+      return res.json({ success: true, submissionId, decision });
+    } catch (e: any) {
+      logger.error(`[liveness.callback] error: ${e.message}`);
+      return res.status(500).json({ error: e.message, success: false });
+    }
+  });
+
   // Health check endpoint — includes circuit breaker states and DB ping
   // Docker health check alias (Docker probes /health, not /api/health)
   app.get("/health", (_req, res) => res.redirect(307, "/api/health"));

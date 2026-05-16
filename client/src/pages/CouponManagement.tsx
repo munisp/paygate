@@ -9,7 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Tag, Plus, RefreshCw, Pencil, Trash2, CheckCircle, XCircle, TrendingUp } from "lucide-react";
+import { Tag, Plus, RefreshCw, Pencil, Trash2, CheckCircle, XCircle, TrendingUp, AlertTriangle, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 export default function CouponManagement() {
@@ -18,6 +20,8 @@ export default function CouponManagement() {
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
   const [showCreate, setShowCreate] = useState(false);
   const [editRow, setEditRow] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"activate" | "deactivate" | "delete" | null>(null);
   const [form, setForm] = useState({
     code: "",
     discountType: "percentage",
@@ -70,6 +74,32 @@ export default function CouponManagement() {
   });
 
   const resetForm = () => setForm({ code: "", discountType: "percentage", discountValue: "", minOrderKobo: "0", maxUsageCount: "", expiresAt: "", description: "" });
+
+  const bulkActivateMutation = trpc.couponsMgmt.bulkActivate.useMutation({
+    onSuccess: (r) => { toast.success(`${r.updated} coupon(s) activated`); setSelectedIds(new Set()); utils.couponsMgmt.list.invalidate(); utils.couponsMgmt.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const bulkDeactivateMutation = trpc.couponsMgmt.bulkDeactivate.useMutation({
+    onSuccess: (r) => { toast.success(`${r.updated} coupon(s) deactivated`); setSelectedIds(new Set()); utils.couponsMgmt.list.invalidate(); utils.couponsMgmt.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const bulkDeleteMutation = trpc.couponsMgmt.bulkDelete.useMutation({
+    onSuccess: (r) => { toast.success(`${r.deleted} coupon(s) deleted`); setSelectedIds(new Set()); utils.couponsMgmt.list.invalidate(); utils.couponsMgmt.stats.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const rows = data?.rows ?? [];
+  const allSelected = rows.length > 0 && rows.every((r: any) => selectedIds.has(r.id));
+  const toggleAll = () => allSelected ? setSelectedIds(new Set()) : setSelectedIds(new Set(rows.map((r: any) => r.id)));
+  const toggleOne = (id: string) => { const n = new Set(selectedIds); n.has(id) ? n.delete(id) : n.add(id); setSelectedIds(n); };
+  const isBulkLoading = bulkActivateMutation.isPending || bulkDeactivateMutation.isPending || bulkDeleteMutation.isPending;
+  const confirmBulk = () => {
+    const ids = Array.from(selectedIds);
+    if (bulkAction === "activate") bulkActivateMutation.mutate({ ids });
+    else if (bulkAction === "deactivate") bulkDeactivateMutation.mutate({ ids });
+    else if (bulkAction === "delete") bulkDeleteMutation.mutate({ ids });
+    setBulkAction(null);
+  };
 
   const handleSubmit = () => {
     if (!form.code || !form.discountValue) return toast.error("Code and discount value are required");
@@ -149,6 +179,15 @@ export default function CouponManagement() {
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground self-center ml-auto">{data?.total ?? 0} coupons</span>
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-lg px-3 py-1.5">
+            <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("activate")} disabled={isBulkLoading}><CheckCircle className="w-3 h-3 mr-1" /> Activate</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("deactivate")} disabled={isBulkLoading}><XCircle className="w-3 h-3 mr-1" /> Deactivate</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setBulkAction("delete")} disabled={isBulkLoading}><Trash2 className="w-3 h-3 mr-1" /> Delete</Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -162,6 +201,7 @@ export default function CouponManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10"><Checkbox checked={allSelected} onCheckedChange={toggleAll} /></TableHead>
                   <TableHead>Code</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Discount</TableHead>
@@ -178,8 +218,9 @@ export default function CouponManagement() {
                     <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No coupons found</TableCell>
                   </TableRow>
                 )}
-                {data?.rows.map((r: any) => (
-                  <TableRow key={r.id}>
+                {rows.map((r: any) => (
+                  <TableRow key={r.id} className={selectedIds.has(r.id) ? "bg-primary/5" : ""}>
+                    <TableCell><Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleOne(r.id)} /></TableCell>
                     <TableCell className="font-mono font-bold text-sm">{r.code}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{r.discountType}</Badge>
@@ -242,6 +283,22 @@ export default function CouponManagement() {
           <Button variant="outline" size="sm" disabled={(page + 1) * limit >= data.total} onClick={() => setPage((p) => p + 1)}>Next</Button>
         </div>
       )}
+
+      {/* Bulk Confirm Dialog */}
+      <Dialog open={!!bulkAction} onOpenChange={(o) => !o && setBulkAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-500" /> Confirm Bulk {bulkAction === "activate" ? "Activation" : bulkAction === "deactivate" ? "Deactivation" : "Deletion"}</DialogTitle>
+            <DialogDescription>You are about to {bulkAction} <strong>{selectedIds.size}</strong> coupon(s).{bulkAction === "delete" ? " This cannot be undone." : ""}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkAction(null)}>Cancel</Button>
+            <Button variant={bulkAction === "delete" ? "destructive" : "default"} onClick={confirmBulk} disabled={isBulkLoading}>
+              {isBulkLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null} Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create / Edit Dialog */}
       {(showCreate || editRow) && (

@@ -408,6 +408,8 @@ const OnboardingStatusPage = lz(() => import("./pages/OnboardingStatus"));
 const ClaimDocumentsPage = lz(() => import("./pages/ClaimDocuments"));
 const CorridorLiveStatsPage = lz(() => import("./pages/CorridorLiveStats"));
 const PortfolioRebalancingPage = lz(() => import("./pages/PortfolioRebalancing"));
+// Wave 155-156: Liveness verification
+const LivenessCheckPage = lz(() => import("./pages/LivenessCheck"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -831,6 +833,7 @@ function Router() {
           <Route path="/claim-documents" component={ClaimDocumentsPage} />
           <Route path="/corridor-live" component={CorridorLiveStatsPage} />
           <Route path="/portfolio-rebalancing" component={PortfolioRebalancingPage} />
+          <Route path="/liveness-check" component={LivenessCheckPage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
