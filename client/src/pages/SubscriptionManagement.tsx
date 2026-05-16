@@ -16,14 +16,7 @@ import { toast } from "sonner";
 
 // MOCK_SUBSCRIBERS removed — now fetched from subscriptionsMw.subscribers
 
-const CHURN_DATA = [
-  { month: "Nov", mrr: 180_000, churnRate: 2.1, newSubs: 8 },
-  { month: "Dec", mrr: 210_000, churnRate: 1.8, newSubs: 12 },
-  { month: "Jan", mrr: 245_000, churnRate: 2.5, newSubs: 15 },
-  { month: "Feb", mrr: 280_000, churnRate: 1.9, newSubs: 18 },
-  { month: "Mar", mrr: 310_000, churnRate: 2.2, newSubs: 14 },
-  { month: "Apr", mrr: 335_000, churnRate: 1.6, newSubs: 20 },
-];
+// CHURN_DATA is now fetched from the backend via subscriptionsMw.monthlyChurnData
 
 const STATUS_STYLES: Record<string, { label: string; color: string }> = {
   active: { label: "Active", color: "bg-emerald-100 text-emerald-700" },
@@ -46,6 +39,7 @@ export default function SubscriptionManagement() {
   const { data: plans, refetch: refetchPlans } = trpc.subscriptionsMw.plans.useQuery();
   const { data: analytics } = trpc.subscriptionsMw.churnAnalytics.useQuery();
   const { data: subscribers } = trpc.subscriptionsMw.subscribers.useQuery();
+  const { data: churnData = [] } = (trpc.subscriptionsMw.monthlyChurnData.useQuery({ months: 6 }) as any);
 
   const createPlanMutation = trpc.subscriptionsMw.createPlan.useMutation({
     onSuccess: (data) => {
@@ -218,7 +212,7 @@ export default function SubscriptionManagement() {
               <CardHeader className="pb-2"><CardTitle className="text-sm">MRR Growth (6 months)</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={CHURN_DATA}>
+                  <AreaChart data={churnData}>
                     <defs>
                       <linearGradient id="mrrGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -238,7 +232,7 @@ export default function SubscriptionManagement() {
               <CardHeader className="pb-2"><CardTitle className="text-sm">New Subscribers vs Churn Rate</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={CHURN_DATA}>
+                  <BarChart data={churnData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                     <YAxis yAxisId="left" tick={{ fontSize: 11 }} />

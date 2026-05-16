@@ -15,14 +15,7 @@ import { useLocation } from "wouter";
 
 // MOCK_PARTNERS removed — data now comes from trpc.partnerOnboarding.list
 
-const REVENUE_DATA = [
-  { month: "Nov", revenue: 2_800_000, partners: 3 },
-  { month: "Dec", revenue: 3_200_000, partners: 3 },
-  { month: "Jan", revenue: 3_800_000, partners: 4 },
-  { month: "Feb", revenue: 4_100_000, partners: 4 },
-  { month: "Mar", revenue: 4_600_000, partners: 5 },
-  { month: "Apr", revenue: 5_730_000, partners: 5 },
-];
+// REVENUE_DATA is now fetched from partnerOnboarding.revenueData
 
 const TIER_STYLES: Record<string, { label: string; color: string }> = {
   bronze: { label: "Bronze", color: "bg-amber-100 text-amber-700" },
@@ -53,6 +46,7 @@ export default function PartnerAdminDashboard() {
     { search: search || undefined, status: statusFilter },
     { staleTime: 30_000 }
   );
+  const { data: revenueData = [] } = (trpc.partnerOnboarding.revenueData.useQuery({ months: 6 }) as any);
 
   const updateStatusMutation = trpc.partnerOnboarding.updateStatus.useMutation({
     onSuccess: (d) => {
@@ -217,7 +211,7 @@ export default function PartnerAdminDashboard() {
             <CardHeader className="pb-2"><CardTitle className="text-sm">Partner Revenue Trend (6 months)</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={REVENUE_DATA}>
+                <BarChart data={revenueData.length > 0 ? revenueData : []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₦${(v / 1_000_000).toFixed(1)}M`} />

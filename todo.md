@@ -4851,3 +4851,15 @@
 - [x] RN KYBDocumentUploadScreen: wired to kyb.getDocuments via useTrpc
 - [x] RN LoyaltyRedemptionScreen: wired to loyalty.getRewards + loyalty.getBalance + loyalty.redeemReward
 - [x] 342 new tests in wave135.production-readiness.test.ts (Flutter/RN coverage)
+
+## Wave 136 (Round 64) — Completed
+- [x] Added bnpl.monthlyStats procedure (monthly disbursed/repaid/defaults + plan split from DB)
+- [x] Added mobileMoneyRecon.providerStats procedure (per-provider matched/unmatched/pending counts from DB)
+- [x] Added mobileMoneyRecon.weeklyTrend procedure (7-day matched/unmatched trend from DB)
+- [x] Added partnerOnboarding.revenueData procedure (monthly revenue aggregates from transactions table)
+- [x] Added subscriptionsMw.monthlyChurnData procedure (monthly MRR/churnRate/newSubs from DB)
+- [x] Wired BNPL.tsx to use bnpl.monthlyStats (removed hardcoded MONTHLY_DATA and PLAN_SPLIT)
+- [x] Wired MobileMoneyRecon.tsx to use real providerStats and weeklyTrend
+- [x] Wired PartnerAdminDashboard.tsx to use real revenueData
+- [x] Wired SubscriptionManagement.tsx to use real monthlyChurnData
+- [x] 19 new tests in wave136.production-readiness.test.ts

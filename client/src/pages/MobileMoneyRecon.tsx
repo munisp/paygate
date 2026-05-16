@@ -79,6 +79,8 @@ export default function MobileMoneyRecon() {
   const [reconciling, setReconciling] = useState(false);
   // Real DB data for the main table (falls back to mock if empty)
   const { data: dbReconData } = trpc.mobileMoneyRecon.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
+  const { data: providerStats = [] } = (trpc.mobileMoneyRecon.providerStats.useQuery() as any);
+  const { data: weeklyTrend = [] } = (trpc.mobileMoneyRecon.weeklyTrend.useQuery() as any);
   const [entries, setEntries] = useState(() => ({
     mpesa: generateEntries("mpesa", 18),
     mtn: generateEntries("mtn", 14),
@@ -237,7 +239,7 @@ export default function MobileMoneyRecon() {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={TREND_DATA} barGap={2}>
+            <BarChart data={weeklyTrend.length > 0 ? weeklyTrend : TREND_DATA} barGap={2}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />

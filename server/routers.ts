@@ -3655,6 +3655,45 @@ const bnplRouter = router({
       const merchant = await requireMerchant(user.id);
       return getBnplStats(merchant.id);
     }),
+  monthlyStats: protectedProcedure
+    .input(z.object({ months: z.number().min(1).max(24).default(6) }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { monthlyData: [], planSplit: [] };
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rows = await db.execute(
+        sql`SELECT 
+          DATE_FORMAT(created_at, '%b') as month,
+          COALESCE(SUM(principal_amount), 0) as disbursed,
+          COALESCE(SUM(CASE WHEN status = 'repaid' THEN principal_amount ELSE 0 END), 0) as repaid,
+          COALESCE(SUM(CASE WHEN status = 'defaulted' THEN principal_amount ELSE 0 END), 0) as defaults
+        FROM bnpl_loans
+        WHERE merchant_id = ${merchant.id}
+          AND created_at >= DATE_SUB(NOW(), INTERVAL ${input.months} MONTH)
+        GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+        ORDER BY DATE_FORMAT(created_at, '%Y-%m') ASC`
+      );
+      const planRows = await db.execute(
+        sql`SELECT plan_type as name, COUNT(*) as value
+        FROM bnpl_loans
+        WHERE merchant_id = ${merchant.id}
+        GROUP BY plan_type`
+      );
+      return {
+        monthlyData: (rows as any[]).map(r => ({
+          month: r.month,
+          disbursed: Number(r.disbursed),
+          repaid: Number(r.repaid),
+          defaults: Number(r.defaults),
+        })),
+        planSplit: (planRows as any[]).map((r, i) => ({
+          name: r.name ?? `Plan ${i + 1}`,
+          value: Number(r.value),
+          color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i % 4],
+        })),
+      };
+    }),
   create: protectedProcedure
     .input(z.object({
       transactionId: z.string().optional(),
@@ -3842,6 +3881,55 @@ const mobileMoneyReconRouter = router({
       return getMmReconStats(merchant.id);
     }),
 
+  providerStats: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rows = await db.execute(
+        sql`SELECT provider, 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) as matched,
+          SUM(CASE WHEN status = 'unmatched' THEN 1 ELSE 0 END) as unmatched,
+          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+          SUM(amount) as totalAmount
+        FROM mobile_money_recon
+        WHERE merchant_id = ${merchant.id}
+        GROUP BY provider`
+      );
+      return (rows as any[]).map(r => ({
+        provider: r.provider,
+        total: Number(r.total),
+        matched: Number(r.matched),
+        unmatched: Number(r.unmatched),
+        pending: Number(r.pending),
+        totalAmount: Number(r.totalAmount ?? 0),
+      }));
+    }),
+  weeklyTrend: protectedProcedure
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const rows = await db.execute(
+        sql`SELECT 
+          DAYNAME(created_at) as day,
+          SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) as matched,
+          SUM(CASE WHEN status = 'unmatched' THEN 1 ELSE 0 END) as unmatched
+        FROM mobile_money_recon
+        WHERE merchant_id = ${merchant.id}
+          AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY DAYNAME(created_at), DAYOFWEEK(created_at)
+        ORDER BY DAYOFWEEK(created_at) ASC`
+      );
+      return (rows as any[]).map(r => ({
+        day: r.day?.substring(0, 3),
+        matched: Number(r.matched),
+        unmatched: Number(r.unmatched),
+      }));
+    }),
   reconcile: protectedProcedure
     .input(z.object({
       ids: z.array(z.string()).min(1).max(200),

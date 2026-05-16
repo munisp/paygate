@@ -17,20 +17,9 @@ import {
 } from "recharts";
 
 // --- Static reference data (not from DB) ---
-const MONTHLY_DATA = [
-  { month: "Oct", disbursed: 8200000, repaid: 5100000, defaults: 120000 },
-  { month: "Nov", disbursed: 9800000, repaid: 6400000, defaults: 98000 },
-  { month: "Dec", disbursed: 14200000, repaid: 9800000, defaults: 145000 },
-  { month: "Jan", disbursed: 11600000, repaid: 8200000, defaults: 87000 },
-  { month: "Feb", disbursed: 13400000, repaid: 10100000, defaults: 112000 },
-  { month: "Mar", disbursed: 16800000, repaid: 12400000, defaults: 95000 },
-];
+// MONTHLY_DATA is now fetched from bnpl.monthlyStats
 
-const PLAN_SPLIT = [
-  { name: "Pay in 3", value: 34, color: "#3b82f6" },
-  { name: "Pay in 6", value: 24, color: "#8b5cf6" },
-  { name: "Pay in 12", value: 42, color: "#f59e0b" },
-];
+// PLAN_SPLIT is now fetched from bnpl.monthlyStats
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; badge: string; icon: React.ReactNode }> = {
   active: { bg: "bg-blue-50", text: "text-blue-700", badge: "bg-blue-100 text-blue-700", icon: <Clock className="w-3.5 h-3.5 text-blue-600" /> },
@@ -66,6 +55,9 @@ export default function BNPL() {
     { limit: 50, status: statusFilter === "all" ? undefined : statusFilter },
     { staleTime: 30_000 }
   );
+  const { data: monthlyStats } = (trpc.bnpl.monthlyStats.useQuery({ months: 6 }) as any);
+  const monthlyData = monthlyStats?.monthlyData ?? [];
+  const planSplit = monthlyStats?.planSplit ?? [];
   const { data: stats, refetch: refetchStats } = trpc.bnpl.stats.useQuery(undefined, { staleTime: 60_000 });
   const { data: plansData, isLoading: plansLoading, refetch: refetchPlans } = trpc.bnpl.listPlans.useQuery(undefined, { staleTime: 60_000 });
 
