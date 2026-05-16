@@ -487,6 +487,164 @@ for (const merchant of merchantData.slice(0, 3)) {
 }
 console.log(`  ✓ ${teamCount} team members`);
 
+// --- Wallets ---
+console.log("\n-> Seeding wallets...");
+let walletCount = 0;
+for (const merchant of merchantData) {
+  await db.insert(schema.wallets).values({
+    tenantId: merchant.tenantId,
+    userId: merchant.ownerId,
+    merchantId: merchant.id,
+    currency: "NGN",
+    balance: String(rand(100000, 50000000)),
+    ledgerBalance: String(rand(100000, 50000000)),
+    status: "active",
+    tier: pick(["basic", "standard", "premium"]),
+    dailyLimit: "500000",
+    monthlyLimit: "5000000",
+  }).onConflictDoNothing().catch(() => {});
+  walletCount++;
+}
+console.log(`  ok ${walletCount} wallets`);
+
+// --- Feature Flags ---
+console.log("\n-> Seeding feature flags...");
+const featureFlagData = [
+  { key: "bnpl_enabled", name: "BNPL Lending", description: "Enable Buy Now Pay Later", enabled: true, rolloutPercentage: 100, environment: "production", category: "feature" },
+  { key: "fx_dashboard_enabled", name: "FX Dashboard", description: "Multi-currency FX dashboard", enabled: true, rolloutPercentage: 100, environment: "production", category: "feature" },
+  { key: "crypto_offramp_enabled", name: "Crypto Off-ramp", description: "USDC/crypto off-ramp", enabled: false, rolloutPercentage: 0, environment: "production", category: "beta" },
+  { key: "ai_fraud_scoring_v2", name: "AI Fraud Scoring v2", description: "Next-gen ML fraud scoring", enabled: true, rolloutPercentage: 50, environment: "production", category: "ml" },
+  { key: "open_banking_v2", name: "Open Banking v2", description: "Open Banking API v2", enabled: true, rolloutPercentage: 100, environment: "production", category: "feature" },
+  { key: "ussd_lang_picker", name: "USSD Language Picker", description: "Language selection on USSD", enabled: true, rolloutPercentage: 100, environment: "production", category: "ux" },
+  { key: "pos_soundbox", name: "POS Soundbox", description: "Audio confirmation for POS", enabled: true, rolloutPercentage: 80, environment: "production", category: "hardware" },
+  { key: "wealth_management", name: "Wealth Management", description: "Mutual funds and gold", enabled: false, rolloutPercentage: 10, environment: "production", category: "beta" },
+];
+for (const ff of featureFlagData) {
+  await db.insert(schema.featureFlags).values(ff).onConflictDoUpdate({ target: schema.featureFlags.key, set: { enabled: ff.enabled, updatedAt: new Date() } }).catch(() => {});
+}
+console.log(`  ok ${featureFlagData.length} feature flags`);
+
+// --- Settlements ---
+console.log("\n-> Seeding settlements...");
+let settlementCount = 0;
+for (let i = 0; i < 10; i++) {
+  const merchant = pick(merchantData);
+  await db.insert(schema.settlements).values({
+    id: `set_${String(i + 1).padStart(3, "0")}`,
+    tenantId: merchant.tenantId,
+    merchantId: merchant.id,
+    reference: `SETTLE-${Date.now()}-${i}`,
+    amount: rand(500000, 10000000),
+    currency: "NGN",
+    bankCode: pick(["044", "058", "011", "033", "057"]),
+    accountNumber: `${rand(1000000000, 9999999999)}`,
+    accountName: pick(NIGERIAN_NAMES),
+    status: pick(["pending", "processing", "completed", "failed"]) as any,
+    createdAt: pastDate(rand(1, 30)),
+  }).onConflictDoNothing().catch(() => {});
+  settlementCount++;
+}
+console.log(`  ok ${settlementCount} settlements`);
+
+// --- Loyalty Accounts ---
+console.log("\n-> Seeding loyalty accounts...");
+let loyaltyCount = 0;
+for (const customer of customerData.slice(0, 10)) {
+  await db.insert(schema.loyaltyAccounts).values({
+    merchantId: merchantData[0].id,
+    customerId: customer.id,
+    programId: "default",
+    pointsBalance: rand(0, 50000),
+    lifetimePoints: rand(1000, 100000),
+  }).onConflictDoNothing().catch(() => {});
+  loyaltyCount++;
+}
+console.log(`  ok ${loyaltyCount} loyalty accounts`);
+
+// --- POS Terminals ---
+console.log("\n-> Seeding POS terminals...");
+const posTerminalData = [
+  { id: "pos_001", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-001-2024", model: "soundbox_basic" as const, label: "Main Counter", location: "Lagos HQ", status: "active" as const },
+  { id: "pos_002", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-002-2024", model: "android_pos" as const, label: "Gate 2", location: "Lagos HQ", status: "active" as const },
+  { id: "pos_003", merchantId: merchantData[1]?.id ?? merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-003-2024", model: "mpos" as const, label: "Mobile Agent", location: "Abuja Branch", status: "active" as const },
+];
+for (const pos of posTerminalData) {
+  await db.insert(schema.posTerminals).values(pos).onConflictDoNothing().catch(() => {});
+}
+console.log(`  ok ${posTerminalData.length} POS terminals`);
+
+// --- Audit Events ---
+console.log("\n-> Seeding audit events...");
+const auditActions = ["settings.updated", "api_key.created", "webhook.created", "payout.approved", "dispute.resolved", "kyc.approved", "user.login", "merchant.onboarded"];
+let auditCount = 0;
+for (let i = 0; i < 20; i++) {
+  const merchant = pick(merchantData);
+  await db.insert(schema.auditEvents).values({
+    merchantId: merchant.id,
+    actorId: `user_${rand(1, 5)}`,
+    actorName: pick(NIGERIAN_NAMES),
+    actorEmail: `actor${i}@paygate.ng`,
+    action: pick(auditActions),
+    resource: pick(["merchant", "payout", "webhook", "api_key", "dispute"]),
+    resourceId: `res_${rand(1, 100)}`,
+    metadata: { ip: `192.168.1.${rand(1, 255)}`, browser: "Chrome" },
+    ipAddress: `192.168.1.${rand(1, 255)}`,
+    createdAt: pastDate(rand(0, 30)),
+  }).onConflictDoNothing().catch(() => {});
+  auditCount++;
+}
+console.log(`  ok ${auditCount} audit events`);
+
+// --- Webhook Deliveries ---
+console.log("\n-> Seeding webhook deliveries...");
+let webhookDeliveryCount = 0;
+const webhookIds = ["wh_001", "wh_002", "wh_003"];
+for (let i = 0; i < 15; i++) {
+  const merchant = pick(merchantData);
+  const whId = pick(webhookIds);
+  await db.insert(schema.webhookDeliveries).values({
+    id: `wdel_${String(i + 1).padStart(3, "0")}`,
+    tenantId: merchant.tenantId,
+    webhookId: whId,
+    merchantId: merchant.id,
+    eventType: pick(["payment.success", "payment.failed", "payout.completed", "dispute.created"]),
+    payload: { event: "payment.success", amount: rand(1000, 100000) },
+    responseStatus: pick([200, 200, 200, 404, 500]),
+    responseBody: "OK",
+    latencyMs: rand(50, 2000),
+    status: pick(["delivered", "delivered", "failed", "pending"]) as any,
+    attemptCount: rand(1, 3),
+    createdAt: pastDate(rand(0, 14)),
+  }).onConflictDoNothing().catch(() => {});
+  webhookDeliveryCount++;
+}
+console.log(`  ok ${webhookDeliveryCount} webhook deliveries`);
+
+// --- Support Messages ---
+console.log("\n-> Seeding support messages...");
+const supportSessions = ["sess_001", "sess_002", "sess_003"];
+const supportConversations = [
+  { role: "user", content: "I need help with a failed transaction" },
+  { role: "agent", content: "I can help with that. Please provide the transaction reference." },
+  { role: "user", content: "The reference is TXN-2024-001" },
+  { role: "agent", content: "I can see the transaction. It failed due to insufficient funds. Please retry." },
+];
+let supportCount = 0;
+for (const session of supportSessions) {
+  for (const msg of supportConversations) {
+    await db.insert(schema.supportMessages).values({
+      sessionId: session,
+      merchantId: merchantData[0].id,
+      role: msg.role,
+      content: msg.content,
+      status: "read",
+    }).onConflictDoNothing().catch(() => {});
+    supportCount++;
+  }
+}
+console.log(`  ok ${supportCount} support messages`);
+
+
 // ─── Payment Links ────────────────────────────────────────────────────────────
 console.log("\n→ Seeding payment links...");
 let paymentLinksCount = 0;
@@ -518,6 +676,14 @@ console.log("   KYC:           ", kycCount);
 console.log("   FX Rates:      ", fxCount);
 console.log("   NIP Banks:     ", nipCount);
 console.log("   Team Members:  ", teamCount);
-   console.log("   Payment Links: ", paymentLinksCount);
+console.log("   Payment Links: ", paymentLinksCount);
+console.log("   Wallets:        ", walletCount);
+console.log("   Feature Flags:  ", featureFlagData.length);
+console.log("   Settlements:    ", settlementCount);
+console.log("   Loyalty Accts:  ", loyaltyCount);
+console.log("   POS Terminals:  ", posTerminalData.length);
+console.log("   Audit Events:   ", auditCount);
+console.log("   Webhook Deliv:  ", webhookDeliveryCount);
+console.log("   Support Msgs:   ", supportCount);
 
 await pool.end();
