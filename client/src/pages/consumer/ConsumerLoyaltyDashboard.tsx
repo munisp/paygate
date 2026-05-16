@@ -31,7 +31,7 @@ const REDEMPTION_OPTIONS = [
 export default function ConsumerLoyaltyDashboard() {
   const [redeeming, setRedeeming] = useState<string | null>(null);
 
-  const { data: cashbackData, refetch } = trpc.newFeatures.consumerLoyalty.getCashbackBalance.useQuery();
+  const { data: cashbackData, refetch, isLoading } = trpc.newFeatures.consumerLoyalty.getCashbackBalance.useQuery();
   const redeemMutation = trpc.newFeatures.consumerLoyalty.redeemCashback.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Redeemed! ${d.message ?? "Points redeemed successfully"}`);

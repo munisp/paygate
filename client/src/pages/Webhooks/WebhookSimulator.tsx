@@ -18,7 +18,7 @@ export default function WebhookSimulator({ merchantId }: { merchantId: string })
   const [page, setPage] = useState(0);
   const limit = 20;
 
-  const { data: eventTypes } = trpc.wave24.webhookSimulator.getEventTypes.useQuery();
+  const { data: eventTypes, isLoading } = trpc.wave24.webhookSimulator.getEventTypes.useQuery();
   const { data: logs, refetch: refetchLogs } = trpc.wave24.webhookSimulator.getLogs.useQuery({
     merchantId,
     limit,

@@ -32,7 +32,7 @@ export default function ConsumerBnplRepayments() {
   const [expandedLoan, setExpandedLoan] = useState<string | null>(null);
   const [payingInstalment, setPayingInstalment] = useState<string | null>(null);
 
-  const { data: bnplData, refetch } = trpc.newFeatures.bnpl.getActiveLoans.useQuery();
+  const { data: bnplData, refetch, isLoading } = trpc.newFeatures.bnpl.getActiveLoans.useQuery();
   const payMutation = trpc.newFeatures.bnpl.payInstalment.useMutation({
     onSuccess: (d: any) => {
       toast.success(`Payment of ${formatKobo(d.amountKobo ?? 0)} processed successfully!`);

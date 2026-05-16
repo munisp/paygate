@@ -45,7 +45,7 @@ export default function PINSetup() {
   const [done, setDone] = useState(false);
 
   const utils = trpc.useUtils();
-  const { data: pinStatus } = trpc.consumerPin.isSet.useQuery(undefined, { staleTime: 60_000 });
+  const { data: pinStatus, isLoading } = trpc.consumerPin.isSet.useQuery(undefined, { staleTime: 60_000 });
   const isSet = (pinStatus as any)?.isSet ?? false;
 
   const setOrChange = trpc.consumerPin.set.useMutation({

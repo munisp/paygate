@@ -4890,3 +4890,11 @@
 - [x] Total audit events >= 40 (11 publishAuditEvent + 26 logAuditEvent = 37 in routers.ts + more in wave files)
 - [x] No sensitive data in console.log statements
 - [x] 21 new tests, 6,295 total passing
+
+## Wave 140 — Completed
+- [x] All 10 PWA pages with tRPC now have loading states (isLoading/isPending/isSearching)
+- [x] All Flutter screens have error handling (0 gaps)
+- [x] Security infrastructure verified: CORS, helmet, 4 rate limiters (global/auth/upload/payout)
+- [x] Production metrics: 350 PWA pages, 90 RN screens, 79 Flutter screens, 370 procedures, 37 audit events
+- [x] Audit coverage: settlement.created, payment_link.created, virtual_card.created, webhook.deleted, api_key.revoked
+- [x] 23 new tests, 6,318 total passing

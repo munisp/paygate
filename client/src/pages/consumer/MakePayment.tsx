@@ -81,7 +81,7 @@ export default function MakePayment() {
   const [showBeneficiaries, setShowBeneficiaries] = useState(false);
 
   const utils = trpc.useUtils();
-  const { data: banksData } = trpc.nip.listBanks.useQuery(undefined, { staleTime: 300_000 });
+  const { data: banksData, isLoading } = trpc.nip.listBanks.useQuery(undefined, { staleTime: 300_000 });
   const banks = banksData?.banks ?? [];
   const filteredBanks = banks.filter((b: { bankCode: string; bankName: string }) =>
     b.bankName.toLowerCase().includes(bankSearch.toLowerCase()) ||

@@ -26,7 +26,7 @@ export default function ConsumerInsuranceV2() {
   const [claimDesc, setClaimDesc] = useState("");
   const [claimAmount, setClaimAmount] = useState("");
 
-  const { data: policyData, refetch: refetchPolicies } = trpc.consumerFinancial.insurance.getPolicies.useQuery();
+  const { data: policyData, refetch: refetchPolicies, isLoading } = trpc.consumerFinancial.insurance.getPolicies.useQuery();
 
   const purchaseMutation = trpc.consumerFinancial.insurance.purchase.useMutation({
     onSuccess: (d: any) => {

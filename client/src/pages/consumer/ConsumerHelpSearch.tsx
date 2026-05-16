@@ -74,6 +74,7 @@ export default function ConsumerHelpSearch() {
     onError: (err) => console.warn('[HelpSearch] Failed to track search query:', err.message),
   });
 
+  const isSearching = trackSearch.isPending;
   const handleSearch = useCallback((q: string) => {
     setQuery(q);
     if (q.length > 2) {
