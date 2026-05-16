@@ -12,6 +12,7 @@
  */
 
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getTenantBySlug, updateTenantBranding, getDb, resolveUser, requireMerchant } from "./db";
 import { sql } from "drizzle-orm";
@@ -537,6 +538,7 @@ export const partnerOnboardingRouter = router({
   start: protectedProcedure
     .input(z.object({ inviteCode: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
+      if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Authentication required" });
       const sessionId = nanoid();
       logger.info(`[partner-onboard] Session ${sessionId} started by ${ctx.user.id}`);
       return {

@@ -4875,3 +4875,10 @@
 - [x] Pagination coverage: 35+ patterns for 24 list procedures
 - [x] 3 new RN screens: AgentBankingScreen, BNPLCalculatorScreen, AuditLogScreen (now 90 total)
 - [x] 25 new tests in wave137.production-readiness.test.ts
+
+## Wave 138 — Completed
+- [x] Deep security audit: CSRF, httpOnly cookies, auth rate limiter, global auth redirect
+- [x] All server/routers/*.ts files verified registered in routers.ts
+- [x] corridorRouter and usageMeteringRouter verified using TRPCError
+- [x] wave90Router.ts: added TRPCError import and authorization check in partnerOnboardingRouter
+- [x] All 31 Wave 138 tests passing
