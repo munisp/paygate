@@ -110,8 +110,7 @@ export default function MiddlewareWiringAudit() {
           <h1 className="text-2xl font-bold text-white">Middleware Wiring Audit</h1>
           <p className="text-zinc-400 mt-1">Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, NIBSS, TigerBeetle</p>
         </div>
-        <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" onClick={() => refetchAudit()}>
-          <RefreshCw className="w-4 h-4 mr-2" />
+        <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" aria-label="Refresh" onClick={() => refetchAudit()}><RefreshCw/>
           Refresh All
         </Button>
       </div>

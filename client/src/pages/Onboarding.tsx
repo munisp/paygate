@@ -325,7 +325,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 function FeatureFlagsStep({ onEnabledChange }: { onEnabledChange?: (keys: string[]) => void }) {
   const [enabled, setEnabled] = useState<Set<string>>(new Set(["ai_fraud_gnn"]));
   const toggleMutation = trpc.wave26.featureFlags.toggle.useMutation();
-  const { data: flags } = trpc.wave26.featureFlags.list.useQuery({ category: "onboarding" });
+  const { data: flags } = trpc.wave26.featureFlags.list.useQuery({ category: "onboarding" }, { staleTime: 30_000 });
 
   const toggle = (id: string) => {
     setEnabled(prev => {
@@ -701,8 +701,7 @@ export default function Onboarding() {
                     <label className="text-sm font-medium">Account Number <span className="text-red-500">*</span></label>
                     <div className="flex gap-2 mt-1">
                       <input value={bank.accountNumber} onChange={e => setBank(p => ({ ...p, accountNumber: e.target.value }))} placeholder="0000000000" maxLength={10} className="flex-1 px-3 py-2.5 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring font-mono" />
-                      <Button type="button" variant="outline" size="sm" onClick={() => { if (bank.accountNumber.length === 10) { setBank(p => ({ ...p, accountName: "ACME CORP LTD" })); toast.success("Account verified!"); } else toast.error("Enter a 10-digit account number"); }}>
-                        <RefreshCw className="w-4 h-4 mr-1" />Verify
+                      <Button type="button" variant="outline" size="sm" aria-label="Refresh" onClick={() => { if (bank.accountNumber.length === 10) { setBank(p => ({ ...p, accountName: "ACME CORP LTD" })); toast.success("Account verified!"); } else toast.error("Enter a 10-digit account number"); }}><RefreshCw/>Verify
                       </Button>
                     </div>
                   </div>

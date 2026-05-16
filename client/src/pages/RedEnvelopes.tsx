@@ -24,7 +24,7 @@ export default function RedEnvelopes() {
   const [message, setMessage] = useState("Happy New Year! 🧧");
   const [expiresInDays, setExpiresInDays] = useState("7");
 
-  const { data, isLoading, isError, refetch } = trpc.redEnvelopes.list.useQuery({ limit, offset: page * limit });
+  const { data, isLoading, isError, refetch } = trpc.redEnvelopes.list.useQuery({ limit, offset: page * limit }, { staleTime: 30_000 });
   const { data: stats, isError: statsError } = trpc.redEnvelopes.stats.useQuery();
 
   const createMutation = trpc.redEnvelopes.create.useMutation({
@@ -59,8 +59,7 @@ export default function RedEnvelopes() {
           <p className="text-muted-foreground text-sm mt-1">Create and distribute digital hongbao to customers</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-2" /> New Campaign

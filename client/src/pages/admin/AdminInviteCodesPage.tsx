@@ -39,7 +39,7 @@ export default function AdminInviteCodesPage() {
     limit: 20,
     search: search || undefined,
     type: typeFilter !== "all" ? typeFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const createMutation = trpc.wave32.inviteCodes.create.useMutation({
     onSuccess: () => { toast({ title: "Invite code created" }); setShowCreate(false); refetch(); },
@@ -127,7 +127,7 @@ export default function AdminInviteCodesPage() {
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
                 {["Code", "Type", "Uses", "Expires", "Status", "Created", "Actions"].map(h => (
@@ -160,7 +160,7 @@ export default function AdminInviteCodesPage() {
                   <td className="px-4 py-3 text-muted-foreground">{format(new Date(code.createdAt), "MMM d, yyyy")}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => copyCode(code.code)}><Copy className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" aria-label="Copy" onClick={() => copyCode(code.code)}><Copy/></Button>
                       {!code.isRevoked && (
                         <Button size="sm" variant="ghost" className="text-destructive" onClick={() => revokeMutation.mutate({ id: code.id })}>
                           <Ban className="h-3 w-3" />
@@ -171,7 +171,7 @@ export default function AdminInviteCodesPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
 

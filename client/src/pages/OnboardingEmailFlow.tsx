@@ -31,7 +31,7 @@ export default function OnboardingEmailFlow() {
     status: filterStatus || undefined,
     tenantId: filterTenant || undefined,
     limit: 100,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.wave30.onboardingEmail.getStats.useQuery();
 
@@ -193,8 +193,7 @@ export default function OnboardingEmailFlow() {
                     <TableCell>
                       {email.status === 'failed' && (
                         <Button size="sm" variant="outline" className="text-xs"
-                          onClick={() => retryFailed.mutate({ emailId: email.id })}>
-                          <RefreshCw className="w-3 h-3 mr-1" /> Retry
+                          aria-label="Refresh" onClick={() => retryFailed.mutate({ emailId: email.id })}><RefreshCw/> Retry
                         </Button>
                       )}
                     </TableCell>

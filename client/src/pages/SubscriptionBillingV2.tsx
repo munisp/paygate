@@ -19,8 +19,8 @@ export default function SubscriptionBillingV2() {
   const [cancelReason, setCancelReason] = useState("");
 
   const { isLoading, data: plans, refetch: refetchPlans } = trpc.newFeatures.subscriptionBillingV2.listPlans.useQuery();
-  const { data: subscribers } = trpc.newFeatures.subscriptionBillingV2.listSubscribers.useQuery({ planId: selectedPlan ?? undefined, page: 1 });
-  const { data: churn } = trpc.newFeatures.subscriptionBillingV2.getChurnAnalytics.useQuery({ period: "30d" });
+  const { data: subscribers } = trpc.newFeatures.subscriptionBillingV2.listSubscribers.useQuery({ planId: selectedPlan ?? undefined, page: 1 }, { staleTime: 30_000 });
+  const { data: churn } = trpc.newFeatures.subscriptionBillingV2.getChurnAnalytics.useQuery({ period: "30d" }, { staleTime: 30_000 });
 
   const createPlanMutation = trpc.newFeatures.subscriptionBillingV2.createPlan.useMutation({
     onSuccess: () => { toast.success("Plan created"); refetchPlans(); },
@@ -124,7 +124,7 @@ export default function SubscriptionBillingV2() {
         </CardHeader>
         <CardContent>
           {!subscribers?.subscribers?.length ? <p className="text-muted-foreground text-sm">No subscribers yet</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Customer</th><th className="text-left py-2">Plan</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Status</th><th className="text-right py-2">Renews</th><th className="text-right py-2">Actions</th></tr></thead>
               <tbody>
                 {subscribers.subscribers.map(s => (
@@ -145,7 +145,7 @@ export default function SubscriptionBillingV2() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>

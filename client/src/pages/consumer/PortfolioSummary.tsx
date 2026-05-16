@@ -115,7 +115,7 @@ export default function PortfolioSummary() {
   const { data: goldHoldings, isLoading: goldLoading, refetch: refetchGold } =
     trpc.newFeatures.digitalGold.getHoldings.useQuery();
   const { data: goldPrice, isError } = trpc.newFeatures.digitalGold.getPrice.useQuery();
-  const { data: goldHistory } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 30 });
+  const { data: goldHistory } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 30 }, { staleTime: 30_000 });
 
   const { data: mfPortfolio, isLoading: mfLoading, refetch: refetchMF } =
     trpc.newFeatures.mutualFunds.getPortfolio.useQuery();
@@ -230,8 +230,7 @@ export default function PortfolioSummary() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={refetchAll} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={refetchAll} disabled={isLoading}><RefreshCw/>
           Refresh
         </Button>
       </div>

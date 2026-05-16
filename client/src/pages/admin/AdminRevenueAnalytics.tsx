@@ -20,10 +20,10 @@ const PLAN_COLORS: Record<string, string> = {
 export default function AdminRevenueAnalytics() {
   const [months, setMonths] = useState(6);
 
-  const { data: revenueByTenant, isLoading, isError } = trpc.wave29.adminAnalytics.revenueByTenant.useQuery({ months });
-  const { data: platformSummary } = trpc.wave29.adminAnalytics.platformSummary.useQuery({ months });
+  const { data: revenueByTenant, isLoading, isError } = trpc.wave29.adminAnalytics.revenueByTenant.useQuery({ months }, { staleTime: 30_000 });
+  const { data: platformSummary } = trpc.wave29.adminAnalytics.platformSummary.useQuery({ months }, { staleTime: 30_000 });
   const { data: planDistribution } = trpc.wave29.adminAnalytics.planDistribution.useQuery();
-  const { data: topTenants } = trpc.wave29.adminAnalytics.topTenants.useQuery({ limit: 10 });
+  const { data: topTenants } = trpc.wave29.adminAnalytics.topTenants.useQuery({ limit: 10 }, { staleTime: 30_000 });
 
   const totalRevenue = (platformSummary ?? []).reduce(
     (sum: number, r: any) => sum + Number(r.total_revenue ?? 0), 0

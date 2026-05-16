@@ -187,7 +187,7 @@ export default function AgentBanking() {
   const { data: agentsData, isLoading, refetch } = trpc.agentBanking.listSubAgents.useQuery(
     undefined,
     { refetchInterval: agentInterval }
-  );
+  , { staleTime: 30_000 });
 
   const { data: healthData } = trpc.agentBanking.kioskHealth.useQuery(undefined, { staleTime: 30_000 });
 
@@ -252,8 +252,7 @@ export default function AgentBanking() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Button
             variant="outline"

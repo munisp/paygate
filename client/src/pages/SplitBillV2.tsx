@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Users2, Plus, DollarSign, Loader2, ChevronRight } from "lucide-react";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 
 export default function SplitBillV2() {
   const { toast } = useToast();
@@ -18,11 +19,11 @@ export default function SplitBillV2() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ title: "", totalAmount: "", currency: "NGN", participantCount: "2" });
 
-  const { data, isLoading } = trpc.splitBillV2.listSessions.useQuery({ page });
+  const { data, isLoading } = trpc.splitBillV2.listSessions.useQuery({ page }, { staleTime: 30_000 });
   const { data: sharesData } = trpc.splitBillV2.listShares.useQuery(
     { sessionId: selectedSession! },
     { enabled: !!selectedSession }
-  );
+  , { staleTime: 30_000 });
 
   const createSession = trpc.splitBillV2.createSession.useMutation({
     onSuccess: () => { utils.splitBillV2.listSessions.invalidate(); setCreateOpen(false); toast({ title: "Split session created" }); },

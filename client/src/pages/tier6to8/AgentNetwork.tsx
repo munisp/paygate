@@ -13,7 +13,7 @@ export default function AgentNetwork() {
   const [showOnboard, setShowOnboard] = useState(false);
   const [form, setForm] = useState({ agentName: "", phoneNumber: "", bvn: "", nin: "", address: "", lga: "", state: "", terminalType: "POS" as "POS" | "mobile" | "kiosk", cashFloatLimitKobo: 500000 });
 
-  const { data, isLoading, refetch } = trpc.tier6to8.agentBankingV2.getAgentNetwork.useQuery(undefined, { enabled: !!user });
+  const { data, isLoading, refetch } = trpc.tier6to8.agentBankingV2.getAgentNetwork.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
 
   const onboardMutation = trpc.tier6to8.agentBankingV2.onboardAgent.useMutation({
     onSuccess: (agentData) => {
@@ -38,8 +38,7 @@ export default function AgentNetwork() {
           <p className="text-muted-foreground">Manage agents, float balances, and commissions</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => refetch()} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+          <Button aria-label="Refresh" onClick={() => refetch()} variant="outline" size="sm"><RefreshCw/> Refresh
           </Button>
           <Button onClick={() => setShowOnboard(true)} size="sm">
             <UserPlus className="h-4 w-4 mr-2" /> Onboard Agent

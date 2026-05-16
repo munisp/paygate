@@ -11,7 +11,7 @@ import { Shield, Plus, CreditCard, FileText } from "lucide-react";
 export default function InsurancePremium() {
   const [enrollForm, setEnrollForm] = useState({ customerId: "", productId: "", phoneNumber: "", idNumber: "" });
   const { isLoading, data: products } = trpc.tier6to8.insurance.getProducts.useQuery();
-  const { data: policies } = trpc.tier6to8.insurance.getPolicies.useQuery({ status: "all" });
+  const { data: policies } = trpc.tier6to8.insurance.getPolicies.useQuery({ status: "all" }, { staleTime: 30_000 });
   const enrollMutation = trpc.tier6to8.insurance.enrollCustomer.useMutation({
     onSuccess: () => { toast.success("Customer enrolled successfully"); setEnrollForm({ customerId: "", productId: "", phoneNumber: "", idNumber: "" }); },
     onError: (e: any) => toast.error(e.message),

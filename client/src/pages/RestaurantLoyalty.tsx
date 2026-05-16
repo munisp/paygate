@@ -20,17 +20,17 @@ export default function RestaurantLoyalty() {
   const {isLoading, data: program, refetch: refetchProgram} = trpc.restaurant.getLoyaltyProgram.useQuery(
     undefined,
     { enabled: isAuthenticated }
-  );
+  , { staleTime: 30_000 });
 
   const { data: account } = trpc.restaurant.getLoyaltyAccount.useQuery(
     { customerId: lookupId! },
     { enabled: !!lookupId }
-  );
+  , { staleTime: 30_000 });
 
   const { data: history } = trpc.restaurant.getLoyaltyHistory.useQuery(
     { customerId: lookupId! },
     { enabled: !!lookupId }
-  );
+  , { staleTime: 30_000 });
 
   const upsertProgram = trpc.restaurant.upsertLoyaltyProgram.useMutation({
     onSuccess: () => { refetchProgram(); toast.success("Loyalty program saved"); },

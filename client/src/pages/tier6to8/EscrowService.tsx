@@ -9,7 +9,7 @@ import { Shield } from "lucide-react";
 
 export default function EscrowService() {
   const [form, setForm] = useState({ buyerId: "", sellerId: "", amountKobo: "", description: "", releaseDays: 7 });
-  const { isLoading, data: escrows } = trpc.tier6to8.escrow.getEscrows.useQuery({ status: "all" });
+  const { isLoading, data: escrows } = trpc.tier6to8.escrow.getEscrows.useQuery({ status: "all" }, { staleTime: 30_000 });
   const createMutation = trpc.tier6to8.escrow.createEscrow.useMutation({
     onSuccess: (d: any) => toast.success(`Escrow created: ${d.escrowId}`),
     onError: (e: any) => toast.error(e.message),

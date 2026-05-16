@@ -32,13 +32,13 @@ export default function CIPSGateway() {
 
   const quoteQuery = trpc.crossBorder.cips.getQuote.useQuery(
     { sourceCurrency, amount: amount || "0", receiverBankCode: bankCode || undefined },
-    { enabled: step === "quote" && !!amount && parseFloat(amount) > 0 }
+    { enabled: step === "quote" && !!amount && parseFloat(amount, { staleTime: 30_000 }) > 0 }
   );
 
   const validateQuery = trpc.crossBorder.cips.validateReceiver.useQuery(
     { bankCode, accountNumber },
     { enabled: step === "quote" && !!bankCode && accountNumber.length >= 16 }
-  );
+  , { staleTime: 30_000 });
 
   const initiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {

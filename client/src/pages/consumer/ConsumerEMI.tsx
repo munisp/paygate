@@ -16,14 +16,14 @@ export default function ConsumerEMI() {
   const [selectedEMI, setSelectedEMI] = useState<string | null>(null);
 
   const { data: plans, isLoading: plansLoading } = trpc.newFeatures.emiCheckout.getPlans.useQuery(
-    { amountKobo: parseFloat(purchaseAmount || "0") * 100, merchantId: merchantId || undefined },
+    { amountKobo: parseFloat(purchaseAmount || "0", { staleTime: 30_000 }) * 100, merchantId: merchantId || undefined },
     { enabled: !!purchaseAmount && parseFloat(purchaseAmount) > 0 }
   );
 
   const { data: schedule } = trpc.newFeatures.emiCheckout.getSchedule.useQuery(
     { emiId: selectedEMI! },
     { enabled: !!selectedEMI }
-  );
+  , { staleTime: 30_000 });
 
   const initiateMutation = trpc.newFeatures.emiCheckout.initiateEMI.useMutation({
     onSuccess: (d: any) => {

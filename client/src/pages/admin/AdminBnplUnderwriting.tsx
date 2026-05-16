@@ -31,7 +31,7 @@ export default function AdminBnplUnderwriting() {
   const [underwriterNote, setUnderwriterNote] = useState("");
   const [approvedLimit, setApprovedLimit] = useState("");
 
-  const { data, isLoading, refetch } = trpc.wave27.bnplUnderwriting.list.useQuery({ search: search || undefined });
+  const { data, isLoading, refetch } = trpc.wave27.bnplUnderwriting.list.useQuery({ search: search || undefined }, { staleTime: 30_000 });
 
   const approveMutation = trpc.wave27.bnplUnderwriting.approve.useMutation({
     onSuccess: () => { toast.success("BNPL application approved"); refetch(); setSelectedApp(null); },
@@ -54,7 +54,7 @@ export default function AdminBnplUnderwriting() {
             <h1 className="text-2xl font-bold text-gray-900">BNPL Underwriting</h1>
             <p className="text-gray-500 text-sm mt-1">Review and approve Buy Now Pay Later credit applications</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* Stats */}

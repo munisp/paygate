@@ -50,7 +50,7 @@ export default function AdminTenantManagement() {
   const { data, isLoading, refetch } = trpc.wave26.tenantManagement.list.useQuery({
     page,
     limit: 20,
-    status: statusFilter !== "all" ? (statusFilter as "pending" | "active" | "suspended" | "banned") : undefined,
+    status: statusFilter !== "all" ? (statusFilter as "pending" | "active" | "suspended" | "banned", { staleTime: 30_000 }) : undefined,
     plan: planFilter !== "all" ? (planFilter as "starter" | "growth" | "enterprise") : undefined,
     search: search || undefined,
   });
@@ -155,8 +155,7 @@ export default function AdminTenantManagement() {
               <SelectItem value="enterprise">Enterprise</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4" />
+          <Button variant="outline" size="icon" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
           </Button>
         </div>
 

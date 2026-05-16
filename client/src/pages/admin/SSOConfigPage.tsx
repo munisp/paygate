@@ -32,7 +32,7 @@ export default function SSOConfigPage() {
     scopes: "openid email profile",
   });
 
-  const { data: config, refetch } = trpc.wave32.ssoConfigs.get.useQuery({ tenantId });
+  const { data: config, refetch } = trpc.wave32.ssoConfigs.get.useQuery({ tenantId }, { staleTime: 30_000 });
 
   const upsertMutation = trpc.wave32.ssoConfigs.upsert.useMutation({
     onSuccess: () => { toast({ title: "SSO configuration saved" }); refetch(); },

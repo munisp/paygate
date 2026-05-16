@@ -17,12 +17,12 @@ export default function AdminCompliance() {
   const [sarForm, setSarForm] = useState({ merchantId: "", startDate: "", endDate: "", reason: "" });
   const [regForm, setRegForm] = useState({ reportType: "cbn_monthly" as any, startDate: "", endDate: "" });
 
-  const amlQuery = trpc.admin.compliance.getAMLFlags.useQuery({ page: 1, limit: 20, severity: "all" });
+  const amlQuery = trpc.admin.compliance.getAMLFlags.useQuery({ page: 1, limit: 20, severity: "all" }, { staleTime: 30_000 });
   const sarMutation = trpc.admin.compliance.generateSARReport.useMutation({
     onSuccess: (data: any) => toast.success(`SAR Report generated: ${data?.reportId}`),
     onError: (e: any) => toast.error(e.message),
   });
-  const regQuery = trpc.admin.compliance.getRegulatoryExport.useQuery(regForm, { enabled: false });
+  const regQuery = trpc.admin.compliance.getRegulatoryExport.useQuery(regForm, { enabled: false }, { staleTime: 30_000 });
 
   const flags = (amlQuery.data as any)?.flags ?? [];
 

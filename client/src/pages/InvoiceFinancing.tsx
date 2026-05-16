@@ -16,7 +16,7 @@ export default function InvoiceFinancing() {
   const [applyOpen, setApplyOpen] = useState(false);
   const [form, setForm] = useState({ invoiceAmount: 0, requestedAmount: 0, interestRate: "3.5", tenorDays: 30 });
 
-  const { data, isLoading, refetch } = trpc.invoiceFinV2.list.useQuery({ page, limit: 20, status });
+  const { data, isLoading, refetch } = trpc.invoiceFinV2.list.useQuery({ page, limit: 20, status }, { staleTime: 30_000 });
   const applyMutation = trpc.invoiceFinV2.submitApplication.useMutation({
     onSuccess: () => { toast.success("Application submitted"); setApplyOpen(false); refetch(); },
     onError: (e: any) => toast.error(e.message),
@@ -100,7 +100,7 @@ export default function InvoiceFinancing() {
               {["pending", "approved", "rejected", "disbursed", "repaid"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => refetch()}><RefreshCw className="w-4 h-4" /></Button>
+          <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/></Button>
         </div>
       </CardContent></Card>
 

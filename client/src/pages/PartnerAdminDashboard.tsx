@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Building2, Plus, CheckCircle2, Clock, AlertTriangle, TrendingUp, Users, DollarSign, Globe, Search, ExternalLink, RefreshCw } from "lucide-react";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -46,7 +47,7 @@ export default function PartnerAdminDashboard() {
     { search: search || undefined, status: statusFilter },
     { staleTime: 30_000 }
   );
-  const { data: revenueData = [] } = (trpc.partnerOnboarding.revenueData.useQuery({ months: 6 }) as any);
+  const { data: revenueData = [] } = (trpc.partnerOnboarding.revenueData.useQuery({ months: 6 }, { staleTime: 30_000 }) as any);
 
   const updateStatusMutation = trpc.partnerOnboarding.updateStatus.useMutation({
     onSuccess: (d) => {
@@ -82,8 +83,7 @@ export default function PartnerAdminDashboard() {
           <p className="text-muted-foreground text-sm mt-1">Manage partner network, onboarding, and revenue sharing</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? "animate-spin" : ""}`} /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isLoading}><RefreshCw/> Refresh
           </Button>
           <Button onClick={() => setInviteOpen(true)} className="bg-indigo-600 hover:bg-indigo-700">
             <Plus className="w-4 h-4 mr-2" /> Invite Partner

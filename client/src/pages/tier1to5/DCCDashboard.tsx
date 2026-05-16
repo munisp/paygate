@@ -16,7 +16,7 @@ export default function DCCDashboard() {
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
   const [lockAmount, setLockAmount] = useState("");
 
-  const { data: rates, isLoading, refetch } = trpc.tier1to5.dcc.getLiveRates.useQuery({ baseCurrency: "NGN", targetCurrencies: CURRENCIES });
+  const { data: rates, isLoading, refetch } = trpc.tier1to5.dcc.getLiveRates.useQuery({ baseCurrency: "NGN", targetCurrencies: CURRENCIES }, { staleTime: 30_000 });
   const { data: marginConfig } = trpc.tier1to5.dcc.getDCCMarginConfig.useQuery();
 
   const lockMutation = trpc.tier1to5.dcc.lockRate.useMutation({
@@ -48,8 +48,7 @@ export default function DCCDashboard() {
             <h1 className="text-2xl font-bold">Dynamic Currency Conversion</h1>
             <p className="text-muted-foreground text-sm mt-1">Real-time FX rates with margin configuration and rate locking</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh Rates
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh Rates
           </Button>
         </div>
 

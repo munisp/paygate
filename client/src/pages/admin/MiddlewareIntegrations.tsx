@@ -26,8 +26,8 @@ export default function MiddlewareIntegrations() {
   const [youverifyBvn, setYouverifyBvn] = useState({ bvn: "", firstName: "", lastName: "" });
 
   const { data: healthStatus, isLoading: healthLoading, refetch: refetchHealth } = trpc.wave30.middlewareIntegrations.getHealthStatus.useQuery();
-  const { data: nibssLogs, isLoading: nibssLogsLoading } = trpc.wave30.middlewareIntegrations.getNibssLogs.useQuery({ limit: 20 });
-  const { data: vtpassLogs, isLoading: vtpassLogsLoading } = trpc.wave30.middlewareIntegrations.getVtpassLogs.useQuery({ limit: 20 });
+  const { data: nibssLogs, isLoading: nibssLogsLoading } = trpc.wave30.middlewareIntegrations.getNibssLogs.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: vtpassLogs, isLoading: vtpassLogsLoading } = trpc.wave30.middlewareIntegrations.getVtpassLogs.useQuery({ limit: 20 }, { staleTime: 30_000 });
 
   const nibssEnquiry = trpc.wave30.middlewareIntegrations.nibssNameEnquiry.useMutation({
     onSuccess: (data) => toast.success(`Account: ${data.accountName ?? data.account_name ?? "Resolved"}`),
@@ -58,8 +58,7 @@ export default function MiddlewareIntegrations() {
           <h1 className="text-2xl font-bold text-gray-900">Middleware Integrations</h1>
           <p className="text-gray-500 text-sm mt-1">NIBSS, Mojaloop, VTPass, Termii, Youverify, USSD Gateway</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetchHealth()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh Health
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchHealth()}><RefreshCw/> Refresh Health
         </Button>
       </div>
 

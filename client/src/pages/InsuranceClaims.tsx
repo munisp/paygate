@@ -30,7 +30,7 @@ export default function InsuranceClaims() {
   const { data, isLoading } = trpc.insuranceClaims.list.useQuery({
     page,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const createClaim = trpc.insuranceClaims.create.useMutation({
     onSuccess: () => {
@@ -142,8 +142,7 @@ export default function InsuranceClaims() {
                       <Button size="sm" variant="outline" onClick={() => approveClaim.mutate({ id: c.id, approvedAmountKobo: c.claimAmountKobo ?? 0 })}>
                         <CheckCircle className="w-3.5 h-3.5 mr-1" />Approve
                       </Button>
-                      <Button size="sm" variant="destructive" onClick={() => rejectClaim.mutate({ id: c.id, reason: "Rejected by admin" })}>
-                        <XCircle className="w-3.5 h-3.5 mr-1" />Reject
+                      <Button size="sm" variant="destructive" aria-label="Close" onClick={() => rejectClaim.mutate({ id: c.id, reason: "Rejected by admin" })}><X/>Reject
                       </Button>
                     </>
                   )}

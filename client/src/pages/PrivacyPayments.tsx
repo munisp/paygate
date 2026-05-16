@@ -9,7 +9,7 @@ export default function PrivacyPayments() {
   const [privateId, setPrivateId] = useState<{ privateId: string; qrCode: string; expiresAt: string } | null>(null);
 
   const {isLoading, data: settings} = trpc.newFeatures.privacyPayments.getPrivacySettings.useQuery();
-  const { data: history } = trpc.newFeatures.privacyPayments.getPrivateTransactionHistory.useQuery({ page: 1, limit: 20 });
+  const { data: history } = trpc.newFeatures.privacyPayments.getPrivateTransactionHistory.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
 
   const updateMutation = trpc.newFeatures.privacyPayments.updatePrivacySettings.useMutation({
     onSuccess: () => toast.success("Privacy settings updated"),
@@ -111,7 +111,7 @@ export default function PrivacyPayments() {
         <CardHeader><CardTitle>Private Transaction History</CardTitle></CardHeader>
         <CardContent>
           {!history?.transactions?.length ? <p className="text-muted-foreground text-sm">No private transactions yet</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Recipient</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Status</th><th className="text-right py-2">Date</th></tr></thead>
               <tbody>
                 {history.transactions.map(t => (
@@ -123,7 +123,7 @@ export default function PrivacyPayments() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>

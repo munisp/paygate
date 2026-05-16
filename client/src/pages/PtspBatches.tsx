@@ -32,7 +32,7 @@ export default function PtspBatches() {
   const { data, isLoading, refetch } = trpc.pos.listBatches.useQuery(
     { limit: 100 },
     { enabled: isAuthenticated, refetchInterval: ptspInterval }
-  );
+  , { staleTime: 30_000 });
 
   const confirmBatch = trpc.pos.confirmBatch.useMutation({
     onSuccess: () => {
@@ -62,8 +62,7 @@ export default function PtspBatches() {
             NIBSS batch settlement lifecycle — track, re-confirm, and audit
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 
@@ -143,7 +142,7 @@ export default function PtspBatches() {
                             size="sm"
                             variant="outline"
                             disabled={reconfirmingId === batch.id}
-                            onClick={() => {
+                            aria-label="Refresh" onClick={() => {
                               setReconfirmingId(batch.id);
                               confirmBatch.mutate({
                                 batchId: batch.id,
@@ -152,8 +151,7 @@ export default function PtspBatches() {
                                 confirmedAt: new Date().toISOString(),
                               });
                             }}
-                          >
-                            <RotateCcw className="w-3 h-3 mr-1" />
+                          ><RotateCcw/>
                             Re-confirm
                           </Button>
                         )}

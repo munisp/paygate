@@ -54,7 +54,7 @@ export default function ConsumerDisputeFiling() {
           <p className="text-gray-500 text-sm">File and track transaction disputes</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/></Button>
           <Button size="sm" onClick={() => setShowNew(true)}><Plus className="w-4 h-4 mr-2" />New Dispute</Button>
         </div>
       </div>

@@ -27,7 +27,7 @@ export default function UssdMenuBuilder() {
   });
 
   const { data: menuData, refetch, isLoading } = trpc.wave31.ussdMenuBuilder.getMenuTree.useQuery();
-  const { data: sessionsData } = trpc.wave31.ussdMenuBuilder.getSessions.useQuery({ status: "active" });
+  const { data: sessionsData } = trpc.wave31.ussdMenuBuilder.getSessions.useQuery({ status: "active" }, { staleTime: 30_000 });
 
   const createMenu = trpc.wave31.ussdMenuBuilder.createMenu.useMutation({
     onSuccess: () => {

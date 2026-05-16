@@ -30,10 +30,10 @@ export default function SlaAlertDashboard() {
     severity: filterSeverity || undefined,
     status: filterStatus || undefined,
     limit: 50,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: metrics } = trpc.wave30.slaAlerting.getCurrentMetrics.useQuery();
-  const { data: alertHistory } = trpc.wave30.slaAlerting.getAlertHistory.useQuery({ days: 7 });
+  const { data: alertHistory } = trpc.wave30.slaAlerting.getAlertHistory.useQuery({ days: 7 }, { staleTime: 30_000 });
 
   const recordMetric = trpc.wave30.slaAlerting.recordMetric.useMutation({
     onSuccess: (data) => {

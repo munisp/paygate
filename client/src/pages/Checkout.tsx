@@ -303,8 +303,7 @@ export default function Checkout() {
 </script>
 <button id="pay-btn">Pay Now</button>`}</pre>
           </div>
-          <Button onClick={() => { navigator.clipboard.writeText("PayGate embed code"); toast.success("Code copied!"); }}>
-            <Copy className="w-4 h-4 mr-2" />
+          <Button aria-label="Copy" onClick={() => { navigator.clipboard.writeText("PayGate embed code"); toast.success("Code copied!"); }}><Copy/>
             Copy Code
           </Button>
         </div>

@@ -19,7 +19,7 @@ export default function WebhookEventsPage() {
     status: status === "all" ? undefined : status,
     limit,
     offset: page * limit,
-  });
+  }, { staleTime: 30_000 });
 
   const retry = trpc.webhookEvents.retry.useMutation({
     onSuccess: () => { toast.success("Webhook retry queued"); refetch(); },
@@ -58,8 +58,7 @@ export default function WebhookEventsPage() {
             Monitor and retry webhook deliveries to your endpoints
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 
@@ -153,9 +152,8 @@ export default function WebhookEventsPage() {
                             variant="outline"
                             className="h-7 text-xs"
                             disabled={retry.isPending}
-                            onClick={() => retry.mutate({ eventId: event.id })}
-                          >
-                            <RotateCcw className="w-3 h-3 mr-1" /> Retry
+                            aria-label="Refresh" onClick={() => retry.mutate({ eventId: event.id })}
+                          ><RotateCcw/> Retry
                           </Button>
                         )}
                       </td>

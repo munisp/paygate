@@ -15,7 +15,7 @@ export default function MultiCurrencyLedger() {
   const [form, setForm] = useState({ currency: "NGN", type: "credit" as "credit" | "debit", amount: "", description: "" });
 
   const { data: accountsData, isLoading: loadingAccounts, refetch } = trpc.wave80.multiCurrencyLedger.listAccounts.useQuery();
-  const { data: entriesData, isLoading: loadingEntries, refetch: refetchEntries } = trpc.wave80.multiCurrencyLedger.listEntries.useQuery({});
+  const { data: entriesData, isLoading: loadingEntries, refetch: refetchEntries } = trpc.wave80.multiCurrencyLedger.listEntries.useQuery({}, { staleTime: 30_000 });
   const { data: fxData } = trpc.wave80.multiCurrencyLedger.getFxRates.useQuery();
 
   const postEntry = trpc.wave80.multiCurrencyLedger.postEntry.useMutation({

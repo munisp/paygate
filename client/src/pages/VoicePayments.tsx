@@ -18,11 +18,11 @@ export default function VoicePayments() {
   const { data: alerts } = trpc.newFeatures.voicePayments.getPaymentAlerts.useQuery(
     { deviceId: selectedDevice ?? "" },
     { enabled: !!selectedDevice }
-  );
+  , { staleTime: 30_000 });
   const { data: stats } = trpc.newFeatures.voicePayments.getDeviceStats.useQuery(
     { deviceId: selectedDevice ?? "" },
     { enabled: !!selectedDevice }
-  );
+  , { staleTime: 30_000 });
 
   const registerMutation = trpc.newFeatures.voicePayments.registerDevice.useMutation({
     onSuccess: (d: any) => { toast.success(`Device registered: ${d.activationCode}`); refetch(); },
@@ -159,7 +159,7 @@ export default function VoicePayments() {
           <CardHeader><CardTitle>Recent Payment Alerts</CardTitle></CardHeader>
           <CardContent>
             {!alerts?.alerts?.length ? <p className="text-muted-foreground text-sm">No alerts yet</p> :
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead><tr className="border-b"><th className="text-left py-2">Sender</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Channel</th><th className="text-right py-2">Audio</th><th className="text-right py-2">Time</th></tr></thead>
                 <tbody>
                   {alerts.alerts.map(a => (
@@ -172,7 +172,7 @@ export default function VoicePayments() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             }
           </CardContent>
         </Card>

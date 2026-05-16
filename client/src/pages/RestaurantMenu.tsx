@@ -379,9 +379,8 @@ export default function RestaurantMenu() {
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2"
-                        onClick={(e: any) => { e.stopPropagation(); setCatDialog({ open: true, initial: cat }); }}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
+                        aria-label="Edit" onClick={(e: any) => { e.stopPropagation(); setCatDialog({ open: true, initial: cat }); }}
+                      ><Pencil/>
                       </Button>
                       {isCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
                     </div>
@@ -428,9 +427,8 @@ export default function RestaurantMenu() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 px-2"
-                                onClick={() => setItemDialog({ open: true, initial: item })}
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
+                                aria-label="Edit" onClick={() => setItemDialog({ open: true, initial: item })}
+                              ><Pencil/>
                               </Button>
                             </div>
                           </div>

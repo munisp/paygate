@@ -37,7 +37,7 @@ export default function BNPLRepaymentPage() {
     status: statusFilter !== "all" ? statusFilter as any : undefined,
     page,
     limit: 20,
-  });
+  }, { staleTime: 30_000 });
 
   const markPaidMutation = trpc.wave32.bnplRepayment.markPaid.useMutation({
     onSuccess: () => {
@@ -109,7 +109,7 @@ export default function BNPLRepaymentPage() {
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
                 {["Loan ID", "#", "Principal", "Interest", "Total Due", "Late Fee", "Due Date", "Status", "Actions"].map(h => (
@@ -157,7 +157,7 @@ export default function BNPLRepaymentPage() {
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
 

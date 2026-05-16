@@ -57,9 +57,9 @@ const generateMockEvents = () => {
 
 export default function WAFAlertDashboard() {
   // Real WAF alerts from DB via wafAlerts router
-  const { data: wafAlertsData, isLoading, isError, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 });
+  const { data: wafAlertsData, isLoading, isError, refetch: refetchAlerts } = trpc.wafAlerts.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
   const { data: wafStats } = trpc.wafAlerts.stats.useQuery();
-  const { data: topAttackersData } = trpc.wafAlerts.getTopAttackers.useQuery({ limit: 10 });
+  const { data: topAttackersData } = trpc.wafAlerts.getTopAttackers.useQuery({ limit: 10 }, { staleTime: 30_000 });
   
   // Map real DB rows to display format, fallback to mock for empty state
   const dbEvents = (wafAlertsData?.rows ?? []).map((row: any) => ({
@@ -203,8 +203,7 @@ export default function WAFAlertDashboard() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={refreshEvents}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={refreshEvents}><RefreshCw/>
             Refresh
           </Button>
           {isStreaming ? (

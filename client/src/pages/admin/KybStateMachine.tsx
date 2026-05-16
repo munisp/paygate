@@ -76,7 +76,7 @@ export default function KybStateMachine() {
     search: search || undefined,
     limit: PAGE_SIZE,
     cursor: currentCursor,
-  });
+  }, { staleTime: 30_000 });
 
   const submissions = data?.items ?? [];
   const nextCursor = data?.nextCursor;
@@ -99,7 +99,7 @@ export default function KybStateMachine() {
   const { data: auditLog } = trpc.wave30.kybStateMachine.getAuditLog.useQuery(
     { merchantId: selected?.merchant_id },
     { enabled: !!selected?.merchant_id }
-  );
+  , { staleTime: 30_000 });
 
   const transition = trpc.wave30.kybStateMachine.transition.useMutation({
     onSuccess: () => {
@@ -121,7 +121,7 @@ export default function KybStateMachine() {
   const exportCsvQuery = trpc.wave30.kybStateMachine.exportCsv.useQuery(
     { status: filterState || undefined, search: search || undefined },
     { enabled: false }
-  );
+  , { staleTime: 30_000 });
 
   const handleExportCsv = async () => {
     setCsvExporting(true);
@@ -195,8 +195,7 @@ export default function KybStateMachine() {
             ))}
           </SelectContent>
         </Select>
-        <Button variant="outline" size="sm" onClick={() => refetch()} title="Refresh">
-          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} title="Refresh"><RefreshCw/>
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={csvExporting} title="Download CSV">
           <Download className={`w-4 h-4 mr-1 ${csvExporting ? "animate-pulse" : ""}`} />

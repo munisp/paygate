@@ -108,8 +108,7 @@ export default function SDKTokens() {
                   </p>
                 </div>
                 {!token.isRevoked && (
-                  <Button size="sm" variant="destructive" onClick={() => revokeMutation.mutate({ tokenId: token.tokenId })}>
-                    <Trash2 className="w-4 h-4 mr-1" /> Revoke
+                  <Button size="sm" variant="destructive" aria-label="Delete" onClick={() => revokeMutation.mutate({ tokenId: token.tokenId })}><Trash2/> Revoke
                   </Button>
                 )}
               </CardContent>

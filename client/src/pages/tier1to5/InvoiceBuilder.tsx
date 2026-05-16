@@ -24,7 +24,7 @@ export default function InvoiceBuilder() {
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([{ description: "", quantity: 1, unitPriceKobo: 0, taxPct: 7.5 }]);
 
-  const { data: invoices, isLoading, refetch } = trpc.tier1to5.invoiceBuilder.getInvoices.useQuery({ limit: 50 });
+  const { data: invoices, isLoading, refetch } = trpc.tier1to5.invoiceBuilder.getInvoices.useQuery({ limit: 50 }, { staleTime: 30_000 });
 
   const createMutation = trpc.tier1to5.invoiceBuilder.createInvoice.useMutation({
     onSuccess: () => { toast.success("Invoice created and sent via Dapr pub/sub."); setShowCreate(false); refetch(); },
@@ -131,8 +131,7 @@ export default function InvoiceBuilder() {
                       <Input type="number" value={item.taxPct} onChange={e => updateItem(idx, "taxPct", parseFloat(e.target.value) || 0)} className="mt-1 h-8 text-sm" />
                     </div>
                     <div className="col-span-1 flex justify-end">
-                      <Button variant="ghost" size="sm" onClick={() => removeItem(idx)} disabled={items.length === 1} className="h-8 w-8 p-0">
-                        <Trash2 className="w-4 h-4 text-red-500" />
+                      <Button variant="ghost" size="sm" aria-label="Delete" onClick={() => removeItem(idx)} disabled={items.length === 1} className="h-8 w-8 p-0"><Trash2/>
                       </Button>
                     </div>
                   </div>

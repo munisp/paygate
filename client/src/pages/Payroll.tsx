@@ -24,12 +24,12 @@ export default function Payroll() {
   const { data: staffData, isLoading, refetch } = trpc.payroll.listStaff.useQuery(
     undefined,
     { enabled: isAuthenticated }
-  );
+  , { staleTime: 30_000 });
 
   const { data: runsData } = trpc.payroll.listRuns.useQuery(
     undefined,
     { enabled: isAuthenticated }
-  );
+  , { staleTime: 30_000 });
 
   const upsertStaff = trpc.payroll.upsertStaff.useMutation({
     onSuccess: () => {
@@ -79,7 +79,7 @@ export default function Payroll() {
           <p className="text-muted-foreground text-sm mt-1">Manage staff, record shifts, and run payroll</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh</Button>
 
           {/* Record shift */}
           <Dialog open={shiftOpen} onOpenChange={setShiftOpen}>

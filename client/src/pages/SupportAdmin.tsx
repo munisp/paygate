@@ -55,7 +55,7 @@ function SessionThread({ sessionId, onBack }: { sessionId: string; onBack: () =>
   const [reply, setReply] = useState("");
   const utils = trpc.useUtils();
 
-  const { data: session, isLoading } = trpc.support.getSession.useQuery({ sessionId });
+  const { data: session, isLoading } = trpc.support.getSession.useQuery({ sessionId }, { staleTime: 30_000 });
 
   const adminReply = trpc.support.adminReply.useMutation({
     onSuccess: () => {
@@ -119,10 +119,9 @@ function SessionThread({ sessionId, onBack }: { sessionId: string; onBack: () =>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => reopenSession.mutate({ sessionId })}
+              aria-label="Refresh" onClick={() => reopenSession.mutate({ sessionId })}
               disabled={reopenSession.isPending}
-            >
-              <RefreshCw className="w-3 h-3 mr-1" /> Reopen
+            ><RefreshCw/> Reopen
             </Button>
           ) : (
             <Button
@@ -213,7 +212,7 @@ export default function SupportAdmin() {
     limit: 50,
     offset: 0,
     status: statusFilter,
-  });
+  }, { staleTime: 30_000 });
 
   const sessions = (sessionsData?.sessions ?? []).filter((s: Session) => {
     if (!search) return true;
@@ -281,8 +280,7 @@ export default function SupportAdmin() {
             </Button>
           ))}
         </div>
-        <Button size="sm" variant="ghost" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4" />
+        <Button size="sm" variant="ghost" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
         </Button>
       </div>
 

@@ -233,16 +233,16 @@ export default function LoyaltyRedemption() {
 
   const { data: memberData, isLoading: loadingMember } = trpc.loyaltyRedemption.getBalance.useQuery({
     memberId: merchantId,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: rewards, isLoading: loadingRewards } = trpc.loyaltyRedemption.listRedemptions.useQuery({
     merchantId,
     status: undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: history, isLoading: loadingHistory } = trpc.loyaltyRedemption.getRedemptionStats.useQuery({
     merchantId,
-  });
+  }, { staleTime: 30_000 });
 
   const balance = memberData?.member?.pointsBalance ?? 0;
   const tier = memberData?.member?.tier ?? "bronze";

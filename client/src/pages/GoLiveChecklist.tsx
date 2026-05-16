@@ -61,7 +61,7 @@ export default function GoLiveChecklist() {
   const goLiveInterval = useAdaptiveInterval(60000);
   const { data, isLoading, isError, refetch, error } = trpc.system.goLiveChecklist.useQuery(undefined, {
     refetchInterval: goLiveInterval,
-  });
+  }, { staleTime: 30_000 });
 
   const items = data?.items ?? [];
   const okCount = items.filter((i: any) => i.status === "ok").length;
@@ -83,8 +83,7 @@ export default function GoLiveChecklist() {
             Complete all items before launching PayGate to real merchants.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isLoading}><RefreshCw/>
           Refresh
         </Button>
       </div>

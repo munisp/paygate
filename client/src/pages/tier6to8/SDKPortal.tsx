@@ -14,9 +14,9 @@ export default function SDKPortal() {
   const [platform, setPlatform] = useState<"web" | "ios" | "android" | "react_native" | "flutter">("web");
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
 
-  const configQuery = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery(undefined, { enabled: !!user });
-  const guideQuery = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform }, { enabled: !!user });
-  const analyticsQuery = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period }, { enabled: !!user });
+  const configQuery = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
+  const guideQuery = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform }, { enabled: !!user }, { staleTime: 30_000 });
+  const analyticsQuery = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period }, { enabled: !!user }, { staleTime: 30_000 });
 
   const rotateMutation = trpc.tier6to8.whiteLabelSDK.rotateSdkKey.useMutation({
     onSuccess: (data) => {
@@ -61,8 +61,7 @@ export default function SDKPortal() {
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <code className="flex-1 bg-muted rounded px-3 py-2 text-sm font-mono">{config?.sdkKey ?? "Not configured"}</code>
-                <Button size="sm" variant="outline" onClick={() => copyToClipboard(config?.sdkKey ?? "")}>
-                  <Copy className="h-4 w-4" />
+                <Button size="sm" variant="outline" aria-label="Copy" onClick={() => copyToClipboard(config?.sdkKey ?? "")}><Copy/>
                 </Button>
                 <Button size="sm" variant="destructive" onClick={() => rotateMutation.mutate()} disabled={rotateMutation.isPending}>
                   <RotateCcw className="h-4 w-4 mr-1" /> Rotate
@@ -137,8 +136,7 @@ export default function SDKPortal() {
                 <p className="text-sm font-medium mb-2">Install</p>
                 <div className="bg-muted rounded-md p-3 font-mono text-sm flex items-center justify-between">
                   <code>{guide.installCommand}</code>
-                  <Button size="sm" variant="ghost" onClick={() => copyToClipboard(guide.installCommand)}>
-                    <Copy className="h-3 w-3" />
+                  <Button size="sm" variant="ghost" aria-label="Copy" onClick={() => copyToClipboard(guide.installCommand)}><Copy/>
                   </Button>
                 </div>
               </div>

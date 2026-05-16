@@ -40,7 +40,7 @@ export default function QRPayments() {
   });
 
   const { data: recentData, isLoading: recentLoading, refetch: refetchRecent } =
-    trpc.qrPayments.recentScans.useQuery({ limit: 20 }, { refetchInterval: qrPaymentsInterval });
+    trpc.qrPayments.recentScans.useQuery({ limit: 20 }, { refetchInterval: qrPaymentsInterval }, { staleTime: 30_000 });
 
   useEffect(() => { return () => { stopScanning(); }; }, []);
 
@@ -120,8 +120,7 @@ export default function QRPayments() {
           <h1 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>QR Payments</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Generate QR codes for instant payments and scan incoming QR codes</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetchRecent()}>
-          <RefreshCw className="w-4 h-4 mr-2" />Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchRecent()}><RefreshCw/>Refresh
         </Button>
       </div>
 

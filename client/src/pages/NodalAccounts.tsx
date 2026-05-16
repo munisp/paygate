@@ -20,7 +20,7 @@ export default function NodalAccounts() {
   const { data: txHistory } = trpc.newFeatures.nodalAccounts.getNodalTransactions.useQuery(
     { accountId: selectedAccount ?? "" },
     { enabled: !!selectedAccount }
-  );
+  , { staleTime: 30_000 });
 
   const createMutation = trpc.newFeatures.nodalAccounts.createNodalAccount.useMutation({
     onSuccess: (d: any) => { toast.success(`Nodal account ${d.accountNumber} created`); refetch(); },
@@ -132,7 +132,7 @@ export default function NodalAccounts() {
           <CardHeader><CardTitle>Transaction History</CardTitle></CardHeader>
           <CardContent>
             {!txHistory.transactions?.length ? <p className="text-muted-foreground text-sm">No transactions yet</p> :
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead><tr className="border-b"><th className="text-left py-2">Narration</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Balance</th><th className="text-right py-2">Date</th></tr></thead>
                 <tbody>
                   {txHistory.transactions.map(t => (
@@ -149,7 +149,7 @@ export default function NodalAccounts() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             }
           </CardContent>
         </Card>

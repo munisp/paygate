@@ -11,7 +11,7 @@ export default function BulkScheduler() {
   const [name, setName] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [payments, setPayments] = useState("");
-  const { isLoading, data: schedules } = trpc.tier6to8.bulkScheduler.getSchedules.useQuery({ status: "all" });
+  const { isLoading, data: schedules } = trpc.tier6to8.bulkScheduler.getSchedules.useQuery({ status: "all" }, { staleTime: 30_000 });
   const createMutation = trpc.tier6to8.bulkScheduler.createSchedule.useMutation({
     onSuccess: (d: any) => toast.success(`Schedule created: ${d.scheduleId}`),
     onError: (e: any) => toast.error(e.message),

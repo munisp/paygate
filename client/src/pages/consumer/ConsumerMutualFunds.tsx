@@ -330,10 +330,9 @@ export default function ConsumerMutualFunds() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setCompareList([])}
+                    aria-label="Close" onClick={() => setCompareList([])}
                     className="text-muted-foreground"
-                  >
-                    <X className="h-4 w-4 mr-1" /> Clear all
+                  ><X/> Clear all
                   </Button>
                 )}
               </CardTitle>
@@ -371,9 +370,8 @@ export default function ConsumerMutualFunds() {
                               variant="ghost"
                               size="sm"
                               className="h-5 text-xs text-muted-foreground mt-1"
-                              onClick={() => toggleCompare(f.fundId)}
-                            >
-                              <X className="h-3 w-3 mr-1" /> Remove
+                              aria-label="Close" onClick={() => toggleCompare(f.fundId)}
+                            ><X/> Remove
                             </Button>
                           </th>
                         ))}

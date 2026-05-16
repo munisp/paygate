@@ -17,7 +17,7 @@ function formatKobo(kobo: number, currency = "NGN") {
 export default function TransactionReceipt() {
   const { id } = useParams<{ id: string }>();
 
-  const { data: tx, isLoading, error } = trpc.wave25.receipts.getTransaction.useQuery({ id: id! }, { enabled: !!id });
+  const { data: tx, isLoading, error } = trpc.wave25.receipts.getTransaction.useQuery({ id: id! }, { enabled: !!id }, { staleTime: 30_000 });
 
   const handlePrint = () => window.print();
 

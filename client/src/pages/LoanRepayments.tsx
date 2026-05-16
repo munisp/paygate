@@ -29,7 +29,7 @@ export default function LoanRepayments() {
     limit,
     offset: page * limit,
     status: statusFilter === "all" ? undefined : statusFilter,
-    loanId: loanIdFilter ? Number(loanIdFilter) : undefined,
+    loanId: loanIdFilter ? Number(loanIdFilter, { staleTime: 30_000 }) : undefined,
   });
 
   const { data: stats } = trpc.loanRepayments.stats.useQuery();
@@ -54,8 +54,7 @@ export default function LoanRepayments() {
           <h1 className="text-2xl font-bold text-foreground">Loan Repayments</h1>
           <p className="text-muted-foreground text-sm mt-1">Scheduled and completed loan repayment installments</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

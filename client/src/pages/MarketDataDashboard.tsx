@@ -21,8 +21,7 @@ export default function MarketDataDashboard() {
           <h1 className="text-2xl font-bold text-foreground">Market Data</h1>
           <p className="text-muted-foreground text-sm mt-1">Live gold prices, FX rates, and mutual fund NAVs</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetchGold()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchGold()}><RefreshCw/> Refresh
         </Button>
       </div>
 

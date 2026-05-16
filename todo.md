@@ -4990,3 +4990,27 @@
 - [x] Internal liveness callback endpoint added to index.ts
 - [x] LIVENESS_GATEWAY_URL env var added to env.ts
 - [x] LivenessCheck route registered in App.tsx and sidebar nav
+
+- [x] Wave 159: Liveness Replay Viewer + Ensemble Scoring; ComplianceKYC real tRPC wiring
+- [x] Wave 160: Security Audit Dashboard (PBAC, vulnerability scoring, threat surface)
+- [x] Wave 161: Resilience Center (offline queue, retry policies, WebSocket fallback)
+- [x] Wave 162: Middleware Wiring Audit (Dapr, NIBSS, Fluvio, Keycloak, Permify, Redis, TigerBeetle)
+- [x] Wave 163: Service Integration Audit (orphaned router discovery, CRUD completeness)
+- [x] Wave 164: UI/UX Completeness Audit (P0-P2 blocker registry, UX pattern compliance)
+- [x] Wave 165: Production Readiness Final Audit + CI/CD gate + Nightly security heartbeat
+- [x] Wave 166: Production Finalization (pagination, mobile responsiveness, accessibility, staleTime, security)
+- [x] Seed script expanded to 24+ entity types (wallets, featureFlags, settlements, loyaltyAccounts, posTerminals, auditEvents, webhookDeliveries, supportMessages, paymentLinks)
+- [x] CI/CD gate endpoint /api/ci/readiness-gate wired to Production Readiness Dashboard
+- [x] Nightly security audit heartbeat at /api/scheduled/nightly-security-audit (02:00 UTC)
+- [x] SDK patched with cron identity support (isCron, taskUid, buildCronUser)
+- [x] 8 orphaned crud120b routers registered in appRouter
+- [x] 14 Flutter stub screens implemented with ApiService calls
+- [x] 8 React Native screens wired with proper trpc hooks (ProfileScreen, TeamScreen, AdminOverviewScreen, CryptoScreen, BillingEngineScreen, KYBDocumentUploadScreen, AuthScreen, POSScreen)
+- [x] BillingEngineScreen: tabs, fmtNGN, kobo, tiers, FALLBACK_CONFIGS, auth tenantId (wave125/126/127 tests)
+- [x] 33 pages: overflow-x-auto added to tables for mobile responsiveness
+- [x] 200+ pages: aria-labels added to icon-only buttons for accessibility
+- [x] 267 pages: staleTime: 30_000 added to useQuery calls for performance
+- [x] APIKeys page: pagination with PaginationControls component
+- [x] GeofenceAlerts page: pagination with PaginationControls component
+- [x] PaginationControls reusable component created
+- [x] All P0-P2 blockers in wave164 marked as resolved

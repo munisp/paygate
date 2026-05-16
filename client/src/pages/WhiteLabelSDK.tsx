@@ -249,13 +249,12 @@ const payment = await pg.payments.create({
                           variant="ghost"
                           size="sm"
                           className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => {
+                          aria-label="Delete" onClick={() => {
                             if (confirm("Revoke this token? This cannot be undone.")) {
                               revokeToken.mutate({ tokenId: token.id });
                             }
                           }}
-                        >
-                          <Trash2 className="w-4 h-4" />
+                        ><Trash2/>
                         </Button>
                       )}
                     </div>

@@ -7,7 +7,7 @@ import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 export default function GrpcHealthCheck() {
   const grpchealthcheck_30s = useAdaptiveInterval(30_000);
-  const { data, isLoading, refetch, isFetching, isError } = trpc.wave80.grpcHealthCheck.checkAllServices.useQuery(undefined, { refetchInterval: grpchealthcheck_30s });
+  const { data, isLoading, refetch, isFetching, isError } = trpc.wave80.grpcHealthCheck.checkAllServices.useQuery(undefined, { refetchInterval: grpchealthcheck_30s }, { staleTime: 30_000 });
 
   const services = data?.services ?? [];
   const healthy = services.filter(s => s.status === "healthy").length;
@@ -18,7 +18,7 @@ export default function GrpcHealthCheck() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">gRPC Health Check</h1><p className="text-muted-foreground">Service mesh health monitoring</p></div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={"w-4 h-4 mr-2 " + (isFetching ? "animate-spin" : "")} />Refresh All</Button>
+        <Button variant="outline" aria-label="Refresh" onClick={() => refetch()} disabled={isFetching}><RefreshCw/>Refresh All</Button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><CheckCircle className="w-8 h-8 text-green-500" /><div><p className="text-2xl font-bold">{healthy}</p><p className="text-sm text-muted-foreground">Healthy</p></div></div></CardContent></Card>

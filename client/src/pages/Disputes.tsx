@@ -346,8 +346,7 @@ export default function Disputes() {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={rows.length === 0}>
             <Download className="w-4 h-4 mr-1.5" />Export CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isFetching}><RefreshCw/>Refresh
           </Button>
         </div>
       </div>
@@ -386,7 +385,7 @@ export default function Disputes() {
 
       {/* Table */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
               {["Reference", "Amount", "Status", "Reason", "SLA / Due Date", "Actions"].map((h) => (
@@ -458,7 +457,7 @@ export default function Disputes() {
                   </tr>
                 ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {/* Pagination */}

@@ -23,9 +23,9 @@ export default function AdminSlaMonitoring() {
   const { data: slaStats, isLoading, isError, refetch } = trpc.wave29.slaMonitoring.getStats.useQuery(
     {},
     { refetchInterval: adminslamonitoring_60s }
-  );
+  , { staleTime: 30_000 });
 
-  const { data: incidents } = trpc.wave29.slaMonitoring.getIncidents.useQuery({ limit: 20 });
+  const { data: incidents } = trpc.wave29.slaMonitoring.getIncidents.useQuery({ limit: 20 }, { staleTime: 30_000 });
 
   const recordPing = trpc.wave29.slaMonitoring.recordPing.useMutation({
     onSuccess: () => { toast.success("Ping recorded"); refetch(); },

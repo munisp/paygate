@@ -96,7 +96,7 @@ export default function AuditLog() {
 
   const { data: filtersData } = trpc.auditLog.getActions.useQuery(undefined, {
     enabled: isAuthenticated,
-  });
+  }, { staleTime: 30_000 });
 
   const { data, isLoading, refetch } = trpc.auditLog.list.useQuery(
     {
@@ -108,7 +108,7 @@ export default function AuditLog() {
       to: toMs,
     },
     { enabled: isAuthenticated, refetchInterval: auditInterval }
-  );
+  , { staleTime: 30_000 });
 
   const events = data?.events ?? [];
   const total = data?.total ?? 0;
@@ -170,8 +170,7 @@ export default function AuditLog() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isLoading}><RefreshCw/>
             Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={isExporting}>

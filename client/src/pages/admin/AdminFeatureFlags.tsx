@@ -264,7 +264,7 @@ export default function AdminFeatureFlags() {
 
   const { data, isLoading } = trpc.wave24.featureFlags.list.useQuery({
     category: categoryFilter !== "all" ? categoryFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const createMutation = trpc.wave24.featureFlags.create.useMutation({
     onSuccess: () => {
@@ -370,7 +370,7 @@ export default function AdminFeatureFlags() {
                 <p>No feature flags found</p>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead className="border-b bg-muted/30">
                   <tr>
                     <th className="text-left p-3 font-medium">Flag Key</th>
@@ -429,15 +429,14 @@ export default function AdminFeatureFlags() {
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(flag as FeatureFlag)}>
                             <Edit className="w-3.5 h-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteId(flag.id)}>
-                            <Trash2 className="w-3.5 h-3.5" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label="Delete" onClick={() => setDeleteId(flag.id)}><Trash2/>
                           </Button>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </CardContent>
         </Card>

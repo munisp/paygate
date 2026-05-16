@@ -33,12 +33,12 @@ export default function BillingInvoicesPage() {
     limit: 20,
     status: statusFilter !== "all" ? statusFilter as any : undefined,
     tenantId: tenantSearch || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: invoice } = trpc.wave32.billingInvoices.get.useQuery(
     { id: selectedId! },
     { enabled: !!selectedId }
-  );
+  , { staleTime: 30_000 });
 
   const markPaidMutation = trpc.wave32.billingInvoices.markPaid.useMutation({
     onSuccess: () => { toast({ title: "Invoice marked as paid" }); setSelectedId(null); refetch(); },
@@ -100,7 +100,7 @@ export default function BillingInvoicesPage() {
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
                 {["Invoice #", "Tenant", "Amount", "Period", "Status", "Due Date", "Actions"].map(h => (
@@ -139,8 +139,7 @@ export default function BillingInvoicesPage() {
                             <CheckCircle className="h-3 w-3" />
                           </Button>
                           <Button size="sm" variant="ghost" className="text-destructive"
-                            onClick={() => voidMutation.mutate({ id: inv.id })}>
-                            <XCircle className="h-3 w-3" />
+                            aria-label="Close" onClick={() => voidMutation.mutate({ id: inv.id })}><X/>
                           </Button>
                         </>
                       )}
@@ -149,7 +148,7 @@ export default function BillingInvoicesPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
 

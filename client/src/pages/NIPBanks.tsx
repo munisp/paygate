@@ -64,7 +64,7 @@ export default function NIPBanks() {
   const errorsQuery = trpc.nip.listResolutionErrors.useQuery({
     limit: ERROR_PAGE_SIZE,
     offset: errorPage * ERROR_PAGE_SIZE,
-  });
+  }, { staleTime: 30_000 });
 
   const errorStatsQuery = trpc.nip.errorStats.useQuery(undefined, {
     staleTime: 30 * 1000,
@@ -200,10 +200,9 @@ export default function NIPBanks() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => banksQuery.refetch()}
+                  aria-label="Refresh" onClick={() => banksQuery.refetch()}
                   disabled={banksQuery.isFetching}
-                >
-                  <RefreshCw className={`w-4 h-4 mr-1 ${banksQuery.isFetching ? "animate-spin" : ""}`} />
+                ><RefreshCw/>
                   Refresh
                 </Button>
               </div>
@@ -436,10 +435,9 @@ export default function NIPBanks() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => { errorsQuery.refetch(); errorStatsQuery.refetch(); }}
+                    aria-label="Refresh" onClick={() => { errorsQuery.refetch(); errorStatsQuery.refetch(); }}
                     disabled={errorsQuery.isFetching}
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-1 ${errorsQuery.isFetching ? "animate-spin" : ""}`} />
+                  ><RefreshCw/>
                     Refresh
                   </Button>
                 </div>

@@ -15,11 +15,11 @@ export default function BulkCollections() {
   const [items, setItems] = useState<CollectionItem[]>([{ customerName: "", customerPhone: "", customerEmail: "", amountKobo: 0, reference: `ref_${Date.now()}` }]);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
-  const {isLoading, data: collections, refetch} = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" });
+  const {isLoading, data: collections, refetch} = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" }, { staleTime: 30_000 });
   const { data: details } = trpc.newFeatures.bulkCollections.getCollectionDetails.useQuery(
     { collectionId: selectedCollection ?? "" },
     { enabled: !!selectedCollection }
-  );
+  , { staleTime: 30_000 });
 
   const createMutation = trpc.newFeatures.bulkCollections.createCollection.useMutation({
     onSuccess: (d: any) => { toast.success(`Collection "${d.collectionId}" created`); refetch(); },
@@ -93,7 +93,7 @@ export default function BulkCollections() {
         <CardHeader><CardTitle>Collections</CardTitle></CardHeader>
         <CardContent>
           {!collections?.collections?.length ? <p className="text-muted-foreground text-sm">No collections yet</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Title</th><th className="text-right py-2">Total</th><th className="text-right py-2">Collected</th><th className="text-right py-2">Progress</th><th className="text-right py-2">Status</th><th className="text-right py-2">Actions</th></tr></thead>
               <tbody>
                 {collections.collections.map(c => (
@@ -124,7 +124,7 @@ export default function BulkCollections() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>
@@ -134,7 +134,7 @@ export default function BulkCollections() {
         <Card>
           <CardHeader><CardTitle>Collection Details: {details.name}</CardTitle></CardHeader>
           <CardContent>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Name</th><th className="text-left py-2">Email</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Status</th><th className="text-right py-2">Paid At</th></tr></thead>
               <tbody>
                 {details.items?.map((item, i) => (
@@ -147,7 +147,7 @@ export default function BulkCollections() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </CardContent>
         </Card>
       )}

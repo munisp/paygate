@@ -38,7 +38,7 @@ export default function AdminChargebacks() {
     status: statusFilter !== "all" ? statusFilter : undefined,
     limit,
     offset: page * limit,
-  });
+  }, { staleTime: 30_000 });
 
   const updateStatusMutation = trpc.wave24.chargebacks.updateStatus.useMutation({
     onSuccess: () => {
@@ -123,7 +123,7 @@ export default function AdminChargebacks() {
                 <p>No chargebacks found</p>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead className="border-b bg-muted/30">
                   <tr>
                     <th className="text-left p-3 font-medium">ID</th>
@@ -170,7 +170,7 @@ export default function AdminChargebacks() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </CardContent>
         </Card>
@@ -206,11 +206,11 @@ function ChargebackDetail({
   onClose: () => void;
   onUpdate: (id: string, status: string, notes?: string) => void;
 }) {
-  const { data } = trpc.wave24.chargebacks.get.useQuery({ id });
+  const { data } = trpc.wave24.chargebacks.get.useQuery({ id }, { staleTime: 30_000 });
   const { data: evidenceData, refetch: refetchEvidence } = trpc.wave26.chargebackPdf.getEvidenceForViewer.useQuery(
     { chargebackId: id },
     { enabled: !!id }
-  );
+  , { staleTime: 30_000 });
   const [notes, setNotes] = useState("");
   const [showPdfViewer, setShowPdfViewer] = useState(false);
   const [uploading, setUploading] = useState(false);

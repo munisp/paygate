@@ -13,7 +13,7 @@ export default function AdminRateLimitDashboard() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError, refetch } = trpc.wave25.rateLimits.list.useQuery({ page, limit: 50 });
+  const { data, isLoading, isError, refetch } = trpc.wave25.rateLimits.list.useQuery({ page, limit: 50 }, { staleTime: 30_000 });
   const { data: stats } = trpc.wave25.rateLimits.getStats.useQuery();
 
   const filtered = data?.rows.filter(r =>
@@ -34,8 +34,7 @@ export default function AdminRateLimitDashboard() {
               Monitor API rate limiting events and blocked identifiers
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
         </div>
 

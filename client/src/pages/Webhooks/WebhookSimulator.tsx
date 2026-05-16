@@ -23,7 +23,7 @@ export default function WebhookSimulator({ merchantId }: { merchantId: string })
     merchantId,
     limit,
     offset: page * limit,
-  });
+  }, { staleTime: 30_000 });
 
   const simulateMutation = trpc.wave24.webhookSimulator.simulate.useMutation({
     onSuccess: (result) => {
@@ -163,7 +163,7 @@ export default function WebhookSimulator({ merchantId }: { merchantId: string })
           {items.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground text-sm">No simulation logs yet. Send a test event above.</div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
                 <tr>
                   <th className="text-left p-3 font-medium">Event Type</th>
@@ -208,7 +208,7 @@ export default function WebhookSimulator({ merchantId }: { merchantId: string })
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </CardContent>
       </Card>

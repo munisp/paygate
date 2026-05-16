@@ -101,8 +101,7 @@ export default function AdminDataPipeline() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { refetchDags(); refetchDbt(); refetchNifi(); toast.success("Pipeline status refreshed"); }}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetchDags(); refetchDbt(); refetchNifi(); toast.success("Pipeline status refreshed"); }}><RefreshCw/> Refresh
           </Button>
           <Button size="sm" onClick={handleDbtRun}>
             <Play className="w-4 h-4 mr-2" /> Run dbt Now
@@ -367,8 +366,7 @@ export default function AdminDataPipeline() {
                       </TableCell>
                       <TableCell><StatusBadge status={flow.status} /></TableCell>
                       <TableCell>
-                        <Button size="sm" variant="outline" onClick={() => handleNiFiRestart(flow.id)}>
-                          <RefreshCw className="w-3 h-3" />
+                        <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => handleNiFiRestart(flow.id)}><RefreshCw/>
                         </Button>
                       </TableCell>
                     </TableRow>

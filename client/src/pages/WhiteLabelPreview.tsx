@@ -149,7 +149,7 @@ function generatePreviewHTML(config: {
             </select>
           </div>
         </div>
-        <table style="width:100%;border-collapse:collapse;">
+        <div className="overflow-x-auto"><table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="background:#f9fafb;">
               ${["Date", "Reference", "Type", "Amount", "Status"].map((h) => `<th style="text-align:left;padding:10px 12px;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">${h}</th>`).join("")}
@@ -172,7 +172,7 @@ function generatePreviewHTML(config: {
               </tr>
             `).join("")}
           </tbody>
-        </table>
+        </table></div>
       </div>
     `;
   } else if (screen === "payment_link") {
@@ -334,7 +334,7 @@ export default function WhiteLabelPreview() {
   const { data: tenantData, isLoading, isError } = trpc.wave28.tenantAdmin.getOverview.useQuery(
     { tenantId },
     { enabled: !!tenantId }
-  );
+  , { staleTime: 30_000 });
 
   useEffect(() => {
     if (tenantData?.tenant) {

@@ -18,10 +18,10 @@ export default function FraudHeatmap() {
   const [fraudType, setFraudType] = useState("all");
 
   const hours = period === 'last_24h' ? 24 : period === 'last_7_days' ? 168 : 168;
-  const { data: heatmapData, isLoading, isError, refetch } = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours });
-  const { data: clusters } = trpc.tier1to5.fraudHeatmap.getClusters.useQuery({ hours, radiusKm: 5 });
-  const { data: velocity } = trpc.tier1to5.fraudHeatmap.getVelocityByRegion.useQuery({ hours });
-  const { data: forecast } = trpc.tier1to5.aiInsights.getSettlementForecast.useQuery({ forecastDays: 7 });
+  const { data: heatmapData, isLoading, isError, refetch } = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours }, { staleTime: 30_000 });
+  const { data: clusters } = trpc.tier1to5.fraudHeatmap.getClusters.useQuery({ hours, radiusKm: 5 }, { staleTime: 30_000 });
+  const { data: velocity } = trpc.tier1to5.fraudHeatmap.getVelocityByRegion.useQuery({ hours }, { staleTime: 30_000 });
+  const { data: forecast } = trpc.tier1to5.aiInsights.getSettlementForecast.useQuery({ forecastDays: 7 }, { staleTime: 30_000 });
 
   const riskColor = (score: number) => {
     if (score < 30) return "bg-green-100 text-green-800";
@@ -57,7 +57,7 @@ export default function FraudHeatmap() {
                 <SelectItem value="last_30_days">Last 30 Days</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
           </div>
         </div>
 

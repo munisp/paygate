@@ -10,7 +10,7 @@ import { CreditCard } from "lucide-react";
 export default function BNPLv2() {
   const [customerId, setCustomerId] = useState("");
   const [amount, setAmount] = useState("");
-  const { isLoading, data: loansData } = trpc.tier6to8.bnplV2.getLoans.useQuery({ status: "all" });
+  const { isLoading, data: loansData } = trpc.tier6to8.bnplV2.getLoans.useQuery({ status: "all" }, { staleTime: 30_000 });
   const checkMutation = trpc.tier6to8.bnplV2.checkEligibility.useMutation({
     onSuccess: (d: any) => toast.success(`Score: ${d.creditScore} — Max: ₦${(d.maxAmountKobo / 100).toLocaleString()}`),
     onError: (e: any) => toast.error(e.message),

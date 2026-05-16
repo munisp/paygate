@@ -22,7 +22,7 @@ export default function CarbonCreditsV2() {
   const [selectedProject, setSelectedProject] = useState<typeof PROJECTS[0] | null>(null);
   const [qty, setQty] = useState("1");
 
-  const { data: creditsData, isLoading, refetch } = trpc.wave80.carbonCreditsV2.listCredits.useQuery({});
+  const { data: creditsData, isLoading, refetch } = trpc.wave80.carbonCreditsV2.listCredits.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.carbonCreditsV2.getStats.useQuery();
 
   const purchase = trpc.wave80.carbonCreditsV2.purchaseCredits.useMutation({

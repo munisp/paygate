@@ -102,8 +102,7 @@ export default function LoyaltyDashboard() {
           <p className="text-muted-foreground text-sm mt-1">Track cashback, tier status, and redemption history</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => evaluateMutation.mutate({ userId: undefined })} disabled={evaluateMutation.isLoading}>
-            <RefreshCw className={`w-4 h-4 mr-1 ${evaluateMutation.isLoading ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => evaluateMutation.mutate({ userId: undefined })} disabled={evaluateMutation.isLoading}><RefreshCw/>
             Evaluate Tier
           </Button>
           <Button size="sm" className="bg-yellow-500 hover:bg-yellow-600 text-white" onClick={() => setRedeemOpen(true)}>

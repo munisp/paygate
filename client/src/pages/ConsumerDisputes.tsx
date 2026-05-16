@@ -42,11 +42,11 @@ export default function ConsumerDisputes() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState({ subject: "", description: "", category: "other" as const });
 
-  const { data, isLoading, refetch } = trpc.consumerDisputes.list.useQuery({ limit: 20 });
+  const { data, isLoading, refetch } = trpc.consumerDisputes.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: detail } = trpc.consumerDisputes.get.useQuery(
     { id: selectedId! },
     { enabled: !!selectedId }
-  );
+  , { staleTime: 30_000 });
   const raise = trpc.consumerDisputes.raise.useMutation({
     onSuccess: () => {
       toast.success("Dispute raised successfully");

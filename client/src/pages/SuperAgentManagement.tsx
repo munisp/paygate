@@ -29,10 +29,10 @@ export default function SuperAgentManagement() {
   const [msgText, setMsgText] = useState("");
 
   const { data: networks, isLoading: networksLoading, isError: networksError, refetch: refetchNetworks } =
-    trpc.superAgentV2Mgmt.listNetworks.useQuery({ limit, offset: networkPage * limit });
+    trpc.superAgentV2Mgmt.listNetworks.useQuery({ limit, offset: networkPage * limit }, { staleTime: 30_000 });
 
   const { data: sessions, isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } =
-    trpc.superAgentV2Mgmt.listSessions.useQuery({ limit, offset: sessionPage * limit });
+    trpc.superAgentV2Mgmt.listSessions.useQuery({ limit, offset: sessionPage * limit }, { staleTime: 30_000 });
 
   const addSubAgent = trpc.superAgentV2Mgmt.addSubAgent.useMutation({
     onSuccess: () => {
@@ -75,8 +75,7 @@ export default function SuperAgentManagement() {
           <p className="text-muted-foreground text-sm mt-1">Manage agent networks, sub-agents, and live sessions</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { refetchNetworks(); refetchSessions(); }}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetchNetworks(); refetchSessions(); }}><RefreshCw/> Refresh
           </Button>
           <Button size="sm" onClick={() => setAddOpen(true)}>
             <Plus className="w-4 h-4 mr-2" /> Add Sub-Agent

@@ -47,14 +47,14 @@ export default function WorkflowObservability() {
 
   // Fetch all pending payout approvals and their workflow status
   const { data: payoutsData, isLoading: payoutsLoading, refetch: refetchPayouts } =
-    trpc.payouts.list.useQuery({ status: "pending_approval", limit: 50 });
+    trpc.payouts.list.useQuery({ status: "pending_approval", limit: 50 }, { staleTime: 30_000 });
 
   // Fetch individual workflow status when user searches
   const { data: workflowData, isLoading: workflowLoading, refetch: refetchWorkflow } =
     trpc.middleware.workflow.getStatus.useQuery(
       { workflowId: lookupId },
       { enabled: !!lookupId }
-    );
+    , { staleTime: 30_000 });
 
   // Force-reject a timed-out workflow
   const forceReject = trpc.payouts.reject.useMutation({
@@ -97,8 +97,7 @@ export default function WorkflowObservability() {
             Monitor Temporal workflow states for payout approvals. Force-reject timed-out workflows.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetchPayouts()} className="gap-2">
-          <RefreshCw className="w-4 h-4" />
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchPayouts()} className="gap-2"><RefreshCw/>
           Refresh
         </Button>
       </div>

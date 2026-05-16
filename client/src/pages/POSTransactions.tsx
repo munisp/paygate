@@ -30,7 +30,7 @@ export default function POSTransactions() {
     offset: page * limit,
     status: statusFilter === "all" ? undefined : statusFilter,
     terminalId: terminalFilter || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.posTransactions.stats.useQuery();
 
@@ -43,8 +43,7 @@ export default function POSTransactions() {
           <h1 className="text-2xl font-bold text-foreground">POS Transactions</h1>
           <p className="text-muted-foreground text-sm mt-1">Card-present transaction history across all terminals</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

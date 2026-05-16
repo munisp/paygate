@@ -40,7 +40,7 @@ export default function USSDSessions() {
 
   const { data: sessions = [], isLoading, refetch } = trpc.ussd.list.useQuery(
     {
-      status: statusFilter !== "all" ? (statusFilter as "active" | "completed" | "failed" | "timeout") : undefined,
+      status: statusFilter !== "all" ? (statusFilter as "active" | "completed" | "failed" | "timeout", { staleTime: 30_000 }) : undefined,
       msisdn: search || undefined,
       limit: 100,
     },
@@ -94,8 +94,7 @@ export default function USSDSessions() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">Monitor and inspect USSD gateway sessions in real time</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={handleRefresh} disabled={isLoading}><RefreshCw/>
           Refresh
         </Button>
       </div>

@@ -10,7 +10,7 @@ import AdminLayout from "./AdminLayout";
 
 export default function AdminTenantRevenue() {
   const [days, setDays] = useState(30);
-  const { data = [], isLoading, isError, refetch } = (trpc.adminTenantRevenue.getRevenueBreakdown.useQuery({ days }) as any);
+  const { data = [], isLoading, isError, refetch } = (trpc.adminTenantRevenue.getRevenueBreakdown.useQuery({ days }, { staleTime: 30_000 }) as any);
 
   const totalFees = data.reduce((s: number, r: any) => s + (r.totalFeesKobo ?? 0), 0);
   const totalVolume = data.reduce((s: number, r: any) => s + (r.grossVolumeKobo ?? 0), 0);
@@ -36,8 +36,7 @@ export default function AdminTenantRevenue() {
                 <SelectItem value="365">Last 365 days</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="w-4 h-4 mr-2" />
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
               Refresh
             </Button>
           </div>

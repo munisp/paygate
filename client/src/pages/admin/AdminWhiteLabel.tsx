@@ -107,8 +107,7 @@ export default function AdminWhiteLabel() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
             </Button>
             <Button onClick={handleSave} disabled={!selectedTenantId || updateMutation.isPending} className="gap-2">
               <Save className="w-4 h-4" />

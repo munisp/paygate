@@ -102,7 +102,7 @@ export default function CrossBorderRailMonitor() {
 
   const { data, isLoading, isError, refetch, isFetching } = trpc.crossBorder.getRailHealth.useQuery(undefined, {
     refetchInterval: railInterval,
-    onSuccess: () => setLastRefresh(new Date()),
+    onSuccess: (, { staleTime: 30_000 }) => setLastRefresh(new Date()),
   } as any);
 
   const rails: Rail[] = data?.rails ?? [];
@@ -143,10 +143,9 @@ export default function CrossBorderRailMonitor() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => refetch()}
+          aria-label="Refresh" onClick={() => refetch()}
           disabled={isFetching}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+        ><RefreshCw/>
           Refresh
         </Button>
       </div>

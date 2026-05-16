@@ -171,7 +171,7 @@ export default function Settlements() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Settlement | null>(null);
 
-  const exportQuery = trpc.settlements.export.useQuery(undefined, { enabled: false });
+  const exportQuery = trpc.settlements.export.useQuery(undefined, { enabled: false }, { staleTime: 30_000 });
   const handleExport = async () => {
     const result = await exportQuery.refetch();
     if (result.data) {
@@ -185,7 +185,7 @@ export default function Settlements() {
       status: statusFilter !== "all" ? statusFilter : undefined,
     },
     { enabled: isAuthenticated, refetchInterval: settlementsInterval }
-  );
+  , { staleTime: 30_000 });
 
   const rows: Settlement[] = (data?.rows ?? []) as Settlement[];
   const total = data?.total ?? 0;
@@ -220,8 +220,7 @@ export default function Settlements() {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={exportQuery.isFetching} className="gap-1.5">
             <Download className="h-3.5 w-3.5" />{exportQuery.isFetching ? 'Exporting...' : 'Export CSV'}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
-            <RefreshCw className="h-3.5 w-3.5" />Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} className="gap-1.5"><RefreshCw/>Refresh
           </Button>
         </div>
       </div>

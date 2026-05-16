@@ -120,7 +120,7 @@ export default function SettingsPayments() {
     refetch: refetchChecklist,
   } = trpc.system.goLiveChecklist.useQuery(undefined, {
     refetchInterval: settingsPayInterval,
-  });
+  }, { staleTime: 30_000 });
 
   // Test charge
   const testChargeMutation = trpc.stripe.testCharge.useMutation({
@@ -166,15 +166,12 @@ export default function SettingsPayments() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
+          aria-label="Refresh" onClick={() => {
             refetchMode();
             refetchChecklist();
           }}
           disabled={modeLoading || checklistLoading}
-        >
-          <RefreshCw
-            className={`h-4 w-4 mr-2 ${modeLoading || checklistLoading ? "animate-spin" : ""}`}
-          />
+        ><RefreshCw/>
           Refresh
         </Button>
       </div>

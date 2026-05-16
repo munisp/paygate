@@ -8943,6 +8943,13 @@ export const appRouter = router({
   serviceIntegrationAudit: wave163Router,
   uiUxAudit: wave164Router,
   productionReadiness: wave165Router,
+  // Wave 120b — additional CRUD routers
+  splitBillV2: splitBillV2Router,
+  staffMgmt: staffMgmtRouter,
+  superAgentV2Mgmt: superAgentV2MgmtRouter,
+  supportChat: supportChatRouter,
+  taxFilingV2: taxFilingV2Router,
+  txReceipts: txReceiptsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

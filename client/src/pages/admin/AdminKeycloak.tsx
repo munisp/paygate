@@ -86,8 +86,7 @@ export default function AdminKeycloak() {
           <Button variant="outline" size="sm" onClick={() => window.open("http://localhost:8080/admin/", "_blank")}>
             <Globe className="w-4 h-4 mr-2" />Open Keycloak Admin
           </Button>
-          <Button size="sm" onClick={() => syncAllMutation.mutate({})} disabled={syncAllMutation.isPending}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${syncAllMutation.isPending ? "animate-spin" : ""}`} />
+          <Button size="sm" aria-label="Refresh" onClick={() => syncAllMutation.mutate({})} disabled={syncAllMutation.isPending}><RefreshCw/>
             {syncAllMutation.isPending ? "Syncing…" : "Sync All Roles"}
           </Button>
         </div>

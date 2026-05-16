@@ -98,8 +98,8 @@ export default function KYBDocumentUpload() {
 
   const utils = trpc.useUtils();
 
-  const { data: documentsData, isLoading } = trpc.kybDocUpload.listDocuments.useQuery({ verificationId });
-  const { data: progressData } = trpc.kybDocUpload.getVerificationProgress.useQuery({ verificationId });
+  const { data: documentsData, isLoading } = trpc.kybDocUpload.listDocuments.useQuery({ verificationId }, { staleTime: 30_000 });
+  const { data: progressData } = trpc.kybDocUpload.getVerificationProgress.useQuery({ verificationId }, { staleTime: 30_000 });
 
   const getUploadUrl = trpc.kybDocUpload.getUploadUrl.useMutation({
     onError: (e: any) => { toast.error(e.message); setUploadingType(null); setUploadProgress(0); },
@@ -269,9 +269,8 @@ export default function KYBDocumentUpload() {
                                 size="icon"
                                 variant="ghost"
                                 className="h-5 w-5 text-destructive"
-                                onClick={() => deleteDoc.mutate({ documentId: doc.id })}
-                              >
-                                <Trash2 className="h-3 w-3" />
+                                aria-label="Delete" onClick={() => deleteDoc.mutate({ documentId: doc.id })}
+                              ><Trash2/>
                               </Button>
                             )}
                           </div>

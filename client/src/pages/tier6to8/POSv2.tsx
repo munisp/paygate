@@ -14,7 +14,7 @@ export default function POSv2() {
   const [terminalModel, setTerminalModel] = useState("Ingenico_iWL250");
   const [location, setLocation] = useState("");
 
-  const terminalsQuery = trpc.tier6to8.posTerminalV2.getTerminals.useQuery(undefined, { enabled: !!user });
+  const terminalsQuery = trpc.tier6to8.posTerminalV2.getTerminals.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
 
   const provisionMutation = trpc.tier6to8.posTerminalV2.provisionTerminal.useMutation({
     onSuccess: (data) => {
@@ -35,8 +35,7 @@ export default function POSv2() {
           <h1 className="text-2xl font-bold">POS Terminals v2</h1>
           <p className="text-muted-foreground">Manage next-gen POS terminals with offline mode and contactless payments</p>
         </div>
-        <Button onClick={() => terminalsQuery.refetch()} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+        <Button aria-label="Refresh" onClick={() => terminalsQuery.refetch()} variant="outline" size="sm"><RefreshCw/> Refresh
         </Button>
       </div>
 

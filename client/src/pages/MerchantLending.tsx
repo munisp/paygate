@@ -63,8 +63,7 @@ export default function MerchantLending() {
             <h1 className="text-2xl font-bold">Merchant Lending</h1>
             <p className="text-muted-foreground text-sm mt-1">Working capital loans based on your transaction history</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
         </div>
 

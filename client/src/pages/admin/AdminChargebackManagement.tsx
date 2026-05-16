@@ -29,7 +29,7 @@ export default function AdminChargebackManagement() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [evidenceText, setEvidenceText] = useState("");
 
-  const { data: chargebacks, isLoading, isError, refetch } = trpc.wave29.chargebackMgmt.list.useQuery({ limit: 50 });
+  const { data: chargebacks, isLoading, isError, refetch } = trpc.wave29.chargebackMgmt.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
   const { data: stats } = trpc.wave29.chargebackMgmt.getStats.useQuery();
 
   const submitEvidence = trpc.wave29.chargebackMgmt.submitEvidence.useMutation({

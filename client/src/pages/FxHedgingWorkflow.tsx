@@ -20,9 +20,9 @@ export default function FxHedgingWorkflow() {
   const [newHedge, setNewHedge] = useState({ baseCurrency: "USD", quoteCurrency: "NGN", notionalAmount: "10000", hedgeRatio: "1580", expiryDays: "30" });
   const [showForm, setShowForm] = useState(false);
 
-  const { data: positions, refetch, isLoading } = trpc.wave30.fxHedging.listPositions.useQuery({ limit: 50 });
+  const { data: positions, refetch, isLoading } = trpc.wave30.fxHedging.listPositions.useQuery({ limit: 50 }, { staleTime: 30_000 });
   const { data: pnl } = trpc.wave30.fxHedging.getPnlSummary.useQuery();
-  const { data: rates } = trpc.wave30.fxHedging.listPositions.useQuery({ status: "open" });
+  const { data: rates } = trpc.wave30.fxHedging.listPositions.useQuery({ status: "open" }, { staleTime: 30_000 });
 
   const openPosition = trpc.wave30.fxHedging.openPosition.useMutation({
     onSuccess: () => { toast.success("FX hedge position opened"); setShowForm(false); refetch(); },
@@ -163,8 +163,7 @@ export default function FxHedgingWorkflow() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-semibold text-gray-700">Hedge Positions</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="w-4 h-4" />
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
             </Button>
           </div>
         </CardHeader>

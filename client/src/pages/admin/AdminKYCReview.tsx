@@ -31,7 +31,7 @@ export default function AdminKYCReview() {
 
   const utils = trpc.useUtils();
   const statsQuery = trpc.admin.kyc.getStats.useQuery();
-  const listQuery = trpc.admin.kyc.listPending.useQuery({ page, limit: 20, status: statusFilter });
+  const listQuery = trpc.admin.kyc.listPending.useQuery({ page, limit: 20, status: statusFilter }, { staleTime: 30_000 });
 
   const reviewMutation = trpc.admin.kyc.reviewSubmission.useMutation({
     onSuccess: async () => {
@@ -195,8 +195,7 @@ export default function AdminKYCReview() {
                               <CheckCircle className="w-3 h-3 mr-1" /> Approve
                             </Button>
                             <Button size="sm" variant="outline" className="h-7 text-xs border-red-700 text-red-400 hover:bg-red-900/30"
-                              onClick={() => setReviewDialog({ open: true, id: s.id, decision: "rejected", livenessScore: s.livenessScore, livenessOverride: s.livenessOverride })}>
-                              <XCircle className="w-3 h-3 mr-1" /> Reject
+                              aria-label="Close" onClick={() => setReviewDialog({ open: true, id: s.id, decision: "rejected", livenessScore: s.livenessScore, livenessOverride: s.livenessOverride })}><X/> Reject
                             </Button>
                           </div>
                         )}

@@ -16,7 +16,7 @@ export default function ConsumerPension() {
 
   const { data: account, isLoading, refetch } = trpc.newFeatures.pension.getAccount.useQuery();
   const { data: pfas } = trpc.newFeatures.pension.listPFAs.useQuery();
-  const { data: statements } = trpc.newFeatures.pension.getStatements.useQuery({ year: parseInt(selectedYear) });
+  const { data: statements } = trpc.newFeatures.pension.getStatements.useQuery({ year: parseInt(selectedYear, { staleTime: 30_000 }) });
 
   const openMutation = trpc.newFeatures.pension.openAccount.useMutation({
     onSuccess: () => {

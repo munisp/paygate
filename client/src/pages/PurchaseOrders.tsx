@@ -257,10 +257,9 @@ export default function PurchaseOrders() {
                     <Button
                       variant="outline"
                       className="w-full gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
-                      onClick={() => updateStatus.mutate({ id: selectedPO.id, status: "cancelled" })}
+                      aria-label="Close" onClick={() => updateStatus.mutate({ id: selectedPO.id, status: "cancelled" })}
                       disabled={updateStatus.isPending}
-                    >
-                      <XCircle className="w-4 h-4" />
+                    ><X/>
                       Cancel PO
                     </Button>
                   </>
@@ -278,10 +277,9 @@ export default function PurchaseOrders() {
                     <Button
                       variant="outline"
                       className="w-full gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
-                      onClick={() => updateStatus.mutate({ id: selectedPO.id, status: "cancelled" })}
+                      aria-label="Close" onClick={() => updateStatus.mutate({ id: selectedPO.id, status: "cancelled" })}
                       disabled={updateStatus.isPending}
-                    >
-                      <XCircle className="w-4 h-4" />
+                    ><X/>
                       Cancel PO
                     </Button>
                   </>

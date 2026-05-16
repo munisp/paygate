@@ -7,7 +7,7 @@ import { Link2, Database } from "lucide-react";
 const PROVIDERS = [{ id: "mono", name: "Mono", logo: "🏦" }, { id: "okra", name: "Okra", logo: "🔗" }, { id: "stitch", name: "Stitch", logo: "🧵" }, { id: "plaid", name: "Plaid", logo: "🔐" }];
 export default function OpenFinanceHub() {
   const { isLoading, data: providers, refetch } = trpc.tier6to8.openFinance.getConnectedProviders.useQuery();
-  const { data: insights } = trpc.tier6to8.openFinance.getDataInsights.useQuery({ providerId: "mono" });
+  const { data: insights } = trpc.tier6to8.openFinance.getDataInsights.useQuery({ providerId: "mono" }, { staleTime: 30_000 });
   const connectMutation = trpc.tier6to8.openFinance.connectProvider.useMutation({
     onSuccess: (d: any) => { window.open(d.authUrl, "_blank"); toast.success("Opening provider auth..."); refetch(); },
     onError: (e: any) => toast.error(e.message),

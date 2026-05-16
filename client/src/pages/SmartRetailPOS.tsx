@@ -19,7 +19,7 @@ export default function SmartRetailPOS() {
 
   const {isLoading, data: config} = trpc.newFeatures.smartRetailPOS.getRetailConfig.useQuery();
   const { data: alerts } = trpc.newFeatures.smartRetailPOS.getInventoryAlerts.useQuery();
-  const { data: dailySummary } = trpc.newFeatures.smartRetailPOS.getDailySalesSummary.useQuery({ date: selectedDate });
+  const { data: dailySummary } = trpc.newFeatures.smartRetailPOS.getDailySalesSummary.useQuery({ date: selectedDate }, { staleTime: 30_000 });
 
   const saleMutation = trpc.newFeatures.smartRetailPOS.processRetailSale.useMutation({
     onSuccess: (d: any) => { toast.success(`Sale ${d.saleId} — ${formatKobo(d.totalAmountKobo)}`); setLastSale(d); setCart([]); },

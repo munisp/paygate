@@ -15,7 +15,7 @@ export default function PayoutApprovalWorkflow() {
   const [action, setAction] = useState<"approve" | "reject" | null>(null);
   const [notes, setNotes] = useState("");
 
-  const { data: workflowsData, refetch, isLoading, isError } = trpc.wave31.payoutApproval.list.useQuery({ status: "pending" });
+  const { data: workflowsData, refetch, isLoading, isError } = trpc.wave31.payoutApproval.list.useQuery({ status: "pending" }, { staleTime: 30_000 });
   const { data: statsData } = trpc.wave31.payoutApproval.getStats.useQuery();
 
   const approve = trpc.wave31.payoutApproval.approve.useMutation({

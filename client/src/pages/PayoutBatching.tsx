@@ -22,8 +22,8 @@ export default function PayoutBatching() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, refetch } = trpc.wave25.payoutBatch.listPendingPayouts.useQuery({ page, limit: 30 });
-  const { data: batches } = trpc.wave25.payoutBatch.listBatches.useQuery({ page: 1, limit: 10 });
+  const { data, isLoading, refetch } = trpc.wave25.payoutBatch.listPendingPayouts.useQuery({ page, limit: 30 }, { staleTime: 30_000 });
+  const { data: batches } = trpc.wave25.payoutBatch.listBatches.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
 
   const createBatch = trpc.wave25.payoutBatch.createBatch.useMutation({
     onSuccess: (res) => {

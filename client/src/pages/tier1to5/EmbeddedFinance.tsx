@@ -82,8 +82,7 @@ pg.checkout({
           <CardContent>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-muted-foreground">Install: <code className="bg-muted px-1 rounded">npm install @paygate/sdk</code></p>
-              <Button variant="ghost" size="sm" onClick={() => { navigator.clipboard.writeText(sdkSnippet); toast.success("Copied!"); }}>
-                <Copy className="w-3 h-3 mr-1" />Copy
+              <Button variant="ghost" size="sm" aria-label="Copy" onClick={() => { navigator.clipboard.writeText(sdkSnippet); toast.success("Copied!"); }}><Copy/>Copy
               </Button>
             </div>
             <pre className="text-xs bg-muted p-3 rounded overflow-auto">{sdkSnippet}</pre>

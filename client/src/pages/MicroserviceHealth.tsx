@@ -281,7 +281,7 @@ export default function MicroserviceHealth() {
   const [showCompose, setShowCompose] = useState(false);
   const { data, isLoading, isError, refetch } = trpc.system.microservicesHealth.useQuery(undefined, {
     refetchInterval: microserviceInterval,
-  });
+  }, { staleTime: 30_000 });
 
   const onlineCount = data ? Object.values(data).filter((v: any) => v === "ok").length : 0;
   const totalCount = SERVICES.length;
@@ -299,10 +299,9 @@ export default function MicroserviceHealth() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => refetch()}
+          aria-label="Refresh" onClick={() => refetch()}
           disabled={isLoading}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+        ><RefreshCw/>
           Refresh
         </Button>
       </div>

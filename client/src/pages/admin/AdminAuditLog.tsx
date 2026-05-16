@@ -18,7 +18,7 @@ export default function AdminAuditLog() {
     page,
     limit: 50,
     entityType: entityType === "all" ? undefined : entityType,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.wave25.auditLog.getStats.useQuery();
 
@@ -58,8 +58,7 @@ export default function AdminAuditLog() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
             </Button>
             <Button variant="outline" size="sm">
               <Download className="h-4 w-4 mr-1" /> Export CSV

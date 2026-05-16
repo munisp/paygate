@@ -30,9 +30,9 @@ export default function RefundWorkflow() {
     page,
     limit: 20,
     status: statusFilter === "all" ? undefined : statusFilter,
-  });
+  }, { staleTime: 30_000 });
 
-  const { data: refundHistory } = trpc.wave25.refunds.listRefunds.useQuery({ page: 1, limit: 20 });
+  const { data: refundHistory } = trpc.wave25.refunds.listRefunds.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
 
   const createRefund = trpc.wave25.refunds.createRefund.useMutation({
     onSuccess: () => {
@@ -148,8 +148,7 @@ export default function RefundWorkflow() {
                       {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString() : "—"}
                     </TableCell>
                     <TableCell>
-                      <Button size="sm" variant="outline" onClick={() => handleRefund(tx.id!)}>
-                        <RotateCcw className="h-3 w-3 mr-1" /> Refund
+                      <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => handleRefund(tx.id!)}><RotateCcw/> Refund
                       </Button>
                     </TableCell>
                   </TableRow>

@@ -50,7 +50,7 @@ const generateMockEvent = (): WebhookEvent => {
 
 export default function WebhookLiveStream() {
   // Real webhook deliveries from DB
-  const { data: realDeliveries, isLoading, isError } = trpc.webhookDeliveries.list.useQuery({ limit: 20 });
+  const { data: realDeliveries, isLoading, isError } = trpc.webhookDeliveries.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const [events, setEvents] = useState<WebhookEvent[]>(() =>
     Array.from({ length: 8 }, generateMockEvent)
   );
@@ -155,8 +155,7 @@ export default function WebhookLiveStream() {
           <p className="text-muted-foreground text-sm mt-1">Real-time webhook event monitoring</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEvents([])} className="gap-1">
-            <Trash2 className="w-3.5 h-3.5" /> Clear
+          <Button variant="outline" size="sm" aria-label="Delete" onClick={() => setEvents([])} className="gap-1"><Trash2/> Clear
           </Button>
           <Button
             size="sm"

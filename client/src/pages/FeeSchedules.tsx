@@ -21,7 +21,7 @@ export default function FeeSchedules() {
     page,
     limit: 20,
     transactionType: feeType || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const createMutation = trpc.feeSchedules.create.useMutation({
     onSuccess: () => { toast.success("Fee schedule created"); setCreateOpen(false); refetch(); },
@@ -214,9 +214,9 @@ export default function FeeSchedules() {
                       <td className="py-3 px-2 text-right">
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setEditTarget(s)}><Edit2 className="w-3 h-3" /></Button>
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => {
+                          <Button size="sm" variant="ghost" className="text-destructive" aria-label="Delete" onClick={() => {
                             if (confirm("Delete this fee schedule?")) deleteMutation.mutate({ id: s.id });
-                          }}><Trash2 className="w-3 h-3" /></Button>
+                          }}><Trash2/></Button>
                         </div>
                       </td>
                     </tr>

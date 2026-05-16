@@ -22,7 +22,7 @@ export default function PortfolioRebalancing() {
     status,
     page,
     limit: 20,
-  });
+  }, { staleTime: 30_000 });
 
   const cancelOrder = trpc.portfolioRebalancingEnhanced.cancelOrder.useMutation({
     onSuccess: () => { toast.success("Order cancelled"); refetch(); },
@@ -49,8 +49,7 @@ export default function PortfolioRebalancing() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">View and manage portfolio rebalancing orders</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

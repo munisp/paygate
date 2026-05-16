@@ -14,7 +14,7 @@ export default function RegulatoryReporting() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ reportType: "CBN_RETURNS", period: "", regulator: "CBN" });
 
-  const { data, isLoading, refetch } = trpc.wave80.regulatoryReporting.listReports.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.regulatoryReporting.listReports.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.regulatoryReporting.getStats.useQuery();
 
   const createReport = trpc.wave80.regulatoryReporting.createReport.useMutation({

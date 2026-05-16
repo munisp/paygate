@@ -21,7 +21,7 @@ export default function LoyaltyProgram() {
   const { data: history, isLoading: histLoading, isError, refetch } = trpc.loyalty.history.useQuery({
     limit,
     offset: page * limit,
-  });
+  }, { staleTime: 30_000 });
 
   const formatPoints = (p: number) => p.toLocaleString();
 
@@ -32,8 +32,7 @@ export default function LoyaltyProgram() {
           <h1 className="text-2xl font-bold text-foreground">Loyalty Program</h1>
           <p className="text-muted-foreground text-sm mt-1">Points balance, tier status, and transaction history</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

@@ -12,9 +12,9 @@ export default function TaxWithholding() {
   const [txType, setTxType] = useState<"goods" | "services" | "rent" | "dividend" | "interest">("services");
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const year = parseInt(period.slice(0, 4));
-  const { isLoading, data: summary } = trpc.tier6to8.taxWithholding.getTaxSummary.useQuery({ year });
+  const { isLoading, data: summary } = trpc.tier6to8.taxWithholding.getTaxSummary.useQuery({ year }, { staleTime: 30_000 });
   const calcQuery = trpc.tier6to8.taxWithholding.calculateWithholding.useQuery(
-    { transactionAmountKobo: Math.round(parseFloat(txAmount || "0") * 100), transactionType: txType, vendorType: "company" },
+    { transactionAmountKobo: Math.round(parseFloat(txAmount || "0", { staleTime: 30_000 }) * 100), transactionType: txType, vendorType: "company" },
     { enabled: parseFloat(txAmount) > 0 }
   );
   const remitMutation = trpc.tier6to8.taxWithholding.remitTax.useMutation({

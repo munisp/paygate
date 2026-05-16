@@ -27,8 +27,8 @@ export default function TenantStripeBilling() {
   const tenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"; // demo tenant
   const [showUpgrade, setShowUpgrade] = useState(false);
 
-  const { data: customer, isLoading } = trpc.wave30.tenantStripeBilling.getCustomer.useQuery({ tenantId });
-  const { data: invoices } = trpc.wave30.tenantStripeBilling.getInvoiceHistory.useQuery({ tenantId, limit: 12 });
+  const { data: customer, isLoading } = trpc.wave30.tenantStripeBilling.getCustomer.useQuery({ tenantId }, { staleTime: 30_000 });
+  const { data: invoices } = trpc.wave30.tenantStripeBilling.getInvoiceHistory.useQuery({ tenantId, limit: 12 }, { staleTime: 30_000 });
   const { data: pricing } = trpc.wave30.tenantStripeBilling.getPlanPricing.useQuery();
 
   const generateInvoice = trpc.wave30.tenantStripeBilling.generateMonthlyInvoice.useMutation({

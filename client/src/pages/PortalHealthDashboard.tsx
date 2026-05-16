@@ -40,11 +40,11 @@ export default function PortalHealthDashboard() {
 
   const healthQuery = trpc.portalHealth.getSystemHealth.useQuery(undefined, {
     refetchInterval: healthInterval,
-  });
+  }, { staleTime: 30_000 });
   const goLiveQuery = trpc.portalHealth.getGoLiveStatus.useQuery();
   const rateLimitQuery = trpc.portalHealth.getRateLimitStats.useQuery(undefined, {
     refetchInterval: rateLimitInterval,
-  });
+  }, { staleTime: 30_000 });
   const depsQuery = trpc.portalHealth.getDependencyMap.useQuery();
   const isError = healthQuery.isError || goLiveQuery.isError;
 
@@ -70,15 +70,14 @@ export default function PortalHealthDashboard() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
+          aria-label="Refresh" onClick={() => {
             healthQuery.refetch();
             goLiveQuery.refetch();
             rateLimitQuery.refetch();
             depsQuery.refetch();
             toast.success("Refreshed");
           }}
-        >
-          <RefreshCw className={`w-4 h-4 mr-1 ${healthQuery.isFetching ? "animate-spin" : ""}`} />
+        ><RefreshCw/>
           Refresh All
         </Button>
       </div>

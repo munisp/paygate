@@ -23,10 +23,10 @@ export default function RemittanceV2() {
   const [purpose, setPurpose] = useState("FAMILY_SUPPORT");
 
   const corridorsQuery = trpc.tier6to8.remittanceV2.getCorridors.useQuery();
-  const historyQuery = trpc.tier6to8.remittanceV2.getRemittanceHistory.useQuery({ limit: 20 }, { enabled: !!user });
+  const historyQuery = trpc.tier6to8.remittanceV2.getRemittanceHistory.useQuery({ limit: 20 }, { enabled: !!user }, { staleTime: 30_000 });
 
   const quoteQuery = trpc.tier6to8.remittanceV2.getQuote.useQuery(
-    { fromCountry, toCountry, sendAmountKobo: Math.round(parseFloat(sendAmount || "0") * 100), deliveryMethod },
+    { fromCountry, toCountry, sendAmountKobo: Math.round(parseFloat(sendAmount || "0", { staleTime: 30_000 }) * 100), deliveryMethod },
     { enabled: !!user && !!sendAmount && parseFloat(sendAmount) > 0 }
   );
 
@@ -54,8 +54,7 @@ export default function RemittanceV2() {
           <h1 className="text-2xl font-bold">Cross-Border Remittance v2</h1>
           <p className="text-muted-foreground">Send money globally with real-time FX rates and instant settlement</p>
         </div>
-        <Button onClick={() => corridorsQuery.refetch()} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" /> Refresh Rates
+        <Button aria-label="Refresh" onClick={() => corridorsQuery.refetch()} variant="outline" size="sm"><RefreshCw/> Refresh Rates
         </Button>
       </div>
 

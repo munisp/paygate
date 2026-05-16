@@ -97,7 +97,7 @@ export default function Payouts() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const PAGE_SIZE = 20;
-  const exportQuery = trpc.payouts.export.useQuery(undefined, { enabled: false });
+  const exportQuery = trpc.payouts.export.useQuery(undefined, { enabled: false }, { staleTime: 30_000 });
 
   const handleExport = async () => {
     const result = await exportQuery.refetch();
@@ -210,7 +210,7 @@ export default function Payouts() {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={exportQuery.isFetching}>
             <Download className="w-4 h-4 mr-1.5" />{exportQuery.isFetching ? 'Exporting...' : 'Export CSV'}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-1.5" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
           <Button variant="outline" size="sm" onClick={() => { setShowApprovalSettings(s => !s); setShowForm(false); setShowBulk(false); }}>
             <Settings2 className="w-4 h-4 mr-1.5" />Approval
           </Button>

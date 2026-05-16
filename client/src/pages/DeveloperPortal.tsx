@@ -459,7 +459,7 @@ function WebhookEventLog() {
       limit: 20,
     },
     { refetchInterval: devPortalInterval }
-  );
+  , { staleTime: 30_000 });
 
   const retryMutation = trpc.webhookDeliveries.retry.useMutation({
     onSuccess: (data) => {
@@ -510,10 +510,9 @@ function WebhookEventLog() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => refetch()}
+              aria-label="Refresh" onClick={() => refetch()}
               className="h-7 w-7 text-slate-400 hover:text-white"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
+            ><RefreshCw/>
             </Button>
           </div>
         </div>
@@ -663,7 +662,7 @@ function SandboxRunner({ mode }: { mode: EnvMode }) {
   // Fetch loyalty balance for the entered email
   const { data: loyaltyBalance } = trpc.customers.getLoyaltyBalance.useQuery(
     { customerId: email },
-    { enabled: redeemEnabled && email.includes("@"), staleTime: 30_000 }
+    { enabled: redeemEnabled && email.includes("@", { staleTime: 30_000 }), staleTime: 30_000 }
   );
 
   const createTest = trpc.transactions.createTest.useMutation({

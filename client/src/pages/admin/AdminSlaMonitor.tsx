@@ -12,7 +12,7 @@ export default function AdminSlaMonitor() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { data, isLoading, isError, refetch } = trpc.adminSlaMonitor.getBreachMetrics.useQuery(undefined, {
     refetchInterval: adminSlaInterval,
-  });
+  }, { staleTime: 30_000 });
 
   const metrics = data?.metrics;
   const breached = data?.breachedSettlements ?? [];
@@ -34,8 +34,7 @@ export default function AdminSlaMonitor() {
             <h1 className="text-2xl font-bold text-gray-900">SLA Monitor</h1>
             <p className="text-sm text-gray-500 mt-1">Real-time settlement SLA breach tracking</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
             Refresh
           </Button>
         </div>

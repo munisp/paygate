@@ -40,7 +40,7 @@ export default function CouponManagement() {
     offset: page * limit,
     isActive: activeFilter === "all" ? undefined : activeFilter === "active",
     search: search || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.couponsMgmt.stats.useQuery();
 
@@ -184,7 +184,7 @@ export default function CouponManagement() {
             <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("activate")} disabled={isBulkLoading}><CheckCircle className="w-3 h-3 mr-1" /> Activate</Button>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("deactivate")} disabled={isBulkLoading}><XCircle className="w-3 h-3 mr-1" /> Deactivate</Button>
-            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setBulkAction("delete")} disabled={isBulkLoading}><Trash2 className="w-3 h-3 mr-1" /> Delete</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" aria-label="Delete" onClick={() => setBulkAction("delete")} disabled={isBulkLoading}><Trash2/> Delete</Button>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>Clear</Button>
           </div>
         )}
@@ -260,10 +260,9 @@ export default function CouponManagement() {
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
-                          onClick={() => deleteMutation.mutate({ id: r.id })}
+                          aria-label="Delete" onClick={() => deleteMutation.mutate({ id: r.id })}
                           disabled={deleteMutation.isPending}
-                        >
-                          <Trash2 className="w-4 h-4" />
+                        ><Trash2/>
                         </Button>
                       </div>
                     </TableCell>

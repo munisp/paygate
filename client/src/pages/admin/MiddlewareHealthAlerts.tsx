@@ -27,7 +27,7 @@ export default function MiddlewareHealthAlerts() {
   const { data: alertsData, refetch, isLoading } = trpc.wave31.middlewareHealthAlert.list.useQuery({
     status: statusFilter,
     service: serviceFilter,
-  });
+  }, { staleTime: 30_000 });
   const { data: summaryData } = trpc.wave31.middlewareHealthAlert.getHealthSummary.useQuery();
 
   const acknowledge = trpc.wave31.middlewareHealthAlert.acknowledge.useMutation({

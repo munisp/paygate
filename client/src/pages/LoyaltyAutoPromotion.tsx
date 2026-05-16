@@ -26,8 +26,8 @@ const TIER_ICONS: Record<string, string> = {
 export default function LoyaltyAutoPromotion() {
   const userId = 1;
 
-  const { data: account, isLoading } = trpc.wave29.loyalty.getConsumerPoints.useQuery({ userId });
-  const { data: history } = trpc.wave29.loyalty.getPromotionHistory.useQuery({ userId });
+  const { data: account, isLoading } = trpc.wave29.loyalty.getConsumerPoints.useQuery({ userId }, { staleTime: 30_000 });
+  const { data: history } = trpc.wave29.loyalty.getPromotionHistory.useQuery({ userId }, { staleTime: 30_000 });
 
   const runPromotion = trpc.wave29.loyalty.runPromotion.useMutation({
     onSuccess: (data) => {
@@ -76,10 +76,9 @@ export default function LoyaltyAutoPromotion() {
           </Button>
           <Button
             size="sm"
-            onClick={() => runBatch.mutate()}
+            aria-label="Refresh" onClick={() => runBatch.mutate()}
             disabled={runBatch.isPending}
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
+          ><RefreshCw/>
             Run Batch Promotion
           </Button>
         </div>

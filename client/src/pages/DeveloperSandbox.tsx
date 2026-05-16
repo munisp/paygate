@@ -288,8 +288,7 @@ export default function DeveloperSandbox() {
                           </Badge>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => handleCopyKey(key.keyPrefix + "...")}>
-                        <Copy className="h-3 w-3 mr-1" />
+                      <Button variant="outline" size="sm" aria-label="Copy" onClick={() => handleCopyKey(key.keyPrefix + "...")}><Copy/>
                         Copy
                       </Button>
                     </div>

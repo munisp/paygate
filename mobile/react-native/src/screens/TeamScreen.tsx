@@ -1,254 +1,112 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, FlatList, RefreshControl, Alert } from 'react-native';
-import { useTrpc } from '../hooks/useTrpc';
-
-interface TeamMember {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-}
-
-const TeamScreen: React.FC = () => {
-  const { query, mutation } = useTrpc();
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchTeamMembers = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await query.team.list.query();
-      setTeamMembers(data as TeamMember[]); // Assuming data matches TeamMember[] structure
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch team members.');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [query.team.list]);
-
-  useEffect(() => {
-    fetchTeamMembers();
-  }, [fetchTeamMembers]);
-
-  const onRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    fetchTeamMembers();
-  }, [fetchTeamMembers]);
-
-  const handleInviteMember = () => {
-    Alert.alert('Invite Member', 'Invite member functionality goes here.');
-    // Implement actual invite logic using mutation.team.invite.mutate() if available
-  };
-
-  const handleRemoveMember = (memberId: string) => {
-    Alert.alert(
-      'Remove Member',
-      `Are you sure you want to remove member ${memberId}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', onPress: () => {
-            // Implement actual remove logic using mutation.team.remove.mutate() if available
-            Alert.alert('Removed', `Member ${memberId} removed.`);
-          }
-        },
-      ]
-    );
-  };
-
-  const renderTeamMember = ({ item }: { item: TeamMember }) => (
-    <View style={styles.card}>
-      <View style={styles.memberInfo}>
-        <Text style={styles.memberName}>{item.name}</Text>
-        <Text style={styles.memberEmail}>{item.email}</Text>
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>{item.role}</Text>
-        </View>
-      </View>
-      <TouchableOpacity
-        style={styles.removeButton}
-        onPress={() => handleRemoveMember(item.id)}
-      >
-        <Text style={styles.removeButtonText}>Remove</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  if (isLoading && !isRefreshing) {
-    return (
-      <View style={styles.centeredContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading team members...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.centeredContainer}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchTeamMembers}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (teamMembers.length === 0) {
-    return (
-      <ScrollView
-        contentContainerStyle={styles.centeredContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-      >
-        <Text style={styles.emptyText}>No team members found. Invite new members to get started!</Text>
-        <TouchableOpacity style={styles.inviteButton} onPress={handleInviteMember}>
-          <Text style={styles.inviteButtonText}>Invite New Member</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={teamMembers}
-        keyExtractor={(item) => item.id}
-        renderItem={renderTeamMember}
-        contentContainerStyle={styles.listContentContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-        ListHeaderComponent={(
-          <TouchableOpacity style={styles.inviteButton} onPress={handleInviteMember}>
-            <Text style={styles.inviteButtonText}>Invite New Member</Text>
-          </TouchableOpacity>
-        )}
-      />
-    </View>
-  );
-};
+import React, { useState } from 'react';
+import {
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  ActivityIndicator, RefreshControl, SafeAreaView, StatusBar, Alert,
+} from 'react-native';
+import { trpc } from '../lib/trpc';
 
 const colors = {
-  primary: '#6366f1',
-  background: '#0f172a',
-  card: '#1e293b',
-  text: 'white',
-  subtext: '#94a3b8',
+  primary: '#6366F1', background: '#0F172A', card: '#1E293B',
+  text: '#F1F5F9', muted: '#94A3B8', success: '#10B981',
+  error: '#EF4444', border: '#334155', warning: '#F59E0B',
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    padding: 20,
-  },
-  listContentContainer: {
-    padding: 20,
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  memberInfo: {
-    flex: 1,
-  },
-  memberName: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  memberEmail: {
-    color: colors.subtext,
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  roleBadge: {
-    backgroundColor: colors.primary,
-    borderRadius: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    alignSelf: 'flex-start',
-  },
-  roleText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  removeButton: {
-    backgroundColor: '#dc2626', // A red color for remove action
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  removeButtonText: {
-    color: colors.text,
-    fontWeight: 'bold',
-  },
-  loadingText: {
-    color: colors.subtext,
-    marginTop: 10,
-    fontSize: 16,
-  },
-  errorText: {
-    color: '#ef4444', // A red color for error
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  emptyText: {
-    color: colors.subtext,
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  retryButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  retryButtonText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  inviteButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    alignSelf: 'center',
-    marginVertical: 10,
-  },
-  inviteButtonText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-});
+const ROLE_COLORS: Record<string, string> = {
+  admin: '#6366F1', manager: '#8B5CF6', developer: '#06B6D4',
+  viewer: '#94A3B8', owner: '#F59E0B',
+};
 
-export default TeamScreen;
+export default function TeamScreen() {
+  const utils = trpc.useUtils();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { data, isLoading, isError, refetch } = trpc.teamMembers.list.useQuery({ page: 1, limit: 50 });
+
+  const removeMutation = trpc.teamMembers.remove.useMutation({
+    onSuccess: () => { utils.teamMembers.list.invalidate(); Alert.alert('Success', 'Member removed'); },
+    onError: (err: any) => Alert.alert('Error', err.message),
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  const members = (data as any)?.members ?? (data as any)?.data ?? [];
+
+  if (isLoading) return (
+    <View style={[styles.container, styles.center]}>
+      <ActivityIndicator color={colors.primary} size="large" />
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+      >
+        <Text style={styles.title}>Team Members</Text>
+        <Text style={styles.subtitle}>{members.length} member{members.length !== 1 ? 's' : ''}</Text>
+
+        {isError && <Text style={styles.error}>Failed to load team members</Text>}
+
+        {members.map((m: any) => (
+          <View key={m.id} style={styles.card}>
+            <View style={styles.row}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{(m.name ?? m.email ?? '?')[0].toUpperCase()}</Text>
+              </View>
+              <View style={styles.info}>
+                <Text style={styles.name}>{m.name ?? m.email}</Text>
+                <Text style={styles.email}>{m.email}</Text>
+              </View>
+              <View style={[styles.badge, { backgroundColor: ROLE_COLORS[m.role] ?? colors.muted }]}>
+                <Text style={styles.badgeText}>{m.role}</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.removeBtn}
+              onPress={() => Alert.alert('Remove Member', `Remove ${m.name ?? m.email}?`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: () => removeMutation.mutate({ id: m.id }) },
+              ])}
+            >
+              <Text style={styles.removeBtnText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+
+        {members.length === 0 && !isLoading && (
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>No team members yet</Text>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  center: { justifyContent: 'center', alignItems: 'center' },
+  content: { padding: 20 },
+  title: { fontSize: 24, fontWeight: '700', color: colors.text, marginBottom: 4 },
+  subtitle: { fontSize: 14, color: colors.muted, marginBottom: 20 },
+  error: { color: colors.error, marginBottom: 12 },
+  card: { backgroundColor: colors.card, borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
+  avatarText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  info: { flex: 1 },
+  name: { fontSize: 15, fontWeight: '600', color: colors.text },
+  email: { fontSize: 12, color: colors.muted },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  removeBtn: { marginTop: 10, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.error, alignItems: 'center' },
+  removeBtnText: { color: colors.error, fontSize: 13, fontWeight: '600' },
+  empty: { alignItems: 'center', paddingVertical: 40 },
+  emptyText: { color: colors.muted, fontSize: 16 },
+});

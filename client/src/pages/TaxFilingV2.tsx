@@ -18,7 +18,7 @@ export default function TaxFilingV2() {
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ taxType: "vat", period: "", taxableAmount: "", taxAmount: "" });
 
-  const { data, isLoading } = trpc.taxFilingV2.list.useQuery({ page });
+  const { data, isLoading } = trpc.taxFilingV2.list.useQuery({ page }, { staleTime: 30_000 });
 
   const create = trpc.taxFilingV2.create.useMutation({
     onSuccess: () => { utils.taxFilingV2.list.invalidate(); setAddOpen(false); toast({ title: "Tax filing created" }); },

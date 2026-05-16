@@ -17,8 +17,8 @@ export default function RealtimeNotifications() {
   const [tab, setTab] = useState("preferences");
 
   const { data: prefsData, refetch: refetchPrefs } = trpc.wave80.realtimeNotifications.getPreferences.useQuery();
-  const { data: historyData, isLoading: loadingHistory } = trpc.wave80.realtimeNotifications.getNotificationHistory.useQuery({});
-  const { data: statsData } = trpc.wave80.realtimeNotifications.getDeliveryStats.useQuery({});
+  const { data: historyData, isLoading: loadingHistory } = trpc.wave80.realtimeNotifications.getNotificationHistory.useQuery({}, { staleTime: 30_000 });
+  const { data: statsData } = trpc.wave80.realtimeNotifications.getDeliveryStats.useQuery({}, { staleTime: 30_000 });
 
   const updatePrefs = trpc.wave80.realtimeNotifications.updatePreferences.useMutation({
     onSuccess: () => { toast.success("Preferences saved"); refetchPrefs(); },

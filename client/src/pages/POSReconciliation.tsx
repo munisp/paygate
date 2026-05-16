@@ -57,7 +57,7 @@ export default function POSReconciliation() {
     channel,
   }), [from, to, channel]);
 
-  const { data, isLoading, isError, refetch } = trpc.pos.reconciliationReport.useQuery(queryInput);
+  const { data, isLoading, isError, refetch } = trpc.pos.reconciliationReport.useQuery(queryInput, { staleTime: 30_000 });
 
   function downloadCsv() {
     if (!data?.csv) return;
@@ -89,8 +89,7 @@ export default function POSReconciliation() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
             Refresh
           </Button>
           <Button size="sm" onClick={downloadCsv} disabled={!data?.csv}>

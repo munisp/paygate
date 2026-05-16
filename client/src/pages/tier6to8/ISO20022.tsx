@@ -12,7 +12,7 @@ export default function ISO20022() {
   const [msgType, setMsgType] = useState("pacs.008");
   const [targetBIC, setTargetBIC] = useState("GTBINGLA");
   const [payload, setPayload] = useState("");
-  const { isLoading, data: messages, refetch } = trpc.tier6to8.iso20022.getMessages.useQuery({ direction: "all", limit: 20 });
+  const { isLoading, data: messages, refetch } = trpc.tier6to8.iso20022.getMessages.useQuery({ direction: "all", limit: 20 }, { staleTime: 30_000 });
   const sendMutation = trpc.tier6to8.iso20022.sendMessage.useMutation({
     onSuccess: (d: any) => { toast.success(`Message sent — MsgId: ${d.messageId}`); refetch(); },
     onError: (e: any) => toast.error(e.message),

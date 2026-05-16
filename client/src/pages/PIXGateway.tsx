@@ -88,11 +88,11 @@ export default function PIXGateway() {
   const validateQuery = trpc.crossBorder.pix.validateKey.useQuery(
     { pixKey, keyType },
     { enabled: step === "validate" && pixKey.length >= 3 }
-  );
+  , { staleTime: 30_000 });
 
   const quoteQuery = trpc.crossBorder.pix.getQuote.useQuery(
     { sourceCurrency, amount: amount || "0" },
-    { enabled: step === "quote" && !!amount && parseFloat(amount) > 0 }
+    { enabled: step === "quote" && !!amount && parseFloat(amount, { staleTime: 30_000 }) > 0 }
   );
 
   const initiateMutation = trpc.crossBorder.initiate.useMutation({
@@ -225,8 +225,7 @@ export default function PIXGateway() {
                     className="flex-1 px-3 py-2.5 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                   />
                   {pixKey && (
-                    <Button variant="outline" size="sm" onClick={handleCopyKey}>
-                      <Copy className="w-4 h-4" />
+                    <Button variant="outline" size="sm" aria-label="Copy" onClick={handleCopyKey}><Copy/>
                     </Button>
                   )}
                 </div>

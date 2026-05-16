@@ -79,8 +79,7 @@ export default function AdminSettlementSLA() {
           <Button variant="outline" size="sm" onClick={() => sendAlertsMutation.mutate()} disabled={sendAlertsMutation.isPending}>
             <Bell className="w-4 h-4 mr-2" />{sendAlertsMutation.isPending ? "Sending…" : "Alert Compliance"}
           </Button>
-          <Button size="sm" onClick={() => triggerSettlementMutation.mutate({})} disabled={triggerSettlementMutation.isPending}>
-            <RefreshCw className="w-4 h-4 mr-2" />{triggerSettlementMutation.isPending ? "Running…" : "Force Settle"}
+          <Button size="sm" aria-label="Refresh" onClick={() => triggerSettlementMutation.mutate({})} disabled={triggerSettlementMutation.isPending}><RefreshCw/>{triggerSettlementMutation.isPending ? "Running…" : "Force Settle"}
           </Button>
         </div>
       </div>
@@ -117,7 +116,7 @@ export default function AdminSettlementSLA() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center justify-between">
                 Live SLA Breaches (DB)
-                <Button variant="outline" size="sm" onClick={() => refetchSla()}><RefreshCw className="w-4 h-4 mr-1" />Refresh</Button>
+                <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchSla()}><RefreshCw/>Refresh</Button>
               </CardTitle>
               <CardDescription>Real-time SLA breach data from the database</CardDescription>
             </CardHeader>

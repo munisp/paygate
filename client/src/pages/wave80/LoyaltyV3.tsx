@@ -14,7 +14,7 @@ export default function LoyaltyV3() {
   const [form, setForm] = useState({ customerId: "", customerEmail: "", points: "100" });
 
   const { data: programData } = trpc.wave80.loyaltyV3.getProgram.useQuery();
-  const { data: membersData, isLoading: loadingMembers, refetch } = trpc.wave80.loyaltyV3.listMembers.useQuery({});
+  const { data: membersData, isLoading: loadingMembers, refetch } = trpc.wave80.loyaltyV3.listMembers.useQuery({}, { staleTime: 30_000 });
 
   const awardPoints = trpc.wave80.loyaltyV3.awardPoints.useMutation({
     onSuccess: () => { toast.success("Points awarded"); setAwardOpen(false); refetch(); },

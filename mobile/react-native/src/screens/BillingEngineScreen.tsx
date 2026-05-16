@@ -1,243 +1,126 @@
-/**
- * PayGate Merchant Portal — Billing Engine Screen (React Native)
- * Displays billing configurations, fee schedules, and billing events.
- */
-import React, { useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-  ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
-} from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import React, { useState, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, SafeAreaView, StatusBar, TouchableOpacity } from 'react-native';
 import { trpc } from "../lib/trpc";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 
-const colors = {
-  primary: "#6366F1",
-  background: "#0F172A",
-  card: "#1E293B",
-  text: "#F1F5F9",
-  muted: "#94A3B8",
-  border: "#334155",
-  success: "#22C55E",
-  warning: "#F59E0B",
-  error: "#EF4444",
-  accent: "#8B5CF6",
-};
+const C = { primary: '#6366F1', bg: '#0F172A', card: '#1E293B', text: '#F1F5F9', muted: '#94A3B8', success: '#10B981', error: '#EF4444', border: '#334155', warning: '#F59E0B' };
 
-interface BillingConfig {
-  id: string;
-  tier: string;
-  flatFeeKobo: number;
-  percentageBps: number;
-  capKobo: number;
-  isActive: boolean;
-}
+/** NGN kobo formatter — 1 NGN = 100 kobo */
+const fmtNGN = (kobo: number) => `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
 
-interface BillingEvent {
-  id: string;
-  eventType: string;
-  merchantId: string;
-  amountKobo: number;
-  feeKobo: number;
-  status: string;
-  createdAt: string;
-}
-
-// Static fallback configs shown when no DB config is provisioned yet
-const FALLBACK_CONFIGS: BillingConfig[] = [
-  { id: "starter", tier: "Starter", flatFeeKobo: 10000, percentageBps: 150, capKobo: 500000, isActive: true },
-  { id: "growth", tier: "Growth", flatFeeKobo: 5000, percentageBps: 100, capKobo: 300000, isActive: true },
-  { id: "enterprise", tier: "Enterprise", flatFeeKobo: 0, percentageBps: 75, capKobo: 200000, isActive: true },
+const FALLBACK_CONFIGS = [
+  { id: 'starter', tier: 'Starter', description: 'For early-stage merchants', transactionFeePercent: 1.5, flatFeeKobo: 10000, monthlyCapKobo: 500000, features: ['Basic dashboard', 'Standard support', 'Up to 500 txns/day'] },
+  { id: 'growth', tier: 'Growth', description: 'For growing businesses', transactionFeePercent: 1.2, flatFeeKobo: 7500, monthlyCapKobo: 2000000, features: ['Advanced analytics', 'Priority support', 'Up to 5,000 txns/day', 'Webhooks'] },
+  { id: 'enterprise', tier: 'Enterprise', description: 'For large-scale operations', transactionFeePercent: 0.8, flatFeeKobo: 5000, monthlyCapKobo: 0, features: ['Custom integrations', 'Dedicated support', 'Unlimited txns', 'SLA guarantee'] },
 ];
 
-function fmtNGN(kobo: number): string {
-  return `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function fmtBps(bps: number): string {
-  return `${(bps / 100).toFixed(2)}%`;
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const hours = Math.floor(diff / 3600000);
-  if (hours < 1) return "Just now";
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
+type Tab = 'summary' | 'configs' | 'events';
 
 export default function BillingEngineScreen() {
-  const navigation = useNavigation();
   const { user } = useAuth();
-  const tenantId = user ? String(user.id) : "";
-  const [activeTab, setActiveTab] = useState<"configs" | "events">("configs");
+  const [activeTab, setActiveTab] = useState<Tab>('summary');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Real tRPC data — billing config and events wired to authenticated merchant
-  const { data: activeConfig, isLoading: configLoading, refetch: refetchConfig } =
-    (trpc as any)["billing"]?.["getActive"]?.useQuery?.({ tenantId }) ??
+  // Use auth user id as tenantId — user.id or user.openId mapped to tenantId
+  const tenantId = (user?.id ?? user?.openId) || user?.merchantId ?? '';
+
+  const { data: configData, isLoading: configLoading, refetch: refetchConfig } =
+    // tRPC: "billing"."getActive" query for active billing config
+  (trpc as any).billing?.getActive?.useQuery?.({ tenantId }, { enabled: !!tenantId }) ??
     { data: null, isLoading: false, refetch: async () => {} };
 
   const { data: eventsData, isLoading: eventsLoading, refetch: refetchEvents } =
-    (trpc as any)["billing"]?.["listBillingEvents"]?.useQuery?.({ tenantId, limit: 50 }) ??
-    { data: [], isLoading: false, refetch: async () => {} };
-
-  const liveEvents: BillingEvent[] = (eventsData ?? []).map((e: any) => ({
-    id: e.id,
-    eventType: e.eventType ?? "transaction",
-    merchantId: e.merchantId ?? "",
-    amountKobo: e.transactionAmountKobo ?? e.amountKobo ?? 0,
-    feeKobo: e.grossFeeKobo ?? e.feeKobo ?? 0,
-    status: e.status ?? "unknown",
-    createdAt: e.occurredAt ?? e.createdAt ?? new Date().toISOString(),
-  }));
-
-  const displayConfigs: BillingConfig[] = activeConfig
-    ? [{ id: activeConfig.id ?? "active", tier: activeConfig.tier ?? "custom", flatFeeKobo: activeConfig.feeCapKobo ?? 0, percentageBps: Math.round((activeConfig.feeRate ?? 0) * 10000), capKobo: activeConfig.feeCapKobo ?? 0, isActive: true }]
-    : FALLBACK_CONFIGS;
-
-  const displayEvents: BillingEvent[] = liveEvents.length > 0 ? liveEvents : [];
-
-  const isLoading = configLoading || eventsLoading;
+    // tRPC: "billing"."listBillingEvents" query for billing event history
+  (trpc as any).billing?.listBillingEvents?.useQuery?.({ tenantId, limit: 50 }, { enabled: !!tenantId }) ??
+    { data: null, isLoading: false, refetch: async () => {} };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await Promise.all([refetchConfig(), refetchEvents()]);
-    } finally {
-      setRefreshing(false);
-    }
+    await Promise.all([refetchConfig(), refetchEvents()]);
+    setRefreshing(false);
   }, [refetchConfig, refetchEvents]);
 
-  // Derive live summary metrics
-  const feesToday = displayEvents
-    .filter(e => new Date(e.createdAt).toDateString() === new Date().toDateString())
-    .reduce((s, e) => s + e.feeKobo, 0);
-  const pendingCount = displayEvents.filter(e => e.status === "pending").length;
+  const displayConfigs = (configData as any)?.configs?.length ? (configData as any).configs : FALLBACK_CONFIGS;
+  const displayEvents: any[] = (eventsData as any)?.events ?? (eventsData as any)?.data ?? [];
+
+  const today = new Date().toDateString();
+  const feesToday = displayEvents.filter((e: any) => new Date(e.createdAt ?? e.timestamp).toDateString() === today).reduce((sum: number, e: any) => sum + Number(e.amountKobo ?? e.amount ?? 0), 0);
+  const pendingCount = displayEvents.filter((e: any) => e.status === 'pending').length;
+  const activeTiers = displayConfigs.length;
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'summary', label: 'Summary' },
+    { key: 'configs', label: 'Fee Schedules' },
+    { key: 'events', label: 'Billing Events' },
+  ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Billing Engine</Text>
-        <Text style={styles.headerSubtitle}>Fee schedules & billing events</Text>
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <View style={s.header}>
+        <Text style={s.title}>Billing Engine</Text>
+        {(configLoading || eventsLoading) && <ActivityIndicator color={C.primary} size="small" />}
       </View>
-
-      {/* Summary Cards */}
-      <View style={styles.summaryRow}>
-        <View style={[styles.summaryCard, { borderLeftColor: colors.primary }]}>
-          <Text style={styles.summaryValue}>{displayConfigs.length}</Text>
-          <Text style={styles.summaryLabel}>Active Tiers</Text>
-        </View>
-        <View style={[styles.summaryCard, { borderLeftColor: colors.success }]}>
-          <Text style={styles.summaryValue}>{fmtNGN(feesToday)}</Text>
-          <Text style={styles.summaryLabel}>Fees Today</Text>
-        </View>
-        <View style={[styles.summaryCard, { borderLeftColor: colors.warning }]}>
-          <Text style={styles.summaryValue}>{pendingCount}</Text>
-          <Text style={styles.summaryLabel}>Pending</Text>
-        </View>
+      <View style={s.tabBar}>
+        {tabs.map(tab => (
+          <TouchableOpacity key={tab.key} style={[s.tab, activeTab === tab.key && s.tabActive]} onPress={() => setActiveTab(tab.key)}>
+            <Text style={[s.tabText, activeTab === tab.key && s.tabTextActive]}>{tab.label}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
-
-      {/* Tab Switcher */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "configs" && styles.tabActive]}
-          onPress={() => setActiveTab("configs")}
-        >
-          <Text style={[styles.tabText, activeTab === "configs" && styles.tabTextActive]}>
-            Fee Schedules
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "events" && styles.tabActive]}
-          onPress={() => setActiveTab("events")}
-        >
-          <Text style={[styles.tabText, activeTab === "events" && styles.tabTextActive]}>
-            Billing Events
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
-        ) : activeTab === "configs" ? (
-          <View style={styles.section}>
-            {displayConfigs.map((config) => (
-              <View key={config.id} style={styles.configCard}>
-                <View style={styles.configHeader}>
-                  <Text style={styles.configTier}>{config.tier}</Text>
-                  <View style={[styles.badge, config.isActive ? styles.badgeSuccess : styles.badgeMuted]}>
-                    <Text style={styles.badgeText}>{config.isActive ? "Active" : "Inactive"}</Text>
-                  </View>
-                </View>
-                <View style={styles.configGrid}>
-                  <View style={styles.configItem}>
-                    <Text style={styles.configLabel}>Flat Fee</Text>
-                    <Text style={styles.configValue}>{fmtNGN(config.flatFeeKobo)}</Text>
-                  </View>
-                  <View style={styles.configItem}>
-                    <Text style={styles.configLabel}>Rate</Text>
-                    <Text style={styles.configValue}>{fmtBps(config.percentageBps)}</Text>
-                  </View>
-                  <View style={styles.configItem}>
-                    <Text style={styles.configLabel}>Cap</Text>
-                    <Text style={styles.configValue}>{fmtNGN(config.capKobo)}</Text>
-                  </View>
-                </View>
+      <ScrollView contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} />}>
+        {activeTab === 'summary' && (
+          <View>
+            <View style={s.metricsRow}>
+              <View style={s.metricCard}><Text style={s.metricLabel}>Active Tiers</Text><Text style={s.metricValue}>{activeTiers}</Text></View>
+              <View style={s.metricCard}><Text style={s.metricLabel}>Fees Today</Text><Text style={s.metricValue}>{fmtNGN(feesToday)}</Text></View>
+              <View style={s.metricCard}><Text style={s.metricLabel}>Pending</Text><Text style={s.metricValue}>{pendingCount}</Text></View>
+            </View>
+            <Text style={s.sectionTitle}>Tier Overview</Text>
+            {displayConfigs.map((cfg: any) => (
+              <View key={cfg.id ?? cfg.tier} style={s.tierCard}>
+                <View style={s.row}><Text style={s.tierName}>{cfg.tier ?? cfg.name}</Text><Text style={s.tierFee}>{cfg.transactionFeePercent ?? 0}%</Text></View>
+                <Text style={s.tierDesc}>{cfg.description ?? ''}</Text>
+                <Text style={s.tierKobo}>Flat fee: {fmtNGN(cfg.flatFeeKobo ?? 0)} (kobo: {cfg.flatFeeKobo ?? 0})</Text>
+                {(cfg.features ?? []).map((f: string, i: number) => <Text key={i} style={s.tierFeature}>• {f}</Text>)}
               </View>
             ))}
           </View>
-        ) : (
-          <View style={styles.section}>
-            {displayEvents.length === 0 ? (
-              <View style={{ alignItems: "center", paddingVertical: 40 }}>
-                <Text style={{ color: colors.muted, fontSize: 14 }}>No billing events yet.</Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Events appear once transactions are processed.</Text>
-              </View>
-            ) : displayEvents.map((event) => (
-              <View key={event.id} style={styles.eventCard}>
-                <View style={styles.eventHeader}>
-                  <Text style={styles.eventType}>{event.eventType}</Text>
-                  <View style={[
-                    styles.badge,
-                    event.status === "processed" ? styles.badgeSuccess : styles.badgeWarning,
-                  ]}>
-                    <Text style={styles.badgeText}>{event.status}</Text>
-                  </View>
-                </View>
-                <View style={styles.eventDetails}>
-                  <View style={styles.eventRow}>
-                    <Text style={styles.eventLabel}>Amount</Text>
-                    <Text style={styles.eventValue}>{fmtNGN(event.amountKobo)}</Text>
-                  </View>
-                  <View style={styles.eventRow}>
-                    <Text style={styles.eventLabel}>Fee</Text>
-                    <Text style={[styles.eventValue, { color: colors.primary }]}>{fmtNGN(event.feeKobo)}</Text>
-                  </View>
-                  <View style={styles.eventRow}>
-                    <Text style={styles.eventLabel}>Merchant</Text>
-                    <Text style={styles.eventValue}>{event.merchantId}</Text>
-                  </View>
-                  <View style={styles.eventRow}>
-                    <Text style={styles.eventLabel}>Time</Text>
-                    <Text style={styles.eventValue}>{timeAgo(event.createdAt)}</Text>
-                  </View>
-                </View>
+        )}
+        {activeTab === 'configs' && (
+          <View>
+            <Text style={s.sectionTitle}>Fee Schedules</Text>
+            {displayConfigs.map((cfg: any) => (
+              <View key={cfg.id ?? cfg.tier} style={s.card}>
+                <Text style={s.cardTitle}>{cfg.tier ?? cfg.name}</Text>
+                <View style={s.row}><Text style={s.label}>Transaction Fee</Text><Text style={s.value}>{cfg.transactionFeePercent ?? 0}%</Text></View>
+                <View style={s.row}><Text style={s.label}>Flat Fee (kobo)</Text><Text style={s.value}>{cfg.flatFeeKobo ?? 0} kobo = {fmtNGN(cfg.flatFeeKobo ?? 0)}</Text></View>
+                <View style={s.row}><Text style={s.label}>Monthly Cap</Text><Text style={s.value}>{cfg.monthlyCapKobo ? fmtNGN(cfg.monthlyCapKobo) : 'Unlimited'}</Text></View>
               </View>
             ))}
+          </View>
+        )}
+        {activeTab === 'events' && (
+          <View>
+            <Text style={s.sectionTitle}>Billing Events</Text>
+            {displayEvents.length === 0 ? (
+              <View style={s.emptyState}>
+                <Text style={s.emptyIcon}>📋</Text>
+                <Text style={s.emptyText}>No billing events yet</Text>
+                <Text style={s.emptySubtext}>Events will appear here once transactions are processed</Text>
+              </View>
+            ) : (
+              displayEvents.map((evt: any, idx: number) => (
+                <View key={evt.id ?? idx} style={s.card}>
+                  <View style={s.row}>
+                    <Text style={s.cardTitle}>{evt.eventType ?? evt.type ?? 'Billing Event'}</Text>
+                    <View style={[s.badge, { backgroundColor: evt.status === 'settled' ? C.success : C.warning }]}><Text style={s.badgeText}>{evt.status ?? 'pending'}</Text></View>
+                  </View>
+                  <Text style={s.value}>{fmtNGN(evt.amountKobo ?? evt.amount ?? 0)}</Text>
+                  <Text style={s.muted}>{new Date(evt.createdAt ?? evt.timestamp).toLocaleString()}</Text>
+                </View>
+              ))
+            )}
           </View>
         )}
       </ScrollView>
@@ -245,42 +128,39 @@ export default function BillingEngineScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { padding: 20, paddingTop: 16, paddingBottom: 12 },
-  headerTitle: { fontSize: 24, fontWeight: "700", color: colors.text },
-  headerSubtitle: { fontSize: 13, color: colors.muted, marginTop: 2 },
-  summaryRow: { flexDirection: "row", paddingHorizontal: 16, gap: 8, marginBottom: 12 },
-  summaryCard: {
-    flex: 1, backgroundColor: colors.card, borderRadius: 10, padding: 12,
-    borderLeftWidth: 3,
-  },
-  summaryValue: { fontSize: 18, fontWeight: "700", color: colors.text },
-  summaryLabel: { fontSize: 11, color: colors.muted, marginTop: 2 },
-  tabBar: { flexDirection: "row", marginHorizontal: 16, marginBottom: 12, backgroundColor: colors.card, borderRadius: 8, padding: 4 },
-  tab: { flex: 1, paddingVertical: 8, alignItems: "center", borderRadius: 6 },
-  tabActive: { backgroundColor: colors.primary },
-  tabText: { fontSize: 13, fontWeight: "500", color: colors.muted },
-  tabTextActive: { color: colors.text },
-  content: { flex: 1 },
-  section: { paddingHorizontal: 16, gap: 10 },
-  configCard: { backgroundColor: colors.card, borderRadius: 12, padding: 16, marginBottom: 2 },
-  configHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  configTier: { fontSize: 16, fontWeight: "700", color: colors.text },
-  configGrid: { flexDirection: "row", gap: 8 },
-  configItem: { flex: 1 },
-  configLabel: { fontSize: 11, color: colors.muted, marginBottom: 2 },
-  configValue: { fontSize: 14, fontWeight: "600", color: colors.text },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
+  title: { fontSize: 22, fontWeight: '700', color: C.text },
+  tabBar: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, marginHorizontal: 2 },
+  tabActive: { backgroundColor: C.primary },
+  tabText: { fontSize: 12, color: C.muted, fontWeight: '500' },
+  tabTextActive: { color: '#fff', fontWeight: '700' },
+  content: { padding: 16, paddingBottom: 40 },
+  metricsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  metricCard: { flex: 1, backgroundColor: C.card, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border, alignItems: 'center' },
+  metricLabel: { fontSize: 11, color: C.muted, marginBottom: 4 },
+  metricValue: { fontSize: 18, fontWeight: '700', color: C.text },
+  sectionTitle: { fontSize: 16, fontWeight: '600', color: C.text, marginBottom: 12 },
+  tierCard: { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.border },
+  tierName: { fontSize: 16, fontWeight: '700', color: C.primary },
+  tierFee: { fontSize: 18, fontWeight: '800', color: C.text },
+  tierDesc: { fontSize: 12, color: C.muted, marginBottom: 6 },
+  tierKobo: { fontSize: 11, color: C.muted, marginBottom: 4 },
+  tierFeature: { fontSize: 12, color: C.text, marginTop: 2 },
+  card: { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  configCard: { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  eventCard: { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  cardTitle: { fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  label: { fontSize: 12, color: C.muted },
+  value: { fontSize: 13, color: C.text, fontWeight: '500' },
+  muted: { fontSize: 11, color: C.muted, marginTop: 4 },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeSuccess: { backgroundColor: "rgba(34,197,94,0.15)" },
-  badgeWarning: { backgroundColor: "rgba(245,158,11,0.15)" },
-  badgeMuted: { backgroundColor: "rgba(148,163,184,0.15)" },
-  badgeText: { fontSize: 11, fontWeight: "600", color: colors.text },
-  eventCard: { backgroundColor: colors.card, borderRadius: 12, padding: 14, marginBottom: 2 },
-  eventHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  eventType: { fontSize: 13, fontWeight: "600", color: colors.text, flex: 1, marginRight: 8 },
-  eventDetails: { gap: 6 },
-  eventRow: { flexDirection: "row", justifyContent: "space-between" },
-  eventLabel: { fontSize: 12, color: colors.muted },
-  eventValue: { fontSize: 12, fontWeight: "500", color: colors.text },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  emptyState: { alignItems: 'center', paddingVertical: 40 },
+  emptyIcon: { fontSize: 40, marginBottom: 12 },
+  emptyText: { fontSize: 16, fontWeight: '600', color: C.text, marginBottom: 6 },
+  emptySubtext: { fontSize: 13, color: C.muted, textAlign: 'center' },
 });

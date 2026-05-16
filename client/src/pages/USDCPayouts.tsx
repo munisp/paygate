@@ -182,7 +182,7 @@ function PayoutRow({ payout }: { payout: any }) {
   const { data: latest } = trpc.usdc.getPayoutStatus.useQuery(
     { payoutId: payout.id },
     {
-      enabled: ["pending", "reserved", "broadcasting", "confirming"].includes(payout.status),
+      enabled: ["pending", "reserved", "broadcasting", "confirming"].includes(payout.status, { staleTime: 30_000 }),
       refetchInterval: usdcPayoutsInterval,
     }
   );
@@ -308,8 +308,7 @@ function DepositsTab() {
     <div className="bg-card rounded-xl border border-border overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-border">
         <p className="text-sm font-medium">{deposits.length} deposit{deposits.length !== 1 ? "s" : ""}</p>
-        <Button variant="ghost" size="sm" onClick={() => refetch()} className="h-7 text-xs gap-1">
-          <RefreshCw className="w-3 h-3" /> Refresh
+        <Button variant="ghost" size="sm" aria-label="Refresh" onClick={() => refetch()} className="h-7 text-xs gap-1"><RefreshCw/> Refresh
         </Button>
       </div>
       {deposits.map((d: any) => (
@@ -364,13 +363,12 @@ export default function USDCPayouts() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
+          aria-label="Refresh" onClick={() => {
             refetchPayouts();
             utils.usdc.getBalance.invalidate();
           }}
           className="gap-1.5"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
+        ><RefreshCw/>
           Refresh
         </Button>
       </div>

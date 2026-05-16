@@ -39,7 +39,7 @@ export default function AdminWebhookAlerts() {
   const { data: summary, isLoading, refetch, isFetching } = trpc.admin.webhookAlerts.summary.useQuery(
     { windowMinutes },
     { refetchInterval: adminwebhookalerts_30s }
-  );
+  , { staleTime: 30_000 });
 
   const acknowledgeMutation = trpc.admin.webhookAlerts.acknowledge.useMutation({
     onSuccess: () => {
@@ -83,8 +83,7 @@ export default function AdminWebhookAlerts() {
                 <SelectItem value="1440">Last 24 hours</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isFetching}><RefreshCw/>
               Refresh
             </Button>
             {hasAlerts && (

@@ -112,12 +112,12 @@ export default function BillingAnalytics() {
   const analyticsQuery = trpc.billingExt.getAnalytics.useQuery(
     { tenantId, from, to },
     { refetchInterval: billingInterval }
-  );
+  , { staleTime: 30_000 });
 
   const timeSeriesQuery = trpc.billingExt.getRevenueTimeSeries.useQuery(
     { tenantId, from, to, granularity },
     { refetchInterval: billingInterval }
-  );
+  , { staleTime: 30_000 });
 
   const analytics = analyticsQuery.data;
   const timeSeries = timeSeriesQuery.data ?? [];
@@ -213,9 +213,8 @@ export default function BillingAnalytics() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => { analyticsQuery.refetch(); timeSeriesQuery.refetch(); }}
-          >
-            <RefreshCw className="w-3 h-3 mr-1" />
+            aria-label="Refresh" onClick={() => { analyticsQuery.refetch(); timeSeriesQuery.refetch(); }}
+          ><RefreshCw/>
             Refresh
           </Button>
         </div>
@@ -362,7 +361,7 @@ export default function BillingAnalytics() {
           <CardTitle className="text-base font-semibold">Period Summary</CardTitle>
         </CardHeader>
         <CardContent>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <tbody className="divide-y divide-border">
               {[
                 { label: "Total Transaction Volume", value: fmt(koboToNaira(totals?.amountKobo ?? 0)) },
@@ -393,7 +392,7 @@ export default function BillingAnalytics() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
     </div>

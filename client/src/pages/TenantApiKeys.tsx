@@ -40,7 +40,7 @@ export default function TenantApiKeys() {
     expiresInDays: undefined as number | undefined,
   });
 
-  const { data: keys, refetch, isLoading } = trpc.wave29.tenantApiKey.list.useQuery({ tenantId });
+  const { data: keys, refetch, isLoading } = trpc.wave29.tenantApiKey.list.useQuery({ tenantId }, { staleTime: 30_000 });
 
   const createKey = trpc.wave29.tenantApiKey.create.useMutation({
     onSuccess: (data) => {
@@ -231,13 +231,12 @@ export default function TenantApiKeys() {
                         size="sm"
                         variant="ghost"
                         className="text-red-500 hover:text-red-700"
-                        onClick={() => {
+                        aria-label="Delete" onClick={() => {
                           if (confirm("Revoke this API key? This cannot be undone.")) {
                             revokeKey.mutate({ keyId: k.id });
                           }
                         }}
-                      >
-                        <Trash2 className="w-4 h-4" />
+                      ><Trash2/>
                       </Button>
                     )}
                   </TableCell>

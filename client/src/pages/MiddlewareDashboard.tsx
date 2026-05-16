@@ -77,8 +77,7 @@ function KafkaPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white">Kafka Topics</h3>
-        <Button size="sm" variant="outline" onClick={() => refetch()} className="h-7 text-xs">
-          <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+        <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => refetch()} className="h-7 text-xs"><RefreshCw/> Refresh
         </Button>
       </div>
       {isLoading ? (
@@ -121,7 +120,7 @@ function KafkaPanel() {
 // ─── Temporal Workflows Panel ─────────────────────────────────────────────────
 
 function TemporalPanel() {
-  const { data, isLoading, refetch } = trpc.middlewareDashboard.temporal.workflows.useQuery({ limit: 20 });
+  const { data, isLoading, refetch } = trpc.middlewareDashboard.temporal.workflows.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const workflows = data?.workflows ?? [];
 
   const statusColor: Record<string, string> = {
@@ -135,8 +134,7 @@ function TemporalPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white">Temporal Workflows</h3>
-        <Button size="sm" variant="outline" onClick={() => refetch()} className="h-7 text-xs">
-          <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+        <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => refetch()} className="h-7 text-xs"><RefreshCw/> Refresh
         </Button>
       </div>
       {isLoading ? (
@@ -260,7 +258,7 @@ function SearchPanel() {
   const { data: results, isLoading: searching } = trpc.middlewareDashboard.search.query.useQuery(
     { index: searchQuery?.index ?? "paygate-transactions", query: searchQuery?.query ?? "" },
     { enabled: !!searchQuery }
-  );
+  , { staleTime: 30_000 });
 
   const handleSearch = () => {
     if (!query.trim()) return;
@@ -328,7 +326,7 @@ function SearchPanel() {
 
 function LakehousePanel() {
   const { data: tables } = trpc.middlewareDashboard.lakehouse.tables.useQuery();
-  const { data: corridors } = trpc.middlewareDashboard.lakehouse.corridorAnalytics.useQuery({ days: 7 });
+  const { data: corridors } = trpc.middlewareDashboard.lakehouse.corridorAnalytics.useQuery({ days: 7 }, { staleTime: 30_000 });
 
   return (
     <div className="space-y-4">
@@ -387,8 +385,7 @@ function FluvioPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white">Fluvio Streams</h3>
-        <Button size="sm" variant="outline" onClick={() => refetch()} className="h-7 text-xs">
-          <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+        <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => refetch()} className="h-7 text-xs"><RefreshCw/> Refresh
         </Button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -554,8 +551,7 @@ export default function MiddlewareDashboard() {
                 </p>
               </div>
             )}
-            <Button size="sm" variant="outline" onClick={() => refetchHealth()} className="border-slate-600 text-slate-300 h-8">
-              <RefreshCw className="w-3 h-3 mr-1" /> Refresh All
+            <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => refetchHealth()} className="border-slate-600 text-slate-300 h-8"><RefreshCw/> Refresh All
             </Button>
           </div>
         </div>

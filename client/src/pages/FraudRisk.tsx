@@ -1040,9 +1040,8 @@ export default function FraudRisk() {
                   size="sm" variant="outline"
                   className="h-7 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                   disabled={bulkUpdateAlerts.isPending}
-                  onClick={() => bulkUpdateAlerts.mutate({ ids: Array.from(selectedBulkIds), status: "false_positive" })}
-                >
-                  <XCircle className="w-3 h-3 mr-1" /> Mark as False Positive
+                  aria-label="Close" onClick={() => bulkUpdateAlerts.mutate({ ids: Array.from(selectedBulkIds), status: "false_positive" })}
+                ><X/> Mark as False Positive
                 </Button>
                 <Button
                   size="sm"
@@ -1089,8 +1088,7 @@ export default function FraudRisk() {
                 >
                   <Clock className="w-3 h-3 mr-1" /> Snooze 24h
                 </Button>
-                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedBulkIds(new Set())}>
-                  <X className="w-3 h-3" />
+                <Button size="sm" variant="ghost" className="h-7 text-xs" aria-label="Close" onClick={() => setSelectedBulkIds(new Set())}><X/>
                 </Button>
               </div>
             </div>

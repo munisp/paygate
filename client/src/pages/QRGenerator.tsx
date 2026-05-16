@@ -213,8 +213,7 @@ export default function QRGenerator() {
               <div className="space-y-4">
                 <QRCodeDisplay url={generatedUrl} />
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={handleCopyUrl}>
-                    <Copy className="h-4 w-4 mr-2" />
+                  <Button variant="outline" className="flex-1" aria-label="Copy" onClick={handleCopyUrl}><Copy/>
                     Copy URL
                   </Button>
                   <Button variant="outline" className="flex-1" onClick={handleDownload}>

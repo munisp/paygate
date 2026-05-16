@@ -24,7 +24,7 @@ export default function AdminWebhookRetry() {
   const { data, isLoading, refetch } = trpc.wave27.webhookRetry.list.useQuery({
     search: search || undefined,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const retryMutation = trpc.wave27.webhookRetry.retry.useMutation({
     onSuccess: () => { toast.success("Webhook retry scheduled"); refetch(); },
@@ -53,7 +53,7 @@ export default function AdminWebhookRetry() {
             <p className="text-gray-500 text-sm mt-1">Manage failed webhook deliveries and retry schedules</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
             <Button size="sm" onClick={() => retryAllMutation.mutate()} disabled={retryAllMutation.isPending}>
               <Zap className="w-4 h-4 mr-2" />
               {retryAllMutation.isPending ? "Queuing..." : "Retry All Failed"}
@@ -148,9 +148,8 @@ export default function AdminWebhookRetry() {
                           <div className="flex gap-1">
                             {(d.status === "failed" || d.status === "pending") && (
                               <Button size="sm" variant="outline" className="text-blue-600 border-blue-200"
-                                onClick={() => retryMutation.mutate({ deliveryId: d.id })}
-                                disabled={retryMutation.isPending}>
-                                <RotateCcw className="w-3 h-3" />
+                                aria-label="Refresh" onClick={() => retryMutation.mutate({ deliveryId: d.id })}
+                                disabled={retryMutation.isPending}><RotateCcw/>
                               </Button>
                             )}
                             {d.status !== "abandoned" && d.status !== "succeeded" && (

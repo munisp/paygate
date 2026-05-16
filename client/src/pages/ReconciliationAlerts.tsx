@@ -64,13 +64,13 @@ export default function ReconciliationAlerts() {
 
   const utils = trpc.useUtils();
 
-  const { data: stats, isLoading: statsLoading } = trpc.wave80.reconciliation.getStats.useQuery({});
+  const { data: stats, isLoading: statsLoading } = trpc.wave80.reconciliation.getStats.useQuery({}, { staleTime: 30_000 });
 
   const { data, isLoading, refetch } = trpc.wave80.reconciliation.listAlerts.useQuery({
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
-  });
+  }, { staleTime: 30_000 });
 
   const updateMutation = trpc.wave80.reconciliation.updateAlert.useMutation({
     onSuccess: () => {
@@ -125,10 +125,9 @@ export default function ReconciliationAlerts() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            aria-label="Refresh" onClick={() => refetch()}
             disabled={isLoading}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
+          ><RefreshCw/>
             Refresh
           </Button>
         </div>

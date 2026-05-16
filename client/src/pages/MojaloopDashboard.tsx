@@ -32,7 +32,7 @@ const RAIL_STATS = {
 };
 
 export default function MojaloopDashboard() {
-  const { data: crossBorderTransfers, isLoading, isError, isError } = trpc.crossBorder.list.useQuery({ limit: 20 });
+  const { data: crossBorderTransfers, isLoading, isError, isError } = trpc.crossBorder.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: middlewareHealth } = trpc.middlewareDashboard.kafkaTopics.useQuery();
   const [selectedRail, setSelectedRail] = useState("all");
   const [search, setSearch] = useState("");
@@ -86,8 +86,7 @@ export default function MojaloopDashboard() {
           <p className="text-gray-400 text-sm mt-1">Real-time monitoring of FSPIOP, CIPS, UPI, PIX, SWIFT, and SEPA payment rails</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="border-gray-700 text-gray-300" onClick={() => toast.success("Data refreshed")}>
-            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" className="border-gray-700 text-gray-300" aria-label="Refresh" onClick={() => toast.success("Data refreshed")}><RefreshCw/> Refresh
           </Button>
           <Button variant="outline" size="sm" className="border-gray-700 text-gray-300" onClick={() => toast.info("Exporting report...")}>
             <Download className="h-4 w-4 mr-2" /> Export

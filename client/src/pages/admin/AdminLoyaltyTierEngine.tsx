@@ -23,7 +23,7 @@ export default function AdminLoyaltyTierEngine() {
   const [editingTier, setEditingTier] = useState<any>(null);
   const { register, handleSubmit, reset, setValue } = useForm();
 
-  const { data, isLoading, refetch } = trpc.wave27.loyaltyTiers.list.useQuery({ search: search || undefined });
+  const { data, isLoading, refetch } = trpc.wave27.loyaltyTiers.list.useQuery({ search: search || undefined }, { staleTime: 30_000 });
 
   const updateMutation = trpc.wave27.loyaltyTiers.update.useMutation({
     onSuccess: () => { toast.success("Tier configuration updated"); refetch(); setEditingTier(null); reset(); },
@@ -109,8 +109,7 @@ export default function AdminLoyaltyTierEngine() {
                       <span className="capitalize">{tier.tier_name}</span>
                       <Badge className={TIER_COLORS[tier.tier_name] ?? "bg-gray-100 text-gray-700"}>{tier.tier_name}</Badge>
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => handleEdit(tier)}>
-                      <Edit className="w-3 h-3 mr-1" />Edit
+                    <Button size="sm" variant="outline" aria-label="Edit" onClick={() => handleEdit(tier)}><Edit/>Edit
                     </Button>
                   </CardTitle>
                 </CardHeader>

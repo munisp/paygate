@@ -56,7 +56,7 @@ export default function AdminGNNTraining() {
   const [batchSize, setBatchSize] = useState("256");
 
   // Real tRPC data
-  const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = trpc.ai.getTrainingJobs.useQuery({ limit: 20 });
+  const { data: jobsData, isLoading: jobsLoading, refetch: refetchJobs } = trpc.ai.getTrainingJobs.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const liveJobs = (jobsData as any[]) ?? [];
 
   const triggerMutation = trpc.ai.triggerGNNTraining.useMutation({
@@ -213,7 +213,7 @@ export default function AdminGNNTraining() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center justify-between">
                 Live Training Jobs (DB)
-                <Button variant="outline" size="sm" onClick={() => refetchJobs()}><RefreshCw className="w-4 h-4 mr-1" />Refresh</Button>
+                <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchJobs()}><RefreshCw/>Refresh</Button>
               </CardTitle>
               <CardDescription>Real-time training jobs from the database</CardDescription>
             </CardHeader>

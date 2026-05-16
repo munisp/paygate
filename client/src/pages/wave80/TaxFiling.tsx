@@ -14,7 +14,7 @@ export default function TaxFiling() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ taxType: "VAT", period: "", taxableAmount: "" });
 
-  const { data, isLoading, refetch } = trpc.wave80.taxFiling.listFilings.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.taxFiling.listFilings.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.taxFiling.getStats.useQuery();
   const { data: deadlines } = trpc.wave80.taxFiling.getUpcomingDeadlines.useQuery();
 

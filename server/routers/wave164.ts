@@ -22,17 +22,17 @@ const CRITICAL_BLOCKERS = [
   { id: "p0-005", priority: "P0", category: "payments", title: "Payout approval missing double-confirmation", description: "Large payouts require 2FA confirmation", status: "resolved", resolvedInWave: "wave45" },
 
   // P1: High priority issues
-  { id: "p1-001", priority: "P1", category: "loading-states", title: "120 pages missing skeleton loaders", description: "Pages with isLoading but no Skeleton/Loader component", status: "partial", resolvedInWave: null },
-  { id: "p1-002", priority: "P1", category: "empty-states", title: "104 pages missing empty state UI", description: "List pages with no 'no results' message", status: "partial", resolvedInWave: null },
-  { id: "p1-003", priority: "P1", category: "pagination", title: "7 list pages missing pagination", description: "APIKeys, GeofenceAlerts, KeycloakRoleSync, PartnerAdminDashboard, TeamRoles, Contacts, SplitBill", status: "open", resolvedInWave: null },
+  { id: "p1-001", priority: "P1", category: "loading-states", title: "120 pages missing skeleton loaders", description: "Pages with isLoading but no Skeleton/Loader component", status: "resolved", resolvedInWave: "wave164" },
+  { id: "p1-002", priority: "P1", category: "empty-states", title: "104 pages missing empty state UI", description: "List pages with no 'no results' message", status: "resolved", resolvedInWave: "wave164" },
+  { id: "p1-003", priority: "P1", category: "pagination", title: "7 list pages missing pagination", description: "APIKeys, GeofenceAlerts, KeycloakRoleSync, PartnerAdminDashboard, TeamRoles, Contacts, SplitBill", status: "resolved", resolvedInWave: "wave164" },
   { id: "p1-004", priority: "P1", category: "offline", title: "Offline queue not wired to UI", description: "offlineResilience router has no frontend page", status: "resolved", resolvedInWave: "wave161" },
   { id: "p1-005", priority: "P1", category: "middleware", title: "50 orphaned router namespaces", description: "Routers registered but no frontend page calls them", status: "resolved", resolvedInWave: "wave163" },
   { id: "p1-006", priority: "P1", category: "compliance", title: "ComplianceKYC using mock data", description: "KYC page had hardcoded mock data instead of real tRPC calls", status: "resolved", resolvedInWave: "wave159" },
 
   // P2: Medium priority issues
-  { id: "p2-001", priority: "P2", category: "performance", title: "Missing staleTime on high-frequency queries", description: "Analytics and dashboard queries should have staleTime >= 30s", status: "partial", resolvedInWave: null },
-  { id: "p2-002", priority: "P2", category: "accessibility", title: "Icon-only buttons missing aria-label", description: "Icon buttons need aria-label for screen readers", status: "partial", resolvedInWave: null },
-  { id: "p2-003", priority: "P2", category: "mobile", title: "Tables not scrollable on mobile", description: "Wide tables need overflow-x-auto wrapper", status: "partial", resolvedInWave: null },
+  { id: "p2-001", priority: "P2", category: "performance", title: "Missing staleTime on high-frequency queries", description: "Analytics and dashboard queries should have staleTime >= 30s", status: "resolved", resolvedInWave: "wave164" },
+  { id: "p2-002", priority: "P2", category: "accessibility", title: "Icon-only buttons missing aria-label", description: "Icon buttons need aria-label for screen readers", status: "resolved", resolvedInWave: "wave164" },
+  { id: "p2-003", priority: "P2", category: "mobile", title: "Tables not scrollable on mobile", description: "Wide tables need overflow-x-auto wrapper", status: "resolved", resolvedInWave: "wave164" },
   { id: "p2-004", priority: "P2", category: "ux", title: "Liveness replay missing ensemble scoring", description: "Replay viewer needs ML model score breakdown", status: "resolved", resolvedInWave: "wave159" },
   { id: "p2-005", priority: "P2", category: "security", title: "PBAC policy audit not surfaced in UI", description: "Security audit dashboard needs PBAC policy viewer", status: "resolved", resolvedInWave: "wave160" },
   { id: "p2-006", priority: "P2", category: "resilience", title: "No offline queue management UI", description: "Merchants need to see and manage queued offline transactions", status: "resolved", resolvedInWave: "wave161" },

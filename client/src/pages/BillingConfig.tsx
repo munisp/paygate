@@ -114,12 +114,12 @@ export default function BillingConfig() {
   const [periodEnd] = useState(() => new Date());
 
   // Queries
-  const activeConfig = trpc.billing.getActive.useQuery({ tenantId });
-  const versions = trpc.billing.listVersions.useQuery({ tenantId });
-  const auditLog = trpc.billing.getAuditLog.useQuery({ tenantId, limit: 20 });
-  const metrics = trpc.billing.getMetricsSummary.useQuery({ tenantId, periodStart, periodEnd });
-  const overheadByCategory = trpc.billing.getOverheadByCategory.useQuery({ tenantId, periodStart, periodEnd });
-  const billingEvents = trpc.billing.listBillingEvents.useQuery({ tenantId, limit: 50 });
+  const activeConfig = trpc.billing.getActive.useQuery({ tenantId }, { staleTime: 30_000 });
+  const versions = trpc.billing.listVersions.useQuery({ tenantId }, { staleTime: 30_000 });
+  const auditLog = trpc.billing.getAuditLog.useQuery({ tenantId, limit: 20 }, { staleTime: 30_000 });
+  const metrics = trpc.billing.getMetricsSummary.useQuery({ tenantId, periodStart, periodEnd }, { staleTime: 30_000 });
+  const overheadByCategory = trpc.billing.getOverheadByCategory.useQuery({ tenantId, periodStart, periodEnd }, { staleTime: 30_000 });
+  const billingEvents = trpc.billing.listBillingEvents.useQuery({ tenantId, limit: 50 }, { staleTime: 30_000 });
 
   const utils = trpc.useUtils();
 
@@ -587,8 +587,7 @@ export default function BillingConfig() {
                   <CardTitle className="text-base">Audit Log</CardTitle>
                   <CardDescription>Every billing config change is recorded here with actor, timestamp, and reason.</CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => utils.billing.getAuditLog.invalidate({ tenantId })}>
-                  <RefreshCw className="w-4 h-4" />
+                <Button variant="ghost" size="sm" aria-label="Refresh" onClick={() => utils.billing.getAuditLog.invalidate({ tenantId })}><RefreshCw/>
                 </Button>
               </div>
             </CardHeader>

@@ -200,7 +200,7 @@ function TransactionDetailModal({ txId, open, onClose }: { txId: string | null; 
   const { data: tx, isLoading } = trpc.transactions.get.useQuery(
     { id: txId ?? "" },
     { enabled: !!txId && open },
-  );
+  , { staleTime: 30_000 });
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text).then(() => toast.success(`${label} copied`));
@@ -277,12 +277,11 @@ function TransactionDetailModal({ txId, open, onClose }: { txId: string | null; 
                   variant="outline"
                   size="sm"
                   className="flex-1 text-amber-600 border-amber-200 hover:bg-amber-50"
-                  onClick={() => {
+                  aria-label="Refresh" onClick={() => {
                     onClose();
                     toast.info("Navigate to Transactions page to initiate a refund");
                   }}
-                >
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                ><RefreshCw/>
                   Refund
                 </Button>
               )}
@@ -562,8 +561,7 @@ export default function MerchantAnalyticsDashboard() {
               onSelect={handleCustomRange}
             />
 
-            <Button variant="outline" size="sm" onClick={handleRefresh} className="h-8 gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" />
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={handleRefresh} className="h-8 gap-1.5"><RefreshCw/>
               Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport} className="h-8 gap-1.5">

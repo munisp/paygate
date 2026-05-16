@@ -12,7 +12,7 @@ function formatNGN(kobo: number) {
 }
 
 export default function AMLMonitor() {
-  const { data: alerts, isLoading, refetch } = trpc.tier1to5.aml.getAlerts.useQuery({ status: "open", limit: 50 });
+  const { data: alerts, isLoading, refetch } = trpc.tier1to5.aml.getAlerts.useQuery({ status: "open", limit: 50 }, { staleTime: 30_000 });
   const { data: riskScore } = trpc.tier1to5.aml.getMerchantRiskScore.useQuery();
 
   const updateMutation = trpc.tier1to5.aml.updateAlert.useMutation({
@@ -52,7 +52,7 @@ export default function AMLMonitor() {
             <h1 className="text-2xl font-bold">AML Transaction Monitoring</h1>
             <p className="text-muted-foreground text-sm mt-1">Real-time AML rule engine with Kafka streams and Redis velocity checks</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* Risk Score */}

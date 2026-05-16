@@ -31,7 +31,7 @@ export default function WebhookSimulatorV2() {
   const [targetUrl, setTargetUrl] = useState("");
   const [payload, setPayload] = useState(JSON.stringify({ event: "payment.success", data: { amount: 5000, currency: "NGN" } }, null, 2));
 
-  const { data, isLoading } = trpc.webhookSimV2.list.useQuery({ page: 1 });
+  const { data, isLoading } = trpc.webhookSimV2.list.useQuery({ page: 1 }, { staleTime: 30_000 });
 
   const simulate = trpc.webhookSimV2.simulate.useMutation({
     onSuccess: (result) => {
@@ -65,8 +65,7 @@ export default function WebhookSimulatorV2() {
           <p className="text-muted-foreground text-sm mt-1">Test webhook delivery with custom payloads</p>
         </div>
         {logs.length > 0 && (
-          <Button variant="destructive" size="sm" onClick={() => clear.mutate()}>
-            <Trash2 className="w-4 h-4 mr-2" />Clear Logs
+          <Button variant="destructive" size="sm" aria-label="Delete" onClick={() => clear.mutate()}><Trash2/>Clear Logs
           </Button>
         )}
       </div>

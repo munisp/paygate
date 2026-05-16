@@ -20,8 +20,8 @@ export default function StaffManagement() {
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", role: "cashier", phone: "" });
 
-  const { data: membersData, isLoading } = trpc.staffMgmt.listMembers.useQuery({ page });
-  const { data: shiftsData } = trpc.staffMgmt.listShifts.useQuery({ page: 1 });
+  const { data: membersData, isLoading } = trpc.staffMgmt.listMembers.useQuery({ page }, { staleTime: 30_000 });
+  const { data: shiftsData } = trpc.staffMgmt.listShifts.useQuery({ page: 1 }, { staleTime: 30_000 });
 
   const createMember = trpc.staffMgmt.createMember.useMutation({
     onSuccess: () => {

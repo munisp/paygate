@@ -13,10 +13,10 @@ export default function CryptoRamp() {
   const [fiatAmount, setFiatAmount] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const { isLoading, data: quote } = trpc.tier6to8.cryptoRamp.getQuote.useQuery(
-    { direction, cryptoCurrency: crypto, fiatAmountKobo: Math.round(parseFloat(fiatAmount || "0") * 100) },
+    { direction, cryptoCurrency: crypto, fiatAmountKobo: Math.round(parseFloat(fiatAmount || "0", { staleTime: 30_000 }) * 100) },
     { enabled: parseFloat(fiatAmount) > 0 }
   );
-  const { data: txns } = trpc.tier6to8.cryptoRamp.getTransactions.useQuery({ limit: 20 });
+  const { data: txns } = trpc.tier6to8.cryptoRamp.getTransactions.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const executeMutation = trpc.tier6to8.cryptoRamp.executeRamp.useMutation({
     onSuccess: (d: any) => toast.success(`Ramp initiated — Ref: ${d.transactionId}`),
     onError: (e: any) => toast.error(e.message),

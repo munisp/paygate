@@ -39,7 +39,7 @@ export default function SubscriptionManagement() {
   const { data: plans, refetch: refetchPlans } = trpc.subscriptionsMw.plans.useQuery();
   const { data: analytics } = trpc.subscriptionsMw.churnAnalytics.useQuery();
   const { data: subscribers } = trpc.subscriptionsMw.subscribers.useQuery();
-  const { data: churnData = [] } = (trpc.subscriptionsMw.monthlyChurnData.useQuery({ months: 6 }) as any);
+  const { data: churnData = [] } = (trpc.subscriptionsMw.monthlyChurnData.useQuery({ months: 6 }, { staleTime: 30_000 }) as any);
 
   const createPlanMutation = trpc.subscriptionsMw.createPlan.useMutation({
     onSuccess: (data) => {
@@ -166,8 +166,7 @@ export default function SubscriptionManagement() {
                         <TableCell>
                           {sub.status === "active" && (
                             <Button size="sm" variant="outline" className="text-xs text-red-600 hover:text-red-700"
-                              onClick={() => { setSelectedSub(sub); setCancelOpen(true); }}>
-                              <XCircle className="w-3 h-3 mr-1" /> Cancel
+                              aria-label="Close" onClick={() => { setSelectedSub(sub); setCancelOpen(true); }}><X/> Cancel
                             </Button>
                           )}
                         </TableCell>

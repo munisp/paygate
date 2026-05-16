@@ -31,7 +31,7 @@ export default function OpenBanking() {
   const { data: customerData, isLoading: dataLoading } = trpc.tier1to5.openBanking.getCustomerData.useQuery(
     { customerId, dataType: viewDataType, consentToken },
     { enabled: !!customerId && !!consentToken }
-  );
+  , { staleTime: 30_000 });
 
   const sdkTokenMutation = trpc.tier1to5.openBanking.issueSDKToken.useMutation({
     onSuccess: (data: any) => {
@@ -82,8 +82,7 @@ export default function OpenBanking() {
               {consentToken && (
                 <div className="p-2 bg-muted rounded flex items-center justify-between gap-2">
                   <span className="font-mono text-xs truncate">{consentToken}</span>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { navigator.clipboard.writeText(consentToken); toast.success("Copied!"); }}>
-                    <Copy className="w-3 h-3" />
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label="Copy" onClick={() => { navigator.clipboard.writeText(consentToken); toast.success("Copied!"); }}><Copy/>
                   </Button>
                 </div>
               )}

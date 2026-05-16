@@ -17,9 +17,9 @@ export default function LakehouseAIDashboard() {
   const [timeRange, setTimeRange] = useState("7d");
   const [activeTab, setActiveTab] = useState("overview");
 
-  const { data: aiStats, isLoading, refetch } = trpc.ai.getLakehouseStats.useQuery({ timeRange });
+  const { data: aiStats, isLoading, refetch } = trpc.ai.getLakehouseStats.useQuery({ timeRange }, { staleTime: 30_000 });
   const { data: modelRegistry } = trpc.ai.getModelRegistry.useQuery();
-  const { data: reasoningTraces } = trpc.ai.getReasoningTraces.useQuery({ limit: 10 });
+  const { data: reasoningTraces } = trpc.ai.getReasoningTraces.useQuery({ limit: 10 }, { staleTime: 30_000 });
   const triggerTraining = trpc.ai.triggerGNNTraining.useMutation({
     onSuccess: () => toast.success("GNN training job queued successfully"),
     onError: (e) => toast.error(`Training failed: ${e.message}`),
@@ -104,8 +104,7 @@ export default function LakehouseAIDashboard() {
               <SelectItem value="90d">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Button variant="outline" size="sm">
             <Download className="h-4 w-4 mr-1" /> Export

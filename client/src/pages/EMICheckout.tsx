@@ -14,7 +14,7 @@ export default function EMICheckout() {
   const [minOrder, setMinOrder] = useState("10000");
 
   const {isLoading, data: plans} = trpc.newFeatures.emiCheckout.getEMIPlans.useQuery(
-    { amountKobo: Math.round(parseFloat(purchaseAmount) * 100) },
+    { amountKobo: Math.round(parseFloat(purchaseAmount, { staleTime: 30_000 }) * 100) },
     { enabled: parseFloat(purchaseAmount) > 0 }
   );
   const { data: merchantConfig } = trpc.newFeatures.emiCheckout.getMerchantEMIConfig.useQuery();

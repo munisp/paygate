@@ -21,10 +21,10 @@ export default function UsdcV3() {
   const [payoutForm, setPayoutForm] = useState({ amount: "", network: "ethereum", destinationAddress: "" });
   const [walletForm, setWalletForm] = useState({ network: "ethereum", label: "" });
 
-  const { data: depositsData, isLoading: depositsLoading } = trpc.usdcV3.listDeposits.useQuery({ page: 1 });
-  const { data: payoutsData, isLoading: payoutsLoading } = trpc.usdcV3.listPayouts.useQuery({ page: 1 });
-  const { data: walletsData, isLoading: walletsLoading } = trpc.usdcV3.listV2Wallets.useQuery({ page: 1 });
-  const { data: txData } = trpc.usdcV3.listV2Transactions.useQuery({ page: 1 });
+  const { data: depositsData, isLoading: depositsLoading } = trpc.usdcV3.listDeposits.useQuery({ page: 1 }, { staleTime: 30_000 });
+  const { data: payoutsData, isLoading: payoutsLoading } = trpc.usdcV3.listPayouts.useQuery({ page: 1 }, { staleTime: 30_000 });
+  const { data: walletsData, isLoading: walletsLoading } = trpc.usdcV3.listV2Wallets.useQuery({ page: 1 }, { staleTime: 30_000 });
+  const { data: txData } = trpc.usdcV3.listV2Transactions.useQuery({ page: 1 }, { staleTime: 30_000 });
 
   const createDeposit = trpc.usdcV3.createDeposit.useMutation({
     onSuccess: () => { utils.usdcV3.listDeposits.invalidate(); setDepositOpen(false); toast({ title: "Deposit initiated" }); },

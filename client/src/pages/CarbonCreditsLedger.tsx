@@ -20,7 +20,7 @@ export default function CarbonCreditsLedger() {
     certificationBody: "",
   });
 
-  const { data, isLoading, refetch } = trpc.orphanedTables.carbonCredits.list.useQuery({ limit: 200 });
+  const { data, isLoading, refetch } = trpc.orphanedTables.carbonCredits.list.useQuery({ limit: 200 }, { staleTime: 30_000 });
 
   const createMutation = trpc.orphanedTables.carbonCredits.create.useMutation({
     onSuccess: () => {
@@ -86,8 +86,7 @@ export default function CarbonCreditsLedger() {
           <p className="text-muted-foreground text-sm">Manage carbon offset credits — issue, track, and retire credits</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>

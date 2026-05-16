@@ -137,8 +137,7 @@ export default function RequestMoney() {
               <p className="text-xs text-muted-foreground break-all">{createdRequest.shareUrl}</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => copyLink(createdRequest.shareUrl)}>
-                <Copy className="w-4 h-4 mr-2" />Copy Link
+              <Button variant="outline" className="flex-1" aria-label="Copy" onClick={() => copyLink(createdRequest.shareUrl)}><Copy/>Copy Link
               </Button>
               <Button className="flex-1" onClick={() => shareLink(createdRequest.shareUrl, createdRequest.amountKobo)}>
                 <Share2 className="w-4 h-4 mr-2" />Share
@@ -197,8 +196,7 @@ export default function RequestMoney() {
                     {statusBadge(r.status)}
                     {r.status === "pending" && (
                       <>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyLink(r.shareUrl ?? "")}>
-                          <Copy className="w-3.5 h-3.5" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Copy" onClick={() => copyLink(r.shareUrl ?? "")}><Copy/>
                         </Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => cancelRequest.mutate({ id: r.id })}>
                           <XCircle className="w-3.5 h-3.5" />

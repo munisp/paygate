@@ -13,7 +13,7 @@ export default function SalaryAccounts() {
   const [advanceAmount, setAdvanceAmount] = useState("");
 
   const {isLoading, data: account} = trpc.newFeatures.salaryAccounts.getAccount.useQuery();
-  const { data: transactions } = trpc.newFeatures.salaryAccounts.getTransactions.useQuery({ page: 1, limit: 20 });
+  const { data: transactions } = trpc.newFeatures.salaryAccounts.getTransactions.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
 
   const openMutation = trpc.newFeatures.salaryAccounts.openAccount.useMutation({
     onSuccess: (d: any) => toast.success(`Account ${d.accountNumber} opened at ${d.bankName}`),
@@ -90,7 +90,7 @@ export default function SalaryAccounts() {
             <CardHeader><CardTitle>Transactions</CardTitle></CardHeader>
             <CardContent>
               {!transactions?.transactions?.length ? <p className="text-muted-foreground text-sm">No transactions yet</p> :
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto"><table className="w-full text-sm">
                   <thead><tr className="border-b"><th className="text-left py-2">Description</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Balance</th><th className="text-right py-2">Date</th></tr></thead>
                   <tbody>
                     {transactions.transactions.map(t => (
@@ -107,7 +107,7 @@ export default function SalaryAccounts() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               }
             </CardContent>
           </Card>

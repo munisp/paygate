@@ -16,7 +16,7 @@ export default function SettlementSLA() {
   const [page, setPage] = useState(0);
   const limit = 20;
 
-  const { data, isLoading, isError, refetch } = trpc.settlementSLA.breaches.useQuery({ limit, offset: page * limit });
+  const { data, isLoading, isError, refetch } = trpc.settlementSLA.breaches.useQuery({ limit, offset: page * limit }, { staleTime: 30_000 });
 
   const acknowledge = trpc.settlementSLA.acknowledge.useMutation({
     onSuccess: () => { toast.success("Breach acknowledged"); refetch(); },
@@ -39,8 +39,7 @@ export default function SettlementSLA() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Monitor and acknowledge settlement SLA breaches</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

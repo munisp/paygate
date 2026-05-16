@@ -22,7 +22,7 @@ export default function EscrowContracts() {
     expiresAt: "",
   });
 
-  const { data, isLoading, refetch } = trpc.orphanedTables.escrowContracts.list.useQuery({ limit: 200 });
+  const { data, isLoading, refetch } = trpc.orphanedTables.escrowContracts.list.useQuery({ limit: 200 }, { staleTime: 30_000 });
 
   const createMutation = trpc.orphanedTables.escrowContracts.create.useMutation({
     onSuccess: () => {
@@ -98,8 +98,7 @@ export default function EscrowContracts() {
           <p className="text-muted-foreground text-sm">Manage buyer-seller escrow agreements with lifecycle controls</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>

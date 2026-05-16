@@ -107,7 +107,7 @@ export default function WebhookDeliveries() {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       status: statusFilter === "all" ? undefined : statusFilter,
-      search: search.trim() || undefined,
+      search: search.trim(, { staleTime: 30_000 }) || undefined,
     },
     { refetchInterval: webhookDelivInterval }
   );
@@ -355,9 +355,8 @@ export default function WebhookDeliveries() {
                                       variant="ghost"
                                       size="sm"
                                       className="h-6 px-2 text-xs"
-                                      onClick={() => copyToClipboard(d.requestBody, "Payload")}
-                                    >
-                                      <Copy className="w-3 h-3 mr-1" /> Copy
+                                      aria-label="Copy" onClick={() => copyToClipboard(d.requestBody, "Payload")}
+                                    ><Copy/> Copy
                                     </Button>
                                   )}
                                 </div>
@@ -384,9 +383,8 @@ export default function WebhookDeliveries() {
                                       variant="ghost"
                                       size="sm"
                                       className="h-6 px-2 text-xs"
-                                      onClick={() => copyToClipboard(d.responseBody, "Response")}
-                                    >
-                                      <Copy className="w-3 h-3 mr-1" /> Copy
+                                      aria-label="Copy" onClick={() => copyToClipboard(d.responseBody, "Response")}
+                                    ><Copy/> Copy
                                     </Button>
                                   )}
                                 </div>

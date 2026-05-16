@@ -13,7 +13,7 @@ function formatNGN(kobo: number) {
 export default function SettlementForecast() {
   const [days, setDays] = useState(30);
 
-  const { data: forecast, isLoading, error } = trpc.tier6to8.settlementForecast.getForecast.useQuery({ days });
+  const { data: forecast, isLoading, error } = trpc.tier6to8.settlementForecast.getForecast.useQuery({ days }, { staleTime: 30_000 });
 
   const TrendIcon = forecast?.trend === "up" ? TrendingUp : forecast?.trend === "down" ? TrendingDown : Minus;
   const trendColor = forecast?.trend === "up" ? "text-green-600" : forecast?.trend === "down" ? "text-red-600" : "text-yellow-600";

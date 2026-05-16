@@ -11,9 +11,9 @@ export default function CohortAnalytics() {
   const { user } = useAuth();
   const [period, setPeriod] = useState<"7d" | "30d" | "90d" | "180d">("30d");
 
-  const cohortsQuery = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 }, { enabled: !!user });
+  const cohortsQuery = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 }, { enabled: !!user }, { staleTime: 30_000 });
   const cohortError = cohortsQuery.isError;
-  const fraudQuery = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours: 168 }, { enabled: !!user });
+  const fraudQuery = trpc.tier1to5.fraudHeatmap.getHeatmapData.useQuery({ hours: 168 }, { enabled: !!user }, { staleTime: 30_000 });
 
   return (
     <div className="p-6 space-y-6">
@@ -23,8 +23,7 @@ export default function CohortAnalytics() {
           <p className="text-muted-foreground">Customer retention, LTV analysis, and churn predictions</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => cohortsQuery.refetch()} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+          <Button aria-label="Refresh" onClick={() => cohortsQuery.refetch()} variant="outline" size="sm"><RefreshCw/> Refresh
           </Button>
           {(["7d", "30d", "90d", "180d"] as const).map(p => (
             <Button key={p} size="sm" variant={period === p ? "default" : "outline"} onClick={() => setPeriod(p)}>

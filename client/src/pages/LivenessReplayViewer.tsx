@@ -50,7 +50,7 @@ function EnsembleBar({ label, score, weight, icon }: { label: string; score: num
 
 // ─── Session Detail Dialog ────────────────────────────────────────────────────
 function SessionDetailDialog({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
-  const { data: session, isLoading } = trpc.livenessReplay.getSession.useQuery({ id: sessionId });
+  const { data: session, isLoading } = trpc.livenessReplay.getSession.useQuery({ id: sessionId }, { staleTime: 30_000 });
   const utils = trpc.useUtils();
   const [overrideDecision, setOverrideDecision] = useState<string>("");
   const [overrideNote, setOverrideNote] = useState("");
@@ -222,7 +222,7 @@ export default function LivenessReplayViewer() {
   const LIMIT = 20;
 
   const { data, isLoading, refetch } = trpc.livenessReplay.listSessions.useQuery({
-    decision: decisionFilter !== "all" ? (decisionFilter as any) : undefined,
+    decision: decisionFilter !== "all" ? (decisionFilter as any, { staleTime: 30_000 }) : undefined,
     limit: LIMIT,
     offset: page * LIMIT,
   }, { staleTime: 30_000 });
@@ -244,8 +244,7 @@ export default function LivenessReplayViewer() {
           <h1 className="text-2xl font-bold text-white">Liveness Replay Viewer</h1>
           <p className="text-zinc-400 mt-1">Review liveness sessions with 3-service ensemble scoring</p>
         </div>
-        <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" />
+        <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
           Refresh
         </Button>
       </div>

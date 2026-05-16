@@ -61,8 +61,7 @@ export default function UIUXAuditDashboard() {
           <h1 className="text-2xl font-bold text-white">UI/UX Completeness Audit</h1>
           <p className="text-zinc-400 mt-1">P0-P2 critical blockers, UX pattern compliance, and production readiness</p>
         </div>
-        <Button variant="outline" className="border-zinc-700 text-zinc-300" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" />Refresh
+        <Button variant="outline" className="border-zinc-700 text-zinc-300" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh
         </Button>
       </div>
 

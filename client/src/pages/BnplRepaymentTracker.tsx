@@ -23,7 +23,7 @@ export default function BnplRepaymentTracker() {
   const { data: schedule, refetch: refetchSchedule, isLoading } = trpc.wave29.bnplRepayment.getSchedule.useQuery(
     { applicationId },
     { enabled: !!applicationId }
-  );
+  , { staleTime: 30_000 });
 
   const { data: overdue } = trpc.wave29.bnplRepayment.getOverdue.useQuery();
 

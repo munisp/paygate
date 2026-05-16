@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Plus, RefreshCw, MapPin, ShieldAlert, Trash2 } from "lucide-react";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 
 export default function GeofenceAlerts() {
   const { isAuthenticated } = useAuth();
@@ -25,7 +26,7 @@ export default function GeofenceAlerts() {
   const { data, isLoading, refetch } = trpc.geofence.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
-  );
+  , { staleTime: 30_000 });
 
   const upsert = trpc.geofence.upsert.useMutation({
     onSuccess: () => {
@@ -45,7 +46,11 @@ export default function GeofenceAlerts() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const rules: any[] = data ?? [];
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+  const allRules: any[] = data ?? [];
+  const totalPages = Math.max(1, Math.ceil(allRules.length / PAGE_SIZE));
+  const rules = allRules.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="p-6 space-y-6">
@@ -130,9 +135,8 @@ export default function GeofenceAlerts() {
                     size="sm"
                     variant="ghost"
                     className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                    onClick={() => remove.mutate({ id: rule.id })}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    aria-label="Delete" onClick={() => remove.mutate({ id: rule.id })}
+                  ><Trash2/>
                   </Button>
                 </div>
               </CardHeader>

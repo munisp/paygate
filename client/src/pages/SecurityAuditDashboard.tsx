@@ -188,8 +188,7 @@ export default function SecurityAuditDashboard() {
               <SelectItem value="90">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" onClick={() => refetchVuln()}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" aria-label="Refresh" onClick={() => refetchVuln()}><RefreshCw/>
             Refresh
           </Button>
         </div>
@@ -449,12 +448,11 @@ export default function SecurityAuditDashboard() {
                       variant="outline"
                       size="sm"
                       className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-                      onClick={() => {
+                      aria-label="Refresh" onClick={() => {
                         setPenTestRunning(true);
                         penTestMutation.mutate({ merchantId: "current" });
                       }}
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" />
+                    ><RefreshCw/>
                       Re-run
                     </Button>
                   </div>

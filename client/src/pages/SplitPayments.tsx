@@ -131,8 +131,7 @@ export default function SplitPayments() {
                     <Input placeholder="Platform fee" value={sp.description} onChange={e => updateSplit(i, "description", e.target.value)} className="mt-1 h-8 text-sm" />
                   </div>
                   <div className="col-span-1 flex justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => removeSplit(i)} disabled={splits.length === 1} className="h-8 w-8 p-0">
-                      <Trash2 className="w-4 h-4 text-red-500" />
+                    <Button variant="ghost" size="sm" aria-label="Delete" onClick={() => removeSplit(i)} disabled={splits.length === 1} className="h-8 w-8 p-0"><Trash2/>
                     </Button>
                   </div>
                 </div>
@@ -177,8 +176,7 @@ export default function SplitPayments() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant={rule.isActive ? "default" : "secondary"}>{rule.isActive ? "Active" : "Inactive"}</Badge>
-                        <Button variant="ghost" size="sm" onClick={() => executeMutation.mutate({ ruleId: rule.id, totalAmountKobo: 100000, reference: `test_${Date.now()}` })} disabled={executeMutation.isPending}>
-                          <Trash2 className="w-4 h-4 text-red-500" />
+                        <Button variant="ghost" size="sm" aria-label="Delete" onClick={() => executeMutation.mutate({ ruleId: rule.id, totalAmountKobo: 100000, reference: `test_${Date.now()}` })} disabled={executeMutation.isPending}><Trash2/>
                         </Button>
                       </div>
                     </div>

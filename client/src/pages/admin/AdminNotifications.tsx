@@ -25,7 +25,7 @@ export default function AdminNotifications() {
   const [, navigate] = useLocation();
   const [form, setForm] = useState({ title: "", message: "", targetType: "all_merchants" as any, priority: "normal" as any });
   const utils = trpc.useUtils();
-  const broadcastsQuery = trpc.admin.notifications.listBroadcasts.useQuery({ limit: 20 });
+  const broadcastsQuery = trpc.admin.notifications.listBroadcasts.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const broadcastMutation = trpc.admin.notifications.broadcast.useMutation({
     onSuccess: (data: any) => {
       utils.admin.notifications.listBroadcasts.invalidate();

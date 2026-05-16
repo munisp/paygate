@@ -166,9 +166,9 @@ export default function NotificationsCenter() {
   const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 100, unreadOnly: false },
     { refetchInterval: notifInterval }
-  );
+  , { staleTime: 30_000 });
   const notifications = listData?.notifications;
-  const { data: countData } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: notifInterval });
+  const { data: countData } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: notifInterval }, { staleTime: 30_000 });
 
   const markReadMutation = trpc.notifications.markRead.useMutation({
     onSuccess: () => {
@@ -227,8 +227,7 @@ export default function NotificationsCenter() {
             <Settings className="h-3.5 w-3.5 mr-1.5" />
             Preferences
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isLoading}><RefreshCw/>
             Refresh
           </Button>
           {unreadCount > 0 && (

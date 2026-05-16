@@ -37,7 +37,7 @@ export default function RestaurantFloorPlan() {
   const { data, isLoading, refetch } = trpc.restaurant.listTables.useQuery(
     undefined,
     { enabled: isAuthenticated }
-  );
+  , { staleTime: 30_000 });
 
   const createTable = trpc.restaurant.createTable.useMutation({
     onSuccess: () => {
@@ -90,8 +90,7 @@ export default function RestaurantFloorPlan() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>

@@ -40,17 +40,17 @@ export default function ActiveSessions() {
   // Global anomaly config
   const globalConfigQuery = trpc.middleware.keycloak.getGlobalAnomalyConfig.useQuery(undefined, {
     enabled: isAdmin,
-  });
+  }, { staleTime: 30_000 });
   const auditLogQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLog.useQuery(undefined, {
     enabled: isAdmin && showConfigForm,
-  });
+  }, { staleTime: 30_000 });
   const auditLogFullQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLogFull.useQuery(
     { limit: PAGE_SIZE, offset: auditPage * PAGE_SIZE },
     { enabled: isAdmin && showAuditModal }
-  );
+  , { staleTime: 30_000 });
   const notifEmailQuery = trpc.middleware.keycloak.getNotificationEmail.useQuery(undefined, {
     enabled: isAdmin && showConfigForm,
-    onSuccess: (d) => { if (!editingEmail) setNotifEmail(d.notificationEmail ?? ""); },
+    onSuccess: (d, { staleTime: 30_000 }) => { if (!editingEmail) setNotifEmail(d.notificationEmail ?? ""); },
   });
 
   const saveGlobalAnomalyConfig = trpc.middleware.keycloak.setGlobalAnomalyConfig.useMutation({
@@ -72,7 +72,7 @@ export default function ActiveSessions() {
 
   const exportSessionsQuery = trpc.middleware.keycloak.exportSessions.useQuery(undefined, {
     enabled: false, // manual trigger only
-  });
+  }, { staleTime: 30_000 });
 
   function handleExportCSV() {
     exportSessionsQuery.refetch().then((res) => {
@@ -89,13 +89,13 @@ export default function ActiveSessions() {
   }
 
   const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.listActiveSessions.useQuery(
-    { userId: userIdFilter.trim() || undefined, limit: 100 },
+    { userId: userIdFilter.trim(, { staleTime: 30_000 }) || undefined, limit: 100 },
     { refetchInterval: 30000 } // auto-refresh every 30s
   );
 
   // Load anomaly config from DB
   const anomalyConfigQuery = trpc.middleware.keycloak.getAnomalyConfig.useQuery(undefined, {
-    onSuccess: (cfg) => {
+    onSuccess: (cfg, { staleTime: 30_000 }) => {
       setConfigWindow(cfg.loginAnomalyWindowMinutes);
       setConfigThreshold(cfg.loginAnomalyThreshold);
     },
@@ -113,7 +113,7 @@ export default function ActiveSessions() {
   const anomalyQuery = trpc.middleware.keycloak.checkLoginAnomalies.useQuery(
     { windowMinutes: anomalyConfigQuery.data?.loginAnomalyWindowMinutes ?? 15, threshold: anomalyConfigQuery.data?.loginAnomalyThreshold ?? 5 },
     { refetchInterval: 60000 }
-  );
+  , { staleTime: 30_000 });
 
   const forceLogout = trpc.middleware.keycloak.forceLogoutSession.useMutation({
     onSuccess: (result) => {
@@ -170,8 +170,7 @@ export default function ActiveSessions() {
             <Download className="w-4 h-4" />
             Export CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
-            <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isFetching} className="gap-2"><RefreshCw/>
             Refresh
           </Button>
         </div>

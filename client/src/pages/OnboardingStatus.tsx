@@ -55,8 +55,7 @@ export default function OnboardingStatus() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Complete all checks to go live on PayGate</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

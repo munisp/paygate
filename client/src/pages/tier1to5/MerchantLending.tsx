@@ -16,12 +16,12 @@ export default function MerchantLending() {
   const [notes, setNotes] = useState("");
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
 
-  const creditScoreQuery = trpc.merchantLending.getCreditScore.useQuery(undefined, { enabled: !!user });
-  const applicationsQuery = trpc.merchantLending.getLoanApplications.useQuery(undefined, { enabled: !!user });
+  const creditScoreQuery = trpc.merchantLending.getCreditScore.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
+  const applicationsQuery = trpc.merchantLending.getLoanApplications.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
   const offersQuery = trpc.merchantLending.getLoanOffers.useQuery(
     { applicationId: selectedApplicationId! },
     { enabled: !!selectedApplicationId }
-  );
+  , { staleTime: 30_000 });
 
   const applyMutation = trpc.merchantLending.applyForLoan.useMutation({
     onSuccess: (data: any) => {
@@ -62,8 +62,7 @@ export default function MerchantLending() {
           <h1 className="text-2xl font-bold">Merchant Lending</h1>
           <p className="text-muted-foreground">Access working capital loans based on your transaction history</p>
         </div>
-        <Button onClick={() => { creditScoreQuery.refetch(); applicationsQuery.refetch(); }} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+        <Button aria-label="Refresh" onClick={() => { creditScoreQuery.refetch(); applicationsQuery.refetch(); }} variant="outline" size="sm"><RefreshCw/> Refresh
         </Button>
       </div>
 

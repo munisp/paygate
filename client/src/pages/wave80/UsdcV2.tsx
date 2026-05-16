@@ -19,7 +19,7 @@ export default function UsdcV2() {
   const [convertAmount, setConvertAmount] = useState("");
 
   const { data: walletData } = trpc.wave80.usdcV2.getWallet.useQuery();
-  const { data: txData, isLoading, refetch } = trpc.wave80.usdcV2.listTransactions.useQuery({});
+  const { data: txData, isLoading, refetch } = trpc.wave80.usdcV2.listTransactions.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.usdcV2.getStats.useQuery();
 
   const transfer = trpc.wave80.usdcV2.initiateTransfer.useMutation({

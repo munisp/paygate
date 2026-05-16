@@ -95,7 +95,7 @@ export default function Customers() {
 
       {/* Table */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
               {["Name", "Email", "Phone", "Risk Level", "Joined", ""].map(h => (
@@ -129,7 +129,7 @@ export default function Customers() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {/* Pagination */}
@@ -234,7 +234,7 @@ function CustomerDrawer({ customerId, onClose }: { customerId: string | null; on
   const numericId = customerId ? parseInt(customerId, 10) : null;
   const { data: loyaltyData, isLoading: loyaltyLoading } = trpc.restaurant.getLoyaltyBalance.useQuery(
     { customerId: numericId! },
-    { enabled: !!numericId && !isNaN(numericId!), staleTime: 60_000, retry: false }
+    { enabled: !!numericId && !isNaN(numericId!, { staleTime: 30_000 }), staleTime: 60_000, retry: false }
   );
 
   // Points history — uses the new customers.getLoyaltyHistory procedure

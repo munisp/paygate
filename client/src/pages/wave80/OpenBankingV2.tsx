@@ -75,7 +75,7 @@ export default function OpenBankingV2() {
                   <div className="flex items-center gap-2">
                     <Badge variant={consent.status === "active" ? "default" : "secondary"}>{consent.status}</Badge>
                     {consent.status === "active" && <Button variant="ghost" size="sm" onClick={() => revokeConsent.mutate({ consentId: consent.id })}><Unlink className="w-4 h-4" /></Button>}
-                    {consent.status === "pending" && <Button size="sm" variant="outline" onClick={() => syncAccounts.mutate({ consentId: consent.id })}><RefreshCw className="w-4 h-4 mr-1" />Sync</Button>}
+                    {consent.status === "pending" && <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => syncAccounts.mutate({ consentId: consent.id })}><RefreshCw/>Sync</Button>}
                   </div>
                 </div>
               ))}</div>

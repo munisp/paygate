@@ -33,9 +33,9 @@ export default function CorridorManagement() {
     dailyLimitAmount: 5000000,
   });
 
-  const { data: corridors, refetch, isLoading } = trpc.wave29.corridorManagement.list.useQuery({ tenantId });
-  const { data: heatmap } = trpc.wave29.corridorManagement.getHeatmap.useQuery({ days: 30 });
-  const { data: dailyStats } = trpc.wave29.corridorManagement.getDailyStats.useQuery({ tenantId, days: 7 });
+  const { data: corridors, refetch, isLoading } = trpc.wave29.corridorManagement.list.useQuery({ tenantId }, { staleTime: 30_000 });
+  const { data: heatmap } = trpc.wave29.corridorManagement.getHeatmap.useQuery({ days: 30 }, { staleTime: 30_000 });
+  const { data: dailyStats } = trpc.wave29.corridorManagement.getDailyStats.useQuery({ tenantId, days: 7 }, { staleTime: 30_000 });
 
   const createCorridor = trpc.wave29.corridorManagement.create.useMutation({
     onSuccess: () => {
@@ -283,15 +283,14 @@ export default function CorridorManagement() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => {
+                        aria-label="Edit" onClick={() => {
                           setEditingId(c.id);
                           setEditForm({
                             fxMarkupPct: Number(c.fx_markup_pct),
                             dailyLimitAmount: Number(c.daily_limit_amount),
                           });
                         }}
-                      >
-                        <Edit2 className="w-4 h-4" />
+                      ><Edit/>
                       </Button>
                     )}
                   </TableCell>

@@ -55,7 +55,7 @@ export default function BNPL() {
     { limit: 50, status: statusFilter === "all" ? undefined : statusFilter },
     { staleTime: 30_000 }
   );
-  const { data: monthlyStats } = (trpc.bnpl.monthlyStats.useQuery({ months: 6 }) as any);
+  const { data: monthlyStats } = (trpc.bnpl.monthlyStats.useQuery({ months: 6 }, { staleTime: 30_000 }) as any);
   const monthlyData = monthlyStats?.monthlyData ?? [];
   const planSplit = monthlyStats?.planSplit ?? [];
   const { data: stats, refetch: refetchStats } = trpc.bnpl.stats.useQuery(undefined, { staleTime: 60_000 });
@@ -92,7 +92,7 @@ export default function BNPL() {
           <p className="text-muted-foreground text-sm mt-0.5">Manage instalment plans, active loans, and repayment schedules</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm" onClick={handleRefresh}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={handleRefresh}><RefreshCw/>Refresh</Button>
           <Button size="sm" onClick={() => { setTab("plans"); setShowNewPlan(true); }}>
             <Plus className="w-4 h-4 mr-2" />New Plan
           </Button>

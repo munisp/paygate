@@ -20,7 +20,7 @@ export default function RecurringBilling() {
   const [form, setForm] = useState({ planName: "", amountKobo: "", intervalType: "monthly" as const, trialDays: "0", description: "" });
 
   const { data: plans, isLoading, refetch } = trpc.tier1to5.recurringBilling.getPlans.useQuery();
-  const { data: subs } = trpc.tier1to5.recurringBilling.getSubscriptions.useQuery({ status: 'active' });
+  const { data: subs } = trpc.tier1to5.recurringBilling.getSubscriptions.useQuery({ status: 'active' }, { staleTime: 30_000 });
   const { data: dunning } = trpc.tier1to5.recurringBilling.getDunningQueue.useQuery();
 
   const createMutation = trpc.tier1to5.recurringBilling.createPlan.useMutation({
@@ -61,7 +61,7 @@ export default function RecurringBilling() {
             <p className="text-muted-foreground text-sm mt-1">Manage subscription plans, billing cycles, and dunning</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
             <Button size="sm" onClick={() => setShowCreate(v => !v)}><Plus className="w-4 h-4 mr-2" />New Plan</Button>
           </div>
         </div>

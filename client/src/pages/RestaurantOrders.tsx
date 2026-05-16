@@ -304,11 +304,11 @@ export default function RestaurantOrders() {
   const { data, isLoading, refetch } = trpc.restaurant.listOrders.useQuery(
     { status: statusFilter === "all" ? undefined : statusFilter },
     { refetchInterval: restaurantInterval }
-  );
+  , { staleTime: 30_000 });
   const { data: tablesData } = trpc.restaurant.listTables.useQuery(undefined, { staleTime: 60_000 });
   const { data: menuData } = trpc.restaurant.listMenu.useQuery(undefined, { staleTime: 60_000 });
   const { data: statsData } = trpc.restaurant.tableTurnStats.useQuery(
-    { date: new Date().toISOString().split("T")[0] },
+    { date: new Date(, { staleTime: 30_000 }).toISOString().split("T")[0] },
     { enabled: showStats, staleTime: 60_000 }
   );
 
@@ -348,8 +348,7 @@ export default function RestaurantOrders() {
             <BarChart3 className="w-3.5 h-3.5 mr-1" />
             {showStats ? "Hide" : "Table-Turn Stats"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="w-3.5 h-3.5 mr-1" /> New Order

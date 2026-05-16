@@ -19,7 +19,7 @@ export default function KYBWorkflow() {
   });
 
   const { data: status, isLoading, refetch } = trpc.tier1to5.kyb.getKYBStatus.useQuery();
-  const { data: reports } = trpc.tier1to5.kyb.getComplianceReports.useQuery({ reportType: undefined });
+  const { data: reports } = trpc.tier1to5.kyb.getComplianceReports.useQuery({ reportType: undefined }, { staleTime: 30_000 });
 
   const submitMutation = trpc.tier1to5.kyb.submitKYB.useMutation({
     onSuccess: () => { toast.success("KYB submitted. Temporal workflow started — verification takes 1-3 business days."); setShowSubmit(false); refetch(); },
@@ -59,7 +59,7 @@ export default function KYBWorkflow() {
             <h1 className="text-2xl font-bold">KYB & Compliance</h1>
             <p className="text-muted-foreground text-sm mt-1">Know Your Business verification via Temporal workflow + Youverify + CBN reporting</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* KYB Status */}

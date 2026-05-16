@@ -15,7 +15,7 @@ import {
 
 // ─── Public storefront (no auth required) ─────────────────────────────────────
 export function PublicOrderPage({ slug }: { slug: string }) {
-  const { data: menu, isLoading, error } = trpc.restaurant.getPublicMenu.useQuery({ slug });
+  const { data: menu, isLoading, error } = trpc.restaurant.getPublicMenu.useQuery({ slug }, { staleTime: 30_000 });
   const placeOrder = trpc.restaurant.placeOnlineOrder.useMutation();
 
   const [customerName, setCustomerName] = useState("");
@@ -203,7 +203,7 @@ function MenuItemRow({ item, qty, onAdd, onRemove }: { item: any; qty: number; o
 // ─── Merchant management panel ─────────────────────────────────────────────────
 export default function RestaurantOnlineOrdering() {
   const { user } = useAuth();
-  const { data: linkData, isLoading } = trpc.restaurant.getOnlineOrderingLink.useQuery(undefined, { enabled: !!user });
+  const { data: linkData, isLoading } = trpc.restaurant.getOnlineOrderingLink.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
 
   const orderingUrl = linkData ? `${window.location.origin}/order/${linkData.slug}` : "";
 

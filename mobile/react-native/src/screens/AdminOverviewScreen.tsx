@@ -1,212 +1,51 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
-import { useTrpc } from '../hooks/useTrpc';
-
-interface AdminStats {
-  totalMerchants: number;
-  activeUsers: number;
-  revenue: number;
-  systemHealth: 'good' | 'warning' | 'critical';
-}
-
-const AdminScreen: React.FC = () => {
-  const { query } = useTrpc();
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isError, setIsError] = useState(false);
-
-  const fetchStats = useCallback(async () => {
-    setIsLoading(true);
-    setIsError(false);
-    try {
-      const result = await query.adminMgmt.getStats.query();
-      setStats(result);
-    } catch (error) {
-      console.error('Failed to fetch admin stats:', error);
-      setIsError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [query.adminMgmt.getStats]);
-
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
-  const handleRetry = () => {
-    fetchStats();
-  };
-
-  if (isLoading) {
-    return (
-      <View style={styles.centeredContainer}>
-        <ActivityIndicator size="large" color="#6366f1" />
-        <Text style={styles.loadingText}>Loading admin dashboard...</Text>
-      </View>
-    );
-  }
-
-  if (isError) {
-    return (
-      <View style={styles.centeredContainer}>
-        <Text style={styles.errorText}>Failed to load data.</Text>
-        <TouchableOpacity onPress={handleRetry} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (!stats) {
-    return (
-      <View style={styles.centeredContainer}>
-        <Text style={styles.emptyText}>No admin statistics available.</Text>
-        <TouchableOpacity onPress={handleRetry} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const getHealthColor = (health: 'good' | 'warning' | 'critical') => {
-    switch (health) {
-      case 'good':
-        return 'green';
-      case 'warning':
-        return 'orange';
-      case 'critical':
-        return 'red';
-      default:
-        return 'white';
-    }
-  };
-
+import React, { useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, SafeAreaView, StatusBar } from 'react-native';
+import { trpc } from '../lib/trpc';
+const C = { primary: '#6366F1', bg: '#0F172A', card: '#1E293B', text: '#F1F5F9', muted: '#94A3B8', success: '#10B981', error: '#EF4444', border: '#334155' };
+export default function AdminOverviewScreen() {
+  const [refreshing, setRefreshing] = useState(false);
+  const { data: stats, isLoading, refetch } = trpc.adminMgmt.getStats.useQuery();
+  const { data: merchants } = trpc.adminMgmt.listMerchants.useQuery({ page: 1, limit: 5 });
+  const onRefresh = async () => { setRefreshing(true); await refetch(); setRefreshing(false); };
+  if (isLoading) return <View style={[s.container, s.center]}><ActivityIndicator color={C.primary} size="large" /></View>;
+  const statCards = [
+    { label: 'Total Merchants', value: (stats as any)?.totalMerchants ?? 0 },
+    { label: 'Active Users', value: (stats as any)?.activeUsers ?? 0 },
+    { label: 'Transactions Today', value: (stats as any)?.transactionsToday ?? 0 },
+    { label: 'Revenue (NGN)', value: `₦${((stats as any)?.revenueToday ?? 0).toLocaleString()}` },
+  ];
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      refreshControl={
-        <RefreshControl
-          refreshing={isLoading}
-          onRefresh={fetchStats}
-          tintColor="#6366f1"
-        />
-      }
-    >
-      <Text style={styles.header}>Admin Overview</Text>
-
-      <View style={styles.cardContainer}>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Total Merchants</Text>
-          <Text style={styles.cardValue}>{stats.totalMerchants}</Text>
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <ScrollView contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} />}>
+        <Text style={s.title}>Admin Overview</Text>
+        <View style={s.grid}>
+          {statCards.map(c => (
+            <View key={c.label} style={s.statCard}>
+              <Text style={s.statValue}>{c.value}</Text>
+              <Text style={s.statLabel}>{c.label}</Text>
+            </View>
+          ))}
         </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Active Users</Text>
-          <Text style={styles.cardValue}>{stats.activeUsers}</Text>
-        </View>
-      </View>
-
-      <View style={styles.cardContainer}>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Revenue</Text>
-          <Text style={styles.cardValue}>${stats.revenue.toLocaleString()}</Text>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>System Health</Text>
-          <Text style={[styles.cardValue, { color: getHealthColor(stats.systemHealth) }]}>
-            {stats.systemHealth.charAt(0).toUpperCase() + stats.systemHealth.slice(1)}
-          </Text>
-        </View>
-      </View>
-    </ScrollView>
+        <Text style={s.sectionTitle}>Recent Merchants</Text>
+        {((merchants as any)?.merchants ?? []).map((m: any) => (
+          <View key={m.id} style={s.card}>
+            <Text style={s.cardTitle}>{m.businessName ?? m.name}</Text>
+            <Text style={s.cardSub}>{m.email} · {m.status}</Text>
+          </View>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-  contentContainer: {
-    padding: 16,
-  },
-  centeredContainer: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  header: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  cardContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 20,
-    flex: 1,
-    marginHorizontal: 8,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.30,
-    shadowRadius: 4.65,
-    elevation: 8,
-  },
-  cardTitle: {
-    fontSize: 16,
-    color: '#94a3b8',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  cardValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-    textAlign: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#94a3b8',
-  },
-  errorText: {
-    fontSize: 18,
-    color: 'red',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 18,
-    color: '#94a3b8',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+}
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg }, center: { justifyContent: 'center', alignItems: 'center' },
+  content: { padding: 20 }, title: { fontSize: 24, fontWeight: '700', color: C.text, marginBottom: 20 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24 },
+  statCard: { flex: 1, minWidth: '45%', backgroundColor: C.card, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: C.border },
+  statValue: { fontSize: 22, fontWeight: '700', color: C.primary, marginBottom: 4 },
+  statLabel: { fontSize: 12, color: C.muted },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: C.text, marginBottom: 12 },
+  card: { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  cardTitle: { fontSize: 15, fontWeight: '600', color: C.text }, cardSub: { fontSize: 12, color: C.muted, marginTop: 2 },
 });
-
-export default AdminScreen;

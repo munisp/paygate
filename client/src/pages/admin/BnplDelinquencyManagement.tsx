@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function BnplDelinquencyManagement() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
-  const { data: recordsData, refetch, isLoading, isError } = trpc.wave31.bnplDelinquency.list.useQuery({ status: statusFilter });
+  const { data: recordsData, refetch, isLoading, isError } = trpc.wave31.bnplDelinquency.list.useQuery({ status: statusFilter }, { staleTime: 30_000 });
   const { data: statsData } = trpc.wave31.bnplDelinquency.getStats.useQuery();
 
   const updateStatus = trpc.wave31.bnplDelinquency.updateCollectionStatus.useMutation({
@@ -43,8 +43,7 @@ export default function BnplDelinquencyManagement() {
           <h1 className="text-2xl font-bold">BNPL Delinquency Management</h1>
           <p className="text-muted-foreground">Track and manage overdue BNPL loans and collection actions</p>
         </div>
-        <Button onClick={() => runCheck.mutate()} disabled={runCheck.isPending} className="gap-2">
-          <RefreshCw className={`h-4 w-4 ${runCheck.isPending ? 'animate-spin' : ''}`} />
+        <Button aria-label="Refresh" onClick={() => runCheck.mutate()} disabled={runCheck.isPending} className="gap-2"><RefreshCw/>
           Run Delinquency Check
         </Button>
       </div>

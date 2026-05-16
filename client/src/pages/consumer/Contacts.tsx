@@ -104,8 +104,7 @@ export default function Contacts() {
                   </Button>
                 )}
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
-                  onClick={() => removeContact.mutate({ id: c.id })}>
-                  <Trash2 className="w-4 h-4" />
+                  aria-label="Delete" onClick={() => removeContact.mutate({ id: c.id })}><Trash2/>
                 </Button>
               </div>
             </div>

@@ -25,12 +25,12 @@ export default function UPIGateway() {
 
   const validateQuery = trpc.crossBorder.upi.validateVpa.useQuery(
     { vpa },
-    { enabled: step === "validate" && vpa.includes("@") }
+    { enabled: step === "validate" && vpa.includes("@", { staleTime: 30_000 }) }
   );
 
   const quoteQuery = trpc.crossBorder.upi.getQuote.useQuery(
     { sourceCurrency, amount: amount || "0" },
-    { enabled: step === "quote" && !!amount && parseFloat(amount) > 0 }
+    { enabled: step === "quote" && !!amount && parseFloat(amount, { staleTime: 30_000 }) > 0 }
   );
 
   const initiateMutation = trpc.crossBorder.initiate.useMutation({

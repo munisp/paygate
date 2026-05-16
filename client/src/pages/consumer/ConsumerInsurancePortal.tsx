@@ -243,7 +243,7 @@ export default function ConsumerInsurancePortal() {
 
   const { data: products, isLoading } = trpc.newFeatures.consumerInsurance.listProducts.useQuery({
     type: typeFilter,
-  });
+  }, { staleTime: 30_000 });
   const { data: policies, refetch: refetchPolicies } =
     trpc.newFeatures.consumerInsurance.getActivePolicies.useQuery();
   const { data: claims, refetch: refetchClaims } =

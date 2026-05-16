@@ -17,7 +17,7 @@ export default function FraudRules() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ name: "", ruleType: "velocity", condition: "", action: "flag", threshold: 0, isActive: true });
 
-  const { data, isLoading, refetch } = trpc.fraudRules.listAlerts.useQuery({ page, limit: 20 });
+  const { data, isLoading, refetch } = trpc.fraudRules.listAlerts.useQuery({ page, limit: 20 }, { staleTime: 30_000 });
   const acknowledgeMutation = trpc.fraudRules.acknowledgeAlert.useMutation({
     onSuccess: () => { toast.success("Alert acknowledged"); refetch(); },
     onError: (e: any) => toast.error(e.message),
@@ -144,8 +144,7 @@ export default function FraudRules() {
                           <Button size="sm" variant="ghost" onClick={() => acknowledgeMutation.mutate({ id: r.id })}>
                             <ToggleRight className="w-4 h-4 text-green-600" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Resolve this alert?")) resolveMutation.mutate({ id: r.id, resolution: "manually resolved" }); }}>
-                            <Trash2 className="w-3 h-3" />
+                          <Button size="sm" variant="ghost" className="text-destructive" aria-label="Delete" onClick={() => { if (confirm("Resolve this alert?")) resolveMutation.mutate({ id: r.id, resolution: "manually resolved" }); }}><Trash2/>
                           </Button>
                         </div>
                       </td>

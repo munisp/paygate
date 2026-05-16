@@ -1,230 +1,64 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, Alert } from 'react-native';
-import { useTrpc } from '../hooks/useTrpc';
-
-const primary = '#6366f1';
-const background = '#0f172a';
-const card = '#1e293b';
-const textWhite = 'white';
-const subtext = '#94a3b8';
-
-const AuthScreen: React.FC = () => {
-  const [email, setEmail] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-
-  const { mutation } = useTrpc();
-  const loginMutation = mutation('auth.login');
-
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password.');
-      return;
-    }
-
-    try {
-      await loginMutation.mutateAsync({ email, password });
-      Alert.alert('Success', 'Logged in successfully!');
-      // Navigate to dashboard or home screen upon successful login
-    } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'An unexpected error occurred.');
-    }
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, SafeAreaView, StatusBar, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { trpc } from '../lib/trpc';
+const C = { primary: '#6366F1', bg: '#0F172A', card: '#1E293B', text: '#F1F5F9', muted: '#94A3B8', error: '#EF4444', border: '#334155' };
+export default function AuthScreen({ navigation }: any) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
+  const utils = trpc.useUtils();
+  const loginMutation = trpc.auth.login.useMutation({
+    onSuccess: async (data: any) => {
+      if (data?.token) await AsyncStorage.setItem('session_token', data.token);
+      utils.auth.me.invalidate();
+      navigation?.navigate?.('Dashboard');
+    },
+    onError: (err: any) => Alert.alert('Login Failed', err.message),
+  });
+  const registerMutation = trpc.auth.register?.useMutation?.({
+    onSuccess: () => { Alert.alert('Success', 'Account created. Please log in.'); setIsRegister(false); },
+    onError: (err: any) => Alert.alert('Registration Failed', err.message),
+  });
+  const handleSubmit = () => {
+    if (!email || !password) { Alert.alert('Error', 'Please fill in all fields'); return; }
+    if (isRegister) { registerMutation?.mutate?.({ email, password, name: email.split('@')[0] }); }
+    else { loginMutation.mutate({ email, password }); }
   };
-
-  const handleOAuthLogin = () => {
-    Alert.alert('OAuth Login', 'Initiating OAuth login...');
-    // Implement OAuth login logic here
-  };
-
-  const onRefresh = React.useCallback(() => {
-    setIsRefreshing(true);
-    // In a real scenario, you might re-fetch some initial data if the login screen had any.
-    // For a static login form, this primarily serves as a placeholder for the requirement.
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 1500);
-  }, []);
-
-  const renderContent = () => {
-    if (loginMutation.isLoading) {
-      return (
-        <View style={styles.centeredContainer}>
-          <ActivityIndicator size="large" color={primary} />
-          <Text style={styles.loadingText}>Logging in...</Text>
-        </View>
-      );
-    }
-
-    if (loginMutation.isError) {
-      return (
-        <View style={styles.centeredContainer}>
-          <Text style={styles.errorText}>Error: {loginMutation.error?.message || 'Failed to log in.'}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => loginMutation.reset()}>
-            <Text style={styles.retryButtonText}>Retry</Text>
+  const isLoading = loginMutation.isLoading || (registerMutation?.isLoading ?? false);
+  return (
+    <SafeAreaView style={s.container}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.kav}>
+        <View style={s.content}>
+          <Text style={s.logo}>PayGate</Text>
+          <Text style={s.subtitle}>{isRegister ? 'Create your account' : 'Sign in to your account'}</Text>
+          <View style={s.card}>
+            <Text style={s.label}>Email</Text>
+            <TextInput style={s.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={C.muted} placeholder="merchant@example.com" />
+            <Text style={[s.label, { marginTop: 16 }]}>Password</Text>
+            <TextInput style={s.input} value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor={C.muted} placeholder="••••••••" />
+            <TouchableOpacity style={s.btn} onPress={handleSubmit} disabled={isLoading}>
+              {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>{isRegister ? 'Create Account' : 'Sign In'}</Text>}
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity onPress={() => setIsRegister(!isRegister)}>
+            <Text style={s.toggle}>{isRegister ? 'Already have an account? Sign in' : "Don't have an account? Register"}</Text>
           </TouchableOpacity>
         </View>
-      );
-    }
-
-    // Empty state: For a login screen, the "empty state" is essentially the form itself,
-    // ready for user input. We ensure the form is always visible unless loading or error.
-    return (
-      <View style={styles.formContainer}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Sign in to continue to your account</Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor={subtext}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor={subtext}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginButtonText}>Login</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.orText}>OR</Text>
-
-        <TouchableOpacity style={styles.oauthButton} onPress={handleOAuthLogin}>
-          <Text style={styles.oauthButtonText}>Login with Google</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={onRefresh}
-          tintColor={primary}
-          colors={[primary]}
-          progressBackgroundColor={card}
-        />
-      }
-    >
-      {renderContent()}
-    </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: background,
-  },
-  contentContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  formContainer: {
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: card,
-    borderRadius: 10,
-    padding: 20,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: textWhite,
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: subtext,
-    marginBottom: 30,
-    textAlign: 'center',
-  },
-  input: {
-    width: '100%',
-    height: 50,
-    backgroundColor: background,
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    color: textWhite,
-    marginBottom: 15,
-    fontSize: 16,
-  },
-  loginButton: {
-    width: '100%',
-    height: 50,
-    backgroundColor: primary,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  loginButtonText: {
-    color: textWhite,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  orText: {
-    color: subtext,
-    marginBottom: 20,
-    fontSize: 16,
-},
-  oauthButton: {
-    width: '100%',
-    height: 50,
-    backgroundColor: background,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: subtext,
-  },
-  oauthButtonText: {
-    color: textWhite,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  loadingText: {
-    color: textWhite,
-    marginTop: 10,
-    fontSize: 16,
-  },
-  errorText: {
-    color: '#ef4444', // A red color for errors
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  retryButton: {
-    backgroundColor: primary,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: textWhite,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+}
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.bg }, kav: { flex: 1 },
+  content: { flex: 1, justifyContent: 'center', padding: 24 },
+  logo: { fontSize: 36, fontWeight: '800', color: C.primary, textAlign: 'center', marginBottom: 8 },
+  subtitle: { fontSize: 16, color: C.muted, textAlign: 'center', marginBottom: 32 },
+  card: { backgroundColor: C.card, borderRadius: 16, padding: 24, borderWidth: 1, borderColor: C.border },
+  label: { fontSize: 13, color: C.muted, marginBottom: 6 },
+  input: { backgroundColor: C.bg, borderRadius: 10, padding: 14, color: C.text, fontSize: 15, borderWidth: 1, borderColor: C.border, marginBottom: 4 },
+  btn: { backgroundColor: C.primary, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 20 },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  toggle: { color: C.primary, textAlign: 'center', marginTop: 20, fontSize: 14 },
 });
-
-export default AuthScreen;

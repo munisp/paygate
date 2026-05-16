@@ -19,15 +19,15 @@ export default function InternationalRemittance() {
   const [trackingNumber, setTrackingNumber] = useState("");
 
   const {isLoading, data: corridors} = trpc.newFeatures.internationalRemittance.getCorridors.useQuery();
-  const { data: transfers } = trpc.newFeatures.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 20 });
+  const { data: transfers } = trpc.newFeatures.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
   const { data: quoteData } = trpc.newFeatures.internationalRemittance.getQuote.useQuery(
     quoteParams ?? { corridorId: "", sendAmountUSD: 0, deliveryMethod: "bank_transfer" },
     { enabled: !!quoteParams }
-  );
+  , { staleTime: 30_000 });
   const { data: trackingData } = trpc.newFeatures.internationalRemittance.trackTransfer.useQuery(
     { trackingNumber },
     { enabled: trackingNumber.length > 5 }
-  );
+  , { staleTime: 30_000 });
 
   const transferMutation = trpc.newFeatures.internationalRemittance.initiateTransfer.useMutation({
     onSuccess: (d: any) => { toast.success(`Transfer initiated: ${d.trackingNumber}`); setQuoteParams(null); },
@@ -163,7 +163,7 @@ export default function InternationalRemittance() {
         <CardHeader><CardTitle>Transfer History</CardTitle></CardHeader>
         <CardContent>
           {!transfers?.transfers?.length ? <p className="text-muted-foreground text-sm">No transfers yet</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Recipient</th><th className="text-right py-2">Sent</th><th className="text-right py-2">Received</th><th className="text-right py-2">Status</th><th className="text-right py-2">Date</th></tr></thead>
               <tbody>
                 {transfers.transfers.map(t => (
@@ -179,7 +179,7 @@ export default function InternationalRemittance() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>

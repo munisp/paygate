@@ -86,12 +86,12 @@ export default function Analytics() {
   const { data: overview, isLoading: oLoading } = trpc.analytics.overview.useQuery(range, { staleTime: 60_000 });
   const { data: timeSeries, isLoading: tsLoading } = trpc.analytics.timeSeries.useQuery(range, { staleTime: 60_000 });
   const { data: fraudTrend, isLoading: ftLoading } = trpc.analytics.fraudTrend.useQuery(
-    { days: Math.min(days, 90) },
+    { days: Math.min(days, 90, { staleTime: 30_000 }) },
     { staleTime: 120_000 },
   );
   const { data: channelData, isLoading: chLoading } = trpc.analytics.channelBreakdown.useQuery(range, { staleTime: 60_000 });
   const { data: livenessData, isLoading: lvLoading } = trpc.analytics.livenessHistogram.useQuery(
-    { days: Math.min(days, 90) },
+    { days: Math.min(days, 90, { staleTime: 30_000 }) },
     { staleTime: 120_000 },
   );
   const CHANNEL_COLORS: Record<string, string> = {
@@ -184,8 +184,7 @@ export default function Analytics() {
               <SelectItem value="1y">Last year</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={handleRefresh}><RefreshCw/> Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             <Download className="w-3 h-3 mr-1" /> Export CSV

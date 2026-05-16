@@ -67,7 +67,7 @@ export default function ConsumerSIPScheduler() {
   const { data: historyData } = trpc.sip.getHistory.useQuery(
     { planId: historyPlanId!, limit: 10 },
     { enabled: !!historyPlanId }
-  );
+  , { staleTime: 30_000 });
 
   const plans = (data as any)?.plans ?? [];
 
@@ -236,11 +236,10 @@ export default function ConsumerSIPScheduler() {
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8 text-red-500 hover:text-red-600"
-                            onClick={() => {
+                            aria-label="Delete" onClick={() => {
                               if (confirm("Cancel this SIP plan?")) cancelMutation.mutate({ planId: plan.id });
                             }}
-                          >
-                            <Trash2 className="w-4 h-4" />
+                          ><Trash2/>
                           </Button>
                         </>
                       )}

@@ -20,7 +20,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () => void }) {
-  const { data: tx, isLoading, refetch } = trpc.transactions.get.useQuery({ id: txId }, { enabled: !!txId });
+  const { data: tx, isLoading, refetch } = trpc.transactions.get.useQuery({ id: txId }, { enabled: !!txId }, { staleTime: 30_000 });
   const [showRefund, setShowRefund] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("");
@@ -359,8 +359,7 @@ export default function Transactions() {
           <p className="text-sm text-muted-foreground mt-0.5">{total.toLocaleString()} total transactions</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { refetch(); }} disabled={isFetching}>
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetch(); }} disabled={isFetching}><RefreshCw/>Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={handleMonthlyStatement} disabled={exportingStatement}>
             <Download className={`w-4 h-4 mr-1.5 ${exportingStatement ? "animate-spin" : ""}`} />
@@ -390,7 +389,7 @@ export default function Transactions() {
       </div>
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead className="bg-muted/50 border-b border-border">
             <tr>
               {["Reference", "Customer", "Amount", "Channel", "Status", "Date", ""].map((h: any) => (
@@ -419,7 +418,7 @@ export default function Transactions() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {totalPages > 1 && (

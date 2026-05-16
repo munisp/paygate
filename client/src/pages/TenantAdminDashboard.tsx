@@ -39,26 +39,26 @@ export default function TenantAdminDashboard() {
   });
 
   const { data: overview, isLoading: overviewLoading, refetch: refetchOverview } =
-    trpc.wave28.tenantAdmin.getOverview.useQuery({ tenantId }, { enabled: !!tenantId });
+    trpc.wave28.tenantAdmin.getOverview.useQuery({ tenantId }, { enabled: !!tenantId }, { staleTime: 30_000 });
 
   const { data: users, refetch: refetchUsers } =
-    trpc.wave28.tenantAdmin.listUsers.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "users" });
+    trpc.wave28.tenantAdmin.listUsers.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "users" }, { staleTime: 30_000 });
 
   const { data: corridors, refetch: refetchCorridors } =
-    trpc.wave28.tenantAdmin.getCorridors.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "corridors" });
+    trpc.wave28.tenantAdmin.getCorridors.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "corridors" }, { staleTime: 30_000 });
 
   const { data: feeOverrides, refetch: refetchFees } =
-    trpc.wave28.tenantAdmin.getFeeOverrides.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "fees" });
+    trpc.wave28.tenantAdmin.getFeeOverrides.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "fees" }, { staleTime: 30_000 });
 
   const currentPeriod = new Date().toISOString().slice(0, 7); // YYYY-MM
   const { data: usageData } =
-    trpc.usageMetering.getUsage.useQuery({ tenantId, period: currentPeriod }, { enabled: !!tenantId && activeTab === "billing" });
+    trpc.usageMetering.getUsage.useQuery({ tenantId, period: currentPeriod }, { enabled: !!tenantId && activeTab === "billing" }, { staleTime: 30_000 });
 
   const { data: quotaData } =
-    trpc.usageMetering.checkQuota.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "billing" });
+    trpc.usageMetering.checkQuota.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "billing" }, { staleTime: 30_000 });
 
   const { data: invoices } =
-    trpc.usageMetering.getInvoices.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "billing" });
+    trpc.usageMetering.getInvoices.useQuery({ tenantId }, { enabled: !!tenantId && activeTab === "billing" }, { staleTime: 30_000 });
 
   const inviteUserMutation = trpc.wave28.tenantAdmin.inviteUser.useMutation({
     onSuccess: () => { toast.success("User invited"); setShowInviteUser(false); refetchUsers(); },
@@ -262,7 +262,7 @@ export default function TenantAdminDashboard() {
                   {(users ?? []).length === 0 ? (
                     <div className="text-center py-8 text-gray-500">No users yet. Invite your first team member.</div>
                   ) : (
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto"><table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-gray-500">
                           <th className="text-left py-3 px-4">Name</th>
@@ -297,15 +297,14 @@ export default function TenantAdminDashboard() {
                             </td>
                             <td className="py-3 px-4">
                               <Button size="sm" variant="outline" className="text-red-600 border-red-200 h-7"
-                                onClick={() => removeUserMutation.mutate({ tenantId, email: u.email })}
-                                disabled={u.role === "owner"}>
-                                <Trash2 className="w-3 h-3" />
+                                aria-label="Delete" onClick={() => removeUserMutation.mutate({ tenantId, email: u.email })}
+                                disabled={u.role === "owner"}><Trash2/>
                               </Button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                   )}
                 </CardContent>
               </Card>
@@ -321,7 +320,7 @@ export default function TenantAdminDashboard() {
                   {(corridors ?? []).length === 0 ? (
                     <div className="text-center py-8 text-gray-500">No corridors configured.</div>
                   ) : (
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto"><table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-gray-500">
                           <th className="text-left py-3 px-4">Corridor</th>
@@ -364,7 +363,7 @@ export default function TenantAdminDashboard() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                   )}
                 </CardContent>
               </Card>
@@ -605,7 +604,7 @@ export default function TenantAdminDashboard() {
                   {!invoices || invoices.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">No invoices yet.</div>
                   ) : (
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto"><table className="w-full text-sm">
                       <thead><tr className="border-b"><th className="text-left py-2">Period</th><th className="text-left py-2">Amount</th><th className="text-left py-2">Status</th><th className="text-left py-2">Due</th></tr></thead>
                       <tbody>
                         {invoices.map((inv: any) => (
@@ -617,7 +616,7 @@ export default function TenantAdminDashboard() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                   )}
                 </CardContent>
               </Card>

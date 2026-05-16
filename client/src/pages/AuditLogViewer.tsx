@@ -44,7 +44,7 @@ export default function AuditLogViewer() {
     useOpenSearch,
   }), [page, search, actorId, actionType, resourceType, dateFrom, dateTo, useOpenSearch]);
 
-  const { data, isLoading, isError, refetch } = trpc.auditLog.search.useQuery(queryParams);
+  const { data, isLoading, isError, refetch } = trpc.auditLog.search.useQuery(queryParams, { staleTime: 30_000 });
 
   const logs = data?.logs ?? [];
   const total = data?.total ?? 0;
@@ -94,8 +94,7 @@ export default function AuditLogViewer() {
           <Button variant="outline" onClick={handleExport} disabled={logs.length === 0}>
             <Download className="w-4 h-4 mr-2" />Export CSV
           </Button>
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />Refresh
+          <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh
           </Button>
         </div>
       </div>

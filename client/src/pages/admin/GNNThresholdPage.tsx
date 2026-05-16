@@ -48,8 +48,7 @@ export default function GNNThresholdPage() {
             Configure the transaction value threshold above which the GraphSAGE GNN model is invoked for fraud scoring
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 
@@ -121,7 +120,7 @@ export default function GNNThresholdPage() {
           {isLoading ? (
             <div className="text-sm text-muted-foreground">Loading...</div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-2">Plan</th>
@@ -152,7 +151,7 @@ export default function GNNThresholdPage() {
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           )}
         </CardContent>
       </Card>

@@ -37,7 +37,7 @@ export default function OpenBankingPortal() {
   const { data: customerData, isLoading: customerDataLoading } = trpc.tier1to5.openBanking.getCustomerData.useQuery(
     { customerId, dataType: fetchDataType, consentToken },
     { enabled: !!customerId && !!consentToken }
-  );
+  , { staleTime: 30_000 });
 
   const toggleDataType = (dt: "account_balance" | "transaction_history" | "credit_score") => {
     setDataTypes(prev => prev.includes(dt) ? prev.filter(x => x !== dt) : [...prev, dt]);

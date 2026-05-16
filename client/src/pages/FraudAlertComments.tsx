@@ -32,7 +32,7 @@ export default function FraudAlertComments() {
   const { data, isLoading, isError, refetch } = trpc.fraudAlertComments.list.useQuery({
     limit,
     offset: page * limit,
-    alertId: alertIdFilter ? Number(alertIdFilter) : undefined,
+    alertId: alertIdFilter ? Number(alertIdFilter, { staleTime: 30_000 }) : undefined,
   });
 
   const addMutation = trpc.fraudAlertComments.add.useMutation({
@@ -53,8 +53,7 @@ export default function FraudAlertComments() {
           <p className="text-muted-foreground text-sm mt-1">Investigator notes and actions on fraud alerts</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Button size="sm" onClick={() => setShowAdd(true)}>
             <Plus className="w-4 h-4 mr-2" /> Add Comment

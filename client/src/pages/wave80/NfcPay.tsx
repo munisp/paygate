@@ -15,7 +15,7 @@ export default function NfcPay() {
 
   const { data, isLoading, refetch } = trpc.wave80.nfcPay.listDevices.useQuery();
   const { data: stats } = trpc.wave80.nfcPay.getStats.useQuery();
-  const { data: txData } = trpc.wave80.nfcPay.listTransactions.useQuery({});
+  const { data: txData } = trpc.wave80.nfcPay.listTransactions.useQuery({}, { staleTime: 30_000 });
 
   const register = trpc.wave80.nfcPay.registerDevice.useMutation({
     onSuccess: () => { toast.success("Device registered"); setRegisterOpen(false); refetch(); },

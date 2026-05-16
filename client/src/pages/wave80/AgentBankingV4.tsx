@@ -12,7 +12,7 @@ export default function AgentBankingV4() {
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ agentName: "", phone: "", lga: "", state: "", initialFloat: "0" });
-  const { data, isLoading, refetch } = trpc.wave80.agentBankingV4.listAgents.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.agentBankingV4.listAgents.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.agentBankingV4.getStats.useQuery();
   const addAgent = trpc.wave80.agentBankingV4.createAgent.useMutation({
     onSuccess: () => { toast.success("Agent added"); setAddOpen(false); setForm({ agentName: "", phone: "", lga: "", state: "", initialFloat: "0" }); refetch(); },

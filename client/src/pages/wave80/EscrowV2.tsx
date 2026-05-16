@@ -13,7 +13,7 @@ export default function EscrowV2() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ title: "", buyerId: "", sellerId: "", amount: "", currency: "NGN", description: "", releaseConditions: "" });
 
-  const { data, isLoading, refetch } = trpc.wave80.escrowV2.listContracts.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.escrowV2.listContracts.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.escrowV2.getStats.useQuery();
 
   const createContract = trpc.wave80.escrowV2.createContract.useMutation({

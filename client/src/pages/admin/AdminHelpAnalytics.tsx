@@ -14,12 +14,12 @@ export default function AdminHelpAnalytics() {
     userType,
     days,
     limit: 20,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: unanswered, isLoading, isError: unansweredLoading } = trpc.wave24.helpAnalytics.getUnansweredQueries.useQuery({
     days,
     limit: 20,
-  });
+  }, { staleTime: 30_000 });
 
   const maxCount = Math.max(...(topQueries ?? []).map(q => parseInt(q.search_count as unknown as string)));
 

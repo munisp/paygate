@@ -140,8 +140,7 @@ export default function ConsumerSavingsGoals() {
                     <div className="flex items-center gap-1">
                       {goal.status === "completed" && <CheckCircle className="w-4 h-4 text-green-600" />}
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                        onClick={() => setDeleteId(goal.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
+                        aria-label="Delete" onClick={() => setDeleteId(goal.id)}><Trash2/>
                       </Button>
                     </div>
                   </div>

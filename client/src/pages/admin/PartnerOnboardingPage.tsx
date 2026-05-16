@@ -22,12 +22,12 @@ export default function PartnerOnboardingPage() {
     page,
     limit: 20,
     search: search || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: session } = trpc.wave32.partnerOnboarding.getSession.useQuery(
     { id: selectedId! },
     { enabled: !!selectedId }
-  );
+  , { staleTime: 30_000 });
 
   const startMutation = trpc.wave32.partnerOnboarding.startSession.useMutation({
     onSuccess: (s) => {
@@ -93,7 +93,7 @@ export default function PartnerOnboardingPage() {
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
                 {["Company", "Current Step", "Status", "Started", "Completed At", "Actions"].map(h => (
@@ -139,7 +139,7 @@ export default function PartnerOnboardingPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
 

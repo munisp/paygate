@@ -30,12 +30,12 @@ function downloadCSV(content: string, filename: string) {
 export default function WalletStatement() {
   const [period, setPeriod] = useState("30");
 
-  const { data: walletData, isError } = trpc.consumerWallet.getOrCreate.useQuery({ currency: 'NGN' });
+  const { data: walletData, isError } = trpc.consumerWallet.getOrCreate.useQuery({ currency: 'NGN' }, { staleTime: 30_000 });
   const { data: txns, isLoading } = trpc.consumerWallet.listTransactions.useQuery({
     limit: 200,
     offset: 0,
     currency: "NGN",
-  });
+  }, { staleTime: 30_000 });
 
   const transactions = (txns?.rows ?? []).filter((t: any) => {
     const days = parseInt(period);

@@ -13,7 +13,7 @@ export default function InvoiceFinancingV2() {
   const [applyOpen, setApplyOpen] = useState(false);
   const [form, setForm] = useState({ invoiceAmount: "", requestedAmount: "", tenorDays: "30" });
 
-  const { data, isLoading, refetch } = trpc.wave80.invoiceFinancingV2.listApplications.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.invoiceFinancingV2.listApplications.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.invoiceFinancingV2.getStats.useQuery();
   const { data: eligibility } = trpc.wave80.invoiceFinancingV2.getEligibility.useQuery();
 

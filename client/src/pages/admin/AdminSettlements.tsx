@@ -25,7 +25,7 @@ export default function AdminSettlements() {
 
   const utils = trpc.useUtils();
   const statsQuery = trpc.admin.settlements.getSettlementStats.useQuery();
-  const listQuery = trpc.admin.settlements.listAll.useQuery({ page, limit: 20, status: statusFilter });
+  const listQuery = trpc.admin.settlements.listAll.useQuery({ page, limit: 20, status: statusFilter }, { staleTime: 30_000 });
 
   const forceMutation = trpc.admin.settlements.forceSettle.useMutation({
     onSuccess: () => { utils.admin.settlements.listAll.invalidate(); utils.admin.settlements.getSettlementStats.invalidate(); setForceDialog(null); toast.success("Settlement forced"); },

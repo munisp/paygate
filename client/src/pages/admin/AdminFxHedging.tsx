@@ -28,7 +28,7 @@ export default function AdminFxHedging() {
   const { data, isLoading, refetch } = trpc.wave27.fxHedge.list.useQuery({
     search: search || undefined,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const createMutation = trpc.wave27.fxHedge.create.useMutation({
     onSuccess: () => { toast.success("Hedge position created"); refetch(); setShowCreate(false); reset(); },
@@ -52,7 +52,7 @@ export default function AdminFxHedging() {
             <p className="text-gray-500 text-sm mt-1">Manage cross-border FX hedge positions and exposure</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
             <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4 mr-2" />New Hedge</Button>
           </div>
         </div>

@@ -152,8 +152,7 @@ export default function MobileMoneyRecon() {
           <p className="text-muted-foreground text-sm mt-0.5">Match and reconcile M-Pesa, MTN MoMo, and Airtel Money transactions</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={handleReconcileAll} disabled={reconciling}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${reconciling ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={handleReconcileAll} disabled={reconciling}><RefreshCw/>
             {reconciling ? "Reconciling..." : "Auto-Reconcile"}
           </Button>
           <Button size="sm" onClick={() => toast.success("Report exported")}>

@@ -15,7 +15,7 @@ export default function ChargebackCases() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any>(null);
 
-  const { data, isLoading, refetch } = trpc.chargebackMgmt.list.useQuery({ page, limit: 20, status, search: search || undefined });
+  const { data, isLoading, refetch } = trpc.chargebackMgmt.list.useQuery({ page, limit: 20, status, search: search || undefined }, { staleTime: 30_000 });
   const submitEvidenceMutation = trpc.chargebackMgmt.submitEvidence.useMutation({
     onSuccess: () => { toast.success("Evidence submitted"); setSelected(null); refetch(); },
     onError: (e: any) => toast.error(e.message),
@@ -36,7 +36,7 @@ export default function ChargebackCases() {
           <h1 className="text-2xl font-bold text-foreground">Chargeback Cases</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage and respond to chargeback disputes from card networks</p>
         </div>
-        <Button variant="outline" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+        <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

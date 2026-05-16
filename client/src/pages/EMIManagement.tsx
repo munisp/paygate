@@ -53,7 +53,7 @@ export default function EMIManagement() {
   // Fetch repayment schedule for selected app (only when chart/schedule dialog is open)
   const { data: scheduleData, isLoading: scheduleLoading } = trpc.emiMw.repaymentSchedule.useQuery(
     { applicationId: selectedApp?.id ?? "" },
-    { enabled: !!(selectedApp?.id) && (scheduleOpen || chartOpen) }
+    { enabled: !!(selectedApp?.id, { staleTime: 30_000 }) && (scheduleOpen || chartOpen) }
   );
   const instalments = scheduleData?.instalments ?? [];
 

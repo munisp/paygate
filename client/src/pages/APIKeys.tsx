@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Key, Copy, Eye, EyeOff, Plus, Trash2, Shield, Search } from "lucide-react";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -23,10 +24,14 @@ export default function APIKeys() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
   const allKeys = data ?? [];
-  const keys = allKeys.filter(k =>
+  const filteredKeys = allKeys.filter(k =>
     !searchQuery || k.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const totalPages = Math.max(1, Math.ceil(filteredKeys.length / PAGE_SIZE));
+  const keys = filteredKeys.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const copyKey = (k: string) => { navigator.clipboard.writeText(k); toast.success("Copied to clipboard"); };
 
@@ -110,6 +115,8 @@ export default function APIKeys() {
           </div>
         ))}
       </div>
+
+      <PaginationControls page={page} totalPages={totalPages} onPageChange={setPage} totalItems={filteredKeys.length} pageSize={PAGE_SIZE} />
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
         <Shield className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />

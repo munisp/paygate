@@ -41,8 +41,7 @@ export default function ProductionReadinessDashboard() {
           <h1 className="text-2xl font-bold text-white">Production Readiness Dashboard</h1>
           <p className="text-zinc-400 mt-1">Final audit: schema, API surface, test coverage, and deployment checklist</p>
         </div>
-        <Button variant="outline" className="border-zinc-700 text-zinc-300" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" />Refresh
+        <Button variant="outline" className="border-zinc-700 text-zinc-300" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh
         </Button>
       </div>
 

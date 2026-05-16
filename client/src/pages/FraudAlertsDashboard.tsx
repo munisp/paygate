@@ -128,7 +128,7 @@ export default function FraudAlertsDashboard() {
 
   const { data: statsData, isLoading } = trpc.fraudRisk.stats.useQuery(undefined, {
     refetchInterval: fraudInterval30,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: alertsData, refetch: refetchAlerts } = trpc.fraudRisk.list.useQuery(
     {
@@ -137,7 +137,7 @@ export default function FraudAlertsDashboard() {
       offset: 0,
     },
     { refetchInterval: fraudInterval }
-  );
+  , { staleTime: 30_000 });
 
   useEffect(() => {
     if (alertsData?.rows) {
@@ -511,15 +511,14 @@ export default function FraudAlertsDashboard() {
                                 variant="outline"
                                 size="sm"
                                 className="h-6 text-xs px-2 text-gray-600 hover:text-gray-700"
-                                onClick={() =>
+                                aria-label="Close" onClick={() =>
                                   updateAlertMutation.mutate({
                                     id: alert.id,
                                     status: "false_positive",
                                   })
                                 }
                                 disabled={updateAlertMutation.isPending}
-                              >
-                                <XCircle className="w-3 h-3 mr-1" />
+                              ><X/>
                                 FP
                               </Button>
                             </>
@@ -547,8 +546,7 @@ export default function FraudAlertsDashboard() {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-lg">Alert Details</h3>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedAlert(null)}>
-                <XCircle className="w-4 h-4" />
+              <Button variant="ghost" size="sm" aria-label="Close" onClick={() => setSelectedAlert(null)}><X/>
               </Button>
             </div>
             <div className="space-y-3 text-sm">

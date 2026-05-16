@@ -28,7 +28,7 @@ export default function OllamaChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const modelsQuery = trpc.ollama.listModels.useQuery(undefined, { retry: false });
+  const modelsQuery = trpc.ollama.listModels.useQuery(undefined, { retry: false }, { staleTime: 30_000 });
   const chatMutation = trpc.ollama.chat.useMutation({
     onError: (e: any) => {
       toast.error(`Ollama error: ${e.message}`);
@@ -112,8 +112,7 @@ export default function OllamaChat() {
               <Zap className="w-3 h-3 mr-1" />
               {ollamaStatus === "running" ? "Ollama Online" : "Ollama Offline"}
             </Badge>
-            <Button size="sm" variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" onClick={clearChat}>
-              <Trash2 className="w-4 h-4 mr-1" /> Clear
+            <Button size="sm" variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" aria-label="Delete" onClick={clearChat}><Trash2/> Clear
             </Button>
           </div>
         </div>

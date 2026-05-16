@@ -16,7 +16,7 @@ export default function DisputeAutomation() {
   const [description, setDescription] = useState("");
   const [evidenceType, setEvidenceType] = useState<"receipt" | "delivery_proof" | "customer_communication" | "refund_proof" | "other">("receipt");
 
-  const chargebacksQuery = trpc.tier1to5.chargeback.getChargebacks.useQuery({ status: statusFilter }, { enabled: !!user });
+  const chargebacksQuery = trpc.tier1to5.chargeback.getChargebacks.useQuery({ status: statusFilter }, { enabled: !!user }, { staleTime: 30_000 });
 
   const submitMutation = trpc.tier1to5.chargeback.submitEvidence.useMutation({
     onSuccess: () => {
@@ -53,8 +53,7 @@ export default function DisputeAutomation() {
           <h1 className="text-2xl font-bold">Dispute Automation</h1>
           <p className="text-muted-foreground">AI-powered chargeback management and dispute resolution</p>
         </div>
-        <Button onClick={() => chargebacksQuery.refetch()} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+        <Button aria-label="Refresh" onClick={() => chargebacksQuery.refetch()} variant="outline" size="sm"><RefreshCw/> Refresh
         </Button>
       </div>
 

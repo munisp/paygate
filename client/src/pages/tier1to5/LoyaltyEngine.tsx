@@ -17,7 +17,7 @@ export default function LoyaltyEngine() {
 
   const { data: account, isLoading, refetch } = trpc.tier1to5.loyalty.getLoyaltyAccount.useQuery();
   const { data: balance } = trpc.tier1to5.loyalty.getPointsBalance.useQuery();
-  const { data: txHistory } = trpc.tier1to5.loyalty.getTransactionHistory.useQuery({ limit: 20 });
+  const { data: txHistory } = trpc.tier1to5.loyalty.getTransactionHistory.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: tiers } = trpc.tier1to5.loyalty.getTierBenefits.useQuery();
   const { data: stats } = trpc.tier1to5.loyalty.getMerchantLoyaltyStats.useQuery();
 
@@ -52,7 +52,7 @@ export default function LoyaltyEngine() {
             <h1 className="text-2xl font-bold">Loyalty & Rewards Engine</h1>
             <p className="text-muted-foreground text-sm mt-1">Rust-powered loyalty ledger with Dapr state and Kafka event streaming</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* Account Overview */}

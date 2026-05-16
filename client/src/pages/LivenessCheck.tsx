@@ -238,8 +238,7 @@ function ResultPanel({ result, onReset }: { result: LivenessResult; onReset: () 
         </div>
       </div>
 
-      <Button onClick={onReset} variant="outline" className="w-full">
-        <RefreshCw className="h-4 w-4 mr-2" /> Run Another Check
+      <Button aria-label="Refresh" onClick={onReset} variant="outline" className="w-full"><RefreshCw/> Run Another Check
       </Button>
     </div>
   );
@@ -550,8 +549,7 @@ export default function LivenessCheck() {
                   </Button>
                 )}
                 {result && (
-                  <Button onClick={reset} variant="ghost" size="icon">
-                    <RefreshCw className="h-4 w-4" />
+                  <Button aria-label="Refresh" onClick={reset} variant="ghost" size="icon"><RefreshCw/>
                   </Button>
                 )}
               </div>

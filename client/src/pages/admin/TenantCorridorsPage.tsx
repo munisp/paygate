@@ -30,7 +30,7 @@ export default function TenantCorridorsPage() {
     flatFeeUsd: 0,
   });
 
-  const { data: corridors, refetch } = trpc.wave32.corridors.list.useQuery({ tenantId });
+  const { data: corridors, refetch } = trpc.wave32.corridors.list.useQuery({ tenantId }, { staleTime: 30_000 });
 
   const createMutation = trpc.wave32.corridors.create.useMutation({
     onSuccess: () => { toast({ title: "Corridor created" }); setShowCreate(false); refetch(); },
@@ -72,7 +72,7 @@ export default function TenantCorridorsPage() {
       {/* Corridors Table */}
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
                 {["Corridor", "FX Markup", "Daily Limit", "Min / Max", "Flat Fee", "Status", "Actions"].map(h => (
@@ -98,13 +98,13 @@ export default function TenantCorridorsPage() {
                     <div className="flex gap-1">
                       <Button size="sm" variant="ghost" onClick={() => setEditId(c.id)}><Pencil className="h-3 w-3" /></Button>
                       <Button size="sm" variant="ghost" className="text-destructive"
-                        onClick={() => deleteMutation.mutate({ id: c.id })}><Trash2 className="h-3 w-3" /></Button>
+                        aria-label="Delete" onClick={() => deleteMutation.mutate({ id: c.id })}><Trash2/></Button>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
 

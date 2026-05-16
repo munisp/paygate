@@ -14,7 +14,7 @@ export default function KioskHealth() {
   const { data, isLoading, refetch, error } = trpc.agentBanking.kioskHealth.useQuery(
     undefined,
     { enabled: isAuthenticated, refetchInterval: kioskInterval }
-  );
+  , { staleTime: 30_000 });
 
   const health: any = data ?? { total: 0, online: 0, warning: 0, offline: 0, terminals: [] };
   const terminals: any[] = health.terminals ?? [];
@@ -47,8 +47,7 @@ export default function KioskHealth() {
             Real-time heartbeat monitoring — auto-refreshes every 15 seconds
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

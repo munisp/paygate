@@ -164,8 +164,7 @@ export default function SplitBill() {
                     <Input placeholder="Name" value={p.name} onChange={e => updateParticipant(i, "name", e.target.value)} className="flex-1" />
                     <Input type="number" placeholder="₦ Share" value={p.shareAmount} onChange={e => updateParticipant(i, "shareAmount", e.target.value)} className="w-28" />
                     {participants.length > 2 && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive" onClick={() => removeParticipant(i)}>
-                        <Trash2 className="w-4 h-4" />
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive" aria-label="Delete" onClick={() => removeParticipant(i)}><Trash2/>
                       </Button>
                     )}
                   </div>

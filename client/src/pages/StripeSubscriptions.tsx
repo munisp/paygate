@@ -31,7 +31,7 @@ export default function StripeSubscriptions() {
     limit,
     offset: page * limit,
     status: statusFilter === "all" ? undefined : statusFilter,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.stripeSubscriptions.stats.useQuery();
 
@@ -55,8 +55,7 @@ export default function StripeSubscriptions() {
           <h1 className="text-2xl font-bold text-foreground">Stripe Subscriptions</h1>
           <p className="text-muted-foreground text-sm mt-1">Recurring billing subscriptions managed via Stripe</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

@@ -20,7 +20,7 @@ export default function AdminAuditTrail() {
     merchantId: filters.merchantId || undefined,
     startDate: filters.startDate || undefined,
     endDate: filters.endDate || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const exportMutation = trpc.admin.audit.exportCSV.useMutation({
     onSuccess: (data: any) => {

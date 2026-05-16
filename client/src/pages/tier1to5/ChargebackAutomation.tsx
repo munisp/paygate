@@ -12,7 +12,7 @@ function formatNGN(kobo: number) {
 }
 
 export default function ChargebackAutomation() {
-  const { data: chargebacks, isLoading, refetch } = trpc.tier1to5.chargeback.getChargebacks.useQuery({ status: "open" });
+  const { data: chargebacks, isLoading, refetch } = trpc.tier1to5.chargeback.getChargebacks.useQuery({ status: "open" }, { staleTime: 30_000 });
 
   const autoEvidenceMutation = trpc.tier1to5.chargeback.autoCollectEvidence.useMutation({
     onSuccess: () => { toast.success("Evidence auto-collected and submitted."); refetch(); },
@@ -51,7 +51,7 @@ export default function ChargebackAutomation() {
             <h1 className="text-2xl font-bold">Chargeback Automation</h1>
             <p className="text-muted-foreground text-sm mt-1">AI-powered evidence collection and dispute management</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* Stats */}

@@ -22,15 +22,15 @@ export default function FraudRingDashboard() {
   const [activeTab, setActiveTab] = useState("rings");
 
   // Wave 34 tRPC router: trpc.fraudRings.*
-  const { data: listData, isLoading, refetch } = trpc.fraudRings.list.useQuery({ status, limit: 50, offset: 0 });
+  const { data: listData, isLoading, refetch } = trpc.fraudRings.list.useQuery({ status, limit: 50, offset: 0 }, { staleTime: 30_000 });
   const { data: graphData } = trpc.fraudRings.getTopology.useQuery(
     { ringId: selectedRing! },
     { enabled: !!selectedRing }
-  );
+  , { staleTime: 30_000 });
   const { data: ringDetail } = trpc.fraudRings.getDetail.useQuery(
     { ringId: selectedRing! },
     { enabled: !!selectedRing }
-  );
+  , { staleTime: 30_000 });
   const detail = ringDetail;
 
   const freezeRing = trpc.fraudRings.freezeRing.useMutation({
@@ -76,8 +76,7 @@ export default function FraudRingDashboard() {
             GNN-detected fraud rings — graph-based detection of coordinated fraud networks
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 
@@ -302,7 +301,7 @@ export default function FraudRingDashboard() {
                       </div>
                       {/* Simple topology table */}
                       <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-xs">
+                        <div className="overflow-x-auto"><table className="w-full text-xs">
                           <thead className="bg-muted">
                             <tr>
                               <th className="text-left p-2">Node ID</th>
@@ -327,7 +326,7 @@ export default function FraudRingDashboard() {
                               </tr>
                             ))}
                           </tbody>
-                        </table>
+                        </table></div>
                       </div>
                     </div>
                   ) : (

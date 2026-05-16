@@ -38,7 +38,7 @@ export default function AdminKybReview() {
   const { data, isLoading, refetch } = trpc.wave27.kyb.list.useQuery({
     search: search || undefined,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const updateMutation = trpc.wave27.kyb.updateStatus.useMutation({
     onSuccess: () => {
@@ -71,8 +71,7 @@ export default function AdminKybReview() {
             <h1 className="text-2xl font-bold text-gray-900">KYB / KYC Review</h1>
             <p className="text-gray-500 text-sm mt-1">Review and approve merchant business verification applications</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
         </div>
 

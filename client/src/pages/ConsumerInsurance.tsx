@@ -10,7 +10,7 @@ export default function ConsumerInsurance() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [claimPolicyId, setClaimPolicyId] = useState<string | null>(null);
 
-  const {isLoading, data: products} = trpc.newFeatures.consumerInsurance.listProducts.useQuery({ type: typeFilter });
+  const {isLoading, data: products} = trpc.newFeatures.consumerInsurance.listProducts.useQuery({ type: typeFilter }, { staleTime: 30_000 });
   const { data: policies } = trpc.newFeatures.consumerInsurance.getActivePolicies.useQuery();
   const { data: claims } = trpc.newFeatures.consumerInsurance.getClaims.useQuery();
 
@@ -81,7 +81,7 @@ export default function ConsumerInsurance() {
         <CardHeader><CardTitle>My Policies</CardTitle></CardHeader>
         <CardContent>
           {!policies?.policies?.length ? <p className="text-muted-foreground text-sm">No active policies</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Policy</th><th className="text-left py-2">Type</th><th className="text-right py-2">Premium</th><th className="text-right py-2">Expires</th><th className="text-right py-2">Status</th><th className="text-right py-2">Action</th></tr></thead>
               <tbody>
                 {policies.policies.map(p => (
@@ -95,7 +95,7 @@ export default function ConsumerInsurance() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>
@@ -105,7 +105,7 @@ export default function ConsumerInsurance() {
         <CardHeader><CardTitle>Claims History</CardTitle></CardHeader>
         <CardContent>
           {!claims?.claims?.length ? <p className="text-muted-foreground text-sm">No claims filed</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Claim #</th><th className="text-left py-2">Type</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Filed</th><th className="text-right py-2">Status</th></tr></thead>
               <tbody>
                 {claims.claims.map(c => (
@@ -118,7 +118,7 @@ export default function ConsumerInsurance() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>

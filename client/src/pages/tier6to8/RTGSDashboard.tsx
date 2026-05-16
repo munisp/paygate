@@ -9,7 +9,7 @@ import { Zap, Clock } from "lucide-react";
 
 export default function RTGSDashboard() {
   const [form, setForm] = useState({ beneficiaryBank: "", beneficiaryAccount: "", beneficiaryName: "", amountKobo: "", narration: "" });
-  const { isLoading, data: history } = trpc.tier6to8.rtgs.getRTGSHistory.useQuery({ limit: 20 });
+  const { isLoading, data: history } = trpc.tier6to8.rtgs.getRTGSHistory.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: limits } = trpc.tier6to8.rtgs.getRTGSLimits.useQuery();
   const initiateMutation = trpc.tier6to8.rtgs.initiateRTGS.useMutation({
     onSuccess: (d: any) => toast.success(`RTGS initiated — Ref: ${d.rtgsRef}`),

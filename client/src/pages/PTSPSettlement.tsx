@@ -134,7 +134,7 @@ export default function PTSPSettlement() {
   const { data, isLoading, refetch, isFetching } = trpc.pos.settlementHistory.useQuery(
     { limit: 30, offset: 0 },
     { refetchOnWindowFocus: false }
-  );
+  , { staleTime: 30_000 });
 
   const batches = data?.batches ?? [];
 
@@ -166,11 +166,10 @@ export default function PTSPSettlement() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => refetch()}
+          aria-label="Refresh" onClick={() => refetch()}
           disabled={isFetching}
           className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+        ><RefreshCw/>
           Refresh
         </Button>
       </div>

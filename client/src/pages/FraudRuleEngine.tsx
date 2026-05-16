@@ -147,9 +147,8 @@ function ConditionBuilder({
             size="icon"
             variant="ghost"
             className="h-8 w-8 text-destructive"
-            onClick={() => removeCondition(idx)}
-          >
-            <Trash2 className="h-3 w-3" />
+            aria-label="Delete" onClick={() => removeCondition(idx)}
+          ><Trash2/>
           </Button>
         </div>
       ))}
@@ -278,9 +277,9 @@ export default function FraudRuleEngine() {
   const { data: rules, isLoading } = trpc.fraudRuleEngine.list.useQuery({
     merchantId,
     status: "all",
-  });
+  }, { staleTime: 30_000 });
 
-  const { data: stats } = trpc.fraudRuleEngine.getStats.useQuery({ merchantId });
+  const { data: stats } = trpc.fraudRuleEngine.getStats.useQuery({ merchantId }, { staleTime: 30_000 });
 
   const createRule = trpc.fraudRuleEngine.create.useMutation({
     onSuccess: () => {
@@ -432,9 +431,8 @@ export default function FraudRuleEngine() {
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7 text-destructive"
-                      onClick={(e) => { e.stopPropagation(); deleteRule.mutate({ id: rule.id }); }}
-                    >
-                      <Trash2 className="h-3 w-3" />
+                      aria-label="Delete" onClick={(e) => { e.stopPropagation(); deleteRule.mutate({ id: rule.id }); }}
+                    ><Trash2/>
                     </Button>
                     {expandedRule === rule.id ? (
                       <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -570,9 +568,8 @@ export default function FraudRuleEngine() {
                       size="icon"
                       variant="ghost"
                       className="h-8 w-8 text-destructive"
-                      onClick={() => setActions(actions.filter((_, i) => i !== idx))}
-                    >
-                      <Trash2 className="h-3 w-3" />
+                      aria-label="Delete" onClick={() => setActions(actions.filter((_, i) => i !== idx))}
+                    ><Trash2/>
                     </Button>
                   </div>
                 ))}

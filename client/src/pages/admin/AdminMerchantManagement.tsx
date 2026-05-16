@@ -29,7 +29,7 @@ export default function AdminMerchantManagement() {
   const [feeTier, setFeeTier] = useState<"standard" | "growth" | "enterprise">("standard");
 
   const utils = trpc.useUtils();
-  const listQuery = trpc.admin.merchants.listMerchants.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter });
+  const listQuery = trpc.admin.merchants.listMerchants.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter }, { staleTime: 30_000 });
 
   const statusMutation = trpc.admin.merchants.updateMerchantStatus.useMutation({
     onSuccess: () => { utils.admin.merchants.listMerchants.invalidate(); toast.success("Merchant status updated"); },

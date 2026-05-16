@@ -13,7 +13,7 @@ export default function MutualFunds() {
   const [selectedFund, setSelectedFund] = useState<string | null>(null);
   const [investType, setInvestType] = useState<"lumpsum" | "sip">("lumpsum");
 
-  const { data: fundsData, isLoading } = trpc.newFeatures.mutualFunds.listFunds.useQuery({ category, sortBy: "returns_1y" });
+  const { data: fundsData, isLoading } = trpc.newFeatures.mutualFunds.listFunds.useQuery({ category, sortBy: "returns_1y" }, { staleTime: 30_000 });
   const { data: portfolio } = trpc.newFeatures.mutualFunds.getPortfolio.useQuery();
 
   const investMutation = trpc.newFeatures.mutualFunds.invest.useMutation({

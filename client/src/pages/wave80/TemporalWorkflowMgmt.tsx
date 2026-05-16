@@ -10,8 +10,8 @@ import { toast } from "sonner";
 export default function TemporalWorkflowMgmt() {
   const [search, setSearch] = useState("");
 
-  const { data, isLoading, refetch } = trpc.wave80.temporalWorkflowMgmt.listWorkflows.useQuery({});
-  const { data: metrics } = trpc.wave80.temporalWorkflowMgmt.getMetrics.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.temporalWorkflowMgmt.listWorkflows.useQuery({}, { staleTime: 30_000 });
+  const { data: metrics } = trpc.wave80.temporalWorkflowMgmt.getMetrics.useQuery({}, { staleTime: 30_000 });
 
   const cancel = trpc.wave80.temporalWorkflowMgmt.cancelWorkflow.useMutation({
     onSuccess: () => { toast.success("Workflow cancelled"); refetch(); },
@@ -29,7 +29,7 @@ export default function TemporalWorkflowMgmt() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Temporal Workflow Management</h1><p className="text-muted-foreground">Monitor and manage Temporal workflow executions</p></div>
-        <Button variant="outline" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+        <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><Play className="w-8 h-8 text-blue-500" /><div><p className="text-2xl font-bold">{metrics?.running ?? 0}</p><p className="text-sm text-muted-foreground">Running</p></div></div></CardContent></Card>

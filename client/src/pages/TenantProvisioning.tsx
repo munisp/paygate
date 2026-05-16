@@ -31,7 +31,7 @@ export default function TenantProvisioning() {
 
   const { data, isLoading, refetch } = trpc.tenantProvision.list.useQuery({
     page, limit: 20,
-  });
+  }, { staleTime: 30_000 });
 
   const provisionMutation = trpc.tenantProvision.provision.useMutation({
     onSuccess: (result) => {
@@ -46,7 +46,7 @@ export default function TenantProvisioning() {
   const { data: workflowStatus } = trpc.tenantProvision.getStatus.useQuery(
     { workflowId: checkWorkflowId! },
     { enabled: !!checkWorkflowId }
-  );
+  , { staleTime: 30_000 });
 
   const tenants = data?.tenants ?? [];
   const total = data?.total ?? 0;
@@ -179,7 +179,7 @@ export default function TenantProvisioning() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => refetch()}><RefreshCw className="w-4 h-4" /></Button>
+          <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/></Button>
         </div>
       </CardContent></Card>
 
@@ -229,8 +229,7 @@ export default function TenantProvisioning() {
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setSelected(t)}><Eye className="w-3 h-3" /></Button>
                           {t.temporalWorkflowId && t.status === "provisioning" && (
-                            <Button size="sm" variant="ghost" className="text-blue-600" onClick={() => setCheckWorkflowId(t.temporalWorkflowId ?? null)}>
-                              <RefreshCw className="w-3 h-3" />
+                            <Button size="sm" variant="ghost" className="text-blue-600" aria-label="Refresh" onClick={() => setCheckWorkflowId(t.temporalWorkflowId ?? null)}><RefreshCw/>
                             </Button>
                           )}
                         </div>

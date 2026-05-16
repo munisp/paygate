@@ -281,9 +281,8 @@ export default function PortfolioRebalancing() {
               variant="outline"
               size="sm"
               className="w-full"
-              onClick={() => setTargets(DEFAULT_TARGETS)}
-            >
-              <RefreshCw className="h-3 w-3 mr-1" /> Reset to Defaults (30/50/20)
+              aria-label="Refresh" onClick={() => setTargets(DEFAULT_TARGETS)}
+            ><RefreshCw/> Reset to Defaults (30/50/20)
             </Button>
           </CardContent>
         </Card>

@@ -52,13 +52,13 @@ export default function ConsumerHistory() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
-  const walletQuery = trpc.consumerWallet.getBalance.useQuery({ currency: 'NGN' });
+  const walletQuery = trpc.consumerWallet.getBalance.useQuery({ currency: 'NGN' }, { staleTime: 30_000 });
   const walletError = walletQuery.isError;
   const historyQuery = trpc.consumerWallet.history.useQuery({
     currency: 'NGN',
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
-  });
+  }, { staleTime: 30_000 });
 
   const balanceKobo = walletQuery.data?.balanceKobo ?? 0;
   const allTxs = historyQuery.data?.rows ?? [];
@@ -87,11 +87,10 @@ export default function ConsumerHistory() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => { walletQuery.refetch(); historyQuery.refetch(); }}
+            aria-label="Refresh" onClick={() => { walletQuery.refetch(); historyQuery.refetch(); }}
 
             className="text-slate-400 hover:text-white"
-          >
-            <RefreshCw className="w-5 h-5" />
+          ><RefreshCw/>
           </Button>
         </div>
 

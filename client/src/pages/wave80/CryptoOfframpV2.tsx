@@ -15,7 +15,7 @@ export default function CryptoOfframpV2() {
   const [accountNumber, setAccountNumber] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
 
-  const { data: txData, isLoading, refetch } = trpc.wave80.cryptoOfframpV2.listTransactions.useQuery({});
+  const { data: txData, isLoading, refetch } = trpc.wave80.cryptoOfframpV2.listTransactions.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.cryptoOfframpV2.getStats.useQuery();
   const { data: ratesData } = trpc.wave80.cryptoOfframpV2.getRates.useQuery();
 

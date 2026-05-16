@@ -22,14 +22,14 @@ export default function LakehouseV2() {
   const { data: savedQueriesData, refetch: refetchSaved } = trpc.tier6to8.lakehouseV2.getSavedQueries.useQuery();
 
   const geoInput = useMemo(() => ({ radiusKm: 100, resolution: 7 }), []);
-  const { data: geoHeatmap, isLoading: geoLoading, refetch: refetchGeo } = trpc.tier6to8.lakehouseV2.getGeoFraudHeatmap.useQuery(geoInput);
+  const { data: geoHeatmap, isLoading: geoLoading, refetch: refetchGeo } = trpc.tier6to8.lakehouseV2.getGeoFraudHeatmap.useQuery(geoInput, { staleTime: 30_000 });
 
   const creditInput = useMemo(() => ({
     repaymentHistoryScore: creditParams.repaymentScore,
     outstandingLoanKobo: creditParams.outstandingLoan,
     includeFeatures: true,
   }), [creditParams.repaymentScore, creditParams.outstandingLoan]);
-  const { data: creditScore, isLoading: creditLoading, refetch: refetchCredit } = trpc.tier6to8.lakehouseV2.getMerchantCreditScore.useQuery(creditInput);
+  const { data: creditScore, isLoading: creditLoading, refetch: refetchCredit } = trpc.tier6to8.lakehouseV2.getMerchantCreditScore.useQuery(creditInput, { staleTime: 30_000 });
 
   const runMutation = trpc.tier6to8.lakehouseV2.runQuery.useMutation({
     onSuccess: (d) => { setQueryResult(d as any); toast.success(`${(d as any).rowCount} rows in ${(d as any).executionTimeMs}ms via ${(d as any).engine}`); },
@@ -64,8 +64,7 @@ export default function LakehouseV2() {
           <h1 className="text-2xl font-bold flex items-center gap-2"><Database className="h-6 w-6 text-primary" />Platform Analytics Lakehouse</h1>
           <p className="text-muted-foreground text-sm mt-1">DuckDB · Delta Lake · Apache Sedona · DataFusion · Trino</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { refetchDatasets(); refetchGeo(); refetchCredit(); }}>
-          <RefreshCw className="h-4 w-4 mr-2" />Refresh All
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetchDatasets(); refetchGeo(); refetchCredit(); }}><RefreshCw/>Refresh All
         </Button>
       </div>
 
@@ -121,10 +120,10 @@ export default function LakehouseV2() {
                     <span className="ml-auto">{queryResult.rowCount} rows</span>
                   </div>
                   <div className="overflow-auto max-h-64 border rounded-md">
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto"><table className="w-full text-xs">
                       <thead className="bg-muted sticky top-0"><tr>{queryResult.columns.map((col) => <th key={col} className="px-3 py-2 text-left font-medium">{col}</th>)}</tr></thead>
                       <tbody>{queryResult.rows.map((row, i) => (<tr key={i} className="border-t hover:bg-muted/30">{(row as any[]).map((cell, j) => <td key={j} className="px-3 py-1.5">{String(cell ?? "")}</td>)}</tr>))}</tbody>
-                    </table>
+                    </table></div>
                   </div>
                 </div>
               )}
@@ -203,7 +202,7 @@ export default function LakehouseV2() {
                     <span className="text-muted-foreground">Sedona: <strong>{geoHeatmap?.sedonaVersion}</strong></span>
                   </div>
                   <div className="overflow-auto max-h-96 border rounded-md">
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto"><table className="w-full text-xs">
                       <thead className="bg-muted sticky top-0"><tr><th className="px-3 py-2 text-left">H3 Index</th><th className="px-3 py-2 text-left">Lat</th><th className="px-3 py-2 text-left">Lng</th><th className="px-3 py-2 text-left">Events</th><th className="px-3 py-2 text-left">Risk Score</th><th className="px-3 py-2 text-left">Risk Level</th></tr></thead>
                       <tbody>
                         {heatmapCells.slice(0, 50).map((cell) => (
@@ -217,7 +216,7 @@ export default function LakehouseV2() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                   </div>
                   {heatmapCells.length > 50 && <p className="text-xs text-muted-foreground text-center">Showing top 50 of {heatmapCells.length} cells</p>}
                 </div>

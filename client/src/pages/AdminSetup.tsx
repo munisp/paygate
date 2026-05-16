@@ -30,7 +30,7 @@ export default function AdminSetup() {
   const { data: adminCountData, isLoading: countLoading } = trpc.adminMgmt.getAdminCount.useQuery();
   const { data: usersData, isLoading: usersLoading, refetch: refetchUsers } = trpc.adminMgmt.listUsers.useQuery(undefined, {
     retry: false, // will 403 if not admin yet
-  });
+  }, { staleTime: 30_000 });
 
   const promoteMutation = trpc.adminMgmt.promoteOwnerToAdmin.useMutation({
     onSuccess: () => {
@@ -212,8 +212,7 @@ export default function AdminSetup() {
                   <CheckCircle2 className="h-3 w-3 mr-1" />
                   {adminCount} admin(s)
                 </Badge>
-                <Button variant="outline" size="sm" onClick={() => refetchUsers()} disabled={usersLoading}>
-                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${usersLoading ? "animate-spin" : ""}`} />
+                <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetchUsers()} disabled={usersLoading}><RefreshCw/>
                   Refresh
                 </Button>
               </div>

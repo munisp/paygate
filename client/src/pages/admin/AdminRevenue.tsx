@@ -15,12 +15,12 @@ export default function AdminRevenue() {
   const [period, setPeriod] = useState<"day" | "week" | "month" | "year">("month");
   const [exporting, setExporting] = useState(false);
 
-  const summaryQuery = trpc.admin.revenue.getSummary.useQuery({ period });
+  const summaryQuery = trpc.admin.revenue.getSummary.useQuery({ period }, { staleTime: 30_000 });
   const feeTierQuery = trpc.admin.revenue.getFeeTierConfig.useQuery();
   const merchantRevenueQuery = trpc.admin.revenue.getRevenueByMerchant.useQuery({
     limit: 20,
     period: period === "day" || period === "week" ? "month" : period,
-  });
+  }, { staleTime: 30_000 });
 
   const fmt = (k: number) => (k / 100).toLocaleString("en-NG", { style: "currency", currency: "NGN" });
   const s = summaryQuery.data as any;

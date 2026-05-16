@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Smartphone, Users, Zap } from "lucide-react";
 export default function SuperApp() {
   const { isLoading, data: config, refetch } = trpc.tier6to8.superApp.getAppConfig.useQuery();
-  const { data: stats } = trpc.tier6to8.superApp.getConsumerStats.useQuery({ period: "30d" });
+  const { data: stats } = trpc.tier6to8.superApp.getConsumerStats.useQuery({ period: "30d" }, { staleTime: 30_000 });
   const pushMutation = trpc.tier6to8.superApp.pushAppUpdate.useMutation({
     onSuccess: (d: any) => { toast.success(`Update pushed to ${d.devicesReached} devices`); refetch(); },
     onError: (e: any) => toast.error(e.message),

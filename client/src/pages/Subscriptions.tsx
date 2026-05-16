@@ -265,7 +265,7 @@ export default function Subscriptions() {
     status: statusFilter || undefined,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
-  });
+  }, { staleTime: 30_000 });
 
   const pause = trpc.subscriptions.pause.useMutation({
     onSuccess: () => { toast.success("Subscription paused"); utils.subscriptions.list.invalidate(); utils.subscriptions.stats.invalidate(); },
@@ -291,8 +291,7 @@ export default function Subscriptions() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} className="gap-2"><RefreshCw/>
             Refresh
           </Button>
           <CreateSubscriptionDialog onCreated={() => { utils.subscriptions.list.invalidate(); utils.subscriptions.stats.invalidate(); }} />

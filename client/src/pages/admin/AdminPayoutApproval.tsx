@@ -26,7 +26,7 @@ export default function AdminPayoutApproval() {
 
   const { data, isLoading, refetch } = trpc.wave27.payoutApproval.list.useQuery({
     search: search || undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const approveMutation = trpc.wave27.payoutApproval.approve.useMutation({
     onSuccess: () => { toast.success("Payout batch approved"); refetch(); setSelectedBatch(null); setApproverNote(""); },
@@ -49,7 +49,7 @@ export default function AdminPayoutApproval() {
             <h1 className="text-2xl font-bold text-gray-900">Payout Approval</h1>
             <p className="text-gray-500 text-sm mt-1">Review and approve merchant payout batch requests</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* Stats */}

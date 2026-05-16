@@ -338,10 +338,9 @@ function SlowQueriesCard() {
               variant="ghost"
               size="sm"
               className="text-red-400 hover:text-red-300 h-7 px-2 text-xs"
-              onClick={() => resetMutation.mutate()}
+              aria-label="Delete" onClick={() => resetMutation.mutate()}
               disabled={resetMutation.isPending}
-            >
-              <Trash2 className="w-3.5 h-3.5 mr-1" />
+            ><Trash2/>
               Reset Stats
             </Button>
           </div>
@@ -500,8 +499,8 @@ function SlowQueriesCard() {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AdminSystemHealth() {
-  const healthQuery = trpc.admin.health.getOverview.useQuery(undefined, { refetchInterval: adminsystemhealth_30s });
-  const dbQuery = trpc.admin.health.getDatabaseStats.useQuery(undefined, { refetchInterval: adminsystemhealth_30s });
+  const healthQuery = trpc.admin.health.getOverview.useQuery(undefined, { refetchInterval: adminsystemhealth_30s }, { staleTime: 30_000 });
+  const dbQuery = trpc.admin.health.getDatabaseStats.useQuery(undefined, { refetchInterval: adminsystemhealth_30s }, { staleTime: 30_000 });
 
   const services: any[] = Array.isArray(healthQuery.data) ? healthQuery.data : [];
   const dbStats: any[] = Array.isArray(dbQuery.data) ? dbQuery.data : [];

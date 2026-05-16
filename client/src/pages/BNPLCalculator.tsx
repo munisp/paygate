@@ -36,7 +36,7 @@ export default function BNPLCalculator() {
     principalKobo: principal,
     months,
     annualInterestRatePct: rate,
-  }, { keepPreviousData: true });
+  }, { keepPreviousData: true }, { staleTime: 30_000 });
 
   const handlePrincipalChange = (val: string) => {
     setPrincipalInput(val);

@@ -34,7 +34,7 @@ export default function SlaBreaches() {
     severity: severityFilter,
     page: page + 1,
     limit,
-  });
+  }, { staleTime: 30_000 });
 
   const acknowledgeMutation = trpc.slaBreaches.acknowledge.useMutation({
     onSuccess: () => {
@@ -56,8 +56,7 @@ export default function SlaBreaches() {
           <h1 className="text-2xl font-bold text-foreground">Settlement SLA Breaches</h1>
           <p className="text-muted-foreground text-sm mt-1">Transactions that exceeded their settlement SLA window</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

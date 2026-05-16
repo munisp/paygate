@@ -14,7 +14,7 @@ export default function DigitalGold() {
 
   const { data: price, isLoading: priceLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery();
   const { data: holdings } = trpc.newFeatures.digitalGold.getHoldings.useQuery();
-  const { data: history } = trpc.newFeatures.digitalGold.getTransactionHistory.useQuery({ page: 1, limit: 10 });
+  const { data: history } = trpc.newFeatures.digitalGold.getTransactionHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
 
   const buyMutation = trpc.newFeatures.digitalGold.buyGold.useMutation({
     onSuccess: (data) => toast.success(`Purchased ${data.gramsAcquired?.toFixed(4)}g of gold`),
@@ -130,7 +130,7 @@ export default function DigitalGold() {
           {!history?.transactions?.length ? (
             <p className="text-muted-foreground text-sm text-center py-4">No gold transactions yet</p>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Type</th><th className="text-right py-2">Grams</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Status</th><th className="text-right py-2">Date</th></tr></thead>
               <tbody>
                 {history.transactions.map(t => (
@@ -143,7 +143,7 @@ export default function DigitalGold() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </CardContent>
       </Card>

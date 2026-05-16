@@ -98,8 +98,7 @@ export default function PlanLimitsPage() {
                   <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${PLAN_COLORS[plan.plan] ?? "bg-gray-100 text-gray-800"}`}>
                     {plan.plan}
                   </span>
-                  <Button size="sm" variant="ghost" onClick={() => setEditPlan(plan.plan)}>
-                    <Pencil className="h-3 w-3" />
+                  <Button size="sm" variant="ghost" aria-label="Edit" onClick={() => setEditPlan(plan.plan)}><Pencil/>
                   </Button>
                 </div>
                 <CardTitle className="text-2xl">

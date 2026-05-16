@@ -19,7 +19,7 @@ export default function ReportsCenter() {
   const [scheduleFreq, setScheduleFreq] = useState<"daily" | "weekly" | "monthly">("monthly");
   const [scheduleType, setScheduleType] = useState<"transactions" | "settlements" | "customers" | "tax">("transactions");
 
-  const {isLoading, data: history} = trpc.newFeatures.reports.listReports.useQuery({ page: 1, limit: 20 });
+  const {isLoading, data: history} = trpc.newFeatures.reports.listReports.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
   const { data: scheduled } = trpc.newFeatures.reports.getScheduledReports.useQuery();
 
   const txReportMutation = trpc.newFeatures.reports.generateTransactionReport.useMutation({
@@ -152,7 +152,7 @@ export default function ReportsCenter() {
         <CardHeader><CardTitle>Report History</CardTitle></CardHeader>
         <CardContent>
           {!history?.reports?.length ? <p className="text-muted-foreground text-sm">No reports generated yet</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Type</th><th className="text-left py-2">Period</th><th className="text-right py-2">Rows</th><th className="text-right py-2">Format</th><th className="text-right py-2">Created</th><th className="text-right py-2">Action</th></tr></thead>
               <tbody>
                 {history.reports.map(r => (
@@ -166,7 +166,7 @@ export default function ReportsCenter() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>

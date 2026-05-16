@@ -10,7 +10,7 @@ import { RefreshCw, Pause, X, Plus, CreditCard } from "lucide-react";
 export default function ConsumerSubscriptions() {
   const [activeTab, setActiveTab] = useState<"active" | "plans">("active");
 
-  const { data: subscriptions, refetch, isLoading } = trpc.subscriptions.list.useQuery({ limit: 20, offset: 0 });
+  const { data: subscriptions, refetch, isLoading } = trpc.subscriptions.list.useQuery({ limit: 20, offset: 0 }, { staleTime: 30_000 });
   const { data: plans } = trpc.newFeatures.subscriptionBillingV2.listPlans.useQuery();
 
   const pauseMutation = trpc.subscriptions.pause.useMutation({
@@ -117,10 +117,9 @@ export default function ConsumerSubscriptions() {
                           size="sm"
                           variant="outline"
                           className="text-destructive hover:text-destructive"
-                          onClick={() => cancelMutation.mutate({ id: sub.id })}
+                          aria-label="Close" onClick={() => cancelMutation.mutate({ id: sub.id })}
                           disabled={cancelMutation.isPending}
-                        >
-                          <X className="h-3 w-3 mr-1" /> Cancel
+                        ><X/> Cancel
                         </Button>
                       </div>
                     )}

@@ -55,7 +55,7 @@ export default function AdminSecurityScore() {
             <h1 className="text-2xl font-bold text-gray-900">Security Score</h1>
             <p className="text-gray-500 text-sm mt-1">Platform vulnerability assessment and security posture</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Re-scan</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Re-scan</Button>
         </div>
 
         {/* Score Card */}

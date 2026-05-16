@@ -18,8 +18,8 @@ export default function ReconciliationEngine() {
   const [source, setSource] = useState("all");
 
   const [reportId, setReportId] = useState("latest");
-  const { data: report, isLoading, refetch } = trpc.tier1to5.reconciliation.getReconciliationReport.useQuery({ reportId });
-  const { data: discrepancies } = trpc.tier1to5.reconciliation.getDiscrepancies.useQuery({ status: "open" });
+  const { data: report, isLoading, refetch } = trpc.tier1to5.reconciliation.getReconciliationReport.useQuery({ reportId }, { staleTime: 30_000 });
+  const { data: discrepancies } = trpc.tier1to5.reconciliation.getDiscrepancies.useQuery({ status: "open" }, { staleTime: 30_000 });
 
   const runMutation = trpc.tier1to5.reconciliation.runReconciliation.useMutation({
     onSuccess: () => { toast.success("Reconciliation job started. Results will be ready in ~2 minutes."); refetch(); },
@@ -58,7 +58,7 @@ export default function ReconciliationEngine() {
             <p className="text-muted-foreground text-sm mt-1">Automated multi-source transaction matching with lakehouse integration</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
             <Button size="sm" onClick={() => runMutation.mutate({ periodStart: new Date(Date.now() - 86400000).toISOString(), periodEnd: new Date().toISOString(), sources: source === 'all' ? undefined : [source] })} disabled={runMutation.isPending}>
               <Play className="w-4 h-4 mr-2" />{runMutation.isPending ? "Running..." : "Run Reconciliation"}
             </Button>

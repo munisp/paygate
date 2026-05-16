@@ -19,7 +19,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
 export default function NotificationCentre() {
   const [filter, setFilter] = useState<"all" | "unread">("all");
 
-  const { data, isLoading, refetch } = trpc.notifications.list.useQuery({ limit: 100 });
+  const { data, isLoading, refetch } = trpc.notifications.list.useQuery({ limit: 100 }, { staleTime: 30_000 });
   const markRead = trpc.notifications.markRead.useMutation({
     onSuccess: () => refetch(),
     onError: (e) => toast.error(e.message ?? "Failed to mark as read"),

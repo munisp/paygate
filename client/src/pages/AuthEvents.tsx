@@ -138,7 +138,7 @@ export default function AuthEvents() {
     newCountryOnly: newCountryOnly || undefined,
   }), [page, eventTypeFilter, userIdFilter, fromDate, toDate, isAdmin, newCountryOnly]);
 
-  const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.getAuthEvents.useQuery(queryInput);
+  const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.getAuthEvents.useQuery(queryInput, { staleTime: 30_000 });
 
   const exportQueryInput = useMemo(() => ({
     format: "csv" as const,
@@ -154,8 +154,8 @@ export default function AuthEvents() {
     format: "json" as const,
   }), [exportQueryInput]);
 
-  const exportQuery = trpc.middleware.keycloak.exportAuthEvents.useQuery(exportQueryInput, { enabled: false });
-  const exportJsonQuery = trpc.middleware.keycloak.exportAuthEvents.useQuery(exportJsonQueryInput, { enabled: false });
+  const exportQuery = trpc.middleware.keycloak.exportAuthEvents.useQuery(exportQueryInput, { enabled: false }, { staleTime: 30_000 });
+  const exportJsonQuery = trpc.middleware.keycloak.exportAuthEvents.useQuery(exportJsonQueryInput, { enabled: false }, { staleTime: 30_000 });
 
   const handleExportCsv = async () => {
     if (!isAdmin) { toast.error("Admin access required"); return; }
@@ -233,8 +233,7 @@ export default function AuthEvents() {
               </Button>
             </>
           )}
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-2">
-            <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isFetching} className="gap-2"><RefreshCw/>
             Refresh
           </Button>
         </div>

@@ -9,9 +9,9 @@ export default function AIInsightsV2() {
   const [period, setPeriod] = useState<"today" | "week" | "month" | "quarter">("week");
   const [forecastDays, setForecastDays] = useState(30);
 
-  const { data: summary, isLoading: summaryLoading, error } = trpc.newFeatures.aiInsightsV2.getSmartSummary.useQuery({ period });
+  const { data: summary, isLoading: summaryLoading, error } = trpc.newFeatures.aiInsightsV2.getSmartSummary.useQuery({ period }, { staleTime: 30_000 });
   const { data: anomalies } = trpc.newFeatures.aiInsightsV2.getAnomalyDetection.useQuery();
-  const { data: forecast } = trpc.newFeatures.aiInsightsV2.getRevenueForecasting.useQuery({ days: forecastDays });
+  const { data: forecast } = trpc.newFeatures.aiInsightsV2.getRevenueForecasting.useQuery({ days: forecastDays }, { staleTime: 30_000 });
   const { data: segments } = trpc.newFeatures.aiInsightsV2.getCustomerSegmentation.useQuery();
   const { data: recommendations } = trpc.newFeatures.aiInsightsV2.getProductRecommendations.useQuery();
 

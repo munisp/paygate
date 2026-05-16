@@ -270,9 +270,8 @@ export default function ResilienceCenter() {
                                   variant="ghost"
                                   className="h-7 w-7 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                                   disabled={cancelMutation.isPending}
-                                  onClick={() => cancelMutation.mutate({ id: row.id })}
-                                >
-                                  <Trash2 className="w-3 h-3" />
+                                  aria-label="Delete" onClick={() => cancelMutation.mutate({ id: row.id })}
+                                ><Trash2/>
                                 </Button>
                               )}
                             </div>

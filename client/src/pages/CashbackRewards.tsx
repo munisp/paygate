@@ -13,7 +13,7 @@ export default function CashbackRewards() {
   const [merchantMaxCashback, setMerchantMaxCashback] = useState("5000");
 
   const {isLoading, data: balance} = trpc.newFeatures.cashbackRewards.getBalance.useQuery();
-  const { data: history } = trpc.newFeatures.cashbackRewards.getHistory.useQuery({ page: 1, limit: 10, type: "all" });
+  const { data: history } = trpc.newFeatures.cashbackRewards.getHistory.useQuery({ page: 1, limit: 10, type: "all" }, { staleTime: 30_000 });
   const { data: campaigns } = trpc.newFeatures.cashbackRewards.getActiveCampaigns.useQuery();
   const { data: merchantConfig } = trpc.newFeatures.cashbackRewards.getMerchantCashbackConfig.useQuery();
 
@@ -125,7 +125,7 @@ export default function CashbackRewards() {
         <CardHeader><CardTitle>Cashback History</CardTitle></CardHeader>
         <CardContent>
           {!history?.transactions?.length ? <p className="text-muted-foreground text-sm">No cashback history</p> :
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="border-b"><th className="text-left py-2">Description</th><th className="text-right py-2">Amount</th><th className="text-right py-2">Type</th><th className="text-right py-2">Date</th></tr></thead>
               <tbody>
                 {history.transactions.map(t => (
@@ -139,7 +139,7 @@ export default function CashbackRewards() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           }
         </CardContent>
       </Card>

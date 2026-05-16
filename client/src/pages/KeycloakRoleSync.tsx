@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import {
   Shield, RefreshCw, Users, CheckCircle2, AlertTriangle,
   Key, ArrowRight, Loader2, Info
 } from "lucide-react";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 
 const KEYCLOAK_ROLES = [
   { role: "merchant_admin", permifyRelation: "admin", description: "Full merchant portal access" },
@@ -202,12 +203,11 @@ export default function KeycloakRoleSync() {
                       size="sm"
                       className="h-7 text-xs gap-1"
                       disabled={syncRoles.isPending}
-                      onClick={() => {
+                      aria-label="Refresh" onClick={() => {
                         setSyncUserId(member.openId ?? member.id);
                         syncRoles.mutate({ userId: member.openId ?? member.id });
                       }}
-                    >
-                      <RefreshCw className="w-3 h-3" />
+                    ><RefreshCw/>
                       Sync
                     </Button>
                   </div>

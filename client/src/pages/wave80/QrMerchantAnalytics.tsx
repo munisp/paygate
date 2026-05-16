@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function QrMerchantAnalytics() {
-  const { isLoading, data: overview } = trpc.wave80.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" });
+  const { isLoading, data: overview } = trpc.wave80.qrMerchantAnalytics.getOverview.useQuery({ period: "7d" }, { staleTime: 30_000 });
   const { data: topCodes } = trpc.wave80.qrMerchantAnalytics.getTopQrCodes.useQuery();
   const { data: insights } = trpc.wave80.qrMerchantAnalytics.getCustomerInsights.useQuery();
 

@@ -54,7 +54,7 @@ export default function AdminComplianceReports() {
             <h1 className="text-2xl font-bold text-gray-900">Compliance Reports</h1>
             <p className="text-gray-500 text-sm mt-1">Generate regulatory and compliance reports for CBN, NDIC, and internal audit</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
         </div>
 
         {/* Report Generator */}

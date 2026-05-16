@@ -9,8 +9,8 @@ export default function WhiteLabelSDK() {
   const [primaryColor, setPrimaryColor] = useState("#1a56db");
   const [logoUrl, setLogoUrl] = useState("");
   const { isLoading, data: config, refetch } = trpc.tier6to8.whiteLabelSDK.getSDKConfig.useQuery();
-  const { data: guide } = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform: "web" });
-  const { data: analytics } = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period: "30d" });
+  const { data: guide } = trpc.tier6to8.whiteLabelSDK.getIntegrationGuide.useQuery({ platform: "web" }, { staleTime: 30_000 });
+  const { data: analytics } = trpc.tier6to8.whiteLabelSDK.getSDKAnalytics.useQuery({ period: "30d" }, { staleTime: 30_000 });
   const updateMutation = trpc.tier6to8.whiteLabelSDK.updateBranding.useMutation({
     onSuccess: () => { toast.success("Branding updated"); refetch(); },
     onError: (e: any) => toast.error(e.message),

@@ -23,7 +23,7 @@ export default function SavedBeneficiaries() {
   const { data, isLoading, isError, refetch } = trpc.savedBeneficiaries.list.useQuery({
     limit,
     offset: page * limit,
-  });
+  }, { staleTime: 30_000 });
 
   const addMutation = trpc.savedBeneficiaries.add.useMutation({
     onSuccess: () => {
@@ -152,10 +152,9 @@ export default function SavedBeneficiaries() {
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
-                          onClick={() => deleteMutation.mutate({ id: r.id })}
+                          aria-label="Delete" onClick={() => deleteMutation.mutate({ id: r.id })}
                           disabled={deleteMutation.isPending}
-                        >
-                          <Trash2 className="w-4 h-4" />
+                        ><Trash2/>
                         </Button>
                       </div>
                     </TableCell>

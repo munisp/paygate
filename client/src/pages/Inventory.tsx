@@ -297,7 +297,7 @@ export default function Inventory() {
   const { data: items = [], isLoading, refetch } = trpc.inventory.listItems.useQuery(
     undefined,
     { enabled: isAuthenticated, refetchInterval: inventoryInterval }
-  );
+  , { staleTime: 30_000 });
 
   const refresh = () => {
     utils.inventory.listItems.invalidate();
@@ -556,9 +556,8 @@ export default function Inventory() {
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0"
-                      onClick={() => setEditItem(item)}
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
+                      aria-label="Edit" onClick={() => setEditItem(item)}
+                    ><Edit/>
                     </Button>
                   </div>
                 </div>

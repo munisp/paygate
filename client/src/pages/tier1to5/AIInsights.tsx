@@ -18,8 +18,8 @@ export default function AIInsights() {
   const [cohortBy, setCohortBy] = useState<"acquisition_channel" | "first_transaction_month" | "spending_tier">("first_transaction_month");
 
   const periodDays = period === 'last_7_days' ? 7 : period === 'last_30_days' ? 30 : period === 'last_90_days' ? 90 : 365;
-  const { data: insights, isLoading, isError, refetch } = trpc.tier1to5.aiInsights.getInsights.useQuery({ periodDays });
-  const { data: cohort } = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 });
+  const { data: insights, isLoading, isError, refetch } = trpc.tier1to5.aiInsights.getInsights.useQuery({ periodDays }, { staleTime: 30_000 });
+  const { data: cohort } = trpc.tier1to5.aiInsights.getCohortAnalysis.useQuery({ cohortPeriod: 'monthly', lookbackMonths: 6 }, { staleTime: 30_000 });
 
   if (!isLoading && !insights) {
     return (
@@ -50,7 +50,7 @@ export default function AIInsights() {
                 <SelectItem value="this_year">This Year</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+            <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
           </div>
         </div>
 

@@ -29,9 +29,9 @@ export default function TaxEngine() {
   const { data: taxCalc, isLoading: calcLoading, error } = trpc.tier6to8.taxEngine.calculateTax.useQuery(
     { amountKobo, transactionType: txType, includeWht },
     { enabled: amountKobo > 0 }
-  );
+  , { staleTime: 30_000 });
 
-  const { data: remittance, isLoading: remitLoading } = trpc.tier6to8.taxEngine.getMonthlyRemittance.useQuery({ month });
+  const { data: remittance, isLoading: remitLoading } = trpc.tier6to8.taxEngine.getMonthlyRemittance.useQuery({ month }, { staleTime: 30_000 });
   const { data: rates } = trpc.tier6to8.taxEngine.getTaxRates.useQuery();
 
   // Show error toast when queries fail

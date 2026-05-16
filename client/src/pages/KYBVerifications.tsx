@@ -15,7 +15,7 @@ export default function KYBVerifications() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any>(null);
 
-  const { data, isLoading, refetch } = trpc.kybMgmt.list.useQuery({ page, limit: 20, status });
+  const { data, isLoading, refetch } = trpc.kybMgmt.list.useQuery({ page, limit: 20, status }, { staleTime: 30_000 });
   const startMutation = trpc.kybMgmt.initiate.useMutation({
     onSuccess: () => { toast.success("KYB verification started"); refetch(); },
     onError: (e: any) => toast.error(e.message),
@@ -39,7 +39,7 @@ export default function KYBVerifications() {
           <h1 className="text-2xl font-bold text-foreground">KYB Verifications</h1>
           <p className="text-sm text-muted-foreground mt-1">Know Your Business — merchant identity and compliance verification</p>
         </div>
-        <Button variant="outline" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+        <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh</Button>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

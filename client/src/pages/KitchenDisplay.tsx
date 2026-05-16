@@ -198,7 +198,7 @@ export default function KitchenDisplay() {
   const { data: stationsData } = trpc.kds.listStations.useQuery(undefined, { staleTime: 60_000 });
   const { data, isLoading, refetch } = trpc.kds.listOrders.useQuery(undefined, {
     refetchInterval: kitchenInterval,
-  });
+  }, { staleTime: 30_000 });
 
   const markItemReady = trpc.kds.markItemReady.useMutation({
     onMutate: ({ itemId }) => setMarkingItem(itemId),
@@ -249,8 +249,7 @@ export default function KitchenDisplay() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={() => setFullscreen((f: any) => !f)}>
             <Monitor className="w-3.5 h-3.5 mr-1" />

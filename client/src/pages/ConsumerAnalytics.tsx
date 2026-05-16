@@ -36,11 +36,11 @@ function fmt(kobo: number) {
 }
 
 export default function ConsumerAnalytics() {
-  const { data: monthly, isLoading: loadingMonthly, error } = trpc.consumerAnalytics.spendByMonth.useQuery({ months: 6 });
+  const { data: monthly, isLoading: loadingMonthly, error } = trpc.consumerAnalytics.spendByMonth.useQuery({ months: 6 }, { staleTime: 30_000 });
   const { data: categories, isLoading: loadingCat } = trpc.consumerAnalytics.spendByCategory.useQuery();
   const { data: split, isLoading: loadingSplit } = trpc.consumerAnalytics.creditDebitSplit.useQuery();
-  const { data: daily, isLoading: loadingDaily } = trpc.consumerAnalytics.dailyUsage.useQuery({ days: 7 });
-  const { data: topCounterparties } = trpc.consumerAnalytics.topCounterparties.useQuery({ limit: 5 });
+  const { data: daily, isLoading: loadingDaily } = trpc.consumerAnalytics.dailyUsage.useQuery({ days: 7 }, { staleTime: 30_000 });
+  const { data: topCounterparties } = trpc.consumerAnalytics.topCounterparties.useQuery({ limit: 5 }, { staleTime: 30_000 });
 
   const totalCredit = split?.creditKobo ?? 0;
   const totalDebit = split?.debitKobo ?? 0;

@@ -13,7 +13,7 @@ export default function MarketplacePay() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ buyerEmail: "", itemName: "", itemPrice: "", itemQty: "1" });
 
-  const { data, isLoading, refetch } = trpc.wave80.marketplacePay.listOrders.useQuery({});
+  const { data, isLoading, refetch } = trpc.wave80.marketplacePay.listOrders.useQuery({}, { staleTime: 30_000 });
   const { data: stats } = trpc.wave80.marketplacePay.getStats.useQuery();
 
   const createOrder = trpc.wave80.marketplacePay.createOrder.useMutation({

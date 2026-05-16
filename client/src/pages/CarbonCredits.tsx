@@ -20,7 +20,7 @@ export default function CarbonCredits() {
     limit,
     offset,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.carbonCredits.stats.useQuery();
 
@@ -132,7 +132,7 @@ export default function CarbonCredits() {
             <SelectItem value="retired">Retired</SelectItem>
           </SelectContent>
         </Select>
-        <Button variant="outline" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+        <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/></Button>
       </div>
 
       <Card>

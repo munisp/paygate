@@ -39,7 +39,7 @@ export default function SubscriptionsPage() {
     page,
     limit: 20,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const cancelMutation = trpc.wave32.stripeSubs.cancel.useMutation({
     onSuccess: () => {
@@ -126,7 +126,7 @@ export default function SubscriptionsPage() {
 
         <Card>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead className="border-b bg-muted/50">
                 <tr>
                   {["User ID", "Plan", "Status", "Period End", "Cancel at End", "Stripe Sub ID", "Actions"].map(h => (
@@ -162,15 +162,14 @@ export default function SubscriptionsPage() {
                     <td className="px-4 py-3">
                       {!sub.cancelAtPeriodEnd && sub.status !== "canceled" && (
                         <Button size="sm" variant="ghost" className="text-destructive"
-                          onClick={() => setCancelId(sub.id)}>
-                          <XCircle className="h-3 w-3 mr-1" />Cancel
+                          aria-label="Close" onClick={() => setCancelId(sub.id)}><X/>Cancel
                         </Button>
                       )}
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </CardContent>
         </Card>
 

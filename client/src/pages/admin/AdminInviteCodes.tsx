@@ -40,7 +40,7 @@ export default function AdminInviteCodes() {
   const { data: codes, isLoading, refetch } = trpc.wave28.inviteCode.list.useQuery({
     isActive: showActive,
     limit: 100,
-  });
+  }, { staleTime: 30_000 });
 
   const generateMutation = trpc.wave28.inviteCode.generate.useMutation({
     onSuccess: (d) => {
@@ -235,8 +235,7 @@ export default function AdminInviteCodes() {
                           <td className="py-3 px-2">
                             <div className="flex items-center gap-2">
                               <code className="font-mono text-sm font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{c.code}</code>
-                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => copyCode(c.code)}>
-                                <Copy className="w-3 h-3" />
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" aria-label="Copy" onClick={() => copyCode(c.code)}><Copy/>
                               </Button>
                             </div>
                           </td>
@@ -273,8 +272,7 @@ export default function AdminInviteCodes() {
                           <td className="py-3 px-2">
                             <div className="flex gap-1">
                               <Button size="sm" variant="outline" className="text-xs h-7"
-                                onClick={() => copyLink(c.code)} title="Copy onboarding link">
-                                <Copy className="w-3 h-3 mr-1" />Link
+                                aria-label="Copy" onClick={() => copyLink(c.code)} title="Copy onboarding link"><Copy/>Link
                               </Button>
                               {c.is_active ? (
                                 <Button size="sm" variant="outline" className="text-red-600 border-red-200 h-7"

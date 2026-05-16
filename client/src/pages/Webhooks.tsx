@@ -221,8 +221,7 @@ export default function Webhooks() {
                         disabled={updateEventTypes.isPending}>
                         <Check className="w-3 h-3 mr-1" />{updateEventTypes.isPending ? "Saving…" : "Save"}
                       </Button>
-                      <Button size="sm" variant="outline" className="h-7 px-3 text-xs" onClick={() => setEditingEventsId(null)}>
-                        <X className="w-3 h-3 mr-1" />Cancel
+                      <Button size="sm" variant="outline" className="h-7 px-3 text-xs" aria-label="Close" onClick={() => setEditingEventsId(null)}><X/>Cancel
                       </Button>
                     </div>
                   </div>

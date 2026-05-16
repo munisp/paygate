@@ -34,15 +34,15 @@ export default function MenuManagement() {
   const { isLoading: statsLoading } = trpc.menuMgmt.getMenuStats.useQuery(
     { merchantId },
     { enabled: !!merchantId }
-  );
+  , { staleTime: 30_000 });
   const categoriesQuery = trpc.menuMgmt.listCategories.useQuery(
     { merchantId },
     { enabled: !!merchantId }
-  );
+  , { staleTime: 30_000 });
   const itemsQuery = trpc.menuMgmt.listItems.useQuery(
     { merchantId, categoryId: selectedCategoryId },
     { enabled: !!merchantId }
-  );
+  , { staleTime: 30_000 });
 
   const createCatMutation = trpc.menuMgmt.createCategory.useMutation({
     onSuccess: () => {
@@ -284,8 +284,7 @@ export default function MenuManagement() {
                 : "All Items"}
             </h2>
             <div className="flex gap-2">
-              <Button variant="outline" size="icon" onClick={() => itemsQuery.refetch()}>
-                <RefreshCw className={`w-4 h-4 ${itemsQuery.isFetching ? "animate-spin" : ""}`} />
+              <Button variant="outline" size="icon" aria-label="Refresh" onClick={() => itemsQuery.refetch()}><RefreshCw/>
               </Button>
               <Dialog open={itemDialogOpen} onOpenChange={(o) => { setItemDialogOpen(o); if (!o) { setEditingItem(null); setItemForm({ name: "", description: "", priceKobo: "", imageUrl: "", categoryId: "" }); } }}>
                 <DialogTrigger asChild>

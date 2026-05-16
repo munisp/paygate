@@ -142,7 +142,7 @@ export default function FXDashboard() {
   const xbQuoteMutation = trpc.crossBorder.getQuote.useQuery(
     { sourceCurrency: xbForm.sourceCurrency, targetCurrency: xbForm.targetCurrency, amount: xbForm.amount, rail: xbForm.rail },
     { enabled: false }
-  );
+  , { staleTime: 30_000 });
   const xbInitiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: (data) => {
       setXbResult(data);
@@ -155,7 +155,7 @@ export default function FXDashboard() {
   });
   const xbHistoryQuery = trpc.crossBorder.list.useQuery(
     { limit: 20, offset: 0 },
-    { enabled: (tab as string) === "transfer" && xbTab === "history" }
+    { enabled: (tab as string, { staleTime: 30_000 }) === "transfer" && xbTab === "history" }
   );
 
   // Poll status every 5 s after submission (simulates SSE)
@@ -215,9 +215,9 @@ export default function FXDashboard() {
   useEffect(() => { setSseConnected(sseActive); }, [sseActive]);
 
   // Live FX rates from DB
-  const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false });
+  const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false }, { staleTime: 30_000 });
   // Live corridor limits
-  const { data: corridorLimits } = trpc.wave32.corridors.list.useQuery({ tenantId: "ten_paygate_default" });
+  const { data: corridorLimits } = trpc.wave32.corridors.list.useQuery({ tenantId: "ten_paygate_default" }, { staleTime: 30_000 });
   const fetchAndStoreMutation = trpc.fx.fetchAndStore.useMutation({
     onSuccess: (d: any) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
     onError: () => toast.error("Failed to fetch live rates"),
@@ -293,8 +293,7 @@ export default function FXDashboard() {
             <RefreshCw className={`w-3.5 h-3.5 ${autoRefresh ? "animate-spin" : ""}`} style={{ animationDuration: "3s" }} />
             {autoRefresh ? "Live" : "Paused"}
           </button>
-          <Button size="sm" variant="outline" onClick={() => fetchAndStoreMutation.mutate()} disabled={fetchAndStoreMutation.isPending}>
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${fetchAndStoreMutation.isPending ? 'animate-spin' : ''}`} />
+          <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => fetchAndStoreMutation.mutate()} disabled={fetchAndStoreMutation.isPending}><RefreshCw/>
             {fetchAndStoreMutation.isPending ? 'Fetching...' : 'Fetch Live Rates'}
           </Button>
         </div>

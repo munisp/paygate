@@ -63,7 +63,7 @@ export default function ConsumerCrossBorder() {
       rail,
     },
     { enabled: false }
-  );
+  , { staleTime: 30_000 });
 
   const initiate = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {
@@ -75,7 +75,7 @@ export default function ConsumerCrossBorder() {
     },
   });
 
-  const history = trpc.crossBorder.list.useQuery({ limit: 10 });
+  const history = trpc.crossBorder.list.useQuery({ limit: 10 }, { staleTime: 30_000 });
 
   const handleGetQuote = async () => {
     if (!amount || parseFloat(amount) <= 0) {

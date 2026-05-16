@@ -20,7 +20,7 @@ export default function ConsumerReferrals() {
 
   const { data: myCode, isLoading: codeLoading, isError } = trpc.wave24.referrals.getMyCode.useQuery();
   const { data: stats } = trpc.wave24.referrals.getStats.useQuery();
-  const { data: history } = trpc.wave24.referrals.list.useQuery({ limit, offset: page * limit });
+  const { data: history } = trpc.wave24.referrals.list.useQuery({ limit, offset: page * limit }, { staleTime: 30_000 });
 
   const referralLink = myCode ? `${window.location.origin}/signup?ref=${myCode.referralCode}` : "";
 
@@ -72,11 +72,9 @@ export default function ConsumerReferrals() {
               </div>
             )}
             <div className="flex items-center justify-center gap-3">
-              <Button variant="outline" size="sm" onClick={copyCode}>
-                <Copy className="w-4 h-4 mr-2" />Copy Code
+              <Button variant="outline" size="sm" aria-label="Copy" onClick={copyCode}><Copy/>Copy Code
               </Button>
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy className="w-4 h-4 mr-2" />Copy Link
+              <Button variant="outline" size="sm" aria-label="Copy" onClick={copyLink}><Copy/>Copy Link
               </Button>
               <Button size="sm" onClick={shareLink}>
                 <Share2 className="w-4 h-4 mr-2" />Share
@@ -160,7 +158,7 @@ export default function ConsumerReferrals() {
               No referrals yet. Share your code to get started!
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead className="border-b bg-muted/30">
                 <tr>
                   <th className="text-left p-3 font-medium">Referred User</th>
@@ -191,7 +189,7 @@ export default function ConsumerReferrals() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </CardContent>
       </Card>

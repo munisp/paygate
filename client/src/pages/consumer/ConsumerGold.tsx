@@ -17,7 +17,7 @@ export default function ConsumerGold() {
 
   const { data: price, isLoading: priceLoading, refetch: refetchPrice } = trpc.newFeatures.digitalGold.getPrice.useQuery();
   const { data: holdings, refetch: refetchHoldings } = trpc.newFeatures.digitalGold.getHoldings.useQuery();
-  const { data: history } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 10 });
+  const { data: history } = trpc.newFeatures.digitalGold.getHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
 
   const buyMutation = trpc.newFeatures.digitalGold.buy.useMutation({
     onSuccess: (d: any) => {
@@ -72,8 +72,7 @@ export default function ConsumerGold() {
               {priceLoading ? "..." : formatKobo(goldPrice)}
             </div>
             <p className="text-xs text-muted-foreground">per gram (24K)</p>
-            <Button variant="ghost" size="sm" className="mt-2 p-0 h-auto" onClick={() => refetchPrice()}>
-              <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+            <Button variant="ghost" size="sm" className="mt-2 p-0 h-auto" aria-label="Refresh" onClick={() => refetchPrice()}><RefreshCw/> Refresh
             </Button>
           </CardContent>
         </Card>

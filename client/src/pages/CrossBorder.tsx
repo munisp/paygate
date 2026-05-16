@@ -35,8 +35,8 @@ const SETTLEMENT_TIMES: Record<string, string> = {
 function CorridorComparison() {
   const crossBorder30Interval = useAdaptiveInterval(30_000);
   const crossBorderInterval = useAdaptiveInterval(60_000);
-  const { data: rates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: crossBorder30Interval });
-  const { data: volumes } = trpc.fx.corridorVolume.useQuery({}, { refetchInterval: crossBorderInterval });
+  const { data: rates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: crossBorder30Interval }, { staleTime: 30_000 });
+  const { data: volumes } = trpc.fx.corridorVolume.useQuery({}, { refetchInterval: crossBorderInterval }, { staleTime: 30_000 });
 
   const rateMap = useMemo(() => {
     const m: Record<string, number> = { USD: 1 };
@@ -205,12 +205,12 @@ function FxTicker() {
   const { data: ratesData, isLoading: ratesLoading, refetch } = trpc.fx.getRates.useQuery(
     { base: "USD" },
     { refetchInterval: crossBorder30Interval }
-  );
+  , { staleTime: 30_000 });
 
   const { data: volumeData } = trpc.fx.corridorVolume.useQuery(
     { daysSince: 7 },
     { refetchInterval: crossBorderInterval }
-  );
+  , { staleTime: 30_000 });
 
   const fetchAndStore = trpc.fx.fetchAndStore.useMutation();
 
@@ -691,7 +691,7 @@ export default function CrossBorder() {
     limit: 50,
     offset: 0,
     status: statusFilter === "all" ? undefined : statusFilter,
-  });
+  }, { staleTime: 30_000 });
 
   const stats = {
     total: transfers?.length ?? 0,

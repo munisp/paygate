@@ -212,8 +212,7 @@ export default function RedEnvelope() {
               {shareUrl}
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={handleCopy}>
-                <Copy className="w-4 h-4 mr-2" />
+              <Button variant="outline" className="flex-1" aria-label="Copy" onClick={handleCopy}><Copy/>
                 Copy Link
               </Button>
               <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white" onClick={() => {

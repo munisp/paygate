@@ -30,7 +30,7 @@ export default function AdminDisputeManagement() {
   const [escalateReason, setEscalateReason] = useState("");
 
   const utils = trpc.useUtils();
-  const listQuery = trpc.admin.disputes.listAll.useQuery({ page, limit: 20, status: statusFilter });
+  const listQuery = trpc.admin.disputes.listAll.useQuery({ page, limit: 20, status: statusFilter }, { staleTime: 30_000 });
 
   const resolveMutation = trpc.admin.disputes.resolveDispute.useMutation({
     onSuccess: () => { utils.admin.disputes.listAll.invalidate(); setResolveDialog(null); toast.success("Dispute resolved"); },

@@ -17,10 +17,10 @@ export default function LoyaltyV3() {
   const [form, setForm] = useState({ name: "", pointsPerNaira: "1", expiryDays: 365 });
 
   const { data: programsData, isLoading: programsLoading, refetch: refetchPrograms } =
-    trpc.loyaltyV3.listPrograms.useQuery({ page: 1, limit: 20 });
+    trpc.loyaltyV3.listPrograms.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
   const [selectedProgramId, setSelectedProgramId] = useState("");
   const { data: membersData, isLoading: membersLoading } =
-    trpc.loyaltyV3.listMembers.useQuery({ programId: selectedProgramId, page: 1, limit: 20 }, { enabled: !!selectedProgramId });
+    trpc.loyaltyV3.listMembers.useQuery({ programId: selectedProgramId, page: 1, limit: 20 }, { enabled: !!selectedProgramId }, { staleTime: 30_000 });
 
   const createProgramMutation = trpc.loyaltyV3.createProgram.useMutation({
     onSuccess: () => { toast.success("Loyalty program created"); setCreateProgramOpen(false); refetchPrograms(); },

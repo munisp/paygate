@@ -10,9 +10,9 @@ import { Leaf, Award, BarChart3 } from "lucide-react";
 export default function CarbonCredit() {
   const [selectedYear, setSelectedYear] = useState(2026);
   const [purchaseForm, setPurchaseForm] = useState({ listingId: "", tonnes: 1, retirementPurpose: "Scope 1 emissions offset" });
-  const { isLoading, data: listings } = trpc.tier6to8.carbonCredit.getListings.useQuery({});
+  const { isLoading, data: listings } = trpc.tier6to8.carbonCredit.getListings.useQuery({}, { staleTime: 30_000 });
   const { data: certificates } = trpc.tier6to8.carbonCredit.getMyCertificates.useQuery();
-  const { data: report } = trpc.tier6to8.carbonCredit.getEmissionsReport.useQuery({ year: selectedYear });
+  const { data: report } = trpc.tier6to8.carbonCredit.getEmissionsReport.useQuery({ year: selectedYear }, { staleTime: 30_000 });
   const purchaseMutation = trpc.tier6to8.carbonCredit.purchaseCredits.useMutation({
     onSuccess: (d: any) => { toast.success(`${d.tonnes} tonne(s) retired — Certificate: ${d.certificateId}`); },
     onError: (e: any) => toast.error(e.message),

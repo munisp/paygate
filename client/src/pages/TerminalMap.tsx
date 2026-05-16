@@ -93,7 +93,7 @@ export default function TerminalMap() {
   const { data, isLoading, refetch } = trpc.pos.list.useQuery(
     { limit: 200 },
     { refetchInterval: terminalMapInterval }
-  );
+  , { staleTime: 30_000 });
 
   const updateLocation = trpc.pos.updateLocation.useMutation({ onError: (e) => toast.error(e.message) });
 
@@ -218,8 +218,7 @@ export default function TerminalMap() {
               <SelectItem value="offline">Offline ({stats.offline})</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4" />
+          <Button variant="outline" size="icon" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>
           </Button>
         </div>
       </div>
@@ -384,13 +383,13 @@ function buildInfoWindowContent(terminal: Terminal, health: string, color: strin
           ${HEALTH_LABELS[health]}
         </span>
       </div>
-      <table style="margin-top:8px;border-collapse:collapse;width:100%">
+      <div className="overflow-x-auto"><table style="margin-top:8px;border-collapse:collapse;width:100%">
         <tr><td style="color:#888;padding:2px 0">Model</td><td>${terminal.model.replace(/_/g, " ")}</td></tr>
         <tr><td style="color:#888;padding:2px 0">Serial</td><td>${terminal.serialNumber}</td></tr>
         <tr><td style="color:#888;padding:2px 0">Location</td><td>${terminal.location ?? "—"}</td></tr>
         <tr><td style="color:#888;padding:2px 0">Last seen</td><td>${lastSeen}</td></tr>
         <tr><td style="color:#888;padding:2px 0">Volume</td><td>₦${(terminal.totalVolumeKobo / 100).toLocaleString()}</td></tr>
         <tr><td style="color:#888;padding:2px 0">Transactions</td><td>${terminal.totalTransactions}</td></tr>
-      </table>
+      </table></div>
     </div>`;
 }

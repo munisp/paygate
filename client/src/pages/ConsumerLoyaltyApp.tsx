@@ -24,8 +24,8 @@ const offers = [
 
 export default function ConsumerLoyaltyApp() {
   // Real loyalty data from DB
-  const { data: loyaltyAccounts, isLoading } = trpc.wave99.loyalty.listAccounts.useQuery({ limit: 10 });
-  const { data: loyaltyTransactionsData } = trpc.wave99.loyalty.listTransactions.useQuery({ limit: 20 });
+  const { data: loyaltyAccounts, isLoading } = trpc.wave99.loyalty.listAccounts.useQuery({ limit: 10 }, { staleTime: 30_000 });
+  const { data: loyaltyTransactionsData } = trpc.wave99.loyalty.listTransactions.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const [showRedeem, setShowRedeem] = useState(false);
   const [redeemAmount, setRedeemAmount] = useState("");
 

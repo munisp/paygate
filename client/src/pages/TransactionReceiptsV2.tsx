@@ -14,7 +14,7 @@ export default function TransactionReceiptsV2() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
 
-  const { data, isLoading } = trpc.txReceipts.list.useQuery({ page, transactionId: search || undefined });
+  const { data, isLoading } = trpc.txReceipts.list.useQuery({ page, transactionId: search || undefined }, { staleTime: 30_000 });
 
   const generate = trpc.txReceipts.generate.useMutation({
     onSuccess: () => { utils.txReceipts.list.invalidate(); toast({ title: "Receipt generated" }); },
@@ -71,8 +71,7 @@ export default function TransactionReceiptsV2() {
                   </Button>
                 )}
                 {!r.receiptUrl && (
-                  <Button size="sm" variant="outline" onClick={() => generate.mutate({ transactionId: r.transactionId })}>
-                    <RefreshCw className="w-3.5 h-3.5 mr-1" />Generate
+                  <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => generate.mutate({ transactionId: r.transactionId })}><RefreshCw/>Generate
                   </Button>
                 )}
                 <Button size="sm" onClick={() => resend.mutate({ id: r.id })}>

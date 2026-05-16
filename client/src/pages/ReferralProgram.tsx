@@ -73,7 +73,7 @@ export default function ReferralProgram() {
     limit,
     offset: page * limit,
     status: statusFilter === "all" ? undefined : statusFilter,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.referrals.stats.useQuery();
 
@@ -168,7 +168,7 @@ export default function ReferralProgram() {
             <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("approve")} disabled={isBulkLoading}><CheckCircle className="w-3 h-3 mr-1" /> Approve</Button>
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBulkAction("reject")} disabled={isBulkLoading}><XCircle className="w-3 h-3 mr-1" /> Reject</Button>
-            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => setBulkAction("delete")} disabled={isBulkLoading}><Trash2 className="w-3 h-3 mr-1" /> Delete</Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs" aria-label="Delete" onClick={() => setBulkAction("delete")} disabled={isBulkLoading}><Trash2/> Delete</Button>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>Clear</Button>
           </div>
         )}

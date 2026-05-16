@@ -13,7 +13,7 @@ export default function PensionNPS() {
 
   const {isLoading, data: account} = trpc.newFeatures.pension.getAccount.useQuery();
   const { data: pfas } = trpc.newFeatures.pension.listPFAs.useQuery();
-  const { data: statements } = trpc.newFeatures.pension.getStatements.useQuery({ year: selectedYear });
+  const { data: statements } = trpc.newFeatures.pension.getStatements.useQuery({ year: selectedYear }, { staleTime: 30_000 });
 
   const contributeMutation = trpc.newFeatures.pension.makeContribution.useMutation({
     onSuccess: (d: any) => toast.success(`Contribution of ₦${(d.amountKobo / 100).toLocaleString()} successful`),
@@ -90,7 +90,7 @@ export default function PensionNPS() {
           </CardHeader>
           <CardContent>
             {!statements?.statements?.length ? <p className="text-muted-foreground text-sm">No statements for {selectedYear}</p> :
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead><tr className="border-b"><th className="text-left py-2">Month</th><th className="text-right py-2">Employer</th><th className="text-right py-2">Employee</th><th className="text-right py-2">Returns</th><th className="text-right py-2">Balance</th></tr></thead>
                 <tbody>
                   {statements.statements.map((s: any, i: any) => (
@@ -103,7 +103,7 @@ export default function PensionNPS() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             }
           </CardContent>
         </Card>

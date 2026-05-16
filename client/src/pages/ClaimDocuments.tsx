@@ -24,7 +24,7 @@ export default function ClaimDocuments() {
   const { data, isLoading, isError, refetch } = trpc.claimDocuments.listDocuments.useQuery(
     { claimId: searchClaimId, limit: 50, offset: 0 },
     { enabled: !!searchClaimId }
-  );
+  , { staleTime: 30_000 });
 
   const uploadDocument = trpc.claimDocuments.uploadDocument.useMutation({
     onSuccess: () => {
@@ -71,8 +71,7 @@ export default function ClaimDocuments() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Upload and manage documents for insurance claims</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={!searchClaimId}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={!searchClaimId}><RefreshCw/> Refresh
         </Button>
       </div>
 

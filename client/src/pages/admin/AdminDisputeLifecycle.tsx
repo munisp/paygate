@@ -61,7 +61,7 @@ export default function AdminDisputeLifecycle() {
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 50,
     offset: 0,
-  });
+  }, { staleTime: 30_000 });
   const liveDisputes = (disputesData?.disputes ?? (Array.isArray(disputesData) ? disputesData : [])) as any[];
 
   const generateReportMutation = trpc.wave27.complianceReport.generateReport.useMutation({

@@ -23,7 +23,7 @@ export default function AdminFraudOversight() {
 
   const utils = trpc.useUtils();
   const statsQuery = trpc.admin.fraud.getPlatformFraudStats.useQuery();
-  const listQuery = trpc.admin.fraud.listAlerts.useQuery({ page, limit: 20, status: statusFilter, minScore });
+  const listQuery = trpc.admin.fraud.listAlerts.useQuery({ page, limit: 20, status: statusFilter, minScore }, { staleTime: 30_000 });
 
   const banMutation = trpc.admin.fraud.banMerchant.useMutation({
     onSuccess: () => { utils.admin.fraud.listAlerts.invalidate(); setBanDialog(null); setBanReason(""); toast.success("Merchant banned"); },

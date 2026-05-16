@@ -17,8 +17,8 @@ export default function PayrollV3() {
   const [empForm, setEmpForm] = useState({ fullName: "", email: "", department: "General", bankCode: "", accountNumber: "", grossSalary: "" });
   const [runForm, setRunForm] = useState({ runName: "", period: "" });
 
-  const { data: runsData, isLoading: loadingRuns, refetch: refetchRuns } = trpc.wave80.payrollV3.listRuns.useQuery({});
-  const { data: empData, isLoading: loadingEmps, refetch: refetchEmps } = trpc.wave80.payrollV3.listEmployees.useQuery({});
+  const { data: runsData, isLoading: loadingRuns, refetch: refetchRuns } = trpc.wave80.payrollV3.listRuns.useQuery({}, { staleTime: 30_000 });
+  const { data: empData, isLoading: loadingEmps, refetch: refetchEmps } = trpc.wave80.payrollV3.listEmployees.useQuery({}, { staleTime: 30_000 });
 
   const addEmployee = trpc.wave80.payrollV3.addEmployee.useMutation({
     onSuccess: () => { toast.success("Employee added"); setAddEmpOpen(false); refetchEmps(); },

@@ -243,13 +243,12 @@ function QRPanel({ merchant }: { merchant: any }) {
             variant="ghost"
             size="sm"
             className="text-xs"
-            onClick={() => {
+            aria-label="Refresh" onClick={() => {
               setQrData(null);
               setAmount("");
               setDescription("");
             }}
-          >
-            <RefreshCw className="h-3 w-3 mr-1" />
+          ><RefreshCw/>
             Generate new
           </Button>
         </div>
@@ -350,7 +349,7 @@ export default function QuickPay() {
   );
 
   const [overviewFrom] = useState(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-  const { data: dashData } = trpc.dashboard.overview.useQuery({ from: overviewFrom });
+  const { data: dashData } = trpc.dashboard.overview.useQuery({ from: overviewFrom }, { staleTime: 30_000 });
 
   const recentTx = useMemo(() => (txData?.rows ?? []).slice(0, 8), [txData]);
 

@@ -46,12 +46,12 @@ export default function AIModelAdmin() {
   const modelsQuery = trpc.aiModelAdmin.listModels.useQuery({
     status: statusFilter as any,
     limit: 50,
-  });
+  }, { staleTime: 30_000 });
   const auditQuery = trpc.aiModelAdmin.listAuditTrail.useQuery({
     decision: decisionFilter as any,
     limit: 50,
-  });
-  const jobsQuery = trpc.aiModelAdmin.listTrainingJobs.useQuery({ status: "all", limit: 20 });
+  }, { staleTime: 30_000 });
+  const jobsQuery = trpc.aiModelAdmin.listTrainingJobs.useQuery({ status: "all", limit: 20 }, { staleTime: 30_000 });
 
   const registerMutation = trpc.aiModelAdmin.registerModel.useMutation({
     onSuccess: () => {
@@ -291,11 +291,10 @@ export default function AIModelAdmin() {
                           size="sm"
                           variant="ghost"
                           className="text-red-500"
-                          onClick={() => {
+                          aria-label="Delete" onClick={() => {
                             if (confirm("Delete this model?")) deleteModelMutation.mutate({ id: model.id });
                           }}
-                        >
-                          <Trash2 className="w-3 h-3" />
+                        ><Trash2/>
                         </Button>
                       </div>
                     </div>

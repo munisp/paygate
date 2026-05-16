@@ -256,8 +256,7 @@ export default function MobilePOS() {
             <span className="text-sm text-amber-700">
               {pendingCount} transaction{pendingCount > 1 ? "s" : ""} waiting to sync
             </span>
-            <Button size="sm" variant="outline" onClick={flush} disabled={isFlushing}>
-              <RefreshCw className={`h-3 w-3 mr-1 ${isFlushing ? "animate-spin" : ""}`} />
+            <Button size="sm" variant="outline" aria-label="Refresh" onClick={flush} disabled={isFlushing}><RefreshCw/>
               Sync Now
             </Button>
           </CardContent>

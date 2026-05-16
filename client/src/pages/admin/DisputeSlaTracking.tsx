@@ -16,7 +16,7 @@ export default function DisputeSlaTracking() {
   const { data: trackingData, refetch, isLoading } = trpc.wave31.disputeSla.list.useQuery({
     status: statusFilter,
     slaBreached: slaFilter === "breached" ? true : slaFilter === "at_risk" ? false : undefined,
-  });
+  }, { staleTime: 30_000 });
   const { data: statsData } = trpc.wave31.disputeSla.getStats.useQuery();
 
   const escalate = trpc.wave31.disputeSla.escalate.useMutation({

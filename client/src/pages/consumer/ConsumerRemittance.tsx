@@ -19,7 +19,7 @@ export default function ConsumerRemittance() {
   const [recipientCountry, setRecipientCountry] = useState("US");
 
   const { data: corridors, isLoading: corridorsLoading } = trpc.newFeatures.internationalRemittance.getCorridors.useQuery();
-  const { data: history } = trpc.newFeatures.internationalRemittance.getHistory.useQuery({ page: 1, limit: 10 });
+  const { data: history } = trpc.newFeatures.internationalRemittance.getHistory.useQuery({ page: 1, limit: 10 }, { staleTime: 30_000 });
 
   const sendMutation = trpc.newFeatures.internationalRemittance.send.useMutation({
     onSuccess: (d: any) => {

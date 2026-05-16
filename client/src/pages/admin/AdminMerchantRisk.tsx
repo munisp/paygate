@@ -34,7 +34,7 @@ export default function AdminMerchantRisk() {
     riskLevel: riskFilter,
     limit: 50,
     offset: 0,
-  });
+  }, { staleTime: 30_000 });
 
   const recalcMutation = trpc.wave24.merchantRisk.recalculate.useMutation({
     onSuccess: (result) => {
@@ -60,8 +60,7 @@ export default function AdminMerchantRisk() {
             <h1 className="text-2xl font-bold flex items-center gap-2"><Shield className="w-6 h-6" /> Merchant Risk Scoring</h1>
             <p className="text-muted-foreground text-sm mt-1">Real-time risk assessment across all merchants</p>
           </div>
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />Refresh
+          <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/>Refresh
           </Button>
         </div>
 
@@ -118,7 +117,7 @@ export default function AdminMerchantRisk() {
                 <p>No risk scores found. Run recalculation from the Merchant Management page.</p>
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead className="border-b bg-muted/30">
                   <tr>
                     <th className="text-left p-3 font-medium">Merchant ID</th>
@@ -166,9 +165,8 @@ export default function AdminMerchantRisk() {
                             <ChevronRight className="w-3.5 h-3.5 mr-1" />Details
                           </Button>
                           <Button variant="ghost" size="sm" className="h-7 text-xs"
-                            onClick={() => { setRecalcId(item.merchantId); recalcMutation.mutate({ merchantId: item.merchantId }); }}
-                            disabled={recalcMutation.isPending && recalcId === item.merchantId}>
-                            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${recalcMutation.isPending && recalcId === item.merchantId ? "animate-spin" : ""}`} />
+                            aria-label="Refresh" onClick={() => { setRecalcId(item.merchantId); recalcMutation.mutate({ merchantId: item.merchantId }); }}
+                            disabled={recalcMutation.isPending && recalcId === item.merchantId}><RefreshCw/>
                             Recalc
                           </Button>
                         </div>
@@ -176,7 +174,7 @@ export default function AdminMerchantRisk() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </CardContent>
         </Card>
@@ -191,7 +189,7 @@ export default function AdminMerchantRisk() {
 }
 
 function MerchantRiskDetail({ merchantId, onClose }: { merchantId: string; onClose: () => void }) {
-  const { data } = trpc.wave24.merchantRisk.getScore.useQuery({ merchantId });
+  const { data } = trpc.wave24.merchantRisk.getScore.useQuery({ merchantId }, { staleTime: 30_000 });
 
   return (
     <Dialog open onOpenChange={onClose}>

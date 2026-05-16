@@ -12,7 +12,7 @@ import { Shield, Key, Globe, CheckCircle, AlertCircle, Save } from "lucide-react
 
 export default function TenantSsoConfig() {
   const tenantId = "3";
-  const { data: config, refetch, isLoading } = trpc.wave29.tenantSso.getConfig.useQuery({ tenantId });
+  const { data: config, refetch, isLoading } = trpc.wave29.tenantSso.getConfig.useQuery({ tenantId }, { staleTime: 30_000 });
 
   const [form, setForm] = useState({
     provider: "oidc" as "oidc" | "saml" | "oauth2",

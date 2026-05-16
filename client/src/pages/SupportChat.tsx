@@ -19,11 +19,11 @@ export default function SupportChat() {
   const [startOpen, setStartOpen] = useState(false);
   const [subject, setSubject] = useState("");
 
-  const { data: sessionsData, isLoading } = trpc.supportChat.listSessions.useQuery({ page: 1 });
+  const { data: sessionsData, isLoading } = trpc.supportChat.listSessions.useQuery({ page: 1 }, { staleTime: 30_000 });
   const { data: sessionDetail } = trpc.supportChat.getSession.useQuery(
     { sessionId: selectedSession! },
     { enabled: !!selectedSession }
-  );
+  , { staleTime: 30_000 });
 
   const startSession = trpc.supportChat.startSession.useMutation({
     onSuccess: (data) => {
@@ -116,8 +116,7 @@ export default function SupportChat() {
             <>
               <CardHeader className="pb-2 flex-row items-center justify-between">
                 <CardTitle className="text-sm">{"Support Session"}</CardTitle>
-                <Button size="sm" variant="destructive" onClick={() => closeSession.mutate({ sessionId: selectedSession! })}>
-                  <X className="w-3.5 h-3.5 mr-1" />Close
+                <Button size="sm" variant="destructive" aria-label="Close" onClick={() => closeSession.mutate({ sessionId: selectedSession! })}><X/>Close
                 </Button>
               </CardHeader>
               <ScrollArea className="flex-1 px-4">

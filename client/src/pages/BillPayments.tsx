@@ -28,7 +28,7 @@ export default function BillPayments() {
     limit,
     offset,
     status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  }, { staleTime: 30_000 });
 
   const { data: stats } = trpc.billPayments.stats.useQuery();
 
@@ -149,7 +149,7 @@ export default function BillPayments() {
             <SelectItem value="failed">Failed</SelectItem>
           </SelectContent>
         </Select>
-        <Button variant="outline" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+        <Button variant="outline" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/></Button>
       </div>
 
       {/* Table */}

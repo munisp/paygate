@@ -43,7 +43,7 @@ export default function GoldSIP() {
   const [form, setForm] = useState({ name: "", amountNGN: "", frequency: "monthly" as const });
 
   // tRPC data — real data only, no mock fallback
-  const { data: priceData, isLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval });
+  const { data: priceData, isLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval }, { staleTime: 30_000 });
   const { data: sipData, refetch: refetchSIPs } = trpc.newFeatures.digitalGold.listSIPs.useQuery();
   const plans: SIPPlan[] = sipData?.plans ?? [];
 
@@ -274,10 +274,9 @@ export default function GoldSIP() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => deletePlan(plan.id)}
+                      aria-label="Delete" onClick={() => deletePlan(plan.id)}
                       disabled={cancelSIPMutation.isPending}
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    ><Trash2/>
                     </Button>
                   </div>
                 </div>

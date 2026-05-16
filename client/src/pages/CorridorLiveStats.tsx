@@ -24,7 +24,7 @@ export default function CorridorLiveStats() {
 
   const { data, isLoading, isError, refetch } = trpc.corridorLive.getLiveStats.useQuery(undefined, {
     refetchInterval: 30_000, // refresh every 30s
-  });
+  }, { staleTime: 30_000 });
 
   const setFxMarkup = trpc.corridorLive.setFxMarkup.useMutation({
     onSuccess: () => { toast.success("FX markup updated"); setMarkupOpen(false); setMarkup(""); refetch(); },
@@ -55,8 +55,7 @@ export default function CorridorLiveStats() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Real-time FX rates, corridor status, and markup controls</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()}><RefreshCw/> Refresh
         </Button>
       </div>
 

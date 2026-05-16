@@ -19,7 +19,7 @@ export default function AdminSdkTokens() {
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, refetch } = trpc.wave25.sdkTokens.list.useQuery({ page, limit: 30 });
+  const { data, isLoading, refetch } = trpc.wave25.sdkTokens.list.useQuery({ page, limit: 30 }, { staleTime: 30_000 });
   const { data: stats } = trpc.wave25.sdkTokens.getStats.useQuery();
 
   const createToken = trpc.wave25.sdkTokens.create.useMutation({
@@ -151,9 +151,8 @@ export default function AdminSdkTokens() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
-                            onClick={() => revokeToken.mutate({ id: token.id! })}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            aria-label="Delete" onClick={() => revokeToken.mutate({ id: token.id! })}
+                          ><Trash2/>
                           </Button>
                         )}
                       </div>

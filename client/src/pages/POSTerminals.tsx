@@ -469,7 +469,7 @@ export default function POSTerminals() {
     status: statusFilter || undefined,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
-  });
+  }, { staleTime: 30_000 });
 
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
@@ -516,8 +516,7 @@ export default function POSTerminals() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} className="gap-2"><RefreshCw/>
             Refresh
           </Button>
           <RegisterTerminalDialog onRegistered={() => { utils.pos.list.invalidate(); utils.pos.stats.invalidate(); }} />
