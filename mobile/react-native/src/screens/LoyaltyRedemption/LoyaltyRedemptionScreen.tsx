@@ -1,84 +1,90 @@
-
-import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput } from 'react-native';
-
-const REWARDS = [
-  { id: '1', name: 'Free Transfer', points: 500, category: 'banking' },
-  { id: '2', name: '\u20a61,000 Airtime', points: 1000, category: 'telecom' },
-  { id: '3', name: 'Premium Subscription', points: 5000, category: 'subscription' },
-  { id: '4', name: 'Cash Bonus \u20a6500', points: 2500, category: 'cash' },
-];
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
+import { useTrpc } from '../../hooks/useTrpc';
 
 export default function LoyaltyRedemptionScreen() {
-  const [balance] = useState(12500);
+  const { query, mutation } = useTrpc();
+  const [rewards, setRewards] = useState<any[]>([]);
+  const [balance, setBalance] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedReward, setSelectedReward] = useState<any>(null);
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
 
+  const fetchData = useCallback(async () => {
+    try {
+      const [rewardsResult, balanceResult] = await Promise.all([
+        query.loyalty.getRewards.query({ limit: 20 }),
+        query.loyalty.getBalance.query(),
+      ]);
+      setRewards(rewardsResult?.rewards ?? rewardsResult ?? []);
+      setBalance(balanceResult?.balance ?? balanceResult?.points ?? 0);
+    } catch (error) {
+      console.error('Failed to fetch loyalty data:', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, [query]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const onRefresh = () => { setRefreshing(true); fetchData(); };
+
   const handleRedeem = (reward: any) => {
-    if (balance < reward.points) {
-      Alert.alert('Insufficient Points', \`You need \${reward.points - balance} more points\`);
+    if (balance < (reward.pointsCost ?? reward.points ?? 0)) {
+      Alert.alert('Insufficient Points', 'You do not have enough points for this reward');
       return;
     }
     setSelectedReward(reward);
     setShowPin(true);
   };
 
-  const confirmRedemption = () => {
-    if (pin.length !== 4) { Alert.alert('Invalid PIN', 'Enter your 4-digit PIN'); return; }
-    setShowPin(false);
-    setPin('');
-    Alert.alert('Success', \`\${selectedReward.name} redeemed! Kafka event published.\`);
-    setSelectedReward(null);
+  const confirmRedeem = async () => {
+    if (!selectedReward) return;
+    try {
+      await mutation.loyalty.redeemReward.mutate({ rewardId: selectedReward.id, pin });
+      Alert.alert('Success', 'Reward redeemed successfully!');
+      setShowPin(false);
+      setPin('');
+      fetchData();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to redeem reward');
+    }
   };
+
+  if (isLoading) return <View style={styles.container}><ActivityIndicator color="#6366f1" /></View>;
 
   return (
     <View style={styles.container}>
       <View style={styles.balanceCard}>
-        <Text style={styles.tierLabel}>Gold Member</Text>
-        <Text style={styles.balanceText}>{balance.toLocaleString()} pts</Text>
-        <Text style={styles.balanceSubLabel}>Available balance</Text>
+        <Text style={styles.balanceLabel}>Your Points</Text>
+        <Text style={styles.balanceValue}>{balance.toLocaleString()}</Text>
       </View>
       <FlatList
-        data={REWARDS}
-        keyExtractor={item => item.id}
+        data={rewards}
+        keyExtractor={item => item.id ?? String(Math.random())}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rewardName}>{item.name}</Text>
-              <Text style={styles.rewardMeta}>{item.points.toLocaleString()} pts • {item.category}</Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.redeemBtn, balance < item.points && styles.disabledBtn]}
-              onPress={() => handleRedeem(item)}
-              disabled={balance < item.points}
-            >
-              <Text style={styles.redeemBtnText}>Redeem</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.card} onPress={() => handleRedeem(item)}>
+            <Text style={styles.rewardName}>{item.name}</Text>
+            <Text style={styles.points}>{(item.pointsCost ?? item.points ?? 0).toLocaleString()} pts</Text>
+          </TouchableOpacity>
         )}
+        ListEmptyComponent={<Text style={styles.empty}>No rewards available</Text>}
       />
-      <Modal visible={showPin} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Enter PIN</Text>
-            <Text style={styles.modalSubtitle}>Confirm: {selectedReward?.name}</Text>
-            <TextInput
-              style={styles.pinInput}
-              value={pin}
-              onChangeText={t => setPin(t.replace(/\D/g, '').slice(0, 4))}
-              keyboardType="numeric"
-              secureTextEntry
-              maxLength={4}
-              placeholder="••••"
-              textAlign="center"
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity onPress={() => { setShowPin(false); setPin(''); }} style={styles.cancelBtn}>
-                <Text>Cancel</Text>
+      <Modal visible={showPin} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitle}>Enter PIN to confirm</Text>
+            <TextInput style={styles.input} value={pin} onChangeText={setPin} secureTextEntry keyboardType="numeric" maxLength={4} placeholder="4-digit PIN" placeholderTextColor="#64748b" />
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowPin(false); setPin(''); }}>
+                <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={confirmRedemption} style={styles.confirmBtn}>
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Confirm</Text>
+              <TouchableOpacity style={styles.confirmBtn} onPress={confirmRedeem}>
+                <Text style={styles.confirmText}>Confirm</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -89,23 +95,21 @@ export default function LoyaltyRedemptionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
-  balanceCard: { backgroundColor: '#d97706', borderRadius: 16, padding: 20, marginBottom: 20 },
-  tierLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
-  balanceText: { color: '#fff', fontSize: 32, fontWeight: '700' },
-  balanceSubLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 8, flexDirection: 'row', alignItems: 'center', elevation: 1 },
-  rewardName: { fontSize: 14, fontWeight: '600' },
-  rewardMeta: { fontSize: 12, color: '#64748b' },
-  redeemBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
-  disabledBtn: { backgroundColor: '#cbd5e1' },
-  redeemBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  modalSubtitle: { fontSize: 13, color: '#64748b', marginBottom: 16 },
-  pinInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 12, fontSize: 24, letterSpacing: 8, marginBottom: 16 },
-  modalActions: { flexDirection: 'row', gap: 12 },
-  cancelBtn: { flex: 1, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' },
-  confirmBtn: { flex: 1, padding: 12, borderRadius: 8, backgroundColor: '#3b82f6', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
+  balanceCard: { backgroundColor: '#6366f1', borderRadius: 16, padding: 20, marginBottom: 16, alignItems: 'center' },
+  balanceLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
+  balanceValue: { color: 'white', fontSize: 36, fontWeight: 'bold' },
+  card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  rewardName: { color: 'white', fontSize: 15, fontWeight: '600', flex: 1 },
+  points: { color: '#6366f1', fontSize: 14, fontWeight: '700' },
+  empty: { color: '#64748b', textAlign: 'center', marginTop: 40 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
+  modal: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24, width: '80%' },
+  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
+  input: { backgroundColor: '#0f172a', borderRadius: 8, padding: 12, color: 'white', fontSize: 16, textAlign: 'center', marginBottom: 16 },
+  modalBtns: { flexDirection: 'row', gap: 12 },
+  cancelBtn: { flex: 1, backgroundColor: '#334155', borderRadius: 8, padding: 12, alignItems: 'center' },
+  cancelText: { color: 'white', fontWeight: '600' },
+  confirmBtn: { flex: 1, backgroundColor: '#6366f1', borderRadius: 8, padding: 12, alignItems: 'center' },
+  confirmText: { color: 'white', fontWeight: '600' },
 });

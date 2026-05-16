@@ -4844,3 +4844,10 @@
 - [x] 19 admin pages: added isLoading + isError handling
 - [x] All 10 PWA pages confirmed with loading states
 - [x] 304 new tests in wave134.production-readiness.test.ts (comprehensive page coverage)
+
+## Wave 135 (Round 63) — Completed
+- [x] Flutter: 18 screens got ApiService import (audit_log_viewer, billing_analytics, bnpl, chargeback_cases, cross_border, disputes, fee_schedules, fraud_risk, fraud_rules, fx, invoice_financing, kyb_verifications, loyalty_v3, notifications, payment_links, profile, tenant_provisioning, virtual_cards_full)
+- [x] RN FraudRuleEngineScreen: wired to fraudRuleEngine.list via useTrpc
+- [x] RN KYBDocumentUploadScreen: wired to kyb.getDocuments via useTrpc
+- [x] RN LoyaltyRedemptionScreen: wired to loyalty.getRewards + loyalty.getBalance + loyalty.redeemReward
+- [x] 342 new tests in wave135.production-readiness.test.ts (Flutter/RN coverage)
