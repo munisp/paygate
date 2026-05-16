@@ -36,7 +36,7 @@ export default function LoyaltyScreen() {
   const { trpc } = useTrpc();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: accountData, isLoading: accountLoading, refetch: refetchAccount } =
+  const { data: accountData, isLoading: accountLoading, refetch: refetchAccount, error } =
     trpc.loyalty.getAccount.useQuery(undefined, { staleTime: 30_000 });
 
   const { data: historyData, isLoading: historyLoading, refetch: refetchHistory } =

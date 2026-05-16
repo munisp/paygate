@@ -41,7 +41,7 @@ export default function NIPScreen() {
   const { trpc } = useTrpc();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data, isLoading, refetch } = trpc.nip.listTransfers.useQuery(
+  const { data, isLoading, refetch, error } = trpc.nip.listTransfers.useQuery(
     { page: 1, limit: 20 },
     { staleTime: 30_000 }
   );

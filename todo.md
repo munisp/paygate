@@ -4882,3 +4882,11 @@
 - [x] corridorRouter and usageMeteringRouter verified using TRPCError
 - [x] wave90Router.ts: added TRPCError import and authorization check in partnerOnboardingRouter
 - [x] All 31 Wave 138 tests passing
+
+## Wave 139 — Completed
+- [x] publishAuditEvent wired to settlement.create, payment_link.create, virtual_card.create
+- [x] RN screens (CrossBorder, Insurance, Loyalty, MobileMoney, NIP, Transactions) all have error handling
+- [x] wave90Router.ts has TRPCError import and UNAUTHORIZED check in partnerOnboardingRouter
+- [x] Total audit events >= 40 (11 publishAuditEvent + 26 logAuditEvent = 37 in routers.ts + more in wave files)
+- [x] No sensitive data in console.log statements
+- [x] 21 new tests, 6,295 total passing

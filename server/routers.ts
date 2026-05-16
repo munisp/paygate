@@ -1877,6 +1877,7 @@ const virtualCardsRouter = router({
           issuerId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] issueVirtualCard failed (non-fatal):', e));
       }
+      publishAuditEvent({ action: 'virtual_card.created', actorId: ctx.user.openId, targetId: cardId, metadata: { merchantId: merchant.id, currency: input.currency, brand: input.brand }, timestamp: new Date().toISOString() }).catch(() => {});
       return card;
     }),
 
@@ -1966,6 +1967,7 @@ const paymentLinksRouter = router({
           creatorId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] createPaymentLink failed (non-fatal):', e));
       }
+      publishAuditEvent({ action: 'payment_link.created', actorId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
       return link;
     }),
 
@@ -5111,6 +5113,7 @@ const settlementsRouter = router({
           logger.error("[bridge] triggerSettlement failed (non-fatal):", err);
         }
       }
+      publishAuditEvent({ action: 'settlement.created', actorId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
       return settlement;
     }),
 

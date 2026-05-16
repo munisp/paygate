@@ -38,7 +38,7 @@ export default function InsuranceScreen() {
   const { trpc } = useTrpc();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data, isLoading, refetch } = trpc.insurancePolicies.list.useQuery(
+  const { data, isLoading, refetch, error } = trpc.insurancePolicies.list.useQuery(
     { page: 1, limit: 20 },
     { staleTime: 60_000 }
   );

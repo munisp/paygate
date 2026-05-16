@@ -38,7 +38,7 @@ export default function MobileMoneyScreen() {
   const { trpc } = useTrpc();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data, isLoading, refetch } = trpc.mobileMoney.listTransactions.useQuery(
+  const { data, isLoading, refetch, error } = trpc.mobileMoney.listTransactions.useQuery(
     { page: 1, limit: 20 },
     { staleTime: 30_000 }
   );

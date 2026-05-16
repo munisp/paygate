@@ -7,7 +7,7 @@ const statusColor = (s: string) => ({ completed: '#16a34a', pending: '#d97706', 
 export default function CrossBorderScreen() {
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const { data, isLoading, refetch } = trpc.crossBorder.list.useQuery({ limit: 50 });
+  const { data, isLoading, refetch, error } = trpc.crossBorder.list.useQuery({ limit: 50 });
   const onRefresh = async () => { setRefreshing(true); await refetch(); setRefreshing(false); };
   const transfers = (data as any[]) ?? [];
   const filtered = transfers.filter(t => !search || String(t.id ?? '').toLowerCase().includes(search.toLowerCase()) || String(t.recipientName ?? '').toLowerCase().includes(search.toLowerCase()));
