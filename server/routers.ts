@@ -221,7 +221,9 @@ const authRouter = router({
     const user = await getUserByOpenId(ctx.user.openId);
     if (!user) return null;
     const merchant = await getMerchantByOwnerId(user.id);
-    return { ...user, merchant };
+    // Strip sensitive fields before returning to frontend
+    const { passwordHash: _ph, ...safeUser } = user;
+    return { ...safeUser, merchant };
   }),
 
   // Email/password login — works without Keycloak (local dev or direct user accounts)
@@ -2156,7 +2158,9 @@ const settingsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
     const user = await resolveUser(ctx.user.openId);
     const merchant = await getMerchantByOwnerId(user.id);
-    return { user, merchant };
+    // Strip sensitive fields before returning to frontend
+    const { passwordHash: _ph, ...safeUser } = user;
+    return { user: safeUser, merchant };
   }),
 
   updateMerchant: protectedProcedure
@@ -4129,11 +4133,11 @@ const fxRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
-      await notifyOwner({
-        title: `FX Rate Alert Set: ${input.baseCurrency}/${input.targetCurrency}`,
-        content: `Alert configured: notify when ${input.baseCurrency}/${input.targetCurrency} goes ${input.direction} ${input.threshold}. User: ${user.email ?? user.openId}.`,
-      });
-      return { success: true, ...input };
+      const merchant = await requireMerchant(user.id);
+      const { upsertFxAlert } = await import('./db');
+      const pair = `${input.baseCurrency}/${input.targetCurrency}`;
+      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.threshold });
+      return { success: true, alert };
     }),
   convertCurrency: protectedProcedure
     .input(z.object({
@@ -4191,11 +4195,8 @@ const fxRouter = router({
     .query(async ({ ctx }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      // Return stored FX alert preferences from merchant metadata
-      return [
-        { id: 1, pair: 'USD/NGN', direction: 'above', threshold: 1600, active: true, merchantId: merchant.id },
-        { id: 2, pair: 'USD/GHS', direction: 'above', threshold: 15, active: true, merchantId: merchant.id },
-      ];
+      const { listFxAlerts } = await import('./db');
+      return listFxAlerts(merchant.id);
     }),
 
   checkAlerts: protectedProcedure

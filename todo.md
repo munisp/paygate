@@ -4918,3 +4918,11 @@
 - [x] Parameterized SQL safety: wave24Router uses Drizzle sql`` (no string concatenation)
 - [x] Production metrics: 350 PWA pages, 93 RN screens, 79 Flutter screens, 373 procedures, 152 test files
 - [x] 16 new tests, 6,350 total passing
+
+## Wave 143 — Completed
+- [x] passwordHash stripped from auth.me and settings.get responses
+- [x] fxAlerts schema table added with proper indexes (fx_alerts_merchant_idx, fx_alerts_active_idx)
+- [x] fxAlerts DB helpers: listFxAlerts, upsertFxAlert, deleteFxAlert
+- [x] fx.listAlerts wired to real DB (not hardcoded mock)
+- [x] fx.setAlert persists to fxAlerts DB table via upsertFxAlert
+- [x] 24 new tests (6,374 total)

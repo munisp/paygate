@@ -4450,3 +4450,22 @@ export const anomalyConfigAudit = pgTable("anomaly_config_audit", {
 ]);
 export type AnomalyConfigAudit = typeof anomalyConfigAudit.$inferSelect;
 export type InsertAnomalyConfigAudit = typeof anomalyConfigAudit.$inferInsert;
+
+// ─── FX Alerts ────────────────────────────────────────────────────────────────
+// Stores merchant-configured FX rate alert thresholds.
+export const fxAlerts = pgTable("fx_alerts", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  pair: text("pair").notNull(),
+  direction: text("direction", { enum: ["above", "below"] }).notNull(),
+  threshold: real("threshold").notNull(),
+  active: boolean("active").notNull().default(true),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("fx_alerts_merchant_idx").on(t.merchantId),
+  index("fx_alerts_active_idx").on(t.active),
+]);
+export type FxAlert = typeof fxAlerts.$inferSelect;
+export type InsertFxAlert = typeof fxAlerts.$inferInsert;

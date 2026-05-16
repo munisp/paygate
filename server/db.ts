@@ -3057,3 +3057,60 @@ export async function getLatestCountryForUsers(keycloakUserIds: string[]): Promi
     return {};
   }
 }
+
+// ─── FX Alerts ────────────────────────────────────────────────────────────────
+
+export async function listFxAlerts(merchantId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const { fxAlerts } = await import("../drizzle/schema");
+    const { eq } = await import("drizzle-orm");
+    return db.select().from(fxAlerts).where(eq(fxAlerts.merchantId, merchantId)).orderBy(fxAlerts.createdAt);
+  } catch (err) {
+    console.error("[DB] listFxAlerts failed", err);
+    return [];
+  }
+}
+
+export async function upsertFxAlert(merchantId: string, data: {
+  pair: string; direction: "above" | "below"; threshold: number; active?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const { fxAlerts } = await import("../drizzle/schema");
+    const { eq, and } = await import("drizzle-orm");
+    const existing = await db.select().from(fxAlerts)
+      .where(and(eq(fxAlerts.merchantId, merchantId), eq(fxAlerts.pair, data.pair)))
+      .limit(1);
+    if (existing.length > 0) {
+      const [updated] = await db.update(fxAlerts)
+        .set({ direction: data.direction, threshold: data.threshold, active: data.active ?? true, updatedAt: new Date() })
+        .where(eq(fxAlerts.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(fxAlerts)
+      .values({ merchantId, pair: data.pair, direction: data.direction, threshold: data.threshold, active: data.active ?? true })
+      .returning();
+    return created;
+  } catch (err) {
+    console.error("[DB] upsertFxAlert failed", err);
+    return null;
+  }
+}
+
+export async function deleteFxAlert(id: number, merchantId: string) {
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    const { fxAlerts } = await import("../drizzle/schema");
+    const { eq, and } = await import("drizzle-orm");
+    await db.delete(fxAlerts).where(and(eq(fxAlerts.id, id), eq(fxAlerts.merchantId, merchantId)));
+    return true;
+  } catch (err) {
+    console.error("[DB] deleteFxAlert failed", err);
+    return false;
+  }
+}

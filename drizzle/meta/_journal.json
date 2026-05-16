@@ -463,6 +463,13 @@
       "when": 1778871165978,
       "tag": "0065_complete_lila_cheney",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1778933919611,
+      "tag": "0066_opposite_sasquatch",
+      "breakpoints": true
     }
   ]
 }
