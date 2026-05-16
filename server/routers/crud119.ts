@@ -1195,12 +1195,17 @@ export const taxRouter = router({
 
 // ─── regulatory sandbox ────────────────────────────────────────────────────────
 export const regulatorySandboxRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    await requireAdmin(ctx);
-    const db = (await getDb())!;
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    return db.select().from(regulatorySandboxConfigs);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      await requireAdmin(ctx);
+      const db = (await getDb())!;
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return db.select().from(regulatorySandboxConfigs).limit(input.limit).offset(input.offset);
+    }),
   create: protectedProcedure.input(z.object({
     sandboxName: z.string(),
     regulatorCode: z.string(),

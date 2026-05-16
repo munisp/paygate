@@ -4939,3 +4939,4 @@
 - [x] 24 new Wave 144 production-readiness tests
 
 - [x] Wave 145: isError destructuring added to all PWA pages with tRPC calls (AIInsights, FraudHeatmap, SessionRisk, WebhookLiveStream, GoLiveChecklist, WAFAlertDashboard, WhiteLabelPreview, ConsumerFinancialHub). 6,425 tests passing.
+- [x] Wave 146: Add limit/offset pagination to all list procedures (apiKeys, webhooks, virtualCards, paymentLinks, team, geofence, vendor, sip, orphanedCRUD, wave24/30/32/68/90/99 routers)

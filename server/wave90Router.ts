@@ -636,15 +636,17 @@ export const partnerOnboardingRouter = router({
 // Extend virtualCardsMwRouter with list + freeze
 export const virtualCardsMwExtRouter = router({
   issue: virtualCardsMwRouter.issue,
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return {
-      cards: [
-        { cardId: "vc-001", maskedPan: "**** **** **** 4242", status: "active", currency: "NGN", spendLimit: 1_000_000, balance: 450_000, createdAt: "2026-03-01" },
-        { cardId: "vc-002", maskedPan: "**** **** **** 8888", status: "frozen", currency: "USD", spendLimit: 500, balance: 120, createdAt: "2026-04-01" },
-      ],
-      total: 2,
-    };
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      return {
+        cards: [
+          { cardId: "vc-001", maskedPan: "**** **** **** 4242", status: "active", currency: "NGN", spendLimit: 1_000_000, balance: 450_000, createdAt: "2026-03-01" },
+          { cardId: "vc-002", maskedPan: "**** **** **** 8888", status: "frozen", currency: "USD", spendLimit: 500, balance: 120, createdAt: "2026-04-01" },
+        ].slice(input.offset, input.offset + input.limit),
+        total: 2,
+      };
+    }),
   freeze: protectedProcedure
     .input(z.object({ cardId: z.string() }))
     .mutation(async ({ ctx, input }) => {

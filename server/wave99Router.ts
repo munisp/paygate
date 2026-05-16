@@ -24,10 +24,12 @@ async function db() {
 
 // ─── Tenant Config ────────────────────────────────────────────────────────────
 const tenantConfigRouter = router({
-  list: protectedProcedure.query(async () => {
-    const d = await db();
-    return d.select().from(schema.tenantConfig).limit(200);
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(200).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ input }) => {
+      const d = await db();
+      return d.select().from(schema.tenantConfig).limit(input.limit).offset(input.offset);
+    }),
   get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const d = await db();
     const [row] = await d.select().from(schema.tenantConfig).where(eq(schema.tenantConfig.id, input.id)).limit(1);
@@ -123,10 +125,12 @@ const ptspBatchesRouter = router({
 
 // ─── Geofence Rules ───────────────────────────────────────────────────────────
 const geofenceRulesRouter = router({
-  list: protectedProcedure.query(async () => {
-    const d = await db();
-    return d.select().from(schema.geofenceRules).orderBy(desc(schema.geofenceRules.createdAt));
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ input }) => {
+      const d = await db();
+      return d.select().from(schema.geofenceRules).orderBy(desc(schema.geofenceRules.createdAt)).limit(input.limit).offset(input.offset);
+    }),
   get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const d = await db();
     const [row] = await d.select().from(schema.geofenceRules).where(eq(schema.geofenceRules.id, input.id)).limit(1);

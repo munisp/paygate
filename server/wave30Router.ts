@@ -905,12 +905,14 @@ const ussdSessionRouter = router({
 
 // ─── Grafana Dashboard Config ─────────────────────────────────────────────────
 const grafanaDashboardRouter = router({
-  list: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT * FROM grafana_dashboard_configs ORDER BY is_default DESC, title ASC`)));
-    return rows;
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const { rows } = (await db.execute(sql.raw(`SELECT * FROM grafana_dashboard_configs ORDER BY is_default DESC, title ASC LIMIT ${input.limit} OFFSET ${input.offset}`)));
+      return rows;
+    }),
 
   get: protectedProcedure
     .input(z.object({ uid: z.string() }))

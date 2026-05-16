@@ -247,9 +247,10 @@ export async function listPayoutsByIds(merchantId: string, ids: string[]) {
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────
 
-export async function listApiKeys(merchantId: string) {
+export async function listApiKeys(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
-  return db.select().from(apiKeys).where(and(eq(apiKeys.merchantId, merchantId), eq(apiKeys.isActive, true))).orderBy(desc(apiKeys.createdAt));
+  const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
+  return db.select().from(apiKeys).where(and(eq(apiKeys.merchantId, merchantId), eq(apiKeys.isActive, true))).orderBy(desc(apiKeys.createdAt)).limit(lim).offset(off);
 }
 export async function createApiKey(data: InsertApiKey) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
@@ -263,9 +264,10 @@ export async function revokeApiKey(id: string, merchantId: string) {
 
 // ─── Webhooks ─────────────────────────────────────────────────────────────────
 
-export async function listWebhooks(merchantId: string) {
+export async function listWebhooks(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
-  return db.select().from(webhooks).where(eq(webhooks.merchantId, merchantId)).orderBy(desc(webhooks.createdAt));
+  const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
+  return db.select().from(webhooks).where(eq(webhooks.merchantId, merchantId)).orderBy(desc(webhooks.createdAt)).limit(lim).offset(off);
 }
 export async function createWebhook(data: InsertWebhook) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
@@ -312,9 +314,10 @@ export async function updateDispute(id: string, data: Partial<InsertDispute>) {
 
 // ─── Virtual Cards ────────────────────────────────────────────────────────────
 
-export async function listVirtualCards(merchantId: string) {
+export async function listVirtualCards(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
-  return db.select().from(virtualCards).where(eq(virtualCards.merchantId, merchantId)).orderBy(desc(virtualCards.createdAt));
+  const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
+  return db.select().from(virtualCards).where(eq(virtualCards.merchantId, merchantId)).orderBy(desc(virtualCards.createdAt)).limit(lim).offset(off);
 }
 export async function getVirtualCardById(id: string) {
   const db = await getDb(); if (!db) return null;
@@ -333,9 +336,10 @@ export async function updateVirtualCard(id: string, data: Partial<InsertVirtualC
 
 // ─── Payment Links ────────────────────────────────────────────────────────────
 
-export async function listPaymentLinks(merchantId: string) {
+export async function listPaymentLinks(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
-  return db.select().from(paymentLinks).where(eq(paymentLinks.merchantId, merchantId)).orderBy(desc(paymentLinks.createdAt));
+  const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
+  return db.select().from(paymentLinks).where(eq(paymentLinks.merchantId, merchantId)).orderBy(desc(paymentLinks.createdAt)).limit(lim).offset(off);
 }
 export async function getPaymentLinkById(id: string) {
   const db = await getDb(); if (!db) return null;
@@ -354,9 +358,10 @@ export async function updatePaymentLink(id: string, data: Partial<InsertPaymentL
 
 // ─── Team Members ─────────────────────────────────────────────────────────────
 
-export async function listTeamMembers(merchantId: string) {
+export async function listTeamMembers(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
-  return db.select().from(teamMembers).where(eq(teamMembers.merchantId, merchantId)).orderBy(desc(teamMembers.createdAt));
+  const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
+  return db.select().from(teamMembers).where(eq(teamMembers.merchantId, merchantId)).orderBy(desc(teamMembers.createdAt)).limit(lim).offset(off);
 }
 export async function createTeamMember(data: InsertTeamMember) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");

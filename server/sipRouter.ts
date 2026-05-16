@@ -18,18 +18,21 @@ function nanoid(prefix = "") {
 
 export const sipRouter = router({
   // List all SIP plans for the current user
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const db = await getDb();
-    if (!db) return { plans: [] };
-    const result = await db.execute(sql`
-      SELECT id, asset_type, amount_kobo, frequency, next_execution_at, status, created_at,
-             total_invested_kobo, execution_count, last_executed_at, fund_id, notes
-      FROM sip_plans
-      WHERE user_id = ${ctx.user.id}
-      ORDER BY created_at DESC
-    `);
-    return { plans: result.rows as any[] };
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return { plans: [] };
+      const result = await db.execute(sql`
+        SELECT id, asset_type, amount_kobo, frequency, next_execution_at, status, created_at,
+               total_invested_kobo, execution_count, last_executed_at, fund_id, notes
+        FROM sip_plans
+        WHERE user_id = ${ctx.user.id}
+        ORDER BY created_at DESC
+        LIMIT ${input.limit} OFFSET ${input.offset}
+      `);
+      return { plans: result.rows as any[] };
+    }),
 
   // Create a new SIP plan
   create: protectedProcedure

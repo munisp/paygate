@@ -821,14 +821,16 @@ export const couponsRouter = router({
 
 // ─── 6. Consumer Virtual Card Router ─────────────────────────────────────────
 export const consumerCardRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const db = (await getDb())!;
-    if (!db) return [];
-    const { consumerCards } = await import("../drizzle/schema");
-    const { eq } = await import("drizzle-orm");
-    return db.select().from(consumerCards).where(eq(consumerCards.userId, user.id));
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = (await getDb())!;
+      if (!db) return [];
+      const { consumerCards } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      return db.select().from(consumerCards).where(eq(consumerCards.userId, user.id)).limit(input.limit).offset(input.offset);
+    }),
 
   issue: protectedProcedure
     .input(z.object({
@@ -1074,17 +1076,19 @@ export const splitBillConsumerRouter = router({
       return { session, participants };
     }),
 
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const db = (await getDb())!;
-    if (!db) return [];
-    const { consumerSplitSessions } = await import("../drizzle/schema");
-    const { eq, desc } = await import("drizzle-orm");
-    return db.select().from(consumerSplitSessions)
-      .where(eq(consumerSplitSessions.creatorId, user.id))
-      .orderBy(desc(consumerSplitSessions.createdAt))
-      .limit(20);
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(20), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const db = (await getDb())!;
+      if (!db) return [];
+      const { consumerSplitSessions } = await import("../drizzle/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      return db.select().from(consumerSplitSessions)
+        .where(eq(consumerSplitSessions.creatorId, user.id))
+        .orderBy(desc(consumerSplitSessions.createdAt))
+        .limit(input.limit).offset(input.offset);
+    }),
 
   payShare: protectedProcedure
     .input(z.object({

@@ -46,13 +46,15 @@ async function requireMerchant(userId: number) {
 
 // ─── Webhook Endpoints CRUD ───────────────────────────────────────────────────
 export const webhookEndpointsCRUD = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    const db = await getDb();
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
       if (db == null) throw new Error("DB unavailable");
-    return db.select().from(webhookEndpoints).where(eq(webhookEndpoints.merchantId, merchant.id)).orderBy(desc(webhookEndpoints.createdAt));
-  }),
+      return db.select().from(webhookEndpoints).where(eq(webhookEndpoints.merchantId, merchant.id)).orderBy(desc(webhookEndpoints.createdAt)).limit(input.limit).offset(input.offset);
+    }),
   create: protectedProcedure
     .input(z.object({
       url: z.string().url(),
@@ -120,13 +122,15 @@ export const webhookEndpointsCRUD = router({
 
 // ─── SDK Tokens CRUD ──────────────────────────────────────────────────────────
 export const sdkTokensCRUD = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    const db = await getDb();
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
       if (db == null) throw new Error("DB unavailable");
-    return db.select().from(sdkTokens).where(eq(sdkTokens.merchantId, merchant.id)).orderBy(desc(sdkTokens.createdAt));
-  }),
+      return db.select().from(sdkTokens).where(eq(sdkTokens.merchantId, merchant.id)).orderBy(desc(sdkTokens.createdAt)).limit(input.limit).offset(input.offset);
+    }),
   create: protectedProcedure
     .input(z.object({
       scopes: z.array(z.string()).default(["payments:read", "payments:write"]),
@@ -474,13 +478,15 @@ export const taxWithholdingCRUD = router({
 
 // ─── Split Rules CRUD ─────────────────────────────────────────────────────────
 export const splitRulesCRUD = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    await requireMerchant(user.id);
-    const db = await getDb();
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      await requireMerchant(user.id);
+      const db = await getDb();
       if (db == null) throw new Error("DB unavailable");
-    return db.select().from(splitRules).where(eq(splitRules.isActive, 1)).orderBy(desc(splitRules.createdAt));
-  }),
+      return db.select().from(splitRules).where(eq(splitRules.isActive, 1)).orderBy(desc(splitRules.createdAt)).limit(input.limit).offset(input.offset);
+    }),
   create: protectedProcedure
     .input(z.object({
       ruleName: z.string().min(2),
@@ -655,13 +661,15 @@ export const consumerLoansCRUD = router({
 
 // ─── Regulatory Sandbox Configs CRUD ─────────────────────────────────────────
 export const regulatorySandboxCRUD = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    const db = await getDb();
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
       if (db == null) throw new Error("DB unavailable");
-    return db.select().from(regulatorySandboxConfigs).where(eq(regulatorySandboxConfigs.merchantId, merchant.id));
-  }),
+      return db.select().from(regulatorySandboxConfigs).where(eq(regulatorySandboxConfigs.merchantId, merchant.id)).limit(input.limit).offset(input.offset);
+    }),
   upsert: protectedProcedure
     .input(z.object({
       sandboxType: z.string(),

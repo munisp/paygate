@@ -351,12 +351,14 @@ export const merchantRiskRouter = router({
 
 // ─── Consumer Budgets ─────────────────────────────────────────────────────────
 export const budgetsRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const d = await requireDb();
-    return d.select().from(consumerBudgets)
-      .where(and(eq(consumerBudgets.userId, ctx.user.id), eq(consumerBudgets.isActive, true)))
-      .orderBy(asc(consumerBudgets.category));
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const d = await requireDb();
+      return d.select().from(consumerBudgets)
+        .where(and(eq(consumerBudgets.userId, ctx.user.id), eq(consumerBudgets.isActive, true)))
+        .orderBy(asc(consumerBudgets.category)).limit(input.limit).offset(input.offset);
+    }),
 
   create: protectedProcedure
     .input(z.object({
@@ -425,12 +427,14 @@ export const budgetsRouter = router({
 
 // ─── Consumer Savings Goals ───────────────────────────────────────────────────
 export const savingsGoalsRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const d = await requireDb();
-    return d.select().from(consumerSavingsGoals)
-      .where(eq(consumerSavingsGoals.userId, ctx.user.id))
-      .orderBy(desc(consumerSavingsGoals.createdAt));
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const d = await requireDb();
+      return d.select().from(consumerSavingsGoals)
+        .where(eq(consumerSavingsGoals.userId, ctx.user.id))
+        .orderBy(desc(consumerSavingsGoals.createdAt)).limit(input.limit).offset(input.offset);
+    }),
 
   create: protectedProcedure
     .input(z.object({

@@ -492,10 +492,12 @@ const billingInvoicesRouter = router({
 
 // ─── Plan Limits ──────────────────────────────────────────────────────────────
 const planLimitsRouter = router({
-  list: protectedProcedure.query(async () => {
-    const db = await requireDb();
-    return db.select().from(tenantPlanLimits).orderBy(tenantPlanLimits.priceUsdPerMonth);
-  }),
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(100).default(50), offset: z.number().min(0).default(0) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      return db.select().from(tenantPlanLimits).orderBy(tenantPlanLimits.priceUsdPerMonth).limit(input.limit).offset(input.offset);
+    }),
 
   get: protectedProcedure
     .input(z.object({ plan: z.string() }))

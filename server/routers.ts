@@ -1335,11 +1335,16 @@ const ussdRouter = router({
 // ─── API Keys Router ──────────────────────────────────────────────────────────
 
 const apiKeysRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    return listApiKeys(merchant.id);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listApiKeys(merchant.id, input);
+    }),
 
   create: pbacProcedure('manage_api_keys')
     .input(z.object({
@@ -1401,11 +1406,16 @@ const apiKeysRouter = router({
 // ─── Webhooks Router ──────────────────────────────────────────────────────────
 
 const webhooksRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    return listWebhooks(merchant.id);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listWebhooks(merchant.id, input);
+    }),
 
   create: pbacProcedure('manage_webhooks')
     .input(z.object({
@@ -1838,11 +1848,16 @@ const disputesRouter = router({
 // ─── Virtual Cards Router ─────────────────────────────────────────────────────
 
 const virtualCardsRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    return listVirtualCards(merchant.id);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listVirtualCards(merchant.id, input);
+    }),
 
   create: protectedProcedure
     .input(z.object({
@@ -1932,11 +1947,16 @@ const virtualCardsRouter = router({
 // ─── Payment Links Router ─────────────────────────────────────────────────────
 
 const paymentLinksRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    return listPaymentLinks(merchant.id);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listPaymentLinks(merchant.id, input);
+    }),
 
   create: protectedProcedure
     .input(z.object({
@@ -2033,11 +2053,16 @@ const paymentLinksRouter = router({
 // ─── Team Router ──────────────────────────────────────────────────────────────
 
 const teamRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    return listTeamMembers(merchant.id);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      return listTeamMembers(merchant.id, input);
+    }),
 
   invite: protectedProcedure
     .input(z.object({
@@ -6346,11 +6371,16 @@ const posRouter = router({
 
 // ─── Geofence Router ─────────────────────────────────────────────────────────
 const geofenceRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user.id);
-    if (!merchant) return [];
-    return listGeofenceRules(merchant.id);
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const merchant = await getMerchantByOwnerId(ctx.user.id);
+      if (!merchant) return [];
+      return listGeofenceRules(merchant.id);
+    }),
   upsert: protectedProcedure.input(z.object({
     id: z.string().optional(),
     terminalId: z.string().nullable().optional(),
@@ -7109,31 +7139,36 @@ const auditLogRouter = router({
 
 // ─── Vendor Router ───────────────────────────────────────────────────────────
 const vendorRouter = router({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const user = await resolveUser(ctx.user.openId);
-    const merchant = await requireMerchant(user.id);
-    const { getDb } = await import('./db');
-    const { sql } = await import('drizzle-orm');
-    const db = await getDb();
-    if (!db) return { vendors: [] };
-    const result = await db.execute(
-      sql`SELECT * FROM vendors WHERE merchant_id = ${merchant.id} ORDER BY name ASC`
-    );
-    return {
-      vendors: (result.rows ?? []).map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        contactName: r.contact_name,
-        email: r.email,
-        phone: r.phone,
-        address: r.address,
-        paymentTerms: r.payment_terms,
-        notes: r.notes,
-        isActive: r.is_active,
-        createdAt: r.created_at,
-      })),
-    };
-  }),
+  list: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { getDb } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const db = await getDb();
+      if (!db) return { vendors: [] };
+      const result = await db.execute(
+        sql`SELECT * FROM vendors WHERE merchant_id = ${merchant.id} ORDER BY name ASC LIMIT ${input.limit} OFFSET ${input.offset}`
+      );
+      return {
+        vendors: (result.rows ?? []).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          contactName: r.contact_name,
+          email: r.email,
+          phone: r.phone,
+          address: r.address,
+          paymentTerms: r.payment_terms,
+          notes: r.notes,
+          isActive: r.is_active,
+          createdAt: r.created_at,
+        })),
+      };
+    }),
 
   create: protectedProcedure
     .input(z.object({
