@@ -518,6 +518,7 @@ const transactionsRouter = router({
       let HIGH_VALUE_KOBO = 50_000_000; // ₦500,000 default
       try {
         const dbForThreshold = await getDb();
+        if (!dbForThreshold) throw new Error('Database unavailable');
         if (dbForThreshold) {
           const thresholdRows = await dbForThreshold.execute(sql`
             SELECT pl.gnn_threshold_kobo
@@ -3516,6 +3517,7 @@ const complianceKycRouter = router({
       // ── Liveness retry throttling (Wave 171) ─────────────────────────────────
       // Block after 5 failed attempts within a 15-minute window to prevent brute-force.
       const db0 = await getDb();
+      if (!db0) throw new Error('Database unavailable');
       if (db0) {
         const { kycSubmissions: kycTblThrottle } = await import('../drizzle/schema');
         const { eq: eqThrottle } = await import('drizzle-orm');
@@ -3616,6 +3618,7 @@ const complianceKycRouter = router({
         }
         // Persist liveness result to DB regardless of outcome
         const db2 = await getDb();
+        if (!db2) throw new Error('Database unavailable');
         if (db2) {
           const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
           const { eq: eqOp } = await import('drizzle-orm');
@@ -4874,6 +4877,7 @@ const crossBorderRouter = router({
         const { getDb } = await import("./db");
         const { idempotencyRequests: idempotencyTable } = await import("../drizzle/schema");
         const dbConn = await getDb();
+        if (!dbConn) throw new Error('Database unavailable');
         if (dbConn) {
           await dbConn.insert(idempotencyTable).values({
             id: input.idempotencyKey,

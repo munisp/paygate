@@ -359,6 +359,7 @@ export const loyaltyMwRouter = router({
       ];
       // Fetch real current points from loyalty_accounts table
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       let currentPoints = 0;
       if (db) {
         try {

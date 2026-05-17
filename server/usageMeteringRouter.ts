@@ -25,6 +25,7 @@ export const usageMeteringRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { getDb } = await import("./db");
       const dbClient = await getDb();
+      if (!dbClient) throw new Error('Database unavailable');
       const tenantId = input.tenantId ?? ctx.user.tenantId ?? "platform";
       const period = input.period ?? new Date().toISOString().slice(0, 7); // YYYY-MM
 
@@ -72,6 +73,7 @@ export const usageMeteringRouter = router({
     .query(async ({ ctx, input }) => {
       const { getDb } = await import("./db");
       const dbClient = await getDb();
+      if (!dbClient) throw new Error('Database unavailable');
       const tenantId = input.tenantId ?? ctx.user.tenantId ?? "platform";
 
       if (input.period) {
@@ -102,6 +104,7 @@ export const usageMeteringRouter = router({
     .query(async ({ ctx, input }) => {
       const { getDb } = await import("./db");
       const dbClient = await getDb();
+      if (!dbClient) throw new Error('Database unavailable');
       const tenantId = input.tenantId ?? ctx.user.tenantId ?? "platform";
       const plan = input.plan ?? "starter";
       const period = new Date().toISOString().slice(0, 7);
@@ -166,6 +169,7 @@ export const usageMeteringRouter = router({
     .query(async ({ ctx, input }) => {
       const { getDb } = await import("./db");
       const dbClient = await getDb();
+      if (!dbClient) throw new Error('Database unavailable');
       const tenantId = input.tenantId ?? ctx.user.tenantId ?? "platform";
 
       const conditions = [eq(tenantBillingInvoices.tenantId, tenantId)];
@@ -195,6 +199,7 @@ export const usageMeteringRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       const { getDb } = await import("./db");
       const dbClient = await getDb();
+      if (!dbClient) throw new Error('Database unavailable');
       const [invoice] = await dbClient
         .insert(tenantBillingInvoices)
         .values({

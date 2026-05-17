@@ -52,6 +52,7 @@ export const webhookEndpointsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(webhookEndpoints).where(eq(webhookEndpoints.merchantId, merchant.id)).orderBy(desc(webhookEndpoints.createdAt)).limit(input.limit).offset(input.offset);
     }),
@@ -64,6 +65,7 @@ export const webhookEndpointsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const secret = `whsec_${crypto.randomUUID().replace(/-/g, "")}`;
       const endpointId = nanoid("we_");
@@ -88,6 +90,7 @@ export const webhookEndpointsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const upd: Record<string, unknown> = {};
       if (input.url !== undefined) upd.url = input.url;
@@ -102,6 +105,7 @@ export const webhookEndpointsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.delete(webhookEndpoints).where(and(eq(webhookEndpoints.endpointId, input.endpointId), eq(webhookEndpoints.merchantId, merchant.id)));
       return { success: true };
@@ -112,6 +116,7 @@ export const webhookEndpointsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(webhookDeliveryLog)
         .where(and(eq(webhookDeliveryLog.endpointId, input.endpointId), eq(webhookDeliveryLog.merchantId, merchant.id)))
@@ -128,6 +133,7 @@ export const sdkTokensCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(sdkTokens).where(eq(sdkTokens.merchantId, merchant.id)).orderBy(desc(sdkTokens.createdAt)).limit(input.limit).offset(input.offset);
     }),
@@ -140,6 +146,7 @@ export const sdkTokensCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const rawToken = `pg_sdk_${crypto.randomUUID().replace(/-/g, "")}`;
       const tokenHash = Buffer.from(rawToken).toString("base64");
@@ -161,6 +168,7 @@ export const sdkTokensCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(sdkTokens).set({ isRevoked: 1 }).where(and(eq(sdkTokens.tokenId, input.tokenId), eq(sdkTokens.merchantId, merchant.id)));
       return { success: true };
@@ -173,6 +181,7 @@ export const kybCRUD = router({
     const user = await resolveUser(ctx.user.openId);
     const merchant = await requireMerchant(user.id);
     const db = await getDb();
+    if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
     return db.select().from(kybVerifications).where(eq(kybVerifications.merchantId, merchant.id)).orderBy(desc(kybVerifications.createdAt));
   }),
@@ -188,6 +197,7 @@ export const kybCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const verificationId = nanoid("kyb_");
       await db.insert(kybVerifications).values({
@@ -221,6 +231,7 @@ export const kybCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(kybSteps).set({ status: input.status, notes: input.notes, updatedAt: new Date() })
         .where(and(eq(kybSteps.verificationId, input.verificationId), eq(kybSteps.stepName, input.stepName)));
@@ -232,6 +243,7 @@ export const kybCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(kybSteps).where(eq(kybSteps.verificationId, input.verificationId));
     }),
@@ -246,6 +258,7 @@ export const kybCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.insert(merchantDirectors).values({
         merchantId: merchant.id,
@@ -260,6 +273,7 @@ export const kybCRUD = router({
     const user = await resolveUser(ctx.user.openId);
     const merchant = await requireMerchant(user.id);
     const db = await getDb();
+    if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
     return db.select().from(merchantDirectors).where(eq(merchantDirectors.merchantId, merchant.id));
   }),
@@ -271,6 +285,7 @@ export const merchantProfileCRUD = router({
     const user = await resolveUser(ctx.user.openId);
     const merchant = await requireMerchant(user.id);
     const db = await getDb();
+    if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
     const [profile] = await db.select().from(merchantProfiles).where(eq(merchantProfiles.merchantId, merchant.id));
     return profile ?? null;
@@ -288,6 +303,7 @@ export const merchantProfileCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.insert(merchantProfiles).values({
         merchantId: merchant.id,
@@ -321,6 +337,7 @@ export const complianceReportsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const rows = await db.select().from(complianceReports)
         .where(eq(complianceReports.merchantId, merchant.id))
@@ -339,6 +356,7 @@ export const complianceReportsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const reportId = nanoid("cr_");
       await db.insert(complianceReports).values({
@@ -356,6 +374,7 @@ export const complianceReportsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(complianceReports).set({ status: input.status })
         .where(and(eq(complianceReports.reportId, input.reportId), eq(complianceReports.merchantId, merchant.id)));
@@ -371,6 +390,7 @@ export const insurancePoliciesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(insurancePolicies)
         .where(eq(insurancePolicies.merchantId, merchant.id))
@@ -390,6 +410,7 @@ export const insurancePoliciesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const policyId = nanoid("pol_");
       await db.insert(insurancePolicies).values({
@@ -412,6 +433,7 @@ export const insurancePoliciesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(insurancePolicies).set({ status: "cancelled" })
         .where(and(eq(insurancePolicies.policyId, input.policyId), eq(insurancePolicies.merchantId, merchant.id)));
@@ -427,6 +449,7 @@ export const taxWithholdingCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const rows = await db.select().from(taxWithholdingRecords)
         .where(eq(taxWithholdingRecords.merchantId, merchant.id))
@@ -449,6 +472,7 @@ export const taxWithholdingCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.insert(taxWithholdingRecords).values({
         merchantId: merchant.id,
@@ -469,6 +493,7 @@ export const taxWithholdingCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(taxWithholdingRecords).set({ status: "remitted", remittedAt: new Date() })
         .where(and(eq(taxWithholdingRecords.id, input.id), eq(taxWithholdingRecords.merchantId, merchant.id)));
@@ -484,6 +509,7 @@ export const splitRulesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(splitRules).where(eq(splitRules.isActive, 1)).orderBy(desc(splitRules.createdAt)).limit(input.limit).offset(input.offset);
     }),
@@ -501,6 +527,7 @@ export const splitRulesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const ruleId = nanoid("sr_");
       await db.insert(splitRules).values({
@@ -519,6 +546,7 @@ export const splitRulesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(splitRules).set({ isActive: 0 }).where(eq(splitRules.ruleId, input.ruleId));
       return { success: true };
@@ -533,6 +561,7 @@ export const bulkSchedulesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(bulkPaymentSchedules)
         .where(eq(bulkPaymentSchedules.merchantId, merchant.id))
@@ -550,6 +579,7 @@ export const bulkSchedulesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const scheduleId = nanoid("bps_");
       await db.insert(bulkPaymentSchedules).values({
@@ -569,6 +599,7 @@ export const bulkSchedulesCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.update(bulkPaymentSchedules).set({ status: "cancelled" })
         .where(and(eq(bulkPaymentSchedules.scheduleId, input.scheduleId), eq(bulkPaymentSchedules.merchantId, merchant.id)));
@@ -584,6 +615,7 @@ export const dccTransactionsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const rows = await db.select().from(dccTransactions)
         .where(eq(dccTransactions.merchantId, merchant.id))
@@ -602,6 +634,7 @@ export const invoicePaymentsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(invoicePayments)
         .orderBy(desc(invoicePayments.paidAt))
@@ -617,6 +650,7 @@ export const loanRepaymentsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(loanRepayments).where(eq(loanRepayments.loanId, input.loanId)).orderBy(desc(loanRepayments.createdAt));
     }),
@@ -631,6 +665,7 @@ export const loanRepaymentsCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.insert(loanRepayments).values({
         loanId: input.loanId,
@@ -651,6 +686,7 @@ export const consumerLoansCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(consumerFinanceLoans)
         .where(eq(consumerFinanceLoans.merchantId, merchant.id))
@@ -667,6 +703,7 @@ export const regulatorySandboxCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       return db.select().from(regulatorySandboxConfigs).where(eq(regulatorySandboxConfigs.merchantId, merchant.id)).limit(input.limit).offset(input.offset);
     }),
@@ -680,6 +717,7 @@ export const regulatorySandboxCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       await db.insert(regulatorySandboxConfigs).values({
         merchantId: merchant.id,
@@ -700,6 +738,7 @@ export const consumerOutboxCRUD = router({
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       if (db == null) throw new Error("DB unavailable");
       const rows = await db.select().from(consumerOutbox)
         .orderBy(desc(consumerOutbox.createdAt))

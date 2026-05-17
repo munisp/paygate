@@ -146,6 +146,7 @@ export async function archiveHotTierTransactions(
   cutoffDate.setDate(cutoffDate.getDate() - TIER_BOUNDARIES.HOT_DAYS);
 
   const db = await getDb();
+  if (!db) throw new Error('Database unavailable');
   const s3Keys: string[] = [];
   let rowsArchived = 0;
   let batches = 0;
@@ -258,6 +259,7 @@ export async function checkTpsCapacity(windowSeconds = 60): Promise<{
   utilizationPct: number;
 }> {
   const db = await getDb();
+  if (!db) throw new Error('Database unavailable');
   const windowStart = new Date(Date.now() - windowSeconds * 1_000);
 
   const [result] = await db

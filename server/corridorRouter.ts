@@ -19,6 +19,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq, and } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       const tenantId = input.tenantId ?? ctx.user.tenantId ?? "platform";
 
       const conditions = [eq(tenantCorridors.tenantId, tenantId)];
@@ -36,6 +37,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       const rows = await db.select().from(tenantCorridors).where(eq(tenantCorridors.id, input.id)).limit(1);
       if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Corridor not found" });
       return rows[0];
@@ -59,6 +61,7 @@ export const corridorRouter = router({
       const { getDb } = await import("./db");
       const { tenantCorridors } = await import("../drizzle/schema");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
       const tenantId = input.tenantId ?? ctx.user.tenantId ?? "platform";
 
       const [corridor] = await db.insert(tenantCorridors).values({
@@ -92,6 +95,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
 
       const { id, ...updates } = input;
       const [updated] = await db
@@ -112,6 +116,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
 
       const [updated] = await db
         .update(tenantCorridors)
@@ -131,6 +136,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
 
       const [updated] = await db
         .update(tenantCorridors)
@@ -150,6 +156,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
 
       const [updated] = await db
         .update(tenantCorridors)
@@ -169,6 +176,7 @@ export const corridorRouter = router({
       const { tenantCorridors } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
 
       await db.delete(tenantCorridors).where(eq(tenantCorridors.id, input.id));
       return { success: true };

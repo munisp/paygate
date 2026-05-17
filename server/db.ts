@@ -125,21 +125,25 @@ export async function getUserByOpenId(openId: string) {
 export async function getMerchantByOwnerId(ownerId: number) {
   return withCache("merchant:profile", `owner:${ownerId}`, TTL.MERCHANT_PROFILE, async () => {
     const db = await getDb(); if (!db) return null;
+    if (!db) throw new Error('Database unavailable');
     const r = await db.select().from(merchants).where(eq(merchants.ownerId, ownerId)).limit(1);
     return r[0] ?? null;
   });
 }
 export async function getMerchantById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(merchants).where(eq(merchants.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function createMerchant(data: InsertMerchant) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.insert(merchants).values(data); return getMerchantById(data.id);
 }
 export async function updateMerchant(id: string, data: Partial<InsertMerchant>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(merchants).set({ ...data, updatedAt: new Date() }).where(eq(merchants.id, id));
   // Invalidate merchant profile cache on update
   await cache.flush("merchant:profile").catch(() => {});
@@ -150,6 +154,7 @@ export async function updateMerchant(id: string, data: Partial<InsertMerchant>) 
 
 export async function listTransactions(merchantId: string, opts: { limit?: number; offset?: number; status?: string; search?: string; from?: Date; to?: Date }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds = [eq(transactions.merchantId, merchantId)];
   if (opts.status) conds.push(eq(transactions.status, opts.status as any));
   if (opts.search) conds.push(like(transactions.reference, `%${opts.search}%`));
@@ -164,19 +169,23 @@ export async function listTransactions(merchantId: string, opts: { limit?: numbe
 }
 export async function getTransactionById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(transactions).where(eq(transactions.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function createTransaction(data: InsertTransaction) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.insert(transactions).values(data); return getTransactionById(data.id);
 }
 export async function updateTransaction(id: string, data: Partial<InsertTransaction>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(transactions).set({ ...data, updatedAt: new Date() }).where(eq(transactions.id, id));
 }
 export async function getTransactionStats(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select({
     totalCount: count(), totalVolume: sum(transactions.amount), totalFees: sum(transactions.feeAmount),
     completedCount: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
@@ -189,6 +198,7 @@ export async function getTransactionStats(merchantId: string, from: Date, to: Da
 
 export async function listCustomers(merchantId: string, opts: { limit?: number; offset?: number; search?: string; riskLevel?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds = [eq(customers.merchantId, merchantId)];
   if (opts.search) conds.push(like(customers.email, `%${opts.search}%`));
   if (opts.riskLevel) conds.push(eq(customers.riskLevel, opts.riskLevel as any));
@@ -201,11 +211,13 @@ export async function listCustomers(merchantId: string, opts: { limit?: number; 
 }
 export async function getCustomerById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function upsertCustomer(data: InsertCustomer) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.insert(customers).values(data).onConflictDoUpdate({ target: customers.id, set: { name: data.name, phone: data.phone, updatedAt: new Date() } });
   return getCustomerById(data.id);
 }
@@ -214,6 +226,7 @@ export async function upsertCustomer(data: InsertCustomer) {
 
 export async function listPayouts(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds = [eq(payouts.merchantId, merchantId)];
   if (opts.status) conds.push(eq(payouts.status, opts.status as any));
   const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
@@ -225,20 +238,24 @@ export async function listPayouts(merchantId: string, opts: { limit?: number; of
 }
 export async function getPayoutById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(payouts).where(eq(payouts.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function createPayout(data: InsertPayout) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.insert(payouts).values(data); return getPayoutById(data.id);
 }
 export async function updatePayout(id: string, data: Partial<InsertPayout>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(payouts).set({ ...data, updatedAt: new Date() }).where(eq(payouts.id, id));
 }
 export async function listPayoutsByIds(merchantId: string, ids: string[]) {
   if (!ids.length) return [];
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const { inArray } = await import('drizzle-orm');
   return db.select().from(payouts)
     .where(and(eq(payouts.merchantId, merchantId), inArray(payouts.id, ids)))
@@ -249,16 +266,19 @@ export async function listPayoutsByIds(merchantId: string, ids: string[]) {
 
 export async function listApiKeys(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
   return db.select().from(apiKeys).where(and(eq(apiKeys.merchantId, merchantId), eq(apiKeys.isActive, true))).orderBy(desc(apiKeys.createdAt)).limit(lim).offset(off);
 }
 export async function createApiKey(data: InsertApiKey) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const r = await db.insert(apiKeys).values(data).returning();
   return r[0] ?? null;
 }
 export async function revokeApiKey(id: string, merchantId: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(apiKeys).set({ isActive: false, revokedAt: new Date() }).where(and(eq(apiKeys.id, id), eq(apiKeys.merchantId, merchantId)));
 }
 
@@ -266,20 +286,24 @@ export async function revokeApiKey(id: string, merchantId: string) {
 
 export async function listWebhooks(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
   return db.select().from(webhooks).where(eq(webhooks.merchantId, merchantId)).orderBy(desc(webhooks.createdAt)).limit(lim).offset(off);
 }
 export async function createWebhook(data: InsertWebhook) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const r = await db.insert(webhooks).values(data).returning();
   return r[0] ?? null;
 }
 export async function deleteWebhook(id: string, merchantId: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.delete(webhooks).where(and(eq(webhooks.id, id), eq(webhooks.merchantId, merchantId)));
 }
 export async function updateWebhook(id: string, merchantId: string, data: Partial<InsertWebhook>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(webhooks).set({ ...data, updatedAt: new Date() }).where(and(eq(webhooks.id, id), eq(webhooks.merchantId, merchantId)));
   return getWebhookById(id);
 }
@@ -288,6 +312,7 @@ export async function updateWebhook(id: string, merchantId: string, data: Partia
 
 export async function listDisputes(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds = [eq(disputes.merchantId, merchantId)];
   if (opts.status) conds.push(eq(disputes.status, opts.status as any));
   const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
@@ -299,16 +324,19 @@ export async function listDisputes(merchantId: string, opts: { limit?: number; o
 }
 export async function getDisputeById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(disputes).where(eq(disputes.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function createDispute(data: InsertDispute) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const r = await db.insert(disputes).values(data).returning();
   return r[0] ?? null;
 }
 export async function updateDispute(id: string, data: Partial<InsertDispute>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(disputes).set({ ...data, updatedAt: new Date() }).where(eq(disputes.id, id));
 }
 
@@ -316,21 +344,25 @@ export async function updateDispute(id: string, data: Partial<InsertDispute>) {
 
 export async function listVirtualCards(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
   return db.select().from(virtualCards).where(eq(virtualCards.merchantId, merchantId)).orderBy(desc(virtualCards.createdAt)).limit(lim).offset(off);
 }
 export async function getVirtualCardById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(virtualCards).where(eq(virtualCards.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function createVirtualCard(data: InsertVirtualCard) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const r = await db.insert(virtualCards).values(data).returning();
   return r[0] ?? null;
 }
 export async function updateVirtualCard(id: string, data: Partial<InsertVirtualCard>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(virtualCards).set({ ...data, updatedAt: new Date() }).where(eq(virtualCards.id, id));
 }
 
@@ -338,21 +370,25 @@ export async function updateVirtualCard(id: string, data: Partial<InsertVirtualC
 
 export async function listPaymentLinks(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
   return db.select().from(paymentLinks).where(eq(paymentLinks.merchantId, merchantId)).orderBy(desc(paymentLinks.createdAt)).limit(lim).offset(off);
 }
 export async function getPaymentLinkById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(paymentLinks).where(eq(paymentLinks.id, id)).limit(1);
   return r[0] ?? null;
 }
 export async function createPaymentLink(data: InsertPaymentLink) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const r = await db.insert(paymentLinks).values(data).returning();
   return r[0] ?? null;
 }
 export async function updatePaymentLink(id: string, data: Partial<InsertPaymentLink>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(paymentLinks).set({ ...data, updatedAt: new Date() }).where(eq(paymentLinks.id, id));
 }
 
@@ -360,37 +396,45 @@ export async function updatePaymentLink(id: string, data: Partial<InsertPaymentL
 
 export async function listTeamMembers(merchantId: string, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const lim = opts.limit ?? 50; const off = opts.offset ?? 0;
   return db.select().from(teamMembers).where(eq(teamMembers.merchantId, merchantId)).orderBy(desc(teamMembers.createdAt)).limit(lim).offset(off);
 }
 export async function createTeamMember(data: InsertTeamMember) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const r = await db.insert(teamMembers).values(data).returning();
   return r[0] ?? null;
 }
 export async function updateTeamMember(id: number, data: Partial<InsertTeamMember>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(teamMembers).set({ ...data, updatedAt: new Date() }).where(eq(teamMembers.id, id));
 }
 export async function deleteTeamMember(id: number, merchantId: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.delete(teamMembers).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId)));
 }
 export async function updateTeamMemberRole(id: number, merchantId: string, role: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(teamMembers).set({ role: role as any, updatedAt: new Date() }).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId)));
 }
 export async function getTeamMember(id: number, merchantId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(teamMembers).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId))).limit(1);
   return rows[0] ?? null;
 }
 export async function updateTeamMemberInviteToken(id: number, merchantId: string, token: string, expiry: Date) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   await db.update(teamMembers).set({ inviteToken: token, inviteExpiresAt: expiry, updatedAt: new Date() }).where(and(eq(teamMembers.id, id), eq(teamMembers.merchantId, merchantId)));
 }
 export async function acceptTeamInvite(token: string, email: string) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(teamMembers).where(and(eq(teamMembers.inviteToken, token), eq(teamMembers.email, email))).limit(1);
   const member = rows[0];
   if (!member) return null;
@@ -403,6 +447,7 @@ export async function acceptTeamInvite(token: string, email: string) {
 
 export async function getAnalyticsOverview(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [tx, po, di, cu] = await Promise.all([
     db.select({ totalVolume: sum(transactions.amount), totalFees: sum(transactions.feeAmount), totalCount: count(),
       completedCount: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
@@ -419,6 +464,7 @@ export async function getAnalyticsOverview(merchantId: string, from: Date, to: D
 
 export async function getRevenueTimeSeries(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select({
     date: sql<string>`DATE(created_at)`,
     volume: sum(transactions.amount),
@@ -432,6 +478,7 @@ export async function getRevenueTimeSeries(merchantId: string, from: Date, to: D
 
 export async function getChannelBreakdown(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select({
     channel: transactions.channel,
     volume: sum(transactions.amount),
@@ -447,6 +494,7 @@ export async function getChannelBreakdown(merchantId: string, from: Date, to: Da
 
 export async function listFraudAlerts(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(fraudAlerts.merchantId, merchantId)];
   if (opts.status) conds.push(eq(fraudAlerts.status, opts.status as any));
   const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
@@ -458,15 +506,18 @@ export async function listFraudAlerts(merchantId: string, opts: { limit?: number
 }
 export async function createFraudAlert(data: InsertFraudAlert) {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(fraudAlerts).values(data).returning();
   return row;
 }
 export async function updateFraudAlert(id: string, merchantId: string, data: Partial<InsertFraudAlert>) {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   await db.update(fraudAlerts).set({ ...data, updatedAt: new Date() }).where(and(eq(fraudAlerts.id, id), eq(fraudAlerts.merchantId, merchantId)));
 }
 export async function getFraudStats(merchantId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select({
     total: count(),
     open: sql<number>`SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END)`,
@@ -480,6 +531,7 @@ export async function getFraudStats(merchantId: string) {
 
 export async function listKycSubmissions(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(kycSubmissions.merchantId, merchantId)];
   if (opts.status) conds.push(eq(kycSubmissions.status, opts.status as any));
   const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
@@ -491,10 +543,12 @@ export async function listKycSubmissions(merchantId: string, opts: { limit?: num
 }
 export async function updateKycSubmission(id: string, merchantId: string, data: Partial<InsertKycSubmission>) {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   await db.update(kycSubmissions).set({ ...data, updatedAt: new Date() }).where(and(eq(kycSubmissions.id, id), eq(kycSubmissions.merchantId, merchantId)));
 }
 export async function getKycStats(merchantId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select({
     total: count(),
     approved: sql<number>`SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END)`,
@@ -508,6 +562,7 @@ export async function getKycStats(merchantId: string) {
 
 export async function listBnplLoans(merchantId: string, opts: { limit?: number; offset?: number; status?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(bnplLoans.merchantId, merchantId)];
   if (opts.status) conds.push(eq(bnplLoans.status, opts.status as any));
   const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
@@ -519,11 +574,13 @@ export async function listBnplLoans(merchantId: string, opts: { limit?: number; 
 }
 export async function createBnplLoan(data: InsertBnplLoan) {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(bnplLoans).values(data).returning();
   return r;
 }
 export async function getBnplStats(merchantId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select({
     total: count(),
     active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
@@ -537,6 +594,7 @@ export async function getBnplStats(merchantId: string) {
 
 export async function listMobileMoneyRecon(merchantId: string, opts: { limit?: number; offset?: number; status?: string; provider?: string }) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(mobileMoneyRecon.merchantId, merchantId)];
   if (opts.status) conds.push(eq(mobileMoneyRecon.status, opts.status as any));
   if (opts.provider) conds.push(eq(mobileMoneyRecon.provider, opts.provider));
@@ -549,6 +607,7 @@ export async function listMobileMoneyRecon(merchantId: string, opts: { limit?: n
 }
 export async function getMmReconStats(merchantId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select({
     total: count(),
     matched: sql<number>`SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END)`,
@@ -562,6 +621,7 @@ export async function getMmReconStats(merchantId: string) {
 
 export async function listWebhookDeliveries(merchantId: string, webhookId?: string, limit = 50) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(webhookDeliveries.merchantId, merchantId)];
   if (webhookId) conds.push(eq(webhookDeliveries.webhookId, webhookId));
   return db.select().from(webhookDeliveries)
@@ -571,21 +631,25 @@ export async function listWebhookDeliveries(merchantId: string, webhookId?: stri
 }
 export async function getWebhookById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
   return rows[0] ?? null;
 }
 export async function getWebhookDeliveryById(id: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)).limit(1);
   return rows[0] ?? null;
 }
 export async function createWebhookDelivery(data: InsertWebhookDelivery) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(webhookDeliveries).values(data).returning();
   return row;
 }
 export async function updateWebhookDelivery(id: string, data: Partial<WebhookDelivery>) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.update(webhookDeliveries).set({ ...data }).where(eq(webhookDeliveries.id, id)).returning();
   return row;
 }
@@ -595,12 +659,14 @@ import { type FxRate, type InsertFxRate, fxRates } from "../drizzle/schema";
 
 export async function upsertFxRates(rates: InsertFxRate[]) {
   const db = await getDb(); if (!db || rates.length === 0) return;
+  if (!db) throw new Error('Database unavailable');
   await db.insert(fxRates).values(rates)
     .onConflictDoNothing(); // insert fresh rows; old ones remain for history
 }
 
 export async function getLatestFxRates(base = "USD") {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   // Get the most recent fetchedAt timestamp for this base
   const [latest] = await db
     .select({ fetchedAt: fxRates.fetchedAt })
@@ -615,6 +681,7 @@ export async function getLatestFxRates(base = "USD") {
 
 export async function getFxRateHistory(base: string, target: string, limit = 48) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(fxRates)
     .where(and(eq(fxRates.baseCurrency, base), eq(fxRates.targetCurrency, target)))
     .orderBy(desc(fxRates.fetchedAt))
@@ -629,6 +696,7 @@ export async function getTransactionsForExport(
   status?: string,
 ) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(transactions.merchantId, merchantId)];
   if (from) conds.push(gte(transactions.createdAt, from));
   if (to) conds.push(lte(transactions.createdAt, to));
@@ -647,6 +715,7 @@ import {
 
 export async function getOrCreateWallet(userId: string, merchantId?: string | null) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const existing = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
   if (existing.length > 0) return existing[0];
   const [created] = await db.insert(wallets).values({
@@ -659,17 +728,20 @@ export async function getOrCreateWallet(userId: string, merchantId?: string | nu
 
 export async function getWalletByUserId(userId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
   return rows[0] ?? null;
 }
 
 export async function updateWalletBalance(walletId: number, newBalance: string) {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(wallets).set({ balance: newBalance, updatedAt: new Date() }).where(eq(wallets.id, walletId));
 }
 
 export async function listWalletTransactions(walletId: number, opts: { limit?: number; offset?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(walletTransactions)
     .where(eq(walletTransactions.walletId, walletId))
     .orderBy(desc(walletTransactions.createdAt))
@@ -678,12 +750,14 @@ export async function listWalletTransactions(walletId: number, opts: { limit?: n
 
 export async function createWalletTransaction(data: InsertWalletTransaction) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(walletTransactions).values(data).returning();
   return row;
 }
 
 export async function getWalletTransactionCount(walletId: number) {
   const db = await getDb(); if (!db) return 0;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.select({ count: count() }).from(walletTransactions).where(eq(walletTransactions.walletId, walletId));
   return Number(row?.count ?? 0);
 }
@@ -691,12 +765,14 @@ export async function getWalletTransactionCount(walletId: number) {
 // ─── Cross-Border Transfer Helpers ────────────────────────────────────────────
 export async function createCrossBorderTransfer(data: InsertCrossBorderTransfer) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(crossBorderTransfers).values(data).returning();
   return row;
 }
 
 export async function listCrossBorderTransfers(merchantId: string, opts: { limit?: number; offset?: number; status?: string } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(crossBorderTransfers.merchantId, merchantId)];
   if (opts.status) conds.push(eq(crossBorderTransfers.status, opts.status));
   return db.select().from(crossBorderTransfers)
@@ -707,17 +783,20 @@ export async function listCrossBorderTransfers(merchantId: string, opts: { limit
 
 export async function getCrossBorderTransferById(transferId: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(crossBorderTransfers).where(eq(crossBorderTransfers.transferId, transferId)).limit(1);
   return rows[0] ?? null;
 }
 
 export async function updateCrossBorderTransferStatusByTransferId(transferId: string, status: string, extra?: Partial<InsertCrossBorderTransfer>) {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(crossBorderTransfers).set({ status, ...(extra ?? {}), updatedAt: new Date() }).where(eq(crossBorderTransfers.transferId, transferId));
 }
 
 export async function updateCrossBorderTransferStatus(id: number, status: string, extra?: Partial<InsertCrossBorderTransfer>) {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(crossBorderTransfers).set({ status, ...(extra ?? {}), updatedAt: new Date() }).where(eq(crossBorderTransfers.id, id));
 }
 
@@ -763,6 +842,7 @@ import { ilike } from "drizzle-orm";
 
 export async function listNipBanks(opts: { search?: string; active?: boolean } = {}): Promise<NipBank[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [];
   if (opts.active !== false) conds.push(eq(nipBanks.isActive, 1));
   if (opts.search) conds.push(ilike(nipBanks.bankName, `%${opts.search}%`));
@@ -772,12 +852,14 @@ export async function listNipBanks(opts: { search?: string; active?: boolean } =
 
 export async function getNipBankByCode(bankCode: string): Promise<NipBank | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(nipBanks).where(eq(nipBanks.bankCode, bankCode)).limit(1);
   return rows[0] ?? null;
 }
 
 export async function upsertNipBanks(banks: InsertNipBank[]): Promise<void> {
   const db = await getDb(); if (!db || banks.length === 0) return;
+  if (!db) throw new Error('Database unavailable');
   await db.insert(nipBanks).values(banks).onConflictDoUpdate({
     target: nipBanks.bankCode,
     set: { bankName: sql`excluded.bank_name`, shortName: sql`excluded.short_name`, isActive: sql`excluded.is_active`, lastSyncedAt: new Date(), updatedAt: new Date() },
@@ -787,6 +869,7 @@ export async function upsertNipBanks(banks: InsertNipBank[]): Promise<void> {
 // ─── NIP Account Enquiry Cache ────────────────────────────────────────────────
 export async function getCachedNipAccount(tenantId: string, bankCode: string, accountNumber: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(nipAccountCache).where(
     and(
       eq(nipAccountCache.tenantId, tenantId),
@@ -800,6 +883,7 @@ export async function getCachedNipAccount(tenantId: string, bankCode: string, ac
 
 export async function cacheNipAccount(data: InsertNipAccountCache): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.insert(nipAccountCache).values(data).onConflictDoUpdate({
     target: [nipAccountCache.tenantId, nipAccountCache.bankCode, nipAccountCache.accountNumber],
     set: { accountName: data.accountName, sessionId: data.sessionId, expiresAt: data.expiresAt },
@@ -809,6 +893,7 @@ export async function cacheNipAccount(data: InsertNipAccountCache): Promise<void
 // ─── Settlements ──────────────────────────────────────────────────────────────
 export async function createSettlement(data: InsertSettlement): Promise<Settlement | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(settlements).values(data).returning();
   return row ?? null;
 }
@@ -821,6 +906,7 @@ export async function createSettlement(data: InsertSettlement): Promise<Settleme
  */
 export async function bulkCreateSettlements(rows: InsertSettlement[]): Promise<Settlement[]> {
   const db = await getDb(); if (!db || rows.length === 0) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.transaction(async (tx) => {
     // Relax fsync to local WAL only — replica lag is acceptable for bulk batch
     await tx.execute(sql`SET LOCAL synchronous_commit = local`);
@@ -831,17 +917,20 @@ export async function bulkCreateSettlements(rows: InsertSettlement[]): Promise<S
 
 export async function getSettlementById(id: string): Promise<Settlement | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.select().from(settlements).where(eq(settlements.id, id)).limit(1);
   return rows[0] ?? null;
 }
 
 export async function updateSettlement(id: string, data: Partial<InsertSettlement>): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(settlements).set({ ...data, updatedAt: new Date() }).where(eq(settlements.id, id));
 }
 
 export async function listSettlements(merchantId: string, opts: { limit?: number; offset?: number; status?: string } = {}): Promise<{ rows: Settlement[]; total: number }> {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(settlements.merchantId, merchantId)];
   if (opts.status) conds.push(eq(settlements.status, opts.status as any));
   const w = and(...conds);
@@ -855,6 +944,7 @@ export async function listSettlements(merchantId: string, opts: { limit?: number
 
 export async function listSlaBreachedSettlements(tenantId?: string): Promise<Settlement[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const now = new Date();
   const conds: any[] = [
     eq(settlements.status, "pending" as any),
@@ -866,6 +956,7 @@ export async function listSlaBreachedSettlements(tenantId?: string): Promise<Set
 
 export async function markSettlementSlaBreached(id: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(settlements).set({
     status: "sla_breached" as any,
     slaBreachedAt: new Date(),
@@ -875,6 +966,7 @@ export async function markSettlementSlaBreached(id: string): Promise<void> {
 
 export async function markSettlementSlaAlertSent(id: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(settlements).set({ slaAlertSentAt: new Date(), updatedAt: new Date() }).where(eq(settlements.id, id));
 }
 
@@ -886,6 +978,7 @@ import {
 
 export async function createNipResolutionError(data: InsertNipResolutionError): Promise<NipResolutionError | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(nipResolutionErrors).values(data).returning();
   return row ?? null;
 }
@@ -895,6 +988,7 @@ export async function listNipResolutionErrors(
   opts: { limit?: number; offset?: number; bankCode?: string; accountNumber?: string } = {}
 ): Promise<{ rows: NipResolutionError[]; total: number }> {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
+  if (!db) throw new Error('Database unavailable');
   const conds: any[] = [eq(nipResolutionErrors.merchantId, merchantId)];
   if (opts.bankCode) conds.push(eq(nipResolutionErrors.bankCode, opts.bankCode));
   if (opts.accountNumber) conds.push(eq(nipResolutionErrors.accountNumber, opts.accountNumber));
@@ -909,6 +1003,7 @@ export async function listNipResolutionErrors(
 
 export async function countNipResolutionErrors(merchantId: string, bankCode: string, accountNumber: string): Promise<number> {
   const db = await getDb(); if (!db) return 0;
+  if (!db) throw new Error('Database unavailable');
   const [row] = await db.select({ count: count() }).from(nipResolutionErrors).where(
     and(
       eq(nipResolutionErrors.merchantId, merchantId),
@@ -921,6 +1016,7 @@ export async function countNipResolutionErrors(merchantId: string, bankCode: str
 
 export async function markNipErrorResolved(merchantId: string, bankCode: string, accountNumber: string, accountName: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(nipResolutionErrors)
     .set({ resolvedAt: new Date(), resolvedAccountName: accountName })
     .where(
@@ -946,6 +1042,7 @@ export async function createMerchantNotification(data: {
   metadata?: Record<string, unknown>;
 }): Promise<{ id: number; merchantId: string; type: string; title: string; body: string; entityId: string | null; entityType: string | null; isRead: boolean; priority: string; actionUrl: string | null; metadata: string | null; createdAt: Date } | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const result = await db.execute(sql`
     INSERT INTO merchant_notifications
       (merchant_id, type, title, body, entity_id, entity_type, is_read, priority, action_url, metadata, created_at)
@@ -983,6 +1080,7 @@ export async function listMerchantNotifications(
   priority: string; actionUrl: string | null; metadata: string | null; createdAt: Date;
 }>> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const limit = options?.limit ?? 50;
   const unreadFilter = options?.unreadOnly ? sql` AND is_read = false` : sql``;
   const typeFilter = options?.type ? sql` AND type = ${options.type}` : sql``;
@@ -1020,6 +1118,7 @@ export async function listMerchantNotifications(
 
 export async function countUnreadNotifications(merchantId: string): Promise<number> {
   const db = await getDb(); if (!db) return 0;
+  if (!db) throw new Error('Database unavailable');
   const result = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM merchant_notifications WHERE merchant_id = ${merchantId} AND is_read = false
   `) as unknown as { rows: any[] } | any[];
@@ -1029,6 +1128,7 @@ export async function countUnreadNotifications(merchantId: string): Promise<numb
 
 export async function markNotificationRead(id: number, merchantId: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.execute(sql`
     UPDATE merchant_notifications SET is_read = true WHERE id = ${id} AND merchant_id = ${merchantId}
   `);
@@ -1036,12 +1136,14 @@ export async function markNotificationRead(id: number, merchantId: string): Prom
 
 export async function markAllNotificationsRead(merchantId: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.execute(sql`
     UPDATE merchant_notifications SET is_read = true WHERE merchant_id = ${merchantId} AND is_read = false
   `);
 }
 export async function dismissNotification(id: number, merchantId: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.execute(sql`
     UPDATE merchant_notifications
     SET dismissed_at = NOW(), is_read = true
@@ -1050,6 +1152,7 @@ export async function dismissNotification(id: number, merchantId: string): Promi
 }
 export async function dismissAllNotifications(merchantId: string): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.execute(sql`
     UPDATE merchant_notifications
     SET dismissed_at = NOW(), is_read = true
@@ -1065,6 +1168,7 @@ export async function upsertPtspBatch(data: {
   submittedAt?: Date | null; confirmedAt?: Date | null; failureReason?: string | null;
 }): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.execute(sql`
     INSERT INTO ptsp_batches (id, merchant_id, settlement_date, status, nibss_reference,
       total_amount_kobo, transaction_count, submitted_at, confirmed_at, failure_reason,
@@ -1090,6 +1194,7 @@ export async function upsertPtspBatch(data: {
 
 export async function listPtspBatches(merchantId: string, limit = 50): Promise<any[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.execute(sql`
     SELECT * FROM ptsp_batches WHERE merchant_id = ${merchantId}
     ORDER BY settlement_date DESC, created_at DESC LIMIT ${limit}
@@ -1099,6 +1204,7 @@ export async function listPtspBatches(merchantId: string, limit = 50): Promise<a
 
 export async function getPtspBatchById(id: string): Promise<any | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const rows = await db.execute(sql`
     SELECT * FROM ptsp_batches WHERE id = ${id} LIMIT 1
   `) as unknown as any[];
@@ -1112,6 +1218,7 @@ export async function confirmPtspBatch(
   confirmedAt: string,
 ): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.execute(sql`
     UPDATE ptsp_batches
     SET status = ${status},
@@ -1643,6 +1750,7 @@ export async function getTenant(id: string) {
 }
 export async function getTenantBySlug(slug: string) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const r = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
   return r[0] ?? null;
 }
@@ -1654,6 +1762,7 @@ export async function updateTenantBranding(id: string, data: {
   customDomain?: string | null;
 }) {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   const updateSet: Record<string, unknown> = { updatedAt: new Date() };
   if (data.logoUrl !== undefined) updateSet.logoUrl = data.logoUrl;
   if (data.primaryColor !== undefined) updateSet.primaryColor = data.primaryColor;
@@ -2015,15 +2124,18 @@ export async function getFraudTrend(
 // ─── BNPL Plans ───────────────────────────────────────────────────────────────
 export async function listBnplPlans(merchantId: string): Promise<BnplPlan[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(bnplPlans).where(eq(bnplPlans.merchantId, merchantId)).orderBy(desc(bnplPlans.createdAt));
 }
 export async function createBnplPlan(data: InsertBnplPlan): Promise<BnplPlan> {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(bnplPlans).values(data).returning();
   return r;
 }
 export async function updateBnplPlan(id: string, merchantId: string, data: Partial<BnplPlan>): Promise<BnplPlan | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(bnplPlans).set({ ...data, updatedAt: new Date() }).where(and(eq(bnplPlans.id, id), eq(bnplPlans.merchantId, merchantId))).returning();
   return r ?? null;
 }
@@ -2036,6 +2148,7 @@ export async function listReconciliationAlerts(
   offset = 0,
 ): Promise<ReconciliationAlert[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   let q = db.select().from(reconciliationAlerts).$dynamic();
   if (merchantId) q = q.where(eq(reconciliationAlerts.merchantId, merchantId));
   if (status) q = q.where(eq(reconciliationAlerts.status, status as any));
@@ -2047,6 +2160,7 @@ export async function countReconciliationAlerts(
   status: string | null,
 ): Promise<number> {
   const db = await getDb(); if (!db) return 0;
+  if (!db) throw new Error('Database unavailable');
   let q = db.select({ n: count() }).from(reconciliationAlerts).$dynamic();
   if (merchantId) q = q.where(eq(reconciliationAlerts.merchantId, merchantId));
   if (status) q = q.where(eq(reconciliationAlerts.status, status as any));
@@ -2056,6 +2170,7 @@ export async function countReconciliationAlerts(
 
 export async function getReconciliationAlertById(id: string): Promise<ReconciliationAlert | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.select().from(reconciliationAlerts).where(eq(reconciliationAlerts.id, id)).limit(1);
   return r ?? null;
 }
@@ -2065,6 +2180,7 @@ export async function updateReconciliationAlert(
   data: Partial<ReconciliationAlert>,
 ): Promise<ReconciliationAlert | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db
     .update(reconciliationAlerts)
     .set({ ...data, updatedAt: new Date() })
@@ -2077,6 +2193,7 @@ export async function createReconciliationAlert(
   data: InsertReconciliationAlert,
 ): Promise<ReconciliationAlert> {
   const db = await getDb(); if (!db) throw new Error('DB unavailable');
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(reconciliationAlerts).values(data).returning();
   return r;
 }
@@ -2142,6 +2259,7 @@ import {
 // ─── Digital Gold Helpers ─────────────────────────────────────────────────────
 export async function getOrCreateGoldHolding(merchantId: string): Promise<DigitalGoldHolding> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(digitalGoldHoldings).where(eq(digitalGoldHoldings.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const [created] = await db.insert(digitalGoldHoldings).values({ merchantId }).returning();
@@ -2149,19 +2267,23 @@ export async function getOrCreateGoldHolding(merchantId: string): Promise<Digita
 }
 export async function listGoldTransactions(merchantId: string, limit = 20): Promise<DigitalGoldTransaction[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(digitalGoldTransactions).where(eq(digitalGoldTransactions.merchantId, merchantId)).orderBy(desc(digitalGoldTransactions.createdAt)).limit(limit);
 }
 export async function createGoldTransaction(data: Omit<DigitalGoldTransaction, "id" | "createdAt">): Promise<DigitalGoldTransaction> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(digitalGoldTransactions).values(data).returning();
   return r;
 }
 export async function listGoldSipPlans(merchantId: string): Promise<GoldSipPlan[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(goldSipPlans).where(eq(goldSipPlans.merchantId, merchantId)).orderBy(desc(goldSipPlans.createdAt));
 }
 export async function createGoldSipPlan(data: Omit<GoldSipPlan, "id" | "createdAt" | "updatedAt">): Promise<GoldSipPlan> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(goldSipPlans).values(data).returning();
   return r;
 }
@@ -2169,10 +2291,12 @@ export async function createGoldSipPlan(data: Omit<GoldSipPlan, "id" | "createdA
 // ─── Mutual Fund Helpers ──────────────────────────────────────────────────────
 export async function listMutualFundHoldings(merchantId: string): Promise<MutualFundHolding[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(mutualFundHoldings).where(eq(mutualFundHoldings.merchantId, merchantId));
 }
 export async function upsertMutualFundHolding(merchantId: string, fundId: string, fundName: string, units: string, nav: string, amountKobo: number): Promise<MutualFundHolding> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(mutualFundHoldings).where(and(eq(mutualFundHoldings.merchantId, merchantId), eq(mutualFundHoldings.fundId, fundId))).limit(1);
   if (existing) {
     const newUnits = (parseFloat(existing.units) + parseFloat(units)).toFixed(6);
@@ -2184,6 +2308,7 @@ export async function upsertMutualFundHolding(merchantId: string, fundId: string
 }
 export async function createMutualFundTransaction(data: Omit<MutualFundTransaction, "id" | "createdAt">): Promise<MutualFundTransaction> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(mutualFundTransactions).values(data).returning();
   return r;
 }
@@ -2191,19 +2316,23 @@ export async function createMutualFundTransaction(data: Omit<MutualFundTransacti
 // ─── Consumer Insurance Helpers ───────────────────────────────────────────────
 export async function listInsurancePoliciesForMerchant(merchantId: string): Promise<ConsumerInsurancePolicy[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(consumerInsurancePolicies).where(eq(consumerInsurancePolicies.merchantId, merchantId)).orderBy(desc(consumerInsurancePolicies.createdAt));
 }
 export async function createInsurancePolicy(data: Omit<ConsumerInsurancePolicy, "id" | "createdAt">): Promise<ConsumerInsurancePolicy> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(consumerInsurancePolicies).values(data).returning();
   return r;
 }
 export async function listInsuranceClaims(merchantId: string): Promise<ConsumerInsuranceClaim[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(consumerInsuranceClaims).where(eq(consumerInsuranceClaims.merchantId, merchantId)).orderBy(desc(consumerInsuranceClaims.createdAt));
 }
 export async function createInsuranceClaim(data: Omit<ConsumerInsuranceClaim, "id" | "createdAt">): Promise<ConsumerInsuranceClaim> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(consumerInsuranceClaims).values(data).returning();
   return r;
 }
@@ -2211,6 +2340,7 @@ export async function createInsuranceClaim(data: Omit<ConsumerInsuranceClaim, "i
 // ─── Pension Helpers ──────────────────────────────────────────────────────────
 export async function getOrCreatePensionAccount(merchantId: string): Promise<PensionAccount> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(pensionAccounts).where(eq(pensionAccounts.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const rsaPin = `RSA${Date.now().toString().slice(-10)}`;
@@ -2219,17 +2349,20 @@ export async function getOrCreatePensionAccount(merchantId: string): Promise<Pen
 }
 export async function createPensionContribution(data: Omit<PensionContribution, "id" | "createdAt">): Promise<PensionContribution> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(pensionContributions).values(data).returning();
   return r;
 }
 export async function listPensionContributions(pensionAccountId: string, limit = 12): Promise<PensionContribution[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(pensionContributions).where(eq(pensionContributions.pensionAccountId, pensionAccountId)).orderBy(desc(pensionContributions.createdAt)).limit(limit);
 }
 
 // ─── Cashback Helpers ─────────────────────────────────────────────────────────
 export async function getOrCreateCashbackBalance(merchantId: string): Promise<CashbackBalance> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(cashbackBalances).where(eq(cashbackBalances.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const [created] = await db.insert(cashbackBalances).values({ merchantId }).returning();
@@ -2237,30 +2370,36 @@ export async function getOrCreateCashbackBalance(merchantId: string): Promise<Ca
 }
 export async function listCashbackTransactions(merchantId: string, limit = 20): Promise<CashbackTransaction[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(cashbackTransactions).where(eq(cashbackTransactions.merchantId, merchantId)).orderBy(desc(cashbackTransactions.createdAt)).limit(limit);
 }
 export async function addCashbackTransaction(data: Omit<CashbackTransaction, "id" | "createdAt">): Promise<CashbackTransaction> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(cashbackTransactions).values(data).returning();
   return r;
 }
 export async function updateCashbackBalance(merchantId: string, delta: number): Promise<void> {
   const db = await getDb(); if (!db) return;
+  if (!db) throw new Error('Database unavailable');
   await db.update(cashbackBalances).set({ cashbackBalanceKobo: sql`cashback_balance_kobo + ${delta}`, updatedAt: new Date() }).where(eq(cashbackBalances.merchantId, merchantId));
 }
 
 // ─── Soundbox Helpers ─────────────────────────────────────────────────────────
 export async function listSoundboxDevices(merchantId: string): Promise<SoundboxDevice[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(soundboxDevices).where(eq(soundboxDevices.merchantId, merchantId)).orderBy(desc(soundboxDevices.createdAt));
 }
 export async function createSoundboxDevice(data: Omit<SoundboxDevice, "id" | "createdAt">): Promise<SoundboxDevice> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(soundboxDevices).values(data).returning();
   return r;
 }
 export async function updateSoundboxDevice(deviceId: string, data: Partial<SoundboxDevice>): Promise<SoundboxDevice | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(soundboxDevices).set(data).where(eq(soundboxDevices.deviceId, deviceId)).returning();
   return r ?? null;
 }
@@ -2268,6 +2407,7 @@ export async function updateSoundboxDevice(deviceId: string, data: Partial<Sound
 // ─── Wealth Management Helpers ────────────────────────────────────────────────
 export async function getOrCreateRiskProfile(merchantId: string): Promise<WealthRiskProfile> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(wealthRiskProfiles).where(eq(wealthRiskProfiles.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const [created] = await db.insert(wealthRiskProfiles).values({ merchantId }).returning();
@@ -2275,15 +2415,18 @@ export async function getOrCreateRiskProfile(merchantId: string): Promise<Wealth
 }
 export async function updateRiskProfile(merchantId: string, data: Partial<WealthRiskProfile>): Promise<WealthRiskProfile | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(wealthRiskProfiles).set({ ...data, lastAssessed: new Date() }).where(eq(wealthRiskProfiles.merchantId, merchantId)).returning();
   return r ?? null;
 }
 export async function listWealthGoals(merchantId: string): Promise<WealthGoal[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(wealthGoals).where(eq(wealthGoals.merchantId, merchantId)).orderBy(desc(wealthGoals.createdAt));
 }
 export async function createWealthGoal(data: Omit<WealthGoal, "id" | "createdAt" | "updatedAt">): Promise<WealthGoal> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(wealthGoals).values(data).returning();
   return r;
 }
@@ -2291,35 +2434,42 @@ export async function createWealthGoal(data: Omit<WealthGoal, "id" | "createdAt"
 // ─── EMI Helpers ──────────────────────────────────────────────────────────────
 export async function createEmiContract(data: Omit<EmiContract, "id" | "createdAt" | "updatedAt">): Promise<EmiContract> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(emiContracts).values(data).returning();
   return r;
 }
 export async function getEmiContract(orderId: string): Promise<EmiContract | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.select().from(emiContracts).where(eq(emiContracts.orderId, orderId)).limit(1);
   return r ?? null;
 }
 export async function createEmiInstallments(contractId: string, installments: Omit<EmiInstallment, "id" | "createdAt">[]): Promise<EmiInstallment[]> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   return db.insert(emiInstallments).values(installments).returning();
 }
 export async function listEmiInstallments(contractId: string): Promise<EmiInstallment[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(emiInstallments).where(eq(emiInstallments.emiContractId, contractId)).orderBy(emiInstallments.installmentNo);
 }
 
 // ─── Bulk Collections Helpers ─────────────────────────────────────────────────
 export async function createBulkCollection(data: Omit<BulkCollection, "id" | "createdAt" | "updatedAt">): Promise<BulkCollection> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(bulkCollections).values(data).returning();
   return r;
 }
 export async function listBulkCollections(merchantId: string): Promise<BulkCollection[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(bulkCollections).where(eq(bulkCollections.merchantId, merchantId)).orderBy(desc(bulkCollections.createdAt));
 }
 export async function getBulkCollectionDetails(id: string): Promise<{ collection: BulkCollection | null; items: BulkCollectionItem[] }> {
   const db = await getDb(); if (!db) return { collection: null, items: [] };
+  if (!db) throw new Error('Database unavailable');
   const [collection] = await db.select().from(bulkCollections).where(eq(bulkCollections.id, id)).limit(1);
   const items = await db.select().from(bulkCollectionItems).where(eq(bulkCollectionItems.collectionId, id));
   return { collection: collection ?? null, items };
@@ -2328,10 +2478,12 @@ export async function getBulkCollectionDetails(id: string): Promise<{ collection
 // ─── Salary Account Helpers ───────────────────────────────────────────────────
 export async function listSalaryAccounts(merchantId: string): Promise<SalaryAccount[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(salaryAccounts).where(eq(salaryAccounts.merchantId, merchantId)).orderBy(salaryAccounts.employeeName);
 }
 export async function createSalaryAccount(data: Omit<SalaryAccount, "id" | "createdAt" | "updatedAt">): Promise<SalaryAccount> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const accountNumber = `SA${Date.now().toString().slice(-10)}`;
   const maxAdvanceKobo = Math.floor(data.salaryKobo * 0.5);
   const [r] = await db.insert(salaryAccounts).values({ ...data, accountNumber, maxAdvanceKobo }).returning();
@@ -2339,12 +2491,14 @@ export async function createSalaryAccount(data: Omit<SalaryAccount, "id" | "crea
 }
 export async function listSalaryTransactions(salaryAccountId: string, limit = 20): Promise<SalaryTransaction[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(salaryTransactions).where(eq(salaryTransactions.salaryAccountId, salaryAccountId)).orderBy(desc(salaryTransactions.createdAt)).limit(limit);
 }
 
 // ─── Privacy Settings Helpers ─────────────────────────────────────────────────
 export async function getOrCreatePrivacySettings(merchantId: string): Promise<PrivacySettings> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(privacySettings).where(eq(privacySettings.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const [created] = await db.insert(privacySettings).values({ merchantId }).returning();
@@ -2352,61 +2506,73 @@ export async function getOrCreatePrivacySettings(merchantId: string): Promise<Pr
 }
 export async function updatePrivacySettings(merchantId: string, data: Partial<PrivacySettings>): Promise<PrivacySettings | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(privacySettings).set({ ...data, updatedAt: new Date() }).where(eq(privacySettings.merchantId, merchantId)).returning();
   return r ?? null;
 }
 export async function createPrivacyAlias(merchantId: string, alias: string, expiresAt?: Date): Promise<PrivacyAlias> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(privacyAliases).values({ merchantId, alias, expiresAt }).returning();
   return r;
 }
 export async function listPrivacyAliasHistory(merchantId: string, limit = 20): Promise<PrivacyAlias[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(privacyAliases).where(eq(privacyAliases.merchantId, merchantId)).orderBy(desc(privacyAliases.createdAt)).limit(limit);
 }
 
 // ─── Report Job Helpers ───────────────────────────────────────────────────────
 export async function createReportJob(data: Omit<ReportJob, "id" | "createdAt" | "completedAt">): Promise<ReportJob> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(reportJobs).values(data).returning();
   return r;
 }
 export async function listReportJobs(merchantId: string, limit = 20): Promise<ReportJob[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(reportJobs).where(eq(reportJobs.merchantId, merchantId)).orderBy(desc(reportJobs.createdAt)).limit(limit);
 }
 export async function updateReportJob(id: string, data: Partial<ReportJob>): Promise<ReportJob | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(reportJobs).set(data).where(eq(reportJobs.id, id)).returning();
   return r ?? null;
 }
 export async function createScheduledReport(data: Omit<ScheduledReport, "id" | "createdAt">): Promise<ScheduledReport> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(scheduledReports).values(data).returning();
   return r;
 }
 export async function listScheduledReports(merchantId: string): Promise<ScheduledReport[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(scheduledReports).where(eq(scheduledReports.merchantId, merchantId)).orderBy(desc(scheduledReports.createdAt));
 }
 
 // ─── Nodal Account Helpers ────────────────────────────────────────────────────
 export async function createNodalAccount(data: Omit<NodalAccount, "id" | "createdAt" | "updatedAt">): Promise<NodalAccount> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const accountNumber = `NOD${Date.now().toString().slice(-10)}`;
   const [r] = await db.insert(nodalAccounts).values({ ...data, accountNumber }).returning();
   return r;
 }
 export async function listNodalAccounts(merchantId: string): Promise<NodalAccount[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(nodalAccounts).where(eq(nodalAccounts.merchantId, merchantId)).orderBy(desc(nodalAccounts.createdAt));
 }
 export async function listNodalTransactions(nodalAccountId: string, limit = 20): Promise<NodalTransaction[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(nodalTransactions).where(eq(nodalTransactions.nodalAccountId, nodalAccountId)).orderBy(desc(nodalTransactions.createdAt)).limit(limit);
 }
 export async function createNodalTransaction(data: Omit<NodalTransaction, "id" | "createdAt">): Promise<NodalTransaction> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(nodalTransactions).values(data).returning();
   return r;
 }
@@ -2414,6 +2580,7 @@ export async function createNodalTransaction(data: Omit<NodalTransaction, "id" |
 // ─── Retail POS Helpers ───────────────────────────────────────────────────────
 export async function getOrCreateRetailPosConfig(merchantId: string, storeName?: string): Promise<RetailPosConfig> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(retailPosConfigs).where(eq(retailPosConfigs.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const [created] = await db.insert(retailPosConfigs).values({ merchantId, storeName: storeName ?? "My Store" }).returning();
@@ -2421,17 +2588,20 @@ export async function getOrCreateRetailPosConfig(merchantId: string, storeName?:
 }
 export async function updateRetailPosConfig(merchantId: string, data: Partial<RetailPosConfig>): Promise<RetailPosConfig | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(retailPosConfigs).set({ ...data, updatedAt: new Date() }).where(eq(retailPosConfigs.merchantId, merchantId)).returning();
   return r ?? null;
 }
 export async function createRetailSale(data: Omit<RetailSale, "id" | "createdAt">): Promise<RetailSale> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const reference = `POS-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
   const [r] = await db.insert(retailSales).values({ ...data, reference }).returning();
   return r;
 }
 export async function getRetailDailySummary(merchantId: string): Promise<{ totalSales: number; totalKobo: number; avgKobo: number }> {
   const db = await getDb(); if (!db) return { totalSales: 0, totalKobo: 0, avgKobo: 0 };
+  if (!db) throw new Error('Database unavailable');
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const rows = await db.select({ n: count(), total: sum(retailSales.totalKobo) }).from(retailSales).where(and(eq(retailSales.merchantId, merchantId), gte(retailSales.createdAt, today)));
   const n = Number(rows[0]?.n ?? 0);
@@ -2442,41 +2612,49 @@ export async function getRetailDailySummary(merchantId: string): Promise<{ total
 // ─── International Remittance Helpers ─────────────────────────────────────────
 export async function createRemittanceTransfer(data: Omit<IntlRemittanceTransfer, "id" | "createdAt" | "updatedAt">): Promise<IntlRemittanceTransfer> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const trackingNumber = `TRK${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
   const [r] = await db.insert(intlRemittanceTransfers).values({ ...data, trackingNumber }).returning();
   return r;
 }
 export async function getRemittanceByTracking(trackingNumber: string): Promise<IntlRemittanceTransfer | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.select().from(intlRemittanceTransfers).where(eq(intlRemittanceTransfers.trackingNumber, trackingNumber)).limit(1);
   return r ?? null;
 }
 export async function listRemittanceTransfers(merchantId: string, limit = 20): Promise<IntlRemittanceTransfer[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(intlRemittanceTransfers).where(eq(intlRemittanceTransfers.merchantId, merchantId)).orderBy(desc(intlRemittanceTransfers.createdAt)).limit(limit);
 }
 
 // ─── Subscription V2 Helpers ──────────────────────────────────────────────────
 export async function createSubscriptionPlanV2(data: Omit<SubscriptionPlanV2, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionPlanV2> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(subscriptionPlansV2).values(data).returning();
   return r;
 }
 export async function listSubscriptionPlansV2(merchantId: string): Promise<SubscriptionPlanV2[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(subscriptionPlansV2).where(eq(subscriptionPlansV2.merchantId, merchantId)).orderBy(desc(subscriptionPlansV2.createdAt));
 }
 export async function listSubscriptionSubscribers(planId: string, limit = 50): Promise<SubscriptionSubscriber[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(subscriptionSubscribers).where(eq(subscriptionSubscribers.planId, planId)).orderBy(desc(subscriptionSubscribers.createdAt)).limit(limit);
 }
 export async function createSubscriptionSubscriber(data: Omit<SubscriptionSubscriber, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionSubscriber> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.insert(subscriptionSubscribers).values(data).returning();
   return r;
 }
 export async function updateSubscriptionSubscriber(id: string, data: Partial<SubscriptionSubscriber>): Promise<SubscriptionSubscriber | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(subscriptionSubscribers).set({ ...data, updatedAt: new Date() }).where(eq(subscriptionSubscribers.id, id)).returning();
   return r ?? null;
 }
@@ -2484,6 +2662,7 @@ export async function updateSubscriptionSubscriber(id: string, data: Partial<Sub
 // ─── Portal Subscription (Stripe) Helpers ────────────────────────────────────
 export async function getOrCreatePortalSubscription(merchantId: string): Promise<PortalSubscription> {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  if (!db) throw new Error('Database unavailable');
   const [existing] = await db.select().from(portalSubscriptions).where(eq(portalSubscriptions.merchantId, merchantId)).limit(1);
   if (existing) return existing;
   const [created] = await db.insert(portalSubscriptions).values({ merchantId }).returning();
@@ -2491,6 +2670,7 @@ export async function getOrCreatePortalSubscription(merchantId: string): Promise
 }
 export async function updatePortalSubscription(merchantId: string, data: Partial<PortalSubscription>): Promise<PortalSubscription | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.update(portalSubscriptions).set({ ...data, updatedAt: new Date() }).where(eq(portalSubscriptions.merchantId, merchantId)).returning();
   return r ?? null;
 }
@@ -2500,6 +2680,7 @@ import { merchantLoans, loanInstalments, type MerchantLoan } from "../drizzle/sc
 
 export async function listMerchantLoans(merchantId: string, opts: { limit?: number; offset?: number; status?: string } = {}): Promise<MerchantLoan[]> {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   if (opts.status) {
     return db.select().from(merchantLoans)
       .where(and(eq(merchantLoans.merchantId, merchantId), eq(merchantLoans.status, opts.status)))
@@ -2512,6 +2693,7 @@ export async function listMerchantLoans(merchantId: string, opts: { limit?: numb
 
 export async function getMerchantLoanById(loanId: string): Promise<MerchantLoan | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const [r] = await db.select().from(merchantLoans).where(eq(merchantLoans.loanId, loanId)).limit(1);
   return r ?? null;
 }
@@ -2521,6 +2703,7 @@ export async function createMerchantLoan(data: {
   purposeCode?: string; notes?: string; termDays?: number;
 }): Promise<MerchantLoan | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   await db.insert(merchantLoans).values({
     ...data,
     status: "pending_review",
@@ -2536,17 +2719,20 @@ export async function createMerchantLoan(data: {
 
 export async function updateMerchantLoan(loanId: string, data: Partial<MerchantLoan>): Promise<MerchantLoan | null> {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   await db.update(merchantLoans).set({ ...data, updatedAt: new Date() }).where(eq(merchantLoans.loanId, loanId));
   return getMerchantLoanById(loanId);
 }
 
 export async function getLoanInstalments(loanId: string) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select().from(loanInstalments).where(eq(loanInstalments.loanId, loanId)).orderBy(loanInstalments.dueDate);
 }
 
 export async function payLoanInstalment(id: string, paidKobo: number) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   await db.update(loanInstalments).set({ paidKobo, status: "paid", paidAt: new Date() }).where(eq(loanInstalments.id, id));
   return id;
 }
@@ -2554,6 +2740,7 @@ export async function payLoanInstalment(id: string, paidKobo: number) {
 // ─── Settlement SLA Alerts ────────────────────────────────────────────────────
 export async function getSettlementSLABreaches(merchantId: string, opts: { limit?: number } = {}) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   const { settlements } = await import("../drizzle/schema");
   return db.select().from(settlements).where(
     and(eq(settlements.merchantId, merchantId), eq(settlements.status, "sla_breached"))
@@ -2565,6 +2752,7 @@ export async function getSettlementSLABreaches(merchantId: string, opts: { limit
 /** Top customers by total spend in a date range */
 export async function getTopCustomers(merchantId: string, from: Date, to: Date, limit = 10) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select({
     customerId: transactions.merchantId,
     customerEmail: transactions.customerEmail,
@@ -2586,6 +2774,7 @@ export async function getTopCustomers(merchantId: string, from: Date, to: Date, 
 /** Hourly transaction volume heatmap (0-23 hours x days-of-week 0-6) */
 export async function getHourlyHeatmap(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select({
     hour: sql<number>`EXTRACT(HOUR FROM created_at)::int`,
     dow: sql<number>`EXTRACT(DOW FROM created_at)::int`,
@@ -2605,6 +2794,7 @@ export async function getHourlyHeatmap(merchantId: string, from: Date, to: Date)
 /** Period-over-period comparison for KPIs */
 export async function getPeriodComparison(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return null;
+  if (!db) throw new Error('Database unavailable');
   const periodMs = to.getTime() - from.getTime();
   const prevFrom = new Date(from.getTime() - periodMs);
   const prevTo = new Date(from.getTime());
@@ -2637,6 +2827,7 @@ export async function getPeriodComparison(merchantId: string, from: Date, to: Da
 /** Daily transaction counts grouped by status for stacked bar chart */
 export async function getDailyStatusBreakdown(merchantId: string, from: Date, to: Date) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select({
     date: sql<string>`DATE(created_at)`,
     completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
@@ -2652,6 +2843,7 @@ export async function getDailyStatusBreakdown(merchantId: string, from: Date, to
 /** Recent transactions with full details for the live feed */
 export async function getRecentTransactionsFeed(merchantId: string, limit = 20) {
   const db = await getDb(); if (!db) return [];
+  if (!db) throw new Error('Database unavailable');
   return db.select({
     id: transactions.id,
     amount: transactions.amount,
@@ -3042,6 +3234,7 @@ export async function getAnomalyConfigAuditLog(limit = 5, offset = 0): Promise<A
  */
 export async function getLatestCountryForUsers(keycloakUserIds: string[]): Promise<Record<string, string>> {
   const db = await getDb();
+  if (!db) throw new Error('Database unavailable');
   if (!db || keycloakUserIds.length === 0) return {};
   try {
     const rows = await db.execute(sql`

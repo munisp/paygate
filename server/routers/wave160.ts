@@ -236,6 +236,7 @@ export const wave160Router = router({
     .input(z.object({ merchantId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      if (!db) throw new Error('Database unavailable');
 
       const checks = [
         { id: "jwt_rotation",     label: "JWT Secret Rotation",          status: "pass",    detail: "JWT_SECRET env var present" },
