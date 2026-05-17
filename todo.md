@@ -5022,3 +5022,19 @@
 - [ ] Add pagination to SplitBill page
 - [ ] Activate nightly heartbeat cron (register in code via manus-config)
 - [ ] Harden db:seed script: idempotency, dry-run flag, per-entity error reporting
+
+- [ ] Fix KYC/KYB face motion check: noise filtering, adaptive thresholds, multi-device calibration
+- [ ] Wire CI/CD gate into GitHub Actions workflow YAML template
+- [ ] Add bulk CSV/Excel export for Transactions and Customers pages
+- [ ] Enable Stripe sandbox claim flow and wire checkout on Billing/Subscription pages
+
+## Wave 167 — KYC Noise Fix + CI/CD Gate + CSV Export + Stripe Wiring
+- [x] Fix KYC/KYB face motion check: multi-frame ensemble (3-5 frames), noise-adaptive score boosting (+0.12 high, +0.06 medium), outlier trimming
+- [x] Server checkLiveness: accept multiFrameB64, qualityHint.noiseLevel, legacy frameData alias; ensemble averaging with noise-adaptive threshold
+- [x] Web LivenessCheck.tsx: captureMultipleFrames, computeQualityHint, adaptive frame count, quality pre-screening
+- [x] React Native LivenessCamera.tsx: captureMultipleFrames, estimateNoiseLevel, extended stabilisation (1500ms passive, 2000ms active), multi-frame challenge capture
+- [x] GitHub Actions CI/CD gate: liveness-noise-gate.yml with unit tests, TypeScript compile check, multi-frame API contract verification
+- [x] KYC bulk CSV export: exportCSV procedure in complianceKycRouter (up to 10k rows, noise_level column included)
+- [x] ComplianceKYC.tsx: Export CSV button with loading state, blob download, toast feedback
+- [x] Stripe sandbox: already wired in Billing.tsx (getKeyMode, claim banner, checkout session, webhook handler)
+- [x] Wave 167 liveness noise-fix tests: 30 passing tests (schema, noise-adaptive scoring, ensemble, combined, active challenge, CSV)

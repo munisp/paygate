@@ -130,9 +130,59 @@ function useCamera() {
     return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
   }, [streaming]);
 
+  /**
+   * captureMultipleFrames — captures N frames spaced `intervalMs` apart.
+   * Used for noise-tolerant multi-frame ensemble submission.
+   */
+  const captureMultipleFrames = useCallback(async (count = 3, intervalMs = 250): Promise<string[]> => {
+    const frames: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const frame = captureFrame();
+      if (frame) frames.push(frame);
+      if (i < count - 1) await new Promise(r => setTimeout(r, intervalMs));
+    }
+    return frames;
+  }, [captureFrame]);
+
+  /**
+   * computeQualityHint — estimates blur and brightness from the current frame.
+   * Blur score: ratio of high-frequency pixel variance (0=blurry, 1=sharp).
+   * Brightness: mean pixel luminance (0-255).
+   */
+  const computeQualityHint = useCallback((): { brightness: number; blurScore: number; noiseLevel: 'low' | 'medium' | 'high' } | null => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !streaming) return null;
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = 64; tmpCanvas.height = 48;
+    const ctx = tmpCanvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, 64, 48);
+    const imageData = ctx.getImageData(0, 0, 64, 48);
+    const pixels = imageData.data;
+    let totalLum = 0;
+    const pixelCount = 64 * 48;
+    for (let i = 0; i < pixels.length; i += 4) {
+      totalLum += 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+    }
+    const brightness = totalLum / pixelCount;
+    let variance = 0;
+    for (let i = 4; i < pixels.length - 4; i += 4) {
+      const diff = pixels[i] - pixels[i - 4];
+      variance += diff * diff;
+    }
+    variance /= pixelCount;
+    const blurScore = Math.min(variance / 300, 1.0);
+    const noiseLevel: 'low' | 'medium' | 'high' =
+      blurScore < 0.2 || brightness < 40 || brightness > 220 ? 'high'
+      : blurScore < 0.5 ? 'medium'
+      : 'low';
+    return { brightness: Math.round(brightness), blurScore: Math.round(blurScore * 100) / 100, noiseLevel };
+  }, [streaming, videoRef, canvasRef]);
+
   useEffect(() => () => { stopCamera(); }, [stopCamera]);
 
-  return { videoRef, canvasRef, streaming, error, startCamera, stopCamera, captureFrame };
+  return { videoRef, canvasRef, streaming, error, startCamera, stopCamera, captureFrame, captureMultipleFrames, computeQualityHint };
 }
 
 // ─── Score bar component ───────────────────────────────────────────────────────
@@ -292,7 +342,7 @@ function LandmarkOverlay({ landmarks, faces, width, height }: {
 
 export default function LivenessCheck() {
   const { user } = useAuth();
-  const { videoRef, canvasRef, streaming, error: cameraError, startCamera, stopCamera, captureFrame } = useCamera();
+  const { videoRef, canvasRef, streaming, error: cameraError, startCamera, stopCamera, captureFrame, captureMultipleFrames, computeQualityHint } = useCamera();
 
   const [mode, setMode] = useState<CheckMode>("passive");
   const [challenge, setChallenge] = useState<ChallengeType>("blink");
@@ -329,17 +379,24 @@ export default function LivenessCheck() {
     setIsProcessing(false);
   }, []);
 
-  // ── Passive / Full: single capture ────────────────────────────────────────
+  // ── Passive / Full: multi-frame ensemble capture ──────────────────────────
   const runPassive = useCallback(async () => {
-    const b64 = captureFrame();
-    if (!b64) { toast.error("Could not capture frame"); return; }
     setIsProcessing(true);
     setStep("processing");
     try {
+      // Capture 3 frames 250ms apart for noise-tolerant ensemble scoring
+      const frames = await captureMultipleFrames(3, 250);
+      if (frames.length === 0) { toast.error("Could not capture frame"); setStep("idle"); return; }
+      const quality = computeQualityHint();
+      if (quality?.noiseLevel === 'high') {
+        toast.warning("Camera quality is low — hold still and ensure good lighting for best results");
+      }
       const res = await checkLiveness.mutateAsync({
         submissionId: `web-${Date.now()}`,
-        imageB64: b64,
+        imageB64: frames[0],
+        multiFrameB64: frames,
         mode: "passive",
+        qualityHint: quality ?? undefined,
       });
       setResult(res as unknown as LivenessResult);
       setStep("done");
@@ -349,30 +406,36 @@ export default function LivenessCheck() {
     } finally {
       setIsProcessing(false);
     }
-  }, [captureFrame, checkLiveness]);
+  }, [captureMultipleFrames, computeQualityHint, checkLiveness]);
 
   // ── Active: two-frame challenge ────────────────────────────────────────────
-  const startActiveChallenge = useCallback(() => {
+  const startActiveChallenge = useCallback(async () => {
     const b64 = captureFrame();
     if (!b64) { toast.error("Could not capture frame"); return; }
     setFrame1B64(b64);
     setStep("challenge");
-    toast.info(`Challenge: ${CHALLENGES.find(c => c.type === challenge)?.instruction}`);
+    const challengeInfo = CHALLENGES.find(c => c.type === challenge);
+    toast.info(`Challenge: ${challengeInfo?.instruction} — take your time`);
   }, [captureFrame, challenge]);
 
   const completeActiveChallenge = useCallback(async () => {
     if (!frame1B64) return;
-    const b64_2 = captureFrame();
-    if (!b64_2) { toast.error("Could not capture second frame"); return; }
     setIsProcessing(true);
     setStep("processing");
     try {
+      // Capture 3 challenge frames for noise-tolerant ensemble scoring
+      const challengeFrames = await captureMultipleFrames(3, 200);
+      if (challengeFrames.length === 0) { toast.error("Could not capture challenge frames"); setStep("idle"); return; }
+      const quality = computeQualityHint();
       const res = await checkLiveness.mutateAsync({
         submissionId: `web-active-${Date.now()}`,
         imageB64: frame1B64,
-        imageB64_2: b64_2,
+        imageB64_2: challengeFrames[0],
+        challengeFramesBase64: challengeFrames,
+        multiFrameB64: challengeFrames,
         mode: "active",
         challenge,
+        qualityHint: quality ?? undefined,
       });
       setResult(res as unknown as LivenessResult);
       setStep("done");
@@ -382,7 +445,7 @@ export default function LivenessCheck() {
     } finally {
       setIsProcessing(false);
     }
-  }, [frame1B64, captureFrame, checkLiveness, challenge]);
+  }, [frame1B64, captureMultipleFrames, computeQualityHint, checkLiveness, challenge]);
 
   // ── Face detect ────────────────────────────────────────────────────────────
   const runDetect = useCallback(async () => {

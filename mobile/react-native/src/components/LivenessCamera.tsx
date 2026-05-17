@@ -142,7 +142,7 @@ export default function LivenessCamera({
     outputRange: ["#ef4444", "#f59e0b", "#22c55e"],
   });
 
-  // ── Capture a frame as base64 ──────────────────────────────────────────────
+  // ── Capture a single frame as base64 ─────────────────────────────────────
   const captureFrame = useCallback(async (): Promise<string | null> => {
     if (!cameraRef.current) return null;
     try {
@@ -157,19 +157,52 @@ export default function LivenessCamera({
     }
   }, []);
 
+  // ── Capture multiple frames for noise-tolerant ensemble scoring ───────────
+  const captureMultipleFrames = useCallback(async (count = 3, intervalMs = 200): Promise<string[]> => {
+    const frames: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const frame = await captureFrame();
+      if (frame) frames.push(frame);
+      if (i < count - 1) await new Promise(r => setTimeout(r, intervalMs));
+    }
+    return frames;
+  }, [captureFrame]);
+
+  // ── Estimate camera noise level from pixel variance ───────────────────────
+  // Returns 'low' | 'medium' | 'high' based on how many frames differ significantly
+  const estimateNoiseLevel = useCallback(async (): Promise<'low' | 'medium' | 'high'> => {
+    // Capture 2 quick frames and compare their sizes as a proxy for motion/noise
+    const f1 = await captureFrame();
+    await new Promise(r => setTimeout(r, 100));
+    const f2 = await captureFrame();
+    if (!f1 || !f2) return 'medium';
+    // Base64 length difference as a rough noise proxy
+    const sizeDiff = Math.abs(f1.length - f2.length) / Math.max(f1.length, f2.length);
+    if (sizeDiff > 0.15) return 'high';
+    if (sizeDiff > 0.05) return 'medium';
+    return 'low';
+  }, [captureFrame]);
+
   // ── Run passive liveness check ─────────────────────────────────────────────
   const runPassive = useCallback(async () => {
     setPhase("capturing");
-    await new Promise((r) => setTimeout(r, 800)); // brief stabilisation
-    const frame = await captureFrame();
-    if (!frame) { setErrorMsg("Could not capture image. Please try again."); setPhase("ready"); return; }
+    // Extended stabilisation (1500ms) to let noisy cameras settle
+    await new Promise((r) => setTimeout(r, 1500));
+    // Estimate device noise level before capturing
+    const noiseLevel = await estimateNoiseLevel();
+    // Capture 3-5 frames depending on noise level
+    const frameCount = noiseLevel === 'high' ? 5 : noiseLevel === 'medium' ? 4 : 3;
+    const frames = await captureMultipleFrames(frameCount, 200);
+    if (frames.length === 0) { setErrorMsg("Could not capture image. Please try again."); setPhase("ready"); return; }
 
     setPhase("analyzing");
     try {
       const result = await checkLiveness.mutateAsync({
         submissionId: submissionId ?? "standalone",
         mode: "passive",
-        frameData: frame,
+        frameBase64: frames[0],
+        multiFrameB64: frames,
+        qualityHint: { noiseLevel },
       });
       const score = result?.liveness_score ?? result?.score ?? 0;
       setPassiveScore(score);
@@ -196,22 +229,27 @@ export default function LivenessCamera({
       setErrorMsg(e?.message ?? "Liveness check failed. Please try again.");
       setPhase("ready");
     }
-  }, [mode, passiveThreshold, submissionId, captureFrame, checkLiveness, onSuccess]);
+  }, [mode, passiveThreshold, submissionId, captureMultipleFrames, estimateNoiseLevel, checkLiveness, onSuccess]);
 
   // ── Run active challenge check ─────────────────────────────────────────────
   const runActiveChallenge = useCallback(async () => {
     if (!challenge) return;
     setPhase("challenge_capturing");
-    await new Promise((r) => setTimeout(r, 1200)); // give user time to perform challenge
-    const frame = await captureFrame();
-    if (!frame) { setErrorMsg("Could not capture image."); setPhase("challenge_shown"); return; }
+    // Extended wait (2000ms) for noisy cameras — gives user time to complete challenge
+    await new Promise((r) => setTimeout(r, 2000));
+    // Capture 3 challenge frames 200ms apart
+    const challengeFrames = await captureMultipleFrames(3, 200);
+    if (challengeFrames.length === 0) { setErrorMsg("Could not capture image."); setPhase("challenge_shown"); return; }
 
     setPhase("challenge_analyzing");
     try {
+      const noiseLevel = await estimateNoiseLevel();
       const result = await checkLiveness.mutateAsync({
         submissionId: submissionId ?? "standalone",
         mode: "active",
-        frameData: frame,
+        frameBase64: challengeFrames[0],
+        challengeFramesBase64: challengeFrames,
+        multiFrameB64: challengeFrames,
         challenge,
       });
       const score = result?.liveness_score ?? result?.score ?? 0;
@@ -241,7 +279,7 @@ export default function LivenessCamera({
       setErrorMsg(e?.message ?? "Challenge verification failed.");
       setPhase("challenge_shown");
     }
-  }, [challenge, attempts, submissionId, captureFrame, checkLiveness, onSuccess, onFailure]);
+  }, [challenge, attempts, submissionId, captureMultipleFrames, estimateNoiseLevel, checkLiveness, onSuccess, onFailure]);
 
   // ── Confidence bar ─────────────────────────────────────────────────────────
   const score = finalScore ?? passiveScore ?? 0;

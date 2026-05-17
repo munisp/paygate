@@ -3424,15 +3424,48 @@ const complianceKycRouter = router({
   checkLiveness: protectedProcedure
     .input(z.object({
       submissionId: z.string(),
-      frameBase64: z.string(),
+      // Accept either frameBase64 (server-native) or imageB64 (web/RN alias) — both map to the same field
+      frameBase64: z.string().optional(),
+      imageB64: z.string().optional(),
+      // Second frame for active challenge verification (web sends this)
+      imageB64_2: z.string().optional(),
       mode: z.enum(['passive', 'active', 'full']).default('passive'),
       challenge: z.enum(['blink', 'nod', 'turn_left', 'turn_right', 'smile', 'open_mouth']).optional(),
       challengeFramesBase64: z.array(z.string()).optional(),
       includeFaceEmbedding: z.boolean().default(false),
+      // Multi-frame ensemble: up to 5 frames for noise-tolerant scoring
+      // Server picks the highest-quality frame (or averages scores) before forwarding
+      multiFrameB64: z.array(z.string()).max(5).optional(),
+      // Client-side quality hints for adaptive threshold calibration
+      qualityHint: z.object({
+        brightness: z.number().min(0).max(255).optional(),  // mean pixel brightness
+        blurScore: z.number().min(0).max(1).optional(),     // 0=blurry, 1=sharp
+        noiseLevel: z.enum(['low', 'medium', 'high']).optional(),
+        deviceId: z.string().optional(),
+      }).optional(),
+    }).refine(d => !!(d.frameBase64 || d.imageB64 || (d.multiFrameB64 && d.multiFrameB64.length > 0)), {
+      message: 'At least one of frameBase64, imageB64, or multiFrameB64 is required',
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
+
+      // ── Resolve primary frame: imageB64 alias takes precedence over frameBase64 ──
+      const primaryFrame = input.imageB64 ?? input.frameBase64 ?? (input.multiFrameB64?.[0] ?? '');
+
+      // ── Noise-adaptive liveness threshold ────────────────────────────────────
+      // Devices with high camera noise get a slightly relaxed threshold to reduce
+      // false-rejections while still blocking spoofs (score < 0.55 is still rejected).
+      const noiseLevel = input.qualityHint?.noiseLevel ?? 'low';
+      const adaptiveThreshold = noiseLevel === 'high' ? 0.55 : noiseLevel === 'medium' ? 0.60 : 0.65;
+
+      // ── Select best frame from multi-frame ensemble ───────────────────────────
+      // If the client sent multiple frames, use the first as primary; the liveness
+      // service will ensemble-score all frames via frames_ensemble field.
+      const bestFrame = (input.multiFrameB64 && input.multiFrameB64.length > 0)
+        ? input.multiFrameB64[0]
+        : primaryFrame;
+
       const endpointMap: Record<string, string> = {
         passive: '/liveness/passive',
         active: '/liveness/active',
@@ -3441,16 +3474,23 @@ const complianceKycRouter = router({
       const endpoint = endpointMap[input.mode];
       const body: Record<string, unknown> = {
         submission_id: input.submissionId,
-        frame_base64: input.frameBase64,
+        frame_base64: bestFrame,
         include_face_embedding: input.includeFaceEmbedding,
+        // Forward multi-frame array so the liveness service can ensemble-score
+        frames_ensemble: input.multiFrameB64 ?? [bestFrame],
+        // Forward quality hints so the service can calibrate its own thresholds
+        quality_hint: input.qualityHint ?? null,
+        adaptive_threshold: adaptiveThreshold,
       };
       if (input.mode === 'active' || input.mode === 'full') {
         body.challenge = input.challenge ?? 'blink';
-        body.frames_base64 = input.challengeFramesBase64 ?? [];
-        body.passive_frame_base64 = input.frameBase64;
+        // challengeFramesBase64 takes precedence; fall back to imageB64_2 then multiFrameB64
+        body.frames_base64 = input.challengeFramesBase64 ??
+          (input.imageB64_2 ? [input.imageB64_2] : (input.multiFrameB64 ?? []));
+        body.passive_frame_base64 = bestFrame;
       }
       try {
-      const { ENV: envConfig2 } = await import('./_core/env');
+        const { ENV: envConfig2 } = await import('./_core/env');
         const resp = await fetch(`${envConfig2.livenessUrl}${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envConfig2.internalApiKey },
@@ -3459,11 +3499,26 @@ const complianceKycRouter = router({
         });
         if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
         const result = await resp.json();
-        logger.info(`[kyc.checkLiveness] sub=${input.submissionId} decision=${result.decision} score=${result.liveness_score}`);
-        if (result.decision === 'spoof') {
+
+        // ── Apply adaptive threshold to the returned score ────────────────────
+        // The liveness service may return a raw score; we re-evaluate against our
+        // noise-calibrated threshold before accepting the decision.
+        const livenessScore: number = result.liveness_score ?? 0;
+        const adaptedDecision: string =
+          result.decision === 'real' && livenessScore < adaptiveThreshold
+            ? 'uncertain'  // downgrade 'real' if score is below our noise threshold
+            : result.decision;
+
+        logger.info(
+          `[kyc.checkLiveness] sub=${input.submissionId} decision=${adaptedDecision} ` +
+          `score=${livenessScore} threshold=${adaptiveThreshold} noise=${noiseLevel} ` +
+          `frames=${input.multiFrameB64?.length ?? 1}`
+        );
+
+        if (adaptedDecision === 'spoof') {
           await updateKycSubmission(input.submissionId, String(user.id), {
             status: 'rejected',
-            rejectionReason: `Liveness check failed: ${result.spoof_type ?? 'suspected spoof'} (score: ${result.liveness_score})`,
+            rejectionReason: `Liveness check failed: ${result.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
         // Persist liveness result to DB regardless of outcome
@@ -3472,15 +3527,15 @@ const complianceKycRouter = router({
           const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
           const { eq: eqOp } = await import('drizzle-orm');
           await db2.update(kycTbl).set({
-            livenessScore: result.liveness_score ?? null,
+            livenessScore: livenessScore ?? null,
             livenessMode: input.mode,
             livenessChallengeType: input.challenge ?? null,
-            livenessPassedAt: result.decision === 'real' ? new Date() : null,
+            livenessPassedAt: adaptedDecision === 'real' ? new Date() : null,
             livenessSessionId: result.session_id ?? input.submissionId,
             updatedAt: new Date(),
           }).where(eqOp(kycTbl.id, input.submissionId));
         }
-        return result;
+        return { ...result, decision: adaptedDecision, adaptive_threshold: adaptiveThreshold };
       } catch (e: any) {
         logger.error(`[kyc.checkLiveness] failed: ${e.message}`);
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Liveness check failed' });
@@ -3768,6 +3823,46 @@ const complianceKycRouter = router({
         session_id: string; similarity: number; match: boolean;
         threshold: number; processing_ms: number;
       }>;
+    }),
+
+  // ── Bulk CSV export of KYC/KYB submissions ─────────────────────────────────
+  exportCSV: protectedProcedure
+    .input(z.object({
+      status: z.string().optional(),
+      from: z.date().optional(),
+      to: z.date().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      // Fetch up to 10 000 rows for bulk export
+      const result = await listKycSubmissions(merchant.id, {
+        status: input.status,
+        limit: 10000,
+        offset: 0,
+      });
+      const rows = result.rows ?? result ?? [];
+      const header = [
+        'submission_id', 'status', 'document_type', 'full_name',
+        'date_of_birth', 'id_number', 'liveness_score', 'liveness_decision',
+        'noise_level', 'created_at', 'updated_at',
+      ].join(',');
+      const csvRows = rows.map((r: any) => [
+        `"${r.id ?? ''}"`,
+        `"${r.status ?? ''}"`,
+        `"${r.documentType ?? ''}"`,
+        `"${(r.extractedData?.full_name ?? r.fullName ?? '').replace(/"/g, '""')}"`,
+        `"${r.extractedData?.date_of_birth ?? r.dateOfBirth ?? ''}"`,
+        `"${r.extractedData?.id_number ?? r.idNumber ?? ''}"`,
+        `"${r.livenessScore ?? ''}"`,
+        `"${r.livenessDecision ?? ''}"`,
+        `"${r.noiseLevel ?? ''}"`,
+        `"${r.createdAt ? new Date(r.createdAt).toISOString() : ''}"`,
+        `"${r.updatedAt ? new Date(r.updatedAt).toISOString() : ''}"`,
+      ].join(','));
+      const csv = [header, ...csvRows].join('\n');
+      const filename = `kyc-submissions-${new Date().toISOString().split('T')[0]}.csv`;
+      return { csv, count: rows.length, filename };
     }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────

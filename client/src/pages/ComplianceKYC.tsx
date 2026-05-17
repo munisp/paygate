@@ -34,8 +34,31 @@ export default function ComplianceKYC() {
     onSuccess: () => { toast.success("Document uploaded and submitted for review"); utils.complianceKyc.list.invalidate(); },
     onError: (e: any) => toast.error(e.message),
   });
+  const [exporting, setExporting] = useState(false);
+  const exportCsvMutation = trpc.complianceKyc.exportCSV.useMutation();
   const { data: kycListData, isLoading: kycLoading, refetch } = trpc.complianceKyc.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: kycStats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 60_000 });
+
+  const handleExportCSV = async () => {
+    setExporting(true);
+    try {
+      const result = await exportCsvMutation.mutateAsync({});
+      const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename ?? 'kyc-submissions.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${result.count} KYC/KYB records`);
+    } catch (e: any) {
+      toast.error(`Export failed: ${e.message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const FALLBACK_DOCS = [
     { id: 1, name: "Certificate of Incorporation", type: "business_reg", status: "verified", uploadedAt: "2024-01-15", expiresAt: null },
@@ -114,10 +137,16 @@ export default function ComplianceKYC() {
           <h1 className="text-2xl font-bold text-white">Compliance & KYC</h1>
           <p className="text-zinc-400 mt-1">Manage your business verification, documents, and regulatory compliance</p>
         </div>
-        <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh Status
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" onClick={handleExportCSV} disabled={exporting}>
+            {exporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </Button>
+          <Button variant="outline" className="border-zinc-700 text-zinc-300 hover:bg-zinc-800" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh Status
+          </Button>
+        </div>
       </div>
 
       {/* Status Banner */}
