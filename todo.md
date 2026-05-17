@@ -5151,3 +5151,43 @@
 - [x] Fix ActiveSessions.tsx malformed onSuccess and trim() calls
 - [x] TypeScript errors reduced from 284 → 0 syntax errors
 - [x] 115 tests passing, zero regressions
+
+## Wave 176-180 — DeepFace Sidecar Integration
+- [ ] Wave 176: DeepFace FastAPI sidecar scaffold (deepface-sidecar/)
+- [ ] Wave 176: /liveness endpoint (anti-spoofing CNN)
+- [ ] Wave 176: /verify-face endpoint (ArcFace + RetinaFace)
+- [ ] Wave 176: /search endpoint (Facenet512 + pgvector ANN)
+- [ ] Wave 176: /analyze endpoint (age/gender/emotion)
+- [ ] Wave 176: Dockerfile and startup script
+- [ ] Wave 177: Wire sidecar into checkLiveness procedure
+- [ ] Wave 177: Wire sidecar into submitKyc procedure (selfie-vs-ID)
+- [ ] Wave 177: Wire sidecar into KYB director verification
+- [ ] Wave 177: Graceful fallback when sidecar unavailable
+- [ ] Wave 178: pgvector face_embeddings table in schema
+- [ ] Wave 178: Register embedding on KYC approval
+- [ ] Wave 178: Duplicate detection on new KYC submission
+- [ ] Wave 179: Age estimation check in submitKyc
+- [ ] Wave 179: NDPR purge extended to face_embeddings
+- [ ] Wave 179: Admin review UI DeepFace confidence badge
+- [ ] Wave 180: Vitest + pytest tests for sidecar integration
+- [ ] Wave 180: Load test sidecar endpoints
+
+## Wave 176-180 — DeepFace Sidecar Integration
+
+- [x] Wave 176: deepface-sidecar/ FastAPI scaffold (/liveness, /verify-face, /analyze, /register, /search, /embedding, /search-embedding, /health)
+- [x] Wave 176: Dockerfile + docker-compose.yml for sidecar deployment
+- [x] Wave 176: deepface-sidecar/README.md with setup and integration instructions
+- [x] Wave 177: server/deepfaceSidecar.ts Node.js helper with graceful fallback
+- [x] Wave 177: checkLiveness wired to DeepFace anti-spoofing (sidecar-first, heuristic fallback)
+- [x] Wave 177: uploadDocument wired to ArcFace face verification (selfieUrl optional field)
+- [x] Wave 178: kycSubmissions schema — faceMatchScore, faceMatchVerified, faceMatchModel columns
+- [x] Wave 178: kycSubmissions schema — duplicateDetectionFlag, duplicateMatchId, faceEmbeddingId columns
+- [x] Wave 178: pgvector duplicate detection — register embedding on KYC approval
+- [x] Wave 178: pgvector duplicate detection — search on new submission
+- [x] Wave 179: kycSubmissions schema — estimatedAge, ageEstimationFlag columns
+- [x] Wave 179: Age estimation via DeepFace analyze() in uploadDocument (minor blocking)
+- [x] Wave 179: NDPR embedding purge extended to clear faceEmbeddingId on purge
+- [x] Wave 179: Admin review UI badges (Face %, Age flag, Duplicate warning) in ComplianceKYC
+- [x] Wave 180: 34 vitest tests for deepfaceSidecar.ts (all endpoints, fallbacks, thresholds)
+- [x] Wave 180: Age estimation blocking logic tests (minor_blocked, possible_minor, ok)
+- [x] Wave 180: Face match score threshold badge tests

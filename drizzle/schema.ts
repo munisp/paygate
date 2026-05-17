@@ -530,6 +530,20 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   // Liveness retry throttling — Wave 171
   livenessRetryCount: integer("liveness_retry_count").default(0).notNull(),
   livenessBlockedUntil: timestamp("liveness_blocked_until"),
+  // DeepFace: ArcFace selfie-vs-ID face verification — Wave 177
+  faceMatchVerified: boolean("face_match_verified"),
+  faceMatchScore: real("face_match_score"),
+  faceMatchDistance: real("face_match_distance"),
+  faceMatchModel: text("face_match_model"),
+  faceMatchAt: timestamp("face_match_at"),
+  // DeepFace: Age estimation — Wave 179
+  estimatedAge: integer("estimated_age"),
+  ageEstimationFlag: text("age_estimation_flag"), // 'ok' | 'possible_minor' | 'minor_blocked'
+  // DeepFace: pgvector duplicate detection — Wave 178 (embedding stored as JSON array)
+  faceEmbedding: jsonb("face_embedding"),
+  duplicateCheckAt: timestamp("duplicate_check_at"),
+  duplicateFlag: boolean("duplicate_flag").default(false),
+  duplicateOfSubmissionId: text("duplicate_of_submission_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -538,6 +552,8 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   index("kyc_status_idx").on(t.status),
   index("kyc_liveness_idx").on(t.livenessScore),
   index("kyc_bvn_status_idx").on(t.bvnVerificationStatus),
+  index("kyc_face_match_idx").on(t.faceMatchVerified),
+  index("kyc_duplicate_idx").on(t.duplicateFlag),
 ]);
 export type KycSubmission = typeof kycSubmissions.$inferSelect;
 export type InsertKycSubmission = typeof kycSubmissions.$inferInsert;

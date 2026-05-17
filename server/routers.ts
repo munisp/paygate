@@ -3321,6 +3321,8 @@ const complianceKycRouter = router({
       bvnNumber: z.string().length(11).optional(),
       // Document expiry (Wave 171) — ISO date string extracted by client OCR or MRZ
       documentExpiryDate: z.string().optional(),
+      // DeepFace: selfie URL for ArcFace selfie-vs-ID verification (Wave 177)
+      selfieUrl: z.string().url().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -3343,6 +3345,71 @@ const complianceKycRouter = router({
           update.rejectionReason = `Document expired on ${expiryDate.toISOString().slice(0, 10)}. Please upload a valid document.`;
           await updateKycSubmission(input.submissionId, merchant.id, update);
           return { success: false, fileUrl: input.fileUrl, error: 'document_expired', expiryDate: expiryDate.toISOString() };
+        }
+      }
+
+      // ── DeepFace: Selfie-vs-ID face verification (Wave 177) ─────────────────
+      // If the client provides both a selfie URL and the document URL, run ArcFace
+      // verification to confirm the face on the ID matches the live selfie.
+      if (input.selfieUrl && input.fileUrl) {
+        try {
+          const { verifyFaceSidecar } = await import('./deepfaceSidecar');
+          const faceResult = await verifyFaceSidecar(input.selfieUrl, input.fileUrl, {
+            model_name: 'ArcFace',
+            detector_backend: 'retinaface',
+            anti_spoofing: false,
+          });
+          if (faceResult.sidecar_available) {
+            update.faceMatchVerified = faceResult.verified;
+            update.faceMatchScore = faceResult.confidence;
+            update.faceMatchDistance = faceResult.distance;
+            if (!faceResult.verified) {
+              // Flag for manual review — do NOT auto-reject (distance may be borderline)
+              const existing = (update.rejectionReason as string | undefined) ?? '';
+              update.rejectionReason = existing
+                ? `${existing}; Face mismatch detected (distance: ${faceResult.distance.toFixed(3)})`
+                : `Face mismatch detected (distance: ${faceResult.distance.toFixed(3)}). Manual review required.`;
+            }
+            logger.info(
+              `[kyc.uploadDocument] DeepFace face verify sub=${input.submissionId} ` +
+              `verified=${faceResult.verified} distance=${faceResult.distance} ` +
+              `confidence=${faceResult.confidence}`
+            );
+          }
+        } catch (e: any) {
+          logger.warn(`[kyc.uploadDocument] DeepFace face verify failed (non-fatal): ${e.message}`);
+        }
+      }
+
+      // ── DeepFace: Age estimation (Wave 179) ────────────────────────────────
+      // Run age estimation on the selfie. If the estimated age is < 18, block the
+      // submission immediately (CBN AML/CFT §6.2 prohibits accounts for minors).
+      if (input.selfieUrl) {
+        try {
+          const { analyzeFaceSidecar } = await import('./deepfaceSidecar');
+          const ageResult = await analyzeFaceSidecar(input.selfieUrl, ['age']);
+          if (ageResult.sidecar_available && ageResult.age !== null) {
+            const age = Math.round(ageResult.age);
+            update.estimatedAge = age;
+            if (age < 18) {
+              update.ageEstimationFlag = 'minor_blocked';
+              update.status = 'rejected';
+              update.rejectionReason = `Age estimation indicates a minor (est. age: ${age}). ` +
+                `Accounts for persons under 18 are not permitted per CBN AML/CFT §6.2.`;
+              await updateKycSubmission(input.submissionId, merchant.id, update);
+              return { success: false, fileUrl: input.fileUrl, error: 'minor_detected', estimatedAge: age };
+            } else if (age < 21) {
+              update.ageEstimationFlag = 'possible_minor'; // flag for manual review
+            } else {
+              update.ageEstimationFlag = 'ok';
+            }
+            logger.info(
+              `[kyc.uploadDocument] DeepFace age estimate sub=${input.submissionId} ` +
+              `age=${age} flag=${update.ageEstimationFlag}`
+            );
+          }
+        } catch (e: any) {
+          logger.warn(`[kyc.uploadDocument] Age estimation failed (non-fatal): ${e.message}`);
         }
       }
 
@@ -3401,7 +3468,59 @@ const complianceKycRouter = router({
         update.reviewedBy = ctx.user.openId;
       }
       await updateKycSubmission(input.id, merchant.id, update);
-      // Bridge: update KYC status via Temporal + Kafka + Permify + Lakehouse
+
+      // ── DeepFace: Register face embedding on approval (Wave 178) ────────────────
+      // When a KYC submission is approved, extract the face embedding and store it.
+      // On subsequent submissions, search for near-duplicate embeddings to flag
+      // potential identity fraud (one person submitting under multiple accounts).
+      if (input.status === 'approved') {
+        (async () => {
+          try {
+            const { searchFaceEmbeddingSidecar, getEmbeddingSidecar } = await import('./deepfaceSidecar');
+            const db3 = await getDb();
+            if (!db3) return;
+            const { kycSubmissions: kycTbl3 } = await import('../drizzle/schema');
+            const { eq: eq3 } = await import('drizzle-orm');
+            const [sub3] = await db3.select({ selfieUrl: kycTbl3.selfieUrl })
+              .from(kycTbl3).where(eq3(kycTbl3.id, input.id)).limit(1);
+            if (!sub3?.selfieUrl) return;
+
+            // Get embedding for this submission
+            const embResult = await getEmbeddingSidecar(sub3.selfieUrl);
+            if (!embResult.sidecar_available || !embResult.embedding) return;
+
+            // Search for near-duplicates in existing approved submissions
+            const searchResult = await searchFaceEmbeddingSidecar(embResult.embedding, {
+              threshold: 0.4,
+              exclude_submission_id: input.id,
+            });
+
+            await db3.update(kycTbl3).set({
+              faceEmbedding: embResult.embedding,
+              duplicateCheckAt: new Date(),
+              duplicateFlag: searchResult.match_found,
+              duplicateOfSubmissionId: searchResult.closest_match_id ?? null,
+              updatedAt: new Date(),
+            }).where(eq3(kycTbl3.id, input.id));
+
+            if (searchResult.match_found) {
+              logger.warn(
+                `[kyc.updateStatus] Duplicate face detected: sub=${input.id} ` +
+                `matches sub=${searchResult.closest_match_id} distance=${searchResult.distance}`
+              );
+              await notifyOwner({
+                title: 'KYC Duplicate Identity Detected',
+                content: `Submission ${input.id} shares a face embedding with ${searchResult.closest_match_id} ` +
+                  `(distance: ${searchResult.distance?.toFixed(3)}). Manual review required.`,
+              }).catch(() => {});
+            }
+          } catch (e: any) {
+            logger.warn(`[kyc.updateStatus] DeepFace embedding registration failed (non-fatal): ${e.message}`);
+          }
+        })();
+      }
+
+      // ── Bridge: update KYC status via Temporal + Kafka + Permify + Lakehouse
       if (isBridgeAvailable()) {
         // Only call bridge for statuses the bridge supports
         if (input.status === 'approved' || input.status === 'rejected' || input.status === 'under_review') {
@@ -3585,24 +3704,58 @@ const complianceKycRouter = router({
         body.passive_frame_base64 = bestFrame;
       }
       try {
-        const { ENV: envConfig2 } = await import('./_core/env');
-        const resp = await fetch(`${envConfig2.livenessUrl}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envConfig2.internalApiKey },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30000),
+        // ── DeepFace Sidecar: Neural anti-spoofing (Wave 176/177) ─────────────
+        // Try the DeepFace sidecar first for neural-quality liveness detection.
+        // Falls back to the legacy liveness service if the sidecar is unavailable.
+        const { checkLivenessSidecar } = await import('./deepfaceSidecar');
+        const allFrames = input.multiFrameB64 && input.multiFrameB64.length > 0
+          ? input.multiFrameB64
+          : [bestFrame];
+        const sidecarResult = await checkLivenessSidecar(allFrames, {
+          noiseLevel: noiseLevel as 'low' | 'medium' | 'high',
         });
-        if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
-        const result = await resp.json();
+
+        let livenessScore: number;
+        let adaptedDecision: string;
+
+        if (sidecarResult.sidecar_available) {
+          // Use DeepFace neural score
+          livenessScore = sidecarResult.ensemble_score;
+          adaptedDecision = sidecarResult.is_real ? 'real' : 'spoof';
+          logger.info(
+            `[kyc.checkLiveness] DeepFace sidecar: sub=${input.submissionId} ` +
+            `is_real=${sidecarResult.is_real} score=${livenessScore} ` +
+            `confidence=${sidecarResult.confidence} noise=${noiseLevel} ` +
+            `frames=${allFrames.length} model=${sidecarResult.model}`
+          );
+        } else {
+          // Fallback: legacy liveness service
+          const { ENV: envConfig2 } = await import('./_core/env');
+          const resp = await fetch(`${envConfig2.livenessUrl}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Internal-Key': envConfig2.internalApiKey },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
+          const result = await resp.json();
+          livenessScore = result.liveness_score ?? 0;
+          adaptedDecision =
+            result.decision === 'real' && livenessScore < adaptiveThreshold
+              ? 'uncertain'
+              : result.decision;
+        }
+
+        // Re-apply adaptive threshold regardless of which source provided the score
+        if (adaptedDecision === 'real' && livenessScore < adaptiveThreshold) {
+          adaptedDecision = 'uncertain';
+        }
+
+        const result = { liveness_score: livenessScore, decision: adaptedDecision,
+          session_id: input.submissionId, sidecar_used: sidecarResult.sidecar_available };
 
         // ── Apply adaptive threshold to the returned score ────────────────────
-        // The liveness service may return a raw score; we re-evaluate against our
-        // noise-calibrated threshold before accepting the decision.
-        const livenessScore: number = result.liveness_score ?? 0;
-        const adaptedDecision: string =
-          result.decision === 'real' && livenessScore < adaptiveThreshold
-            ? 'uncertain'  // downgrade 'real' if score is below our noise threshold
-            : result.decision;
+        // (already applied above; kept for logging consistency)
 
         logger.info(
           `[kyc.checkLiveness] sub=${input.submissionId} decision=${adaptedDecision} ` +

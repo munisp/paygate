@@ -549,12 +549,38 @@ function KycLivePanel() {
                   <p className="text-sm font-medium text-foreground truncate font-mono">{kyc.id}</p>
                   <p className="text-xs text-muted-foreground">{kyc.docType.replace(/_/g, " ")} · {new Date(kyc.createdAt).toLocaleDateString()}</p>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize whitespace-nowrap ${
-                  kyc.status === "approved" ? "bg-emerald-100 text-emerald-700" :
-                  kyc.status === "rejected" ? "bg-red-100 text-red-700" :
-                  kyc.status === "under_review" ? "bg-amber-100 text-amber-700" :
-                  "bg-muted text-muted-foreground"
-                }`}>{kyc.status.replace(/_/g, " ")}</span>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize whitespace-nowrap ${
+                    kyc.status === "approved" ? "bg-emerald-100 text-emerald-700" :
+                    kyc.status === "rejected" ? "bg-red-100 text-red-700" :
+                    kyc.status === "under_review" ? "bg-amber-100 text-amber-700" :
+                    "bg-muted text-muted-foreground"
+                  }`}>{kyc.status.replace(/_/g, " ")}</span>
+                  {/* DeepFace AI badges (Wave 179) */}
+                  {kyc.ageEstimationFlag === "minor_blocked" && (
+                    <span title="Age estimation: minor detected — submission blocked" className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-900/60 text-red-300 border border-red-700/50">⚠ Minor</span>
+                  )}
+                  {kyc.ageEstimationFlag === "possible_minor" && (
+                    <span title="Age estimation: possible minor — manual review required" className="px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-900/60 text-amber-300 border border-amber-700/50">? Age</span>
+                  )}
+                  {kyc.faceMatchScore !== null && kyc.faceMatchScore !== undefined && (
+                    <span
+                      title={`DeepFace face match: ${Math.round((kyc.faceMatchScore ?? 0) * 100)}% confidence`}
+                      className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${
+                        kyc.faceMatchScore >= 0.8
+                          ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50"
+                          : kyc.faceMatchScore >= 0.6
+                          ? "bg-amber-900/60 text-amber-300 border-amber-700/50"
+                          : "bg-red-900/60 text-red-300 border-red-700/50"
+                      }`}
+                    >
+                      Face {Math.round((kyc.faceMatchScore ?? 0) * 100)}%
+                    </span>
+                  )}
+                  {kyc.duplicateDetectionFlag === "duplicate_found" && (
+                    <span title="Duplicate identity detected — possible fraud" className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-900/60 text-red-300 border border-red-700/50">⚠ Dup</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5">
                   {kyc.status === "pending" && (
                     <button onClick={() => updateStatus.mutate({ id: kyc.id, status: "under_review" })}
