@@ -136,7 +136,7 @@ export default function FraudAlertsDashboard() {
       limit: 50,
       offset: 0,
     },
-    { refetchInterval: fraudInterval }, staleTime: 30_000})
+    { refetchInterval: fraudInterval , staleTime: 30_000 })
 
   useEffect(() => {
     if (alertsData?.rows) {

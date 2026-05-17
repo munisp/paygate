@@ -296,7 +296,7 @@ export default function Inventory() {
 
   const { data: items = [], isLoading, refetch } = trpc.inventory.listItems.useQuery(
     undefined,
-    { enabled: isAuthenticated, refetchInterval: inventoryInterval }, staleTime: 30_000})
+    { enabled: isAuthenticated, refetchInterval: inventoryInterval , staleTime: 30_000 })
 
   const refresh = () => {
     utils.inventory.listItems.invalidate();

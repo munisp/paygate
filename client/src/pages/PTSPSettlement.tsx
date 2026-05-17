@@ -133,7 +133,7 @@ export default function PTSPSettlement() {
 
   const { data, isLoading, refetch, isFetching } = trpc.pos.settlementHistory.useQuery(
     { limit: 30, offset: 0 },
-    { refetchOnWindowFocus: false }, staleTime: 30_000})
+    { refetchOnWindowFocus: false , staleTime: 30_000 })
 
   const batches = data?.batches ?? [];
 

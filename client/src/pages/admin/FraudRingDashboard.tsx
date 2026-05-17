@@ -25,10 +25,10 @@ export default function FraudRingDashboard() {
   const { data: listData, isLoading, refetch } = trpc.fraudRings.list.useQuery({ status, limit: 50, offset: 0 }, { staleTime: 30_000 });
   const { data: graphData } = trpc.fraudRings.getTopology.useQuery(
     { ringId: selectedRing! },
-    { enabled: !!selectedRing }, staleTime: 30_000})
+    { enabled: !!selectedRing , staleTime: 30_000 })
   const { data: ringDetail } = trpc.fraudRings.getDetail.useQuery(
     { ringId: selectedRing! },
-    { enabled: !!selectedRing }, staleTime: 30_000})
+    { enabled: !!selectedRing , staleTime: 30_000 })
   const detail = ringDetail;
 
   const freezeRing = trpc.fraudRings.freezeRing.useMutation({

@@ -141,7 +141,7 @@ export default function FXDashboard() {
 
   const xbQuoteMutation = trpc.crossBorder.getQuote.useQuery(
     { sourceCurrency: xbForm.sourceCurrency, targetCurrency: xbForm.targetCurrency, amount: xbForm.amount, rail: xbForm.rail },
-    { enabled: false }, staleTime: 30_000})
+    { enabled: false , staleTime: 30_000 })
   const xbInitiateMutation = trpc.crossBorder.initiate.useMutation({
     onSuccess: (data) => {
       setXbResult(data);

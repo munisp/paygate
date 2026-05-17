@@ -31,7 +31,7 @@ export default function PtspBatches() {
 
   const { data, isLoading, refetch } = trpc.pos.listBatches.useQuery(
     { limit: 100 },
-    { enabled: isAuthenticated, refetchInterval: ptspInterval }, staleTime: 30_000})
+    { enabled: isAuthenticated, refetchInterval: ptspInterval , staleTime: 30_000 })
 
   const confirmBatch = trpc.pos.confirmBatch.useMutation({
     onSuccess: () => {

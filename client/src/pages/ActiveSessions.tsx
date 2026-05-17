@@ -46,10 +46,11 @@ export default function ActiveSessions() {
   }, { staleTime: 30_000 });
   const auditLogFullQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLogFull.useQuery(
     { limit: PAGE_SIZE, offset: auditPage * PAGE_SIZE },
-    { enabled: isAdmin && showAuditModal }, staleTime: 30_000})
+    { enabled: isAdmin && showAuditModal , staleTime: 30_000 })
   const notifEmailQuery = trpc.middleware.keycloak.getNotificationEmail.useQuery(undefined, {
     enabled: isAdmin && showConfigForm,
-    onSuccess: (d, { staleTime: 30_000 }) => { if (!editingEmail) setNotifEmail(d.notificationEmail ?? ""); },
+    onSuccess: (d: any) => { if (!editingEmail) setNotifEmail(d.notificationEmail ?? ""); },
+    staleTime: 30_000,
   });
 
   const saveGlobalAnomalyConfig = trpc.middleware.keycloak.setGlobalAnomalyConfig.useMutation({
@@ -88,16 +89,17 @@ export default function ActiveSessions() {
   }
 
   const { data, isLoading, refetch, isFetching } = trpc.middleware.keycloak.listActiveSessions.useQuery(
-    { userId: userIdFilter.trim(, { staleTime: 30_000 }) || undefined, limit: 100 },
+    { userId: userIdFilter.trim() || undefined, limit: 100 },
     { refetchInterval: 30000 } // auto-refresh every 30s
   );
 
   // Load anomaly config from DB
   const anomalyConfigQuery = trpc.middleware.keycloak.getAnomalyConfig.useQuery(undefined, {
-    onSuccess: (cfg, { staleTime: 30_000 }) => {
+    onSuccess: (cfg: any) => {
       setConfigWindow(cfg.loginAnomalyWindowMinutes);
       setConfigThreshold(cfg.loginAnomalyThreshold);
     },
+    staleTime: 30_000,
   });
 
   const saveAnomalyConfig = trpc.middleware.keycloak.setAnomalyConfig.useMutation({
@@ -111,7 +113,7 @@ export default function ActiveSessions() {
 
   const anomalyQuery = trpc.middleware.keycloak.checkLoginAnomalies.useQuery(
     { windowMinutes: anomalyConfigQuery.data?.loginAnomalyWindowMinutes ?? 15, threshold: anomalyConfigQuery.data?.loginAnomalyThreshold ?? 5 },
-    { refetchInterval: 60000 }, staleTime: 30_000})
+    { refetchInterval: 60000 , staleTime: 30_000 })
 
   const forceLogout = trpc.middleware.keycloak.forceLogoutSession.useMutation({
     onSuccess: (result) => {

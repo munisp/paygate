@@ -22,7 +22,7 @@ export default function SplitBillV2() {
   const { data, isLoading } = trpc.splitBillV2.listSessions.useQuery({ page }, { staleTime: 30_000 });
   const { data: sharesData } = trpc.splitBillV2.listShares.useQuery(
     { sessionId: selectedSession! },
-    { enabled: !!selectedSession }, staleTime: 30_000})
+    { enabled: !!selectedSession , staleTime: 30_000 })
 
   const createSession = trpc.splitBillV2.createSession.useMutation({
     onSuccess: () => { utils.splitBillV2.listSessions.invalidate(); setCreateOpen(false); toast({ title: "Split session created" }); },

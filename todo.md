@@ -5142,3 +5142,12 @@
 - [x] Fixed AdminTenantBilling.tsx duplicate staleTime syntax error
 - [x] Fixed reservationExpiryWorker.ts duplicate logger import
 - [x] All 115 Wave 169-175 tests still passing after bulk fix
+
+## Wave 175 Final Sweep — staleTime Syntax Fixes
+- [x] Fix 57 files with malformed `}, staleTime:` pattern (second variant)
+- [x] Fix CrossBorderRailMonitor.tsx malformed onSuccess callback
+- [x] Fix RestaurantOrders.tsx malformed new Date() call
+- [x] Fix WebhookDeliveries.tsx malformed search.trim() call
+- [x] Fix ActiveSessions.tsx malformed onSuccess and trim() calls
+- [x] TypeScript errors reduced from 284 → 0 syntax errors
+- [x] 115 tests passing, zero regressions

@@ -107,7 +107,7 @@ export default function AuditLog() {
       from: fromMs,
       to: toMs,
     },
-    { enabled: isAuthenticated, refetchInterval: auditInterval }, staleTime: 30_000})
+    { enabled: isAuthenticated, refetchInterval: auditInterval , staleTime: 30_000 })
 
   const events = data?.events ?? [];
   const total = data?.total ?? 0;

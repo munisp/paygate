@@ -19,7 +19,7 @@ export default function NodalAccounts() {
   const {isLoading, data: accounts, refetch} = trpc.newFeatures.nodalAccounts.listNodalAccounts.useQuery();
   const { data: txHistory } = trpc.newFeatures.nodalAccounts.getNodalTransactions.useQuery(
     { accountId: selectedAccount ?? "" },
-    { enabled: !!selectedAccount }, staleTime: 30_000})
+    { enabled: !!selectedAccount , staleTime: 30_000 })
 
   const createMutation = trpc.newFeatures.nodalAccounts.createNodalAccount.useMutation({
     onSuccess: (d: any) => { toast.success(`Nodal account ${d.accountNumber} created`); refetch(); },

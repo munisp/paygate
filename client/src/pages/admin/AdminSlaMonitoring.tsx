@@ -22,7 +22,7 @@ export default function AdminSlaMonitoring() {
   const adminslamonitoring_60s = useAdaptiveInterval(60_000);
   const { data: slaStats, isLoading, isError, refetch } = trpc.wave29.slaMonitoring.getStats.useQuery(
     {},
-    { refetchInterval: adminslamonitoring_60s }, staleTime: 30_000})
+    { refetchInterval: adminslamonitoring_60s , staleTime: 30_000 })
 
   const { data: incidents } = trpc.wave29.slaMonitoring.getIncidents.useQuery({ limit: 20 }, { staleTime: 30_000 });
 

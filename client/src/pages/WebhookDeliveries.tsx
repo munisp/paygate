@@ -107,7 +107,7 @@ export default function WebhookDeliveries() {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       status: statusFilter === "all" ? undefined : statusFilter,
-      search: search.trim(, { staleTime: 30_000 }) || undefined,
+      search: search.trim() || undefined,
     },
     { refetchInterval: webhookDelivInterval }
   );

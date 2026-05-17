@@ -26,7 +26,7 @@ export default function PartnerOnboardingPage() {
 
   const { data: session } = trpc.wave32.partnerOnboarding.getSession.useQuery(
     { id: selectedId! },
-    { enabled: !!selectedId }, staleTime: 30_000})
+    { enabled: !!selectedId , staleTime: 30_000 })
 
   const startMutation = trpc.wave32.partnerOnboarding.startSession.useMutation({
     onSuccess: (s) => {

@@ -66,7 +66,7 @@ export default function ConsumerSIPScheduler() {
 
   const { data: historyData } = trpc.sip.getHistory.useQuery(
     { planId: historyPlanId!, limit: 10 },
-    { enabled: !!historyPlanId }, staleTime: 30_000})
+    { enabled: !!historyPlanId , staleTime: 30_000 })
 
   const plans = (data as any)?.plans ?? [];
 

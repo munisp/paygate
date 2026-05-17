@@ -23,7 +23,7 @@ export default function ClaimDocuments() {
 
   const { data, isLoading, isError, refetch } = trpc.claimDocuments.listDocuments.useQuery(
     { claimId: searchClaimId, limit: 50, offset: 0 },
-    { enabled: !!searchClaimId }, staleTime: 30_000})
+    { enabled: !!searchClaimId , staleTime: 30_000 })
 
   const uploadDocument = trpc.claimDocuments.uploadDocument.useMutation({
     onSuccess: () => {

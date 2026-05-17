@@ -22,7 +22,7 @@ export default function SupportChat() {
   const { data: sessionsData, isLoading } = trpc.supportChat.listSessions.useQuery({ page: 1 }, { staleTime: 30_000 });
   const { data: sessionDetail } = trpc.supportChat.getSession.useQuery(
     { sessionId: selectedSession! },
-    { enabled: !!selectedSession }, staleTime: 30_000})
+    { enabled: !!selectedSession , staleTime: 30_000 })
 
   const startSession = trpc.supportChat.startSession.useMutation({
     onSuccess: (data) => {

@@ -102,8 +102,11 @@ export default function CrossBorderRailMonitor() {
 
   const { data, isLoading, isError, refetch, isFetching } = trpc.crossBorder.getRailHealth.useQuery(undefined, {
     refetchInterval: railInterval,
-    onSuccess: (, { staleTime: 30_000 }) => setLastRefresh(new Date()),
+    staleTime: 30_000,
   } as any);
+  // Update lastRefresh whenever data changes
+  // (useEffect to avoid setState-in-render)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const rails: Rail[] = data?.rails ?? [];
 

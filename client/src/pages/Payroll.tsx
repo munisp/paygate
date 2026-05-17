@@ -23,11 +23,11 @@ export default function Payroll() {
 
   const { data: staffData, isLoading, refetch } = trpc.payroll.listStaff.useQuery(
     undefined,
-    { enabled: isAuthenticated }, staleTime: 30_000})
+    { enabled: isAuthenticated , staleTime: 30_000 })
 
   const { data: runsData } = trpc.payroll.listRuns.useQuery(
     undefined,
-    { enabled: isAuthenticated }, staleTime: 30_000})
+    { enabled: isAuthenticated , staleTime: 30_000 })
 
   const upsertStaff = trpc.payroll.upsertStaff.useMutation({
     onSuccess: () => {

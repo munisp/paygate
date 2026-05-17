@@ -45,7 +45,7 @@ export default function DisputeEscalation() {
   const { data: disputes, refetch, isLoading } = trpc.wave29.disputeEscalation.list.useQuery({ limit: 50 }, { staleTime: 30_000 });
   const { data: detail } = trpc.wave29.disputeEscalation.getDetail.useQuery(
     { disputeId: selectedId! },
-    { enabled: !!selectedId }, staleTime: 30_000})
+    { enabled: !!selectedId , staleTime: 30_000 })
 
   const createDispute = trpc.wave29.disputeEscalation.create.useMutation({
     onSuccess: () => { toast.success("Dispute filed"); setShowCreate(false); refetch(); },

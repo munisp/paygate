@@ -38,7 +38,7 @@ export default function AdminWebhookAlerts() {
 
   const { data: summary, isLoading, refetch, isFetching } = trpc.admin.webhookAlerts.summary.useQuery(
     { windowMinutes },
-    { refetchInterval: adminwebhookalerts_30s }, staleTime: 30_000})
+    { refetchInterval: adminwebhookalerts_30s , staleTime: 30_000 })
 
   const acknowledgeMutation = trpc.admin.webhookAlerts.acknowledge.useMutation({
     onSuccess: () => {

@@ -22,10 +22,10 @@ export default function InternationalRemittance() {
   const { data: transfers } = trpc.newFeatures.internationalRemittance.getTransferHistory.useQuery({ page: 1, limit: 20 }, { staleTime: 30_000 });
   const { data: quoteData } = trpc.newFeatures.internationalRemittance.getQuote.useQuery(
     quoteParams ?? { corridorId: "", sendAmountUSD: 0, deliveryMethod: "bank_transfer" },
-    { enabled: !!quoteParams }, staleTime: 30_000})
+    { enabled: !!quoteParams , staleTime: 30_000 })
   const { data: trackingData } = trpc.newFeatures.internationalRemittance.trackTransfer.useQuery(
     { trackingNumber },
-    { enabled: trackingNumber.length > 5 }, staleTime: 30_000})
+    { enabled: trackingNumber.length > 5 , staleTime: 30_000 })
 
   const transferMutation = trpc.newFeatures.internationalRemittance.initiateTransfer.useMutation({
     onSuccess: (d: any) => { toast.success(`Transfer initiated: ${d.trackingNumber}`); setQuoteParams(null); },
