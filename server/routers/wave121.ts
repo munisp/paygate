@@ -21,6 +21,7 @@ import {
   chargebacks,
   fraudAlerts,
   kybVerifications,
+  kybSteps,
   invoiceFinancingV2Applications,
   loyaltyV3Programs,
   loyaltyV3Members,
@@ -497,6 +498,58 @@ export const kybMgmtRouter = router({
         }).catch(() => {});
       }
       return { flagged, note };
+    }),
+
+  // ── Director KYC sub-flow (Wave 181) ─────────────────────────────────────────
+  getVerification: protectedProcedure
+    .input(z.object({ verificationId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const [row] = await db.select().from(kybVerifications)
+        .where(and(
+          eq(kybVerifications.verificationId, input.verificationId),
+          eq(kybVerifications.merchantId, ctx.user.tenantId ?? ""),
+        ))
+        .limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "KYB verification not found" });
+      return row;
+    }),
+
+  addDirectorKyc: protectedProcedure
+    .input(z.object({
+      verificationId: z.string(),
+      stepName: z.string().default("director_kyc"),
+      directorData: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const [kyb] = await db.select().from(kybVerifications)
+        .where(and(
+          eq(kybVerifications.verificationId, input.verificationId),
+          eq(kybVerifications.merchantId, ctx.user.tenantId ?? ""),
+        ))
+        .limit(1);
+      if (!kyb) throw new TRPCError({ code: "NOT_FOUND", message: "KYB verification not found" });
+      const [step] = await db.insert(kybSteps).values({
+        verificationId: input.verificationId,
+        stepName: input.stepName,
+        status: "pending",
+        notes: input.directorData,
+        updatedAt: new Date(),
+      }).returning();
+      if (kyb.status === "pending") {
+        await db.update(kybVerifications)
+          .set({ status: "in_review", updatedAt: new Date() })
+          .where(eq(kybVerifications.verificationId, input.verificationId));
+      }
+      publishAuditEvent({
+        action: "kyb.director_kyc.submitted",
+        actorId: ctx.user.openId,
+        targetId: input.verificationId,
+        metadata: { stepId: step.id, stepName: input.stepName },
+        timestamp: new Date().toISOString(),
+      }).catch(() => {});
+      return { stepId: step.id, status: "pending" };
     }),
 });
 

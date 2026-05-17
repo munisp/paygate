@@ -1,4 +1,5 @@
 import { useState, useRef, ReactNode } from "react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Shield, CheckCircle, AlertTriangle, Clock, FileText, Upload, Eye, Download, RefreshCw, ChevronRight, Loader2, Scan, Brain, ChevronDown, ChevronUp, User, Calendar, Hash, MapPin, Flag, Info } from "lucide-react";
@@ -564,18 +565,34 @@ function KycLivePanel() {
                     <span title="Age estimation: possible minor — manual review required" className="px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-900/60 text-amber-300 border border-amber-700/50">? Age</span>
                   )}
                   {kyc.faceMatchScore !== null && kyc.faceMatchScore !== undefined && (
-                    <span
-                      title={`DeepFace face match: ${Math.round((kyc.faceMatchScore ?? 0) * 100)}% confidence`}
-                      className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${
-                        kyc.faceMatchScore >= 0.8
-                          ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50"
-                          : kyc.faceMatchScore >= 0.6
-                          ? "bg-amber-900/60 text-amber-300 border-amber-700/50"
-                          : "bg-red-900/60 text-red-300 border-red-700/50"
-                      }`}
-                    >
-                      Face {Math.round((kyc.faceMatchScore ?? 0) * 100)}%
-                    </span>
+                    kyc.livenessSessionId ? (
+                      <Link
+                        href={`/compliance/liveness/${kyc.livenessSessionId}`}
+                        title={`DeepFace face match: ${Math.round((kyc.faceMatchScore ?? 0) * 100)}% — click to view liveness replay`}
+                        className={`px-1.5 py-0.5 rounded text-xs font-semibold border cursor-pointer hover:opacity-75 transition-opacity ${
+                          kyc.faceMatchScore >= 0.8
+                            ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50"
+                            : kyc.faceMatchScore >= 0.6
+                            ? "bg-amber-900/60 text-amber-300 border-amber-700/50"
+                            : "bg-red-900/60 text-red-300 border-red-700/50"
+                        }`}
+                      >
+                        🔗 Face {Math.round((kyc.faceMatchScore ?? 0) * 100)}%
+                      </Link>
+                    ) : (
+                      <span
+                        title={`DeepFace face match: ${Math.round((kyc.faceMatchScore ?? 0) * 100)}% confidence`}
+                        className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${
+                          kyc.faceMatchScore >= 0.8
+                            ? "bg-emerald-900/60 text-emerald-300 border-emerald-700/50"
+                            : kyc.faceMatchScore >= 0.6
+                            ? "bg-amber-900/60 text-amber-300 border-amber-700/50"
+                            : "bg-red-900/60 text-red-300 border-red-700/50"
+                        }`}
+                      >
+                        Face {Math.round((kyc.faceMatchScore ?? 0) * 100)}%
+                      </span>
+                    )
                   )}
                   {kyc.duplicateDetectionFlag === "duplicate_found" && (
                     <span title="Duplicate identity detected — possible fraud" className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-900/60 text-red-300 border border-red-700/50">⚠ Dup</span>

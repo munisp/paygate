@@ -5191,3 +5191,35 @@
 - [x] Wave 180: 34 vitest tests for deepfaceSidecar.ts (all endpoints, fallbacks, thresholds)
 - [x] Wave 180: Age estimation blocking logic tests (minor_blocked, possible_minor, ok)
 - [x] Wave 180: Face match score threshold badge tests
+
+## Wave 181-185 — Production Readiness Final Sweep
+
+- [ ] Wave 181: DEEPFACE_SIDECAR_URL secret wired via webdev_request_secrets
+- [ ] Wave 181: Liveness badge → replay viewer link in ComplianceKYC
+- [ ] Wave 181: KYB director sub-flow UI wizard (/kyb/director-kyc/:id)
+- [ ] Wave 182: Env validation on startup (missing required vars → fail fast)
+- [ ] Wave 182: Global error boundary improvements + 500 fallback page
+- [ ] Wave 182: Express rate limiting (express-rate-limit) on /api routes
+- [ ] Wave 182: CORS hardening (ALLOWED_ORIGINS env enforcement)
+- [ ] Wave 182: /api/health endpoint with DB + sidecar status
+- [ ] Wave 183: Structured request logging (morgan + JSON format)
+- [ ] Wave 183: Request tracing (X-Request-ID header propagation)
+- [ ] Wave 183: Performance metrics card on Admin Dashboard
+- [ ] Wave 184: Accessibility audit fixes (aria-labels, focus rings, contrast)
+- [ ] Wave 184: Empty states for all list pages
+- [ ] Wave 184: Loading skeletons for slow queries
+- [ ] Wave 184: Mobile responsiveness fixes for KYB wizard and liveness pages
+- [ ] Wave 185: Full test suite run + final todo.md review
+
+## Wave 181-185 — Final Production Sweep
+- [x] KYBDirectorWizard page created with multi-step wizard UI
+- [x] getVerification and addDirectorKyc procedures added to kybMgmtRouter
+- [x] KYBDirectorWizard route registered in App.tsx (/kyb/director-kyc/:id)
+- [x] Liveness badge → replay viewer link added to ComplianceKYC admin view
+- [x] DEEPFACE_SIDECAR_URL wired into env.ts (default: http://localhost:8001)
+- [x] Wave 182: All production readiness features already in place (rate limiting, helmet, CORS, health endpoints, env validation)
+- [x] Wave 183: OpenTelemetry tracing, Prometheus metrics, structured logging all already in place
+- [x] Wave 184: Skip-to-content accessibility link added to Layout.tsx
+- [x] Wave 184: main landmark aria-label added to Layout.tsx
+- [x] Wave 185: GoLiveChecklist updated with Wave 176-181 items (DeepFace, NDPR, NIBSS, SCUML)
+- [x] 149 Wave 171-185 tests passing, 7384 total tests passing

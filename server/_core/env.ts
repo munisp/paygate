@@ -333,4 +333,6 @@ export const ENV = {
   // PIX: Brazil Instant Payment System (via BCB)
   pixGatewayUrl: process.env.PIX_GATEWAY_URL ?? 'https://sandbox.bcb.gov.br/pix/v1',
   pixApiKey: process.env.PIX_API_KEY ?? '',
+  // DeepFace sidecar
+  deepfaceSidecarUrl: process.env.DEEPFACE_SIDECAR_URL ?? 'http://localhost:8001',
 };

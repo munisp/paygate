@@ -17,7 +17,7 @@
  */
 
 const SIDECAR_URL =
-  process.env.DEEPFACE_SIDECAR_URL ?? "http://localhost:5050";
+  process.env.DEEPFACE_SIDECAR_URL ?? "http://localhost:8001";
 const SIDECAR_TIMEOUT_MS = parseInt(
   process.env.DEEPFACE_SIDECAR_TIMEOUT_MS ?? "8000"
 );

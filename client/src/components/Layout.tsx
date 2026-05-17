@@ -756,6 +756,13 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
+      {/* Skip to main content — keyboard / screen-reader accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:text-sm focus:font-medium"
+      >
+        Skip to main content
+      </a>
       {/* Desktop Sidebar */}
       <aside
         className={`hidden lg:flex flex-col bg-sidebar transition-all duration-300 flex-shrink-0 ${
@@ -930,7 +937,7 @@ export default function Layout({ children }: LayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main id="main-content" aria-label="Main content" className="flex-1 overflow-y-auto">
           {children}
         </main>
       </div>

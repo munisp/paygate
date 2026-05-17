@@ -7,15 +7,16 @@
   ],
   "dev_command": "pnpm run dev",
   "env_vars": {
-    "DATABASE_URL": "mysql://2t5rixfHAYLQmtB.7eb00fb93a2d:vpq87OMHcv4SS5tv1i4N@gateway04.us-east-1.prod.aws.tidbcloud.com:4000/cmub7FPkYZGWin9HgyNbPk?ssl={\"rejectUnauthorized\":true}"
+    "DATABASE_URL": "mysql://2t5rixfHAYLQmtB.7eb00fb93a2d:vpq87OMHcv4SS5tv1i4N@gateway04.us-east-1.prod.aws.tidbcloud.com:4000/cmub7FPkYZGWin9HgyNbPk?ssl={\"rejectUnauthorized\":true}",
+    "DRIZZLE_DATABASE_URL": "mysql://2t5rixfHAYLQmtB.7eb00fb93a2d:vpq87OMHcv4SS5tv1i4N@gateway04.us-east-1.prod.aws.tidbcloud.com:4000/cmub7FPkYZGWin9HgyNbPk?ssl={\"rejectUnauthorized\":true}"
   },
   "experiments": null,
   "git_remote": {
     "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663412555753/cmub7FPkYZGWin9HgyNbPk",
-    "access_key_id": "ASIAZV3A2ECZEISJJZS4",
-    "secret_access_key": "yvcJhW/ZHD4cM4OjZJrEx7XeLxdIyG1VUisRxbD8",
-    "session_token": "IQoJb3JpZ2luX2VjELL//////////wEaCXVzLWVhc3QtMSJHMEUCIHYC9CgTqgRDDZNxS3z2Dq9TRS1lgELhmzFB9UJnH1J/AiEA3igu5tLNCjXcTrLUPD+GHXLlFEb1Jla/vYvoGiru9mkq9gMIexAEGgw2NjUzODYwOTg4NjYiDOecSyUtel0E9tcUWCrTA0YJmVefbP8jh0O7Myx8Xz8sqi+r26UL74KCoJJLlOYRZpDbXGSngBjrFrdPZ9mhu5TdpMQnvEgoAWrsA3+HJcllhd+/3/Yrc/hMtJOilVg5Zle2wxinJEEk0MsLYh+V93HijvLyiGz8COt4z21FfxNJJTYRAv7f6EvcNf97cWlPt2nIQ3Hwy/NybKyToghjtud3MidP1OYOMuFC0eWsNxPCHauU4pBEo04x+TGPJwnLZE0VaN0+uo32jqo8noqIml8UJdg81hu5k0bZ1TWeUsO2GHf6wVFGCMd3cPZWVYAb0aNuZhqhcqwovNHNQaV5cXj/0MvW26Kdy4S6VmJ6RqFBecJbk1+6fIsP33Z2+Jy3ydKMy9s8UF7Bs1SPGZPICUwhrBOtBMXwhFlU/sVz8dcQppJ2760uLqNhonXiPxB5TItngewbpP9JVgtfCZnE55YQVmZQKcqKsoDP3pgN6HCYrnBkBNDY9JuFg1AZWIjEQxIrb/wG4jRrBRuR0RASKVdXlTWAvBpC4skCmJHhjxrpHpU7Yin9z4yjpWpRQdTuRNs+ZZ4PiIzlNRKlj1EBlU49TvrJGtnoFRhyKNPxT8yEEXcWsYVAwutchQsuHe9eMymVMIuxndAGOp0BKael3i+auOBBwGXEg4IhgBbdFNExOBN052XOfFV0t/8FGL4CQHdlN3iZ1GLUf6Q+vi3sFxjUW3xoTFmFlbC2RjQjlBLVBvSFSZ/BzqbfSmaxfPglGUxtohS1qj9Ka8/628N8SY1nTD+iIILC2rqMU34G6vwr6K4Yz0FLsmWBKexorOsDnec9TAtVmwGdrD7JlA3aJ78TI/qC2AoTfA==",
-    "expiration": "2026-05-16T05:31:55.000Z"
+    "access_key_id": "ASIAZV3A2ECZFLPYLIIF",
+    "secret_access_key": "mWwYDU8OOHrXiHVecCEPTAIQVreeX+7J2HBNEZE+",
+    "session_token": "IQoJb3JpZ2luX2VjEOL//////////wEaCXVzLWVhc3QtMSJHMEUCIQCNEK1UNtbt1dVXP/kWQyPhg8t/ZIqekZosVMnnwNkM6QIgDWdoFr3v7WuxAWr5X37AGxE/JwOHfLcUxnqhP83tyHoq/wMIq///////////ARAEGgw2NjUzODYwOTg4NjYiDBZ/O7kfGGxSG5wUkSrTA5EU/wwAzpq/Xm22g1BeBAcYzpdtdzvUPR7NNWqoDM8M53eYYO1mW2/7nQKXMnyl690lJsgz8zHU6KDfeIV4Mv1x4J9q1uGvknlreppqYsolUDB7jfi9pIvVzZPhwjjnvstU/R27cIg+od5HiK56hMTObyia88HlkYesh7oVVz1iNfQX5GEbs1iQKacUSqLyWZqLFV8cdIBpHhyVyKYZyKNYpqgfUr9JloiadPvbwa4gXnE9oQskfREbdr4wVWttgAEDNX+ENT4F+oudiVhMIdeT2cdB0v/7BsWew3ryi7QK8PjTsex+IqczKbfIvSlhtNh4HQ0CeRf2Fez/TGNAWj338njLPIPFpiUrXaDv00QB89ykBmeykobmk3GS7SuJMOnUJxQReCU/gZQ/KF1z7cnxb6ytYL099LX7kSN3ecp5Gb1PS5hkBaMH4XRLEkjGmmUpO8/XHD55eDfXO7J0x0MG+J3ttRGSqe4fjK1x06FCil6Z4HfR4e0Vx/MJjJ6X8qXeHj5fHrJ8QwNBebjHnOtJAMpKJ3F6sZ+UgQMeZm3C+IWMY3MJCs7IZLhYZzpjYNQp68VMefed4gxdGVrigpAC5trGV+tHiHlj7fFWOPrN5r1AMJCAqNAGOp0B1ANjw9EdzQaWG5pg8VIjzpikddzmqr0S+gfxZEuI3DoSE/XDKzNHKn3MwX4IIaa0YqZpPWd7gQ1gti0HTCu3NStPAt9jPg22h7BEGL15qGJ7W6nWps5AwleaZ9TfPniS4rf3KpPdaWljiMdzc/gQgph2RKOXwbafZtSDSeWI1e6BpKtCz+Lqfdfe6yCjUhREzblx9HKBpqRCboOIrg==",
+    "expiration": "2026-05-18T05:51:12.000Z"
   },
   "name": "paygate-merchant-portal",
   "path": "/home/ubuntu/paygate-merchant-portal",
@@ -24,6 +25,7 @@
     "ALLOWED_ORIGINS": "https://paygate.ng,https://merchant.paygate.ng,https://consumer.paygate.ng",
     "BUILT_IN_FORGE_API_KEY": "VF7e8WdVA284aZbyLxMZby",
     "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "DEEPFACE_SIDECAR_URL": "http://localhost:8001",
     "FLUVIO_ENDPOINT": "fluvio:9003",
     "FRAUD_SCORING_URL": "http://fraud-scoring:8083",
     "INTERNAL_API_KEY": "paygate-internal-api-key-2026",
