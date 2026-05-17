@@ -32,7 +32,8 @@ const ENTITY_PATHS: Record<string, string> = {
   dispute: "/disputes",
   payout: "/payouts",
   transaction: "/transactions",
-  kyc: "/compliance",
+  kyc: "/onboarding",
+  kyc_submission: "/onboarding",
 };
 
 function getTypeConfig(type: string) {
@@ -98,8 +99,20 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
         const parsed = typeof data === "string" ? JSON.parse(data) : data;
         utils.notifications.list.invalidate();
         utils.notifications.unreadCount.invalidate();
-        if (["fraud", "fraud_alert", "dispute_escalated", "payout_approved"].includes(parsed.type ?? "")) {
-          toast.warning(parsed.title ?? "New notification", { description: parsed.message ?? "", duration: 6000 });
+        const type = parsed.type ?? "";
+        const title = parsed.title ?? "New notification";
+        const description = parsed.message ?? "";
+        if (type === "kyc") {
+          // KYC status change — show prominent toast
+          if (title.toLowerCase().includes("approved")) {
+            toast.success(title, { description, duration: 8000 });
+          } else {
+            toast.error(title, { description, duration: 10000 });
+          }
+        } else if (["fraud", "fraud_alert", "dispute_escalated", "payout_approved"].includes(type)) {
+          toast.warning(title, { description, duration: 6000 });
+        } else if (type) {
+          toast.info(title, { description, duration: 5000 });
         }
       } catch { /* ignore */ }
     },

@@ -248,6 +248,11 @@ const kycReviewRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { kycSubmissions } = await import("../drizzle/schema");
+      // Fetch existing submission to get merchantId before updating
+      const [existing] = await db.select({ merchantId: kycSubmissions.merchantId })
+        .from(kycSubmissions)
+        .where(eq(kycSubmissions.id, input.submissionId as any))
+        .limit(1);
       await db.update(kycSubmissions)
         .set({
           status: input.decision as any,
@@ -257,7 +262,61 @@ const kycReviewRouter = router({
           updatedAt: new Date(),
         } as any)
         .where(eq(kycSubmissions.id, input.submissionId as any));
+      // Trigger in-app notification + real-time SSE push to merchant
+      if (existing?.merchantId) {
+        const { createMerchantNotification } = await import('./db');
+        const { broadcastNotification } = await import('./notifBroadcast');
+        const isApproved = input.decision === 'approved';
+        const notifTitle = isApproved
+          ? 'KYC/KYB Verification Approved ✓'
+          : 'KYC/KYB Verification Rejected';
+        const notifBody = isApproved
+          ? 'Your KYC/KYB documents have been reviewed and approved. You now have full access to all PayGate features.'
+          : `Your KYC/KYB submission was rejected. Reason: ${input.notes ?? 'Please resubmit with valid documents.'}`;
+        await createMerchantNotification({
+          merchantId: existing.merchantId,
+          type: 'kyc',
+          title: notifTitle,
+          body: notifBody,
+          entityId: String(input.submissionId),
+          entityType: 'kyc_submission',
+          priority: 'high',
+          actionUrl: isApproved ? '/dashboard' : '/onboarding',
+          metadata: {
+            submissionId: input.submissionId,
+            decision: input.decision,
+            reviewedBy: ctx.user.openId,
+            reviewedAt: new Date().toISOString(),
+            ...(input.notes ? { notes: input.notes } : {}),
+          },
+        }).catch(() => { /* non-fatal */ });
+        // Push real-time SSE event to merchant if connected
+        broadcastNotification(existing.merchantId, {
+          type: 'kyc',
+          title: notifTitle,
+          message: notifBody,
+        });
+      }
       return { reviewed: true, decision: input.decision };
+    }),
+
+  getSubmission: adminProcedure
+    .input(z.object({ submissionId: z.number().int() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const { kycSubmissions, merchants } = await import('../drizzle/schema');
+      const [row] = await db
+        .select({
+          submission: kycSubmissions,
+          merchantName: merchants.businessName,
+          merchantEmail: merchants.email,
+        })
+        .from(kycSubmissions)
+        .leftJoin(merchants, eq(kycSubmissions.merchantId, merchants.id))
+        .where(eq(kycSubmissions.id, input.submissionId as any))
+        .limit(1);
+      return row ?? null;
     }),
 
   getStats: adminProcedure.query(async () => {

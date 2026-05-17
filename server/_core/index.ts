@@ -1720,7 +1720,7 @@ async function startServer() {
   // ─── SSE: Notifications Stream ─────────────────────────────────────────────
   const notifClients = new Map<string, Set<any>>();
 
-  (app as any)._notifBroadcast = (merchantId: string, notification: unknown) => {
+  const _notifBroadcastFn = (merchantId: string, notification: unknown) => {
     const clients = notifClients.get(merchantId);
     if (!clients || clients.size === 0) return;
     const payload = `event: notification\ndata: ${JSON.stringify(notification)}\n\n`;
@@ -1728,6 +1728,12 @@ async function startServer() {
       try { res.write(payload); } catch { clients.delete(res); }
     }
   };
+  (app as any)._notifBroadcast = _notifBroadcastFn;
+  // Register in module-level registry so routers can call broadcastNotification()
+  {
+    const { registerNotifBroadcaster } = await import("../notifBroadcast");
+    registerNotifBroadcaster(_notifBroadcastFn);
+  }
 
   app.get("/api/notifications/stream", async (req: any, res: any) => {
     try {
@@ -1753,6 +1759,36 @@ async function startServer() {
         try { res.write(`: heartbeat\n\n`); } catch { clearInterval(heartbeat); }
       }, 25_000);
 
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        notifClients.get(merchantId)?.delete(res);
+      });
+    } catch {
+      res.status(500).json({ error: "Notification SSE setup failed" });
+    }
+  });
+
+  // ─── SSE: Alias route (/api/events/notifications) used by frontend NotificationPanel ───
+  app.get("/api/events/notifications", async (req: any, res: any) => {
+    try {
+      const ctx = await createContext({ req, res } as any);
+      if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
+      const { getUserByOpenId, getMerchantByOwnerId } = await import("../db");
+      const user = await getUserByOpenId(ctx.user.openId);
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+      const merchant = await getMerchantByOwnerId(user.id);
+      if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+      const merchantId = merchant.id;
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+      if (!notifClients.has(merchantId)) notifClients.set(merchantId, new Set());
+      notifClients.get(merchantId)!.add(res);
+      const heartbeat = setInterval(() => {
+        try { res.write(`: heartbeat\n\n`); } catch { clearInterval(heartbeat); }
+      }, 25_000);
       req.on("close", () => {
         clearInterval(heartbeat);
         notifClients.get(merchantId)?.delete(res);

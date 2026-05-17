@@ -5270,3 +5270,18 @@
 - [x] Add date range picker to Transactions filter bar
 - [x] Add amount range filter to Transactions filter bar
 - [x] Add channel and currency filters to Transactions filter bar
+
+## Session 4 — KYC Admin Dashboard, In-App Notifications, mTLS, SKILL.md (May 2026)
+
+- [x] Enhance AdminKYCReview.tsx with document lightbox (full-screen image viewer)
+- [x] Add detail side panel to AdminKYCReview (BVN match score, face match score, liveness score, OCR confidence, duplicate flag)
+- [x] Add getSubmission procedure to admin.kyc router (returns full kycSubmissions row + merchant info)
+- [x] Wire reviewSubmission to trigger merchant notification + SSE broadcast after approve/reject
+- [x] Create server/notifBroadcast.ts module for SSE broadcasting from any router
+- [x] Register notifBroadcaster in server/_core/index.ts
+- [x] Add /api/events/notifications SSE alias route in index.ts (frontend compatibility)
+- [x] Enhance NotificationPanel with KYC-specific toasts (success green / rejection red)
+- [x] Add kyc_submission entity path to NotificationPanel routing (→ /onboarding or /dashboard)
+- [x] Generate mTLS certificates in infra/certs/ (ca.crt, server.crt, client.crt)
+- [x] Create /home/ubuntu/skills/paygate-merchant-portal/SKILL.md with full platform documentation
+- [x] All 7,400 tests passing (165 test files, 0 failures)
