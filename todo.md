@@ -5038,3 +5038,10 @@
 - [x] ComplianceKYC.tsx: Export CSV button with loading state, blob download, toast feedback
 - [x] Stripe sandbox: already wired in Billing.tsx (getKeyMode, claim banner, checkout session, webhook handler)
 - [x] Wave 167 liveness noise-fix tests: 30 passing tests (schema, noise-adaptive scoring, ensemble, combined, active challenge, CSV)
+
+## Wave 168 — Verification of Suggested Next Steps
+- [x] Pagination audit: TeamRoles, PartnerAdminDashboard, consumer/Contacts, consumer/SplitBill — all already have PaginationControls (completed in earlier waves)
+- [x] Stripe portal plan price IDs: keeping defaults (price_starter_monthly, price_growth_monthly, price_enterprise_monthly) — user to update via Settings → Secrets when Stripe products are created
+- [x] Nightly security heartbeat: already active and running (last fired 2026-05-17T02:00:18Z, next 2026-05-18T02:00:00Z, task_uid: Lhg6ySws7qkgZzsE6r4xtn)
+- [x] Keycloak realm backup heartbeat: also active (last fired 2026-05-17T02:00:07Z, task_uid: HjdL7qAGHaXWQTxLGyYJrg)
+- [x] 31 tests passing (30 Wave 167 liveness + 1 auth.logout)
