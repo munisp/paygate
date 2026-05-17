@@ -173,6 +173,7 @@ export const ENV = {
   nibssGatewayUrl: process.env.NIBSS_GATEWAY_URL ?? "https://nibss-plc.com.ng/nip/v1",
   nibssInstitutionCode: process.env.NIBSS_INSTITUTION_CODE ?? "000000",
   nibssSecretKey: process.env.NIBSS_SECRET_KEY ?? "",
+  nibssApiKey: process.env.NIBSS_SECRET_KEY ?? "",  // alias used by BVN cross-validation (Wave 171)
   nibssWebhookSecret: process.env.NIBSS_WEBHOOK_SECRET ?? "",
   nipApiKey: process.env.NIP_API_KEY ?? "",
 

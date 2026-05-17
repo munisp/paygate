@@ -51,6 +51,9 @@ const APIKeys = lz(() => import("./pages/APIKeys"));
 const Webhooks = lz(() => import("./pages/Webhooks"));
 const WebhookDeliveries = lz(() => import("./pages/WebhookDeliveries"));
 const Settings = lz(() => import("./pages/Settings"));
+const LocaleSettings = lz(() => import("./pages/LocaleSettings"));
+const AdverseMediaPanel = lz(() => import("./pages/AdverseMediaPanel"));
+const SCUMLStatus = lz(() => import("./pages/SCUMLStatus"));
 const Payouts = lz(() => import("./pages/Payouts"));
 const USDCPayouts = lz(() => import("./pages/USDCPayouts"));
 const Disputes = lz(() => import("./pages/Disputes"));
@@ -568,6 +571,9 @@ function Router() {
         <Route path={"/webhooks/simulator"} component={WebhookSimulator} />
           <Route path="/webhooks/deliveries" component={WebhookDeliveries} />
           <Route path="/settings" component={Settings} />
+          <Route path="/settings/locale" component={LocaleSettings} />
+          <Route path="/compliance/adverse-media" component={AdverseMediaPanel} />
+          <Route path="/compliance/scuml" component={SCUMLStatus} />
           <Route path="/qr-payments" component={QRPayments} />
           <Route path="/cross-border" component={CrossBorder} />
           <Route path="/cross-border/rail-monitor" component={CrossBorderRailMonitor} />

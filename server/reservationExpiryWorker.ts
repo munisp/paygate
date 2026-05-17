@@ -1,4 +1,3 @@
-import { logger } from './logger';
 /**
  * PayGate Reservation Expiry Worker
  *

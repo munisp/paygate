@@ -519,6 +519,17 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   ocrExtractedData: jsonb("ocr_extracted_data"),
   ocrConfidence: real("ocr_confidence"),
   ocrProcessedAt: timestamp("ocr_processed_at"),
+  // BVN cross-validation — Wave 171
+  bvnNumber: text("bvn_number"),
+  bvnMatchScore: real("bvn_match_score"),
+  bvnVerifiedAt: timestamp("bvn_verified_at"),
+  bvnVerificationStatus: text("bvn_verification_status"), // 'matched'|'mismatch'|'not_found'|'skipped'
+  // Document expiry enforcement — Wave 171
+  documentExpiryDate: timestamp("document_expiry_date"),
+  documentExpired: boolean("document_expired").default(false),
+  // Liveness retry throttling — Wave 171
+  livenessRetryCount: integer("liveness_retry_count").default(0).notNull(),
+  livenessBlockedUntil: timestamp("liveness_blocked_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -526,6 +537,7 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   index("kyc_merchant_idx").on(t.merchantId),
   index("kyc_status_idx").on(t.status),
   index("kyc_liveness_idx").on(t.livenessScore),
+  index("kyc_bvn_status_idx").on(t.bvnVerificationStatus),
 ]);
 export type KycSubmission = typeof kycSubmissions.$inferSelect;
 export type InsertKycSubmission = typeof kycSubmissions.$inferInsert;
@@ -2046,11 +2058,20 @@ export const kybVerifications = pgTable("kyb_verifications", {
   riskLevel: text("risk_level"),
   initiatedBy: text("initiated_by"),
   startedAt: timestamp("started_at"),
+  // KYB renewal reminders (Wave 173)
+  expiresAt: timestamp("expires_at"),                    // KYB valid for 2 years by default
+  renewalReminderSentAt: timestamp("renewal_reminder_sent_at"), // last reminder sent
+  // Geo-velocity check (Wave 173)
+  lastKnownIp: text("last_known_ip"),
+  lastKnownCountry: text("last_known_country"),
+  geoVelocityFlagged: boolean("geo_velocity_flagged").default(false),
+  geoVelocityNote: text("geo_velocity_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("kyb_merchant_idx").on(t.merchantId),
   index("kyb_status_idx").on(t.status),
+  index("kyb_expires_idx").on(t.expiresAt),
 ]);
 export type KYBVerification = typeof kybVerifications.$inferSelect;
 
@@ -4499,12 +4520,16 @@ export const livenessSessions = pgTable("liveness_sessions", {
   userAgent: text("user_agent"),
   deviceType: text("device_type"),
   durationMs: integer("duration_ms"),
+  // NDPR biometric data retention (Wave 173)
+  retentionExpiresAt: timestamp("retention_expires_at"),  // 90 days from createdAt by default
+  ndprPurgedAt: timestamp("ndpr_purged_at"),              // set when S3 frames are deleted
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("liveness_sessions_merchant_idx").on(t.merchantId),
   index("liveness_sessions_submission_idx").on(t.submissionId),
   index("liveness_sessions_decision_idx").on(t.decision),
   index("liveness_sessions_created_idx").on(t.createdAt),
+  index("liveness_sessions_retention_idx").on(t.retentionExpiresAt),
 ]);
 export type LivenessSession = typeof livenessSessions.$inferSelect;
 export type InsertLivenessSession = typeof livenessSessions.$inferInsert;
@@ -4578,3 +4603,152 @@ export const networkQualityEvents = pgTable("network_quality_events", {
 ]);
 export type NetworkQualityEvent = typeof networkQualityEvents.$inferSelect;
 export type InsertNetworkQualityEvent = typeof networkQualityEvents.$inferInsert;
+
+// ─── Wave 174: UBO (Ultimate Beneficial Owners) Mapping ──────────────────────
+export const uboOwners = pgTable("ubo_owners", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  verificationId: text("verification_id").notNull(),   // FK → kyb_verifications
+  merchantId: text("merchant_id").notNull(),
+  fullName: text("full_name").notNull(),
+  bvn: text("bvn"),
+  nin: text("nin"),
+  ownershipPct: real("ownership_pct").notNull(),        // 0–100
+  isPep: boolean("is_pep").default(false).notNull(),    // Politically Exposed Person
+  kycStatus: text("kyc_status").default("pending"),     // pending | approved | rejected
+  kycSubmissionId: text("kyc_submission_id"),           // FK → kyc_submissions
+  adverseMediaFlagged: boolean("adverse_media_flagged").default(false),
+  adverseMediaNote: text("adverse_media_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("ubo_verification_idx").on(t.verificationId),
+  index("ubo_merchant_idx").on(t.merchantId),
+]);
+export type UBOOwner = typeof uboOwners.$inferSelect;
+export type InsertUBOOwner = typeof uboOwners.$inferInsert;
+
+// ─── Wave 174: Adverse Media Screening ───────────────────────────────────────
+export const adverseMediaScreenings = pgTable("adverse_media_screenings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  entityType: text("entity_type").notNull(),            // merchant | ubo | director
+  entityId: text("entity_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  query: text("query").notNull(),                       // name + country used for search
+  provider: text("provider").default("llm_search"),    // llm_search | youverify | manual
+  result: text("result"),                               // raw result JSON
+  flagged: boolean("flagged").default(false).notNull(),
+  flagReason: text("flag_reason"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("adverse_media_entity_idx").on(t.entityType, t.entityId),
+  index("adverse_media_merchant_idx").on(t.merchantId),
+  index("adverse_media_flagged_idx").on(t.flagged),
+]);
+export type AdverseMediaScreening = typeof adverseMediaScreenings.$inferSelect;
+export type InsertAdverseMediaScreening = typeof adverseMediaScreenings.$inferInsert;
+
+// ─── Wave 174: Temporal Consistency Checks ───────────────────────────────────
+export const temporalConsistencyChecks = pgTable("temporal_consistency_checks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  submissionId: text("submission_id").notNull(),        // FK → kyc_submissions
+  merchantId: text("merchant_id").notNull(),
+  checkType: text("check_type").notNull(),              // doc_expiry | dob_mismatch | address_mismatch | name_mismatch
+  fieldA: text("field_a"),                              // value from document
+  fieldB: text("field_b"),                              // value from database / BVN
+  passed: boolean("passed").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("temporal_submission_idx").on(t.submissionId),
+  index("temporal_merchant_idx").on(t.merchantId),
+  index("temporal_check_type_idx").on(t.checkType),
+]);
+export type TemporalConsistencyCheck = typeof temporalConsistencyChecks.$inferSelect;
+export type InsertTemporalConsistencyCheck = typeof temporalConsistencyChecks.$inferInsert;
+
+// ─── Wave 174: Automated KYB Risk Scores ─────────────────────────────────────
+export const kybRiskScores = pgTable("kyb_risk_scores", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  verificationId: text("verification_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  compositeScore: real("composite_score").notNull(),    // 0–100 (higher = riskier)
+  riskBand: text("risk_band").notNull(),                // low | medium | high | critical
+  // Sub-scores (0–100 each)
+  uboRiskScore: real("ubo_risk_score"),
+  adverseMediaScore: real("adverse_media_score"),
+  geoVelocityScore: real("geo_velocity_score"),
+  documentQualityScore: real("document_quality_score"),
+  livenessScore: real("liveness_score"),
+  bvnMatchScore: real("bvn_match_score"),
+  // Metadata
+  scoredAt: timestamp("scored_at").defaultNow().notNull(),
+  scoredBy: text("scored_by").default("auto"),          // auto | manual:<userId>
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("kyb_risk_verification_idx").on(t.verificationId),
+  index("kyb_risk_merchant_idx").on(t.merchantId),
+  index("kyb_risk_band_idx").on(t.riskBand),
+]);
+export type KYBRiskScore = typeof kybRiskScores.$inferSelect;
+export type InsertKYBRiskScore = typeof kybRiskScores.$inferInsert;
+
+// ─── Wave 175: SCUML (Special Control Unit against Money Laundering) Checks ───
+export const scumlChecks = pgTable("scuml_checks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  verificationId: text("verification_id"),              // FK → kyb_verifications (optional)
+  entityName: text("entity_name").notNull(),
+  rcNumber: text("rc_number"),
+  checkType: text("check_type").notNull(),              // registration | renewal | amendment
+  status: text("status").default("pending"),            // pending | cleared | flagged | error
+  scumlRef: text("scuml_ref"),                          // SCUML registration reference number
+  flagReason: text("flag_reason"),
+  checkedAt: timestamp("checked_at"),
+  expiresAt: timestamp("expires_at"),                   // SCUML registration valid for 1 year
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("scuml_merchant_idx").on(t.merchantId),
+  index("scuml_status_idx").on(t.status),
+  index("scuml_expires_idx").on(t.expiresAt),
+]);
+export type SCUMLCheck = typeof scumlChecks.$inferSelect;
+export type InsertSCUMLCheck = typeof scumlChecks.$inferInsert;
+
+// ─── Wave 175: Accessibility Fallback Sessions ────────────────────────────────
+// Tracks when users trigger the accessibility fallback path (manual review)
+// instead of automated liveness (e.g., camera unavailable, disability accommodation)
+export const accessibilityFallbackSessions = pgTable("accessibility_fallback_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  submissionId: text("submission_id"),                  // FK → kyc_submissions
+  reason: text("reason").notNull(),                     // camera_unavailable | disability | device_unsupported | other
+  reviewStatus: text("review_status").default("pending"), // pending | approved | rejected
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("a11y_fallback_merchant_idx").on(t.merchantId),
+  index("a11y_fallback_status_idx").on(t.reviewStatus),
+]);
+export type AccessibilityFallbackSession = typeof accessibilityFallbackSessions.$inferSelect;
+export type InsertAccessibilityFallbackSession = typeof accessibilityFallbackSessions.$inferInsert;
+
+// ─── Wave 175: i18n Locale Preferences ───────────────────────────────────────
+export const userLocalePreferences = pgTable("user_locale_preferences", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().unique(),
+  locale: text("locale").default("en-NG").notNull(),    // BCP-47 locale tag
+  currency: text("currency").default("NGN").notNull(),  // ISO-4217
+  timezone: text("timezone").default("Africa/Lagos").notNull(),
+  dateFormat: text("date_format").default("DD/MM/YYYY").notNull(),
+  numberFormat: text("number_format").default("1,234.56").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("locale_user_idx").on(t.userId),
+]);
+export type UserLocalePreference = typeof userLocalePreferences.$inferSelect;
+export type InsertUserLocalePreference = typeof userLocalePreferences.$inferInsert;

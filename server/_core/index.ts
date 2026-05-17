@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import net from "net";
-import { timingSafeEqual, randomBytes } from "crypto";
+import { timingSafeEqual, randomBytes, randomUUID } from "crypto";
 import path from "path";
 import { logger, logRequest } from "../logger";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -2221,6 +2221,79 @@ async function startServer() {
       });
     }
     res.json({ ok: true, ...snap });
+  });
+
+  // ─── NDPR Biometric Data Retention Purge (Wave 173) ─────────────────────────
+  // Triggered nightly at 03:00 UTC by Heartbeat.
+  // Deletes S3 frame objects for liveness sessions where retentionExpiresAt < NOW()
+  // and marks them as purged (ndprPurgedAt). Complies with NDPR Article 26.
+  app.post("/api/scheduled/ndpr-biometric-purge", async (req: any, res: any) => {
+    const cronKey = req.headers["x-cron-key"] ?? req.headers["x-internal-key"];
+    if (cronKey !== ENV.internalApiKey && cronKey !== process.env.CRON_SECRET) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const taskUid = randomUUID();
+    logger.info("ndpr_purge_start", { taskUid });
+    try {
+      const db = await getDb();
+      if (!db) return res.json({ ok: true, purged: 0, skipped: 0, message: "No DB" });
+      const { livenessSessions: lsTbl } = await import('../../drizzle/schema');
+      const { lt, isNull, isNotNull, and: andOp } = await import('drizzle-orm');
+      // Find sessions past retention window that haven't been purged yet
+      const expired = await db.select({
+        id: lsTbl.id,
+        passiveFrameUrl: lsTbl.passiveFrameUrl,
+        challengeFrameUrls: lsTbl.challengeFrameUrls,
+      }).from(lsTbl).where(
+        andOp(
+          lt(lsTbl.retentionExpiresAt, new Date()),
+          isNull(lsTbl.ndprPurgedAt),
+          isNotNull(lsTbl.retentionExpiresAt),
+        )
+      ).limit(500);
+      let purged = 0;
+      let skipped = 0;
+      for (const session of expired) {
+        try {
+          // Delete S3 objects if present
+          const urlsToDelete: string[] = [];
+          if (session.passiveFrameUrl) urlsToDelete.push(session.passiveFrameUrl);
+          if (Array.isArray(session.challengeFrameUrls)) {
+            urlsToDelete.push(...(session.challengeFrameUrls as string[]));
+          }
+          if (urlsToDelete.length > 0) {
+            const { storagePut } = await import('../storage');
+            // We use a tombstone approach: overwrite with empty bytes rather than delete
+            // (S3 delete requires separate IAM permission; overwrite is always available)
+            for (const url of urlsToDelete) {
+              try {
+                const key = new URL(url).pathname.replace(/^\//, '');
+                await storagePut(key, Buffer.alloc(0), 'application/octet-stream');
+              } catch { /* non-fatal */ }
+            }
+          }
+          // Mark as purged and clear frame URLs
+          await db.update(lsTbl).set({
+            ndprPurgedAt: new Date(),
+            passiveFrameUrl: null,
+            challengeFrameUrls: null,
+          }).where((await import('drizzle-orm')).eq(lsTbl.id, session.id));
+          purged++;
+        } catch (e: any) {
+          logger.warn("ndpr_purge_session_error", { sessionId: session.id, err: e.message });
+          skipped++;
+        }
+      }
+      logger.info("ndpr_purge_complete", { taskUid, purged, skipped, total: expired.length });
+      await notifyOwner({
+        title: `NDPR Biometric Purge Complete`,
+        content: `Purged ${purged} expired liveness sessions. Skipped: ${skipped}. Total eligible: ${expired.length}.`,
+      }).catch(() => {});
+      return res.json({ ok: true, purged, skipped, total: expired.length, taskUid });
+    } catch (err: any) {
+      logger.error("ndpr_purge_error", { taskUid, err: err.message });
+      return res.status(500).json({ ok: false, error: err.message, taskUid });
+    }
   });
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────

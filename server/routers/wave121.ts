@@ -419,6 +419,85 @@ export const kybMgmtRouter = router({
       .groupBy(kybVerifications.status);
     return rows.map(r => ({ status: r.status, count: Number(r.count) }));
   }),
+
+  // ── KYB Renewal Reminder (Wave 173) ──────────────────────────────────────
+  // Returns KYB verifications expiring within `daysAhead` days (default 30).
+  // Sends an owner notification for each merchant approaching expiry.
+  sendRenewalReminders: protectedProcedure
+    .input(z.object({ daysAhead: z.number().int().min(1).max(90).default(30) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const cutoff = new Date(Date.now() + input.daysAhead * 86_400_000);
+      const now = new Date();
+      const { lt, gt, isNull, or, and: andOp } = await import('drizzle-orm');
+      const expiring = await db.select().from(kybVerifications).where(
+        andOp(
+          eq(kybVerifications.status, 'approved'),
+          lt(kybVerifications.expiresAt!, cutoff),
+          gt(kybVerifications.expiresAt!, now),
+          or(
+            isNull(kybVerifications.renewalReminderSentAt),
+            lt(kybVerifications.renewalReminderSentAt!, new Date(Date.now() - 7 * 86_400_000)),
+          ),
+        )
+      ).limit(100);
+      let sent = 0;
+      for (const v of expiring) {
+        try {
+          const { notifyOwner } = await import('../_core/notification');
+          await notifyOwner({
+            title: `KYB Renewal Due: ${v.businessName}`,
+            content: `KYB verification for ${v.businessName} (${v.verificationId}) expires on ${v.expiresAt?.toISOString().slice(0,10)}. Please initiate renewal.`,
+          });
+          await db.update(kybVerifications)
+            .set({ renewalReminderSentAt: new Date(), updatedAt: new Date() })
+            .where(eq(kybVerifications.verificationId, v.verificationId));
+          sent++;
+        } catch { /* non-fatal */ }
+      }
+      return { sent, total: expiring.length };
+    }),
+
+  // ── Geo-Velocity Check (Wave 173) ─────────────────────────────────────────
+  // Flags KYB verifications where the submitting IP resolves to a different
+  // country than the registered business country.
+  checkGeoVelocity: protectedProcedure
+    .input(z.object({
+      verificationId: z.string(),
+      currentIp: z.string(),
+      currentCountry: z.string().length(2), // ISO-3166-1 alpha-2
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const [v] = await db.select().from(kybVerifications)
+        .where(and(
+          eq(kybVerifications.verificationId, input.verificationId),
+          eq(kybVerifications.merchantId, ctx.user.tenantId ?? ''),
+        )).limit(1);
+      if (!v) throw new TRPCError({ code: 'NOT_FOUND' });
+      const flagged = v.lastKnownCountry !== null
+        && v.lastKnownCountry !== input.currentCountry;
+      const note = flagged
+        ? `IP country changed from ${v.lastKnownCountry} to ${input.currentCountry} (IP: ${input.currentIp})`
+        : null;
+      await db.update(kybVerifications).set({
+        lastKnownIp: input.currentIp,
+        lastKnownCountry: input.currentCountry,
+        geoVelocityFlagged: flagged,
+        geoVelocityNote: note,
+        updatedAt: new Date(),
+      }).where(eq(kybVerifications.verificationId, input.verificationId));
+      if (flagged) {
+        publishAuditEvent({
+          action: 'kyb.geo_velocity.flagged',
+          actorId: ctx.user.openId,
+          targetId: input.verificationId,
+          metadata: { note },
+          timestamp: new Date().toISOString(),
+        }).catch(() => {});
+      }
+      return { flagged, note };
+    }),
 });
 
 // ─── 5. Invoice Financing V2 ──────────────────────────────────────────────────

@@ -477,6 +477,41 @@
       "when": 1778951537284,
       "tag": "0067_glorious_golden_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1779033775944,
+      "tag": "0068_tense_smasher",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1779034337872,
+      "tag": "0069_hard_charles_xavier",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1779034451657,
+      "tag": "0070_tense_mathemanic",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1779034855345,
+      "tag": "0071_remarkable_the_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1779035016553,
+      "tag": "0072_graceful_gressill",
+      "breakpoints": true
     }
   ]
 }

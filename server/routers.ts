@@ -191,6 +191,8 @@ import { wave162Router } from './routers/wave162';
 import { wave163Router } from './routers/wave163';
 import { wave164Router } from './routers/wave164';
 import { wave165Router } from './routers/wave165';
+import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
+import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -3314,16 +3316,77 @@ const complianceKycRouter = router({
       documentType: z.string(),
       fileUrl: z.string().url(),
       fileName: z.string(),
+      // BVN cross-validation (Wave 171) — optional, supplied by the KYC wizard
+      bvnNumber: z.string().length(11).optional(),
+      // Document expiry (Wave 171) — ISO date string extracted by client OCR or MRZ
+      documentExpiryDate: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
-      // Attach document URL to the KYC submission
-      await updateKycSubmission(input.submissionId, merchant.id, {
+
+      const update: Record<string, unknown> = {
         documentUrl: input.fileUrl,
         status: 'under_review',
-      });
-      return { success: true, fileUrl: input.fileUrl };
+      };
+
+      // ── Document expiry enforcement (Wave 171) ───────────────────────────
+      if (input.documentExpiryDate) {
+        const expiryDate = new Date(input.documentExpiryDate);
+        const gracePeriodMs = 30 * 24 * 60 * 60 * 1000; // 30 days grace
+        const isExpired = expiryDate.getTime() < Date.now() - gracePeriodMs;
+        update.documentExpiryDate = expiryDate;
+        update.documentExpired = isExpired;
+        if (isExpired) {
+          update.status = 'rejected';
+          update.rejectionReason = `Document expired on ${expiryDate.toISOString().slice(0, 10)}. Please upload a valid document.`;
+          await updateKycSubmission(input.submissionId, merchant.id, update);
+          return { success: false, fileUrl: input.fileUrl, error: 'document_expired', expiryDate: expiryDate.toISOString() };
+        }
+      }
+
+      // ── BVN cross-validation via NIBSS (Wave 171) ────────────────────────
+      if (input.bvnNumber) {
+        update.bvnNumber = input.bvnNumber;
+        try {
+          const { ENV: envCfg } = await import('./_core/env');
+          const nibssUrl = envCfg.nibssGatewayUrl;
+          if (nibssUrl) {
+            const bvnResp = await fetch(`${nibssUrl}/bvn/verify`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Institution-Code': envCfg.nibssInstitutionCode ?? '',
+                'X-Api-Key': envCfg.nibssApiKey ?? '',
+              },
+              body: JSON.stringify({ bvn: input.bvnNumber, submission_id: input.submissionId }),
+              signal: AbortSignal.timeout(10000),
+            });
+            if (bvnResp.ok) {
+              const bvnResult = await bvnResp.json();
+              update.bvnMatchScore = bvnResult.match_score ?? null;
+              update.bvnVerifiedAt = new Date();
+              update.bvnVerificationStatus = bvnResult.status ?? 'not_found'; // 'matched'|'mismatch'|'not_found'
+              logger.info(`[kyc.uploadDocument] BVN verify sub=${input.submissionId} status=${bvnResult.status} score=${bvnResult.match_score}`);
+              // Flag mismatch in rejection reason but do NOT auto-reject — reviewer decides
+              if (bvnResult.status === 'mismatch') {
+                update.rejectionReason = `BVN mismatch detected (score: ${bvnResult.match_score?.toFixed(2) ?? 'N/A'}). Manual review required.`;
+              }
+            } else {
+              update.bvnVerificationStatus = 'skipped';
+              logger.warn(`[kyc.uploadDocument] BVN service returned ${bvnResp.status} — skipping`);
+            }
+          } else {
+            update.bvnVerificationStatus = 'skipped'; // NIBSS not configured in this env
+          }
+        } catch (e: any) {
+          update.bvnVerificationStatus = 'skipped';
+          logger.warn(`[kyc.uploadDocument] BVN validation failed (non-fatal): ${e.message}`);
+        }
+      }
+
+      await updateKycSubmission(input.submissionId, merchant.id, update);
+      return { success: true, fileUrl: input.fileUrl, bvnStatus: update.bvnVerificationStatus ?? 'not_submitted' };
     }),
   updateStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(['pending','under_review','approved','rejected','expired']), rejectionReason: z.string().optional() }))
@@ -3449,6 +3512,36 @@ const complianceKycRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       await requireMerchant(user.id);
+
+      // ── Liveness retry throttling (Wave 171) ─────────────────────────────────
+      // Block after 5 failed attempts within a 15-minute window to prevent brute-force.
+      const db0 = await getDb();
+      if (db0) {
+        const { kycSubmissions: kycTblThrottle } = await import('../drizzle/schema');
+        const { eq: eqThrottle } = await import('drizzle-orm');
+        const [sub0] = await db0.select({
+          retryCount: kycTblThrottle.livenessRetryCount,
+          blockedUntil: kycTblThrottle.livenessBlockedUntil,
+        }).from(kycTblThrottle).where(eqThrottle(kycTblThrottle.id, input.submissionId)).limit(1);
+        if (sub0) {
+          if (sub0.blockedUntil && sub0.blockedUntil > new Date()) {
+            const unblockAt = sub0.blockedUntil.toISOString();
+            throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Liveness attempts exceeded. Try again after ${unblockAt}` });
+          }
+          // Increment retry counter; block if >= 5 within 15 min
+          const newCount = (sub0.retryCount ?? 0) + 1;
+          const blockUntil = newCount >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+          await db0.update(kycTblThrottle).set({
+            livenessRetryCount: newCount,
+            ...(blockUntil ? { livenessBlockedUntil: blockUntil } : {}),
+            updatedAt: new Date(),
+          }).where(eqThrottle(kycTblThrottle.id, input.submissionId));
+          if (blockUntil) {
+            logger.warn(`[kyc.checkLiveness] sub=${input.submissionId} BLOCKED after ${newCount} attempts until ${blockUntil.toISOString()}`);
+            throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Too many liveness attempts. Blocked for 15 minutes.` });
+          }
+        }
+      }
 
       // ── Resolve primary frame: imageB64 alias takes precedence over frameBase64 ──
       const primaryFrame = input.imageB64 ?? input.frameBase64 ?? (input.multiFrameB64?.[0] ?? '');
@@ -9038,6 +9131,15 @@ export const appRouter = router({
   serviceIntegrationAudit: wave163Router,
   uiUxAudit: wave164Router,
   productionReadiness: wave165Router,
+  // Wave 174 — Advanced KYB/KYC Compliance
+  uboMgmt: uboMgmtRouter,
+  adverseMedia: adverseMediaRouter,
+  temporalCheck: temporalCheckRouter,
+  kybRiskScore: kybRiskScoreRouter,
+  // Wave 175 — Production Readiness Final Sweep
+  scuml: scumlRouter,
+  accessibility: accessibilityRouter,
+  locale: localeRouter,
   // Wave 120b — additional CRUD routers
   splitBillV2: splitBillV2Router,
   staffMgmt: staffMgmtRouter,

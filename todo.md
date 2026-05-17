@@ -5076,3 +5076,62 @@
 - [x] Add Nightly Security Audit status card to SecurityAuditDashboard
 - [x] Verify seed-wave170.mjs dry-run passes cleanly (20 operations, 0 errors)
 - [x] 66 tests passing, 0 regressions
+
+## Wave 171 — BVN Validation, Liveness Retry Throttling, Document Expiry
+- [ ] BVN cross-validation via NIBSS in submitKyc procedure
+- [ ] Liveness retry throttling (5 attempts / 15 min) with retryCount column
+- [ ] Document expiry enforcement in kycDocuments + submitKyc Zod check
+- [ ] Wave 171 vitest tests
+
+## Wave 172 — Liveness Replay Viewer, KYC Wizard, CAC API
+- [ ] Admin liveness replay viewer page /compliance/liveness/:sessionId
+- [ ] KYC step wizard (Document → Selfie → Liveness → Review)
+- [ ] Director KYC sub-flow with directorKycSessions join table
+- [ ] CAC RC number real-time validation
+- [ ] Wave 172 vitest tests
+
+## Wave 173 — NDPR Retention, KYB Renewal, Geo-Velocity, Liveness Trend
+- [ ] NDPR biometric data retention job (90-day deletion heartbeat)
+- [ ] KYB document renewal reminders (90 days before expiry)
+- [ ] Geo-velocity check on liveness sessions
+- [ ] Liveness score trend chart on Security Audit Dashboard
+- [ ] Wave 173 vitest tests
+
+## Wave 174 — Temporal Consistency, Adverse Media, UBO, KYB Risk Scoring
+- [ ] Temporal consistency check (inter-frame landmark delta)
+- [ ] Adverse media screening via YouVerify
+- [ ] UBO mapping table + KYB sub-flow
+- [ ] Automated KYB risk scoring engine
+- [ ] Wave 174 vitest tests
+
+## Wave 175 — SCUML, Accessibility, i18n, Production Final Sweep
+- [ ] SCUML registration check for applicable industry codes
+- [ ] Accessibility fallback path for liveness (notarised document upload)
+- [ ] Internationalisation framework (country-parameterised doc types + thresholds)
+- [ ] Production readiness final sweep (env checks, rate limits, error boundaries)
+- [ ] Wave 175 vitest tests
+
+## Wave 171-175 — Production Readiness Final Sweep
+
+- [x] Wave 171: BVN cross-validation (NIBSS integration, name-match check)
+- [x] Wave 171: Liveness retry throttling (5-attempt block, 15-min cooldown)
+- [x] Wave 171: Document expiry enforcement (reject expired docs, near-expiry warning)
+- [x] Wave 171: nibssApiKey alias added to env.ts
+- [x] Wave 173: NDPR biometric retention (retentionExpiresAt + ndprPurgedAt columns, nightly purge handler)
+- [x] Wave 173: NDPR purge heartbeat registered (03:00 UTC daily)
+- [x] Wave 173: KYB renewal reminders (expiresAt + renewalReminderSentAt columns, 30-day window, 7-day dedup)
+- [x] Wave 173: Geo-velocity check (geoVelocityFlag column, country-change detection)
+- [x] Wave 174: UBO mapping tables + uboMgmtRouter (add/list/remove/ownershipSummary)
+- [x] Wave 174: Adverse media screening tables + adverseMediaRouter (screen/list/markReviewed)
+- [x] Wave 174: Temporal consistency checks tables + temporalCheckRouter
+- [x] Wave 174: KYB risk scoring tables + kybRiskScoreRouter (compute/get/history)
+- [x] Wave 174: UBOManager.tsx page (ownership bar, PEP flags, add/remove UBOs)
+- [x] Wave 174: AdverseMediaPanel.tsx page (run screening, history, clear flags)
+- [x] Wave 175: SCUML check tables + scumlRouter (initiate/list/expiringSoon)
+- [x] Wave 175: Accessibility fallback tables + accessibilityRouter
+- [x] Wave 175: Locale preferences tables + localeRouter (get/update/options)
+- [x] Wave 175: SCUMLStatus.tsx page (initiate check, history, expiry alerts)
+- [x] Wave 175: LocaleSettings.tsx page (language/currency/timezone/date/number format)
+- [x] Wave 175: Wave 174-175 routes registered in App.tsx
+- [x] Wave 175: Fixed duplicate logger import in reservationExpiryWorker.ts
+- [x] Wave 171-175: 50 new vitest tests — all passing (115 total across waves 169-175)
