@@ -5045,3 +5045,17 @@
 - [x] Nightly security heartbeat: already active and running (last fired 2026-05-17T02:00:18Z, next 2026-05-18T02:00:00Z, task_uid: Lhg6ySws7qkgZzsE6r4xtn)
 - [x] Keycloak realm backup heartbeat: also active (last fired 2026-05-17T02:00:07Z, task_uid: HjdL7qAGHaXWQTxLGyYJrg)
 - [x] 31 tests passing (30 Wave 167 liveness + 1 auth.logout)
+
+## Wave 169 — Seed Hardening + Pagination Sweep + Stripe Live Docs
+- [ ] Add pagination to KeycloakRoleSync page
+- [ ] Add pagination to SplitBillV2 page
+- [ ] Harden db:seed script: idempotency guards (upsert/skip-if-exists), --dry-run flag, per-entity error reporting
+- [ ] Document Stripe live key swap process (STRIPE_LIVE.md)
+- [ ] Wave 169 vitest tests
+
+## Wave 169 — Seed Hardening + Pagination Sweep + Stripe Live Docs (COMPLETED)
+- [x] Add pagination to KeycloakRoleSync page — already complete from earlier wave
+- [x] Add pagination to SplitBillV2 page — PaginationControls rendered with page/totalPages/onPageChange/totalItems
+- [x] Harden db:seed script: idempotency guards (ON CONFLICT DO NOTHING/DO UPDATE), --dry-run flag, per-entity error reporting, q() wrapper with labels
+- [x] Document Stripe live key swap process (references/STRIPE_LIVE.md) — 5-step guide with rollback plan and troubleshooting table
+- [x] Wave 169 vitest tests — 35 tests passing (dry-run, idempotency, error collection, labels, pagination, STRIPE_LIVE.md)

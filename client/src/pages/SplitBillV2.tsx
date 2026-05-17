@@ -37,6 +37,9 @@ export default function SplitBillV2() {
 
   const sessions = data?.sessions ?? [];
   const shares = sharesData?.shares ?? [];
+  const totalPages = data?.totalPages ?? 1;
+  const totalSessions = data?.total ?? 0;
+  const PAGE_SIZE = 10;
 
   return (
     <div className="p-6 space-y-6">
@@ -90,6 +93,13 @@ export default function SplitBillV2() {
               </Card>
             ))
           }
+          <PaginationControls
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={totalSessions}
+            pageSize={PAGE_SIZE}
+          />
         </div>
 
         {/* Shares */}
