@@ -148,6 +148,9 @@ export default function SecurityAuditDashboard() {
   const { data: pbacData } =
     trpc.securityAudit.getPbacPolicies.useQuery({}, { staleTime: 300_000 });
 
+  const { data: nightlyAudit, isLoading: nightlyLoading } =
+    trpc.system.nightlyAuditStatus.useQuery(undefined, { staleTime: 60_000, retry: false });
+
   const penTestMutation = trpc.securityAudit.runPenetrationCheck.useMutation({
     onSuccess: (data) => {
       setPenTestResult(data);
@@ -193,6 +196,66 @@ export default function SecurityAuditDashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Nightly Security Audit Status Card */}
+      {(() => {
+        const na = nightlyAudit as any;
+        const gradeColor = na?.grade === "A+" || na?.grade === "A" ? "text-emerald-400"
+          : na?.grade === "B" ? "text-amber-400"
+          : na?.grade ? "text-red-400" : "text-zinc-500";
+        return (
+          <Card className="bg-zinc-900 border-zinc-800">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-zinc-800 rounded-lg">
+                    <Shield className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Nightly Security Audit</p>
+                    <p className="text-xs text-zinc-500">
+                      {nightlyLoading ? "Loading…" : na?.runAt ? `Last run: ${new Date(na.runAt).toLocaleString()}` : "No run recorded yet — fires at 02:00 UTC"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  {na?.score != null && (
+                    <div className="text-right">
+                      <p className={`text-2xl font-bold font-mono ${gradeColor}`}>{na.grade}</p>
+                      <p className="text-xs text-zinc-500">{na.score}/100</p>
+                    </div>
+                  )}
+                  {na?.p0Failures != null && (
+                    <div className="flex gap-2">
+                      <Badge className={`border text-xs ${na.p0Failures > 0 ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"}`}>
+                        {na.p0Failures} P0
+                      </Badge>
+                      <Badge className={`border text-xs ${na.p1Failures > 0 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-zinc-700/30 text-zinc-400 border-zinc-700/30"}`}>
+                        {na.p1Failures} P1
+                      </Badge>
+                    </div>
+                  )}
+                  {!na?.ok && !nightlyLoading && (
+                    <Badge className="border text-xs bg-zinc-700/30 text-zinc-400 border-zinc-700/30">Pending</Badge>
+                  )}
+                </div>
+              </div>
+              {na?.checks?.length > 0 && (
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-1.5">
+                  {(na.checks as Array<{ id: string; severity: string; label: string; pass: boolean }>).map((c) => (
+                    <div key={c.id} className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
+                      c.pass ? "bg-emerald-500/10 text-emerald-400" : c.severity === "P0" ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
+                    }`}>
+                      {c.pass ? <CheckCircle className="w-3 h-3 shrink-0" /> : <XCircle className="w-3 h-3 shrink-0" />}
+                      <span className="truncate">{c.label.split(" ").slice(0, 3).join(" ")}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Top Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

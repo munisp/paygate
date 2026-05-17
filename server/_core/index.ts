@@ -2194,6 +2194,8 @@ async function startServer() {
         durationMs: auditResult.durationMs,
       });
 
+      // Store snapshot for the status GET endpoint
+      (global as any).__lastNightlyAuditSnapshot = auditResult;
       res.json({ ok: true, ...auditResult });
     } catch (err: any) {
       logger.error("nightly_security_audit_error", { err: err?.message, taskUid: cronTaskUid });
@@ -2204,8 +2206,22 @@ async function startServer() {
         timestamp: new Date().toISOString(),
       });
     }
-  });
+    });
 
+  // ─── Nightly Security Audit Status (GET) ─────────────────────────────────
+  // Returns the most recent audit snapshot stored in-memory by the POST handler.
+  // The Admin Dashboard polls this to show a status card without triggering a run.
+  app.get("/api/scheduled/nightly-security-audit/status", (req: any, res: any) => {
+    const snap = (global as any).__lastNightlyAuditSnapshot ?? null;
+    if (!snap) {
+      return res.json({
+        ok: false,
+        message: "No audit has run yet in this server instance. The nightly job fires at 02:00 UTC.",
+        nextRunHint: "POST /api/scheduled/nightly-security-audit to trigger manually (requires x-cron-key header).",
+      });
+    }
+    res.json({ ok: true, ...snap });
+  });
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(

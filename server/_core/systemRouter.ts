@@ -135,4 +135,26 @@ export const systemRouter = router({
     ],
     };
   }),
+
+  // Returns the last nightly security audit snapshot stored in-memory by the POST handler.
+  // The Admin Dashboard calls this to show a status card without triggering a new audit run.
+  nightlyAuditStatus: adminProcedure.query(() => {
+    const snap = (global as any).__lastNightlyAuditSnapshot ?? null;
+    if (!snap) {
+      return {
+        ok: false as const,
+        message: "No audit has run yet in this server instance. The nightly job fires at 02:00 UTC.",
+        score: null as number | null,
+        grade: null as string | null,
+        p0Failures: null as number | null,
+        p1Failures: null as number | null,
+        p2Failures: null as number | null,
+        runAt: null as string | null,
+        durationMs: null as number | null,
+        checks: [] as Array<{ id: string; severity: string; label: string; pass: boolean }>,
+        meta: null as { tableCount: number; procedureCount: number; testFileCount: number } | null,
+      };
+    }
+    return { ok: true as const, ...(snap as any) };
+  }),
 });

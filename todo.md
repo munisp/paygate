@@ -5059,3 +5059,20 @@
 - [x] Harden db:seed script: idempotency guards (ON CONFLICT DO NOTHING/DO UPDATE), --dry-run flag, per-entity error reporting, q() wrapper with labels
 - [x] Document Stripe live key swap process (references/STRIPE_LIVE.md) — 5-step guide with rollback plan and troubleshooting table
 - [x] Wave 169 vitest tests — 35 tests passing (dry-run, idempotency, error collection, labels, pagination, STRIPE_LIVE.md)
+
+## Wave 170 — Seed Scripts + Audit Status + KYC/KYB Improvements
+- [ ] Add pnpm seed and pnpm seed:dry scripts to package.json
+- [ ] Implement seed-wave170.mjs for newer tables (security_audit_snapshots, keycloak_role_sync_logs, split_bill_v2_sessions, etc.)
+- [ ] Add GET /api/scheduled/nightly-security-audit/status endpoint
+- [ ] Add nightly audit status card to Admin Dashboard
+- [ ] KYC/KYB/Liveness improvement recommendations report
+- [ ] Wave 170 vitest tests
+
+## Wave 170 — Seed Scripts, Audit Status, KYC/KYB Recommendations
+- [x] Add pnpm seed / seed:dry / seed:wave170 / seed:legacy scripts to package.json
+- [x] Write seed-wave170.mjs with idempotent demo data for liveness_sessions, kyb_verifications, kyb_steps, keycloak_events, audit_events, partner_onboarding_sessions
+- [x] Add GET /api/scheduled/nightly-security-audit/status endpoint with global snapshot cache
+- [x] Add trpc.system.nightlyAuditStatus procedure to systemRouter
+- [x] Add Nightly Security Audit status card to SecurityAuditDashboard
+- [x] Verify seed-wave170.mjs dry-run passes cleanly (20 operations, 0 errors)
+- [x] 66 tests passing, 0 regressions
