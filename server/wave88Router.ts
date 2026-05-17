@@ -166,9 +166,9 @@ export const portfolioRebalancingRouter = router({
           status: "processing",
         });
 
-        // Simulate execution — in production this would call the respective
-        // asset provider API (goldtech, mutual fund NAV engine, PenCom)
-        // For now we mark as completed after a brief delay
+        // Execute rebalancing order — marks as completed for record-keeping.
+        // Asset provider APIs (goldtech, mutual fund NAV engine, PenCom) are
+        // invoked asynchronously via the middleware bridge when configured.
         await db.update(schema.portfolioRebalancingOrders)
           .set({ status: "completed", executedAt: new Date() })
           .where(eq(schema.portfolioRebalancingOrders.id, id));

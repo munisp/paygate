@@ -182,8 +182,58 @@ export const nipBanksRouter = router({
     const [cached] = await db.select().from(nipAccountCache)
       .where(and(eq(nipAccountCache.accountNumber, input.accountNumber), eq(nipAccountCache.bankCode, input.bankCode)));
     if (cached) return { accountName: cached.accountName, fromCache: true };
-    // In production, call NIBSS NIP API here
-    return { accountName: null, fromCache: false, message: "Account resolution requires NIBSS NIP integration" };
+    // Call NIBSS NIP name enquiry endpoint
+    const { env } = await import("../_core/env");
+    const nibssUrl = env.nibssGatewayUrl;
+    const nibssKey = env.nibssApiKey;
+    if (!nibssKey) {
+      return { accountName: null, fromCache: false, message: "Account resolution service unavailable" };
+    }
+    try {
+      const resp = await fetch(`${nibssUrl}/nameenquiry`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${nibssKey}`,
+          "InstitutionCode": env.nibssInstitutionCode,
+        },
+        body: JSON.stringify({
+          DestinationInstitutionCode: input.bankCode,
+          AccountNumber: input.accountNumber,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        await db.insert(nipResolutionErrors).values({
+          accountNumber: input.accountNumber,
+          bankCode: input.bankCode,
+          errorCode: String(resp.status),
+          errorMessage: errText.slice(0, 500),
+        } as any).catch(() => {});
+        return { accountName: null, fromCache: false, message: "Name enquiry failed" };
+      }
+      const data = await resp.json() as any;
+      const accountName: string = data.AccountName ?? data.accountName ?? data.BeneficiaryName ?? "";
+      if (accountName) {
+        await db.insert(nipAccountCache).values({
+          accountNumber: input.accountNumber,
+          bankCode: input.bankCode,
+          accountName,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        } as any).onConflictDoNothing().catch(() => {});
+      }
+      return { accountName: accountName || null, fromCache: false };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await db.insert(nipResolutionErrors).values({
+        accountNumber: input.accountNumber,
+        bankCode: input.bankCode,
+        errorCode: "NETWORK_ERROR",
+        errorMessage: message.slice(0, 500),
+      } as any).catch(() => {});
+      return { accountName: null, fromCache: false, message: "Account resolution temporarily unavailable" };
+    }
   }),
 });
 

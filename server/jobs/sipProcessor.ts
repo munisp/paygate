@@ -166,9 +166,7 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
   logger.info(`SIP Processor: Starting run. Gold price: ₦${goldPrice.toLocaleString()}/g`);
 
   try {
-    // Query active SIP plans due today
-    // In production: query gold_sip_plans table from drizzle schema
-    // For now: use a mock implementation that logs the intent
+    // Query active SIP plans due today from gold_sip_plans table
     const duePlans: SIPPlan[] = await getDueSIPPlans(db);
 
     logger.info(`SIP Processor: Found ${duePlans.length} plans due today`);

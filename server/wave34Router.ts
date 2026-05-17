@@ -523,18 +523,43 @@ export const consumerFinancialRouter = router({
   // Digital Gold
   gold: router({
     getPrice: publicProcedure.query(async () => {
-      // In production, fetch from goldtech API; use realistic defaults here
-      const basePrice = 85000; // ₦850/gram
       const spread = 0.015; // 1.5% spread
+      const FALLBACK_PRICE_NGN = 85000; // ₦850/gram fallback
+      let basePriceNGN = FALLBACK_PRICE_NGN;
+      let source = "fallback";
+      let change24h = 0;
+      let change24hPct = 0;
+      try {
+        // Fetch gold spot price in USD from public metals API, then convert to NGN
+        const [goldResp, fxResp] = await Promise.all([
+          fetch("https://api.metals.live/v1/spot/gold", { signal: AbortSignal.timeout(5_000) }),
+          fetch("https://api.exchangerate-api.com/v4/latest/USD", { signal: AbortSignal.timeout(5_000) }),
+        ]);
+        if (goldResp.ok && fxResp.ok) {
+          const goldData = await goldResp.json() as any;
+          const fxData = await fxResp.json() as any;
+          const goldUsdPerOz: number = goldData[0]?.price ?? goldData?.price ?? 0;
+          const usdToNgn: number = fxData?.rates?.NGN ?? 1600;
+          if (goldUsdPerOz > 0) {
+            const goldUsdPerGram = goldUsdPerOz / 31.1035;
+            basePriceNGN = Math.round(goldUsdPerGram * usdToNgn);
+            source = "metals.live";
+            change24h = goldData[0]?.ch ?? 0;
+            change24hPct = goldData[0]?.chp ?? 0;
+          }
+        }
+      } catch {
+        // Use fallback price
+      }
       return {
-        buyPriceKoboPerGram: Math.round(basePrice * (1 + spread) * 100),
-        sellPriceKoboPerGram: Math.round(basePrice * (1 - spread) * 100),
-        spotPriceKoboPerGram: basePrice * 100,
+        buyPriceKoboPerGram: Math.round(basePriceNGN * (1 + spread) * 100),
+        sellPriceKoboPerGram: Math.round(basePriceNGN * (1 - spread) * 100),
+        spotPriceKoboPerGram: basePriceNGN * 100,
         currency: "NGN",
         updatedAt: new Date().toISOString(),
-        source: "goldtech-api",
-        change24h: +1.2,
-        change24hPct: +0.014,
+        source,
+        change24h,
+        change24hPct,
       };
     }),
 

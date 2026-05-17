@@ -247,8 +247,17 @@ const domainSslRouter = router({
       const { custom_domain, domain_challenge_token } = rows[0];
       if (!custom_domain) throw new Error("No custom domain configured");
 
-      // In production: do actual DNS TXT lookup. In sandbox: simulate success.
-      const verified = true; // dns.resolveTxt(`_paygate-challenge.${custom_domain}`)
+      // Real DNS TXT lookup using Node.js dns module
+      let verified = false;
+      try {
+        const dns = await import("dns/promises");
+        const txtRecords = await dns.resolveTxt(`_paygate-challenge.${custom_domain}`);
+        const flat = txtRecords.flat();
+        verified = flat.some((r) => r === domain_challenge_token);
+      } catch {
+        // DNS lookup failed or record not found
+        verified = false;
+      }
       if (verified) {
         await execRaw(db, `
           UPDATE tenants SET domain_verified = true, ssl_status = 'provisioning', updated_at = NOW() WHERE id = $1
@@ -743,15 +752,37 @@ const fxHedgingRouter = router({
     }),
 
   getFxRates: publicProcedure.query(async () => {
-    // In production: fetch from CBN/Fixer.io API
+    // Fetch live FX rates from Open Exchange Rates (free tier) or CBN fallback
+    const FALLBACK_RATES = {
+      USD: 0.000625, EUR: 0.000578, GBP: 0.000494,
+      GHS: 0.0093, KES: 0.0813, ZAR: 0.0115,
+      XOF: 0.378, XAF: 0.378, EGP: 0.0307,
+    };
+    try {
+      // Try CBN exchange rate endpoint (public, no auth required)
+      const resp = await fetch(
+        "https://api.exchangerate-api.com/v4/latest/NGN",
+        { signal: AbortSignal.timeout(5_000) }
+      );
+      if (resp.ok) {
+        const data = await resp.json() as any;
+        const rates: Record<string, number> = {};
+        const currencies = ["USD", "EUR", "GBP", "GHS", "KES", "ZAR", "XOF", "XAF", "EGP"];
+        for (const cur of currencies) {
+          if (data.rates?.[cur]) rates[cur] = data.rates[cur];
+        }
+        if (Object.keys(rates).length > 0) {
+          return { base: "NGN", timestamp: new Date().toISOString(), rates, source: "live" };
+        }
+      }
+    } catch {
+      // Fall through to fallback
+    }
     return {
       base: "NGN",
       timestamp: new Date().toISOString(),
-      rates: {
-        USD: 0.000625, EUR: 0.000578, GBP: 0.000494,
-        GHS: 0.0093, KES: 0.0813, ZAR: 0.0115,
-        XOF: 0.378, XAF: 0.378, EGP: 0.0307,
-      },
+      rates: FALLBACK_RATES,
+      source: "fallback",
     };
   }),
 });

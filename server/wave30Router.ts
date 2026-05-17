@@ -150,14 +150,40 @@ const onboardingEmailRouter = router({
       if (!db) throw new Error("Database unavailable");
       const emailId = `email_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
       const subject = `Welcome to PayGate — Your ${input.tenantName} instance is ready`;
-      // In production this would call SMTP; here we record the intent
+      // Send via SMTP if configured, otherwise record intent
+      let emailStatus = "queued";
+      try {
+        const { env } = await import("../_core/env");
+        if (env.smtpHost && env.smtpUser) {
+          const nodemailer = await import("nodemailer");
+          const transporter = nodemailer.createTransport({
+            host: env.smtpHost,
+            port: Number(env.smtpPort ?? 587),
+            secure: Number(env.smtpPort ?? 587) === 465,
+            auth: { user: env.smtpUser, pass: env.smtpPass },
+          });
+          const htmlBody = `<h2>Welcome to PayGate — ${input.tenantName}</h2>
+            <p>Your PayGate instance is ready.</p>
+            ${input.subdomainUrl ? `<p><strong>Portal URL:</strong> <a href="${input.subdomainUrl}">${input.subdomainUrl}</a></p>` : ""}
+            ${input.apiKey ? `<p><strong>API Key:</strong> <code>${input.apiKey}</code></p>` : ""}
+            <p>If you have any questions, contact support@paygate.ng</p>`;
+          await transporter.sendMail({
+            from: env.smtpUser,
+            to: input.recipientEmail,
+            subject,
+            html: htmlBody,
+          });
+          emailStatus = "sent";
+        }
+      } catch { /* graceful — record as queued */ }
       await execRaw(db, `INSERT INTO tenant_onboarding_emails 
            (id, tenant_id, email_type, recipient_email, subject, status, metadata)
-         VALUES ($1, $2, 'welcome', $3, $4, 'sent', $5)`, [emailId, input.tenantId, input.recipientEmail, subject,
+         VALUES ($1, $2, 'welcome', $3, $4, $5, $6)`, [emailId, input.tenantId, input.recipientEmail, subject, emailStatus,
          JSON.stringify({ apiKey: input.apiKey, subdomainUrl: input.subdomainUrl, tenantName: input.tenantName })]);
-      // Update sent_at
-      await execRaw(db, `UPDATE tenant_onboarding_emails SET sent_at = NOW() WHERE id = $1`, [emailId]);
-      return { emailId, status: 'sent', subject };
+      if (emailStatus === "sent") {
+        await execRaw(db, `UPDATE tenant_onboarding_emails SET sent_at = NOW() WHERE id = $1`, [emailId]);
+      }
+      return { emailId, status: emailStatus, subject };
     }),
 
   sendGoLiveChecklist: protectedProcedure

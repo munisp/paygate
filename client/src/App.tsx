@@ -190,7 +190,6 @@ const AgentBankingV4 = lz(() => import("./pages/wave80/AgentBankingV4"));
 const SuperAgentV2 = lz(() => import("./pages/wave80/SuperAgentV2"));
 const EscrowV2 = lz(() => import("./pages/wave80/EscrowV2"));
 const MarketplacePay = lz(() => import("./pages/wave80/MarketplacePay"));
-const LoyaltyV3 = lz(() => import("./pages/wave80/LoyaltyV3"));
 const CryptoOfframpV2 = lz(() => import("./pages/wave80/CryptoOfframpV2"));
 const NfcPay = lz(() => import("./pages/wave80/NfcPay"));
 const QrMerchantAnalytics = lz(() => import("./pages/wave80/QrMerchantAnalytics"));
@@ -346,7 +345,6 @@ const ClaimsTracker = lz(() => import("./pages/consumer/ClaimsTracker"));
 const ConsumerLoyaltyDashboard = lz(() => import("./pages/consumer/ConsumerLoyaltyDashboard"));
 const ConsumerBnplRepayments = lz(() => import("./pages/consumer/ConsumerBnplRepayments"));
 const AdminTenantBilling = lz(() => import("./pages/admin/AdminTenantBilling"));
-const AdminCorridorMonitor = lz(() => import("./pages/admin/AdminCorridorMonitor"));
 const AdminSlaMonitorPage = lz(() => import("./pages/admin/AdminSlaMonitor"));
 const AdminTenantRevenuePage = lz(() => import("./pages/admin/AdminTenantRevenue"));
 const WhiteLabelSDKPage = lz(() => import("./pages/WhiteLabelSDK"));
@@ -863,6 +861,27 @@ function Router() {
           <Route path="/service-integration-audit" component={ServiceIntegrationAuditPage} />
           <Route path="/uiux-audit" component={UIUXAuditDashboardPage} />
           <Route path="/production-readiness" component={ProductionReadinessDashboardPage} />
+
+        {/* ── Auto-wired orphan routes (Wave 186) ── */}
+        <Route path="/admin-setup"><AdminGuard><AdminSetup /></AdminGuard></Route>
+        <Route path="/audit-log" component={AuditLog} />
+        <Route path="/support-admin" component={SupportAdmin} />
+        <Route path="/lakehouse-ai" component={LakehouseAIDashboard} />
+        <Route path="/admin/api-playground"><AdminGuard><AdminApiPlayground /></AdminGuard></Route>
+        <Route path="/fraud-ring" component={FraudRingDashboard} />
+        <Route path="/kyb/state-machine" component={KybStateMachine} />
+        <Route path="/bnpl/delinquency" component={BnplDelinquencyManagement} />
+        <Route path="/disputes/sla-tracking" component={DisputeSlaTracking} />
+        <Route path="/billing/invoices" component={BillingInvoicesPage} />
+        <Route path="/settings/sso" component={SSOConfigPage} />
+        <Route path="/payouts/approval-workflow" component={PayoutApprovalWorkflow} />
+        <Route path="/onboarding/email-flow" component={OnboardingEmailFlow} />
+        <Route path="/ussd/menu-builder" component={UssdMenuBuilder} />
+        <Route path="/partner/onboarding" component={PartnerOnboardingPage} />
+        <Route path="/order/:id" component={PublicOrderPageLazy} />
+        <Route path="/tenant/corridors" component={TenantCorridorsPage} />
+        <Route path="/tenant/plan-limits" component={PlanLimitsPage} />
+        <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

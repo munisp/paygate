@@ -12,7 +12,7 @@ import { splitBillRouter as splitBillV2Router, staffRouter as staffMgmtRouter, s
 import { feeSchedulesRouter, chargebackMgmtRouter, fraudRulesRouter, kybMgmtRouter, invoiceFinV2Router, loyaltyV3Router, openSearchAuditRouter, tenantProvisionRouter } from "./routers/wave121";
 import { fraudRuleEngineRouter, kybDocUploadRouter, loyaltyRedemptionRouter } from "./routers/wave122";
 import { aiModelAdminRouter, menuMgmtRouter, portalHealthRouter } from "./routers/wave123";
-import { billPaymentsRouter, carbonCreditsRouter, consumerFinanceLoansRouter, couponsRouter, devicePushTokensRouter, fraudAlertCommentsRouter, idempotencyRequestsRouter, insurancePoliciesRouter, loanRepaymentsRouter, posTerminalsRouter, posTransactionsRouter, purchaseOrdersRouter, qrPaymentsRouter, redEnvelopesRouter, referralsRouter, savedBeneficiariesRouter, subscriptionsRouter, ussdSessionsRouter, wafAlertsRouter, offlineResilienceRouter } from "./routers/wave124";
+import { billPaymentsRouter, carbonCreditsRouter, consumerFinanceLoansRouter, couponsRouter, devicePushTokensRouter, fraudAlertCommentsRouter, idempotencyRequestsRouter, insurancePoliciesRouter, loanRepaymentsRouter, posTerminalsRouter, posTransactionsRouter, purchaseOrdersRouter as purchaseOrdersRouterW124, qrPaymentsRouter as qrPaymentsRouterW124, redEnvelopesRouter, referralsRouter, savedBeneficiariesRouter, subscriptionsRouter as subscriptionsRouterW124, ussdSessionsRouter, wafAlertsRouter, offlineResilienceRouter } from "./routers/wave124";
 import {
   moneyRequestRouter,
   consumerQrPayRouter,
@@ -758,12 +758,12 @@ const transactionsRouter = router({
         // Fire-and-forget Kafka event for downstream consumers (analytics, fraud, settlement)
         if (tx) {
           publishTransactionEvent({
+            type: "created",
             transactionId: tx.id,
             merchantId: merchant.id,
             amount: chargedAmount,
             currency: input.currency ?? 'NGN',
             status: tx.status,
-            channel: input.channel ?? 'card',
           }).catch(e => logger.warn('[kafka] publishTransactionEvent failed (non-fatal):', e.message));
         }
         return tx;
@@ -973,12 +973,11 @@ const payoutsRouter = router({
 
       // Fire-and-forget Kafka event for downstream consumers
       publishPayoutEvent({
+          type: "created",
         payoutId,
         merchantId: merchant.id,
         amount: input.amount,
         currency: input.currency,
-        status,
-        bankCode: input.bankCode ?? '',
       }).catch(e => logger.warn('[kafka] publishPayoutEvent failed (non-fatal):', e.message));
       // Notify owner of new payout
       notifyPayoutInitiated({
@@ -1016,7 +1015,7 @@ const payoutsRouter = router({
         }
       }
 
-      publishAuditEvent({ action: 'payout.created', actorId: ctx.user.openId, targetId: payoutId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency, status }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ userId: ctx.user?.openId ?? 'unknown', merchantId: merchant.id, action: 'payout.created', resource: 'payout', resourceId: payoutId, result: 'success', metadata: { amount: input.amount, currency: input.currency, status } }).catch(() => {});
       return payout;
     }),
 
@@ -1408,7 +1407,7 @@ const apiKeysRouter = router({
         resourceId: input.id,
         metadata: {},
       })).catch(() => {});
-      publishAuditEvent({ action: 'api_key.revoked', actorId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'api_key.revoked', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true };
     }),
 });
@@ -1476,7 +1475,7 @@ const webhooksRouter = router({
         resourceId: input.id,
         metadata: {},
       })).catch(() => {});
-      publishAuditEvent({ action: 'webhook.deleted', actorId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'webhook.deleted', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true };
     }),
 
@@ -1905,7 +1904,7 @@ const virtualCardsRouter = router({
           issuerId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] issueVirtualCard failed (non-fatal):', e));
       }
-      publishAuditEvent({ action: 'virtual_card.created', actorId: ctx.user.openId, targetId: cardId, metadata: { merchantId: merchant.id, currency: input.currency, brand: input.brand }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'virtual_card.created', userId: ctx.user.openId, targetId: cardId, metadata: { merchantId: merchant.id, currency: input.currency, brand: input.brand }, timestamp: new Date().toISOString() }).catch(() => {});
       return card;
     }),
 
@@ -2000,7 +1999,7 @@ const paymentLinksRouter = router({
           creatorId: ctx.user.openId,
         }).catch(e => logger.error('[bridge] createPaymentLink failed (non-fatal):', e));
       }
-      publishAuditEvent({ action: 'payment_link.created', actorId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'payment_link.created', userId: ctx.user.openId, targetId: linkId, metadata: { merchantId: merchant.id, title: input.title, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
       return link;
     }),
 
@@ -2654,7 +2653,7 @@ const middlewareRouter = router({
       .input(z.object({ clientId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const result = await bridgeFetch(`/v1/auth/keycloak/clients/${input.clientId}/secret`, 'POST', {});
-        publishAuditEvent({ action: 'webhook.secret.rotated', actorId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch(() => {});
+        publishAuditEvent({ action: 'webhook.secret.rotated', userId: ctx.user.openId, targetId: input.clientId, metadata: { clientId: input.clientId }, timestamp: new Date().toISOString() }).catch(() => {});
         if (!result) return { rotated: false, fallback: true, newSecret: null };
         return { rotated: true, newSecret: (result as any).value ?? null };
       }),
@@ -2777,22 +2776,22 @@ const middlewareRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
-        const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
+        const since = new Date(Date.now() - input.loginAnomalyWindowMinutes * 60 * 1000);
         const events = await getKeycloakEvents({
           limit: 1000,
           eventType: "LOGIN_ERROR",
           fromDate: since,
         });
         const count = events.length;
-        const exceeded = count >= input.threshold;
+        const exceeded = count >= input.loginAnomalyThreshold;
         if (exceeded) {
           const { notifyOwner } = await import("./_core/notification");
           await notifyOwner({
             title: "⚠️ Auth Anomaly Detected",
-            content: `${count} login failures in the last ${input.windowMinutes} minutes (threshold: ${input.threshold}). Check /security/auth-events for details.`,
+            content: `${count} login failures in the last ${input.loginAnomalyWindowMinutes} minutes (threshold: ${input.loginAnomalyThreshold}). Check /security/auth-events for details.`,
           });
         }
-        return { count, exceeded, windowMinutes: input.windowMinutes, threshold: input.threshold, since };
+        return { count, exceeded, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold, since };
       }),
 
     // ── Active Keycloak sessions list (admin) ──
@@ -2872,17 +2871,17 @@ const middlewareRouter = router({
         const user = await resolveUser(ctx.user.openId);
         // Get old values for audit log
         const oldConfig = await getAnomalyConfig(user.id);
-        await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
+        await setAnomalyConfig(user.id, input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
         // Record audit entry
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: false,
-          oldWindowMinutes: oldConfig.windowMinutes,
-          oldThreshold: oldConfig.threshold,
-          newWindowMinutes: input.windowMinutes,
-          newThreshold: input.threshold,
+          oldWindowMinutes: oldConfig.loginAnomalyWindowMinutes,
+          oldThreshold: oldConfig.loginAnomalyThreshold,
+          newWindowMinutes: input.loginAnomalyWindowMinutes,
+          newThreshold: input.loginAnomalyThreshold,
         });
-        return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
+        return { ok: true, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold };
       }),
 
     // ── Acknowledge a geo-anomaly event (admin dismisses new-country alert) ──
@@ -2916,15 +2915,15 @@ const middlewareRouter = router({
         }
                 // Get old global config for audit log
         const oldGlobal = await getGlobalAnomalyConfig();
-        await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
+        await setGlobalAnomalyConfig(input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
         const user = await resolveUser(ctx.user.openId);
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: true,
-          oldWindowMinutes: oldGlobal.windowMinutes,
-          oldThreshold: oldGlobal.threshold,
-          newWindowMinutes: input.windowMinutes,
-          newThreshold: input.threshold,
+          oldWindowMinutes: oldGlobal.loginAnomalyWindowMinutes,
+          oldThreshold: oldGlobal.loginAnomalyThreshold,
+          newWindowMinutes: input.loginAnomalyWindowMinutes,
+          newThreshold: input.loginAnomalyThreshold,
         });
         return { ok: true };
       }),
@@ -3122,7 +3121,6 @@ const fraudRiskRouter = router({
       });
       // Fire-and-forget Kafka event for fraud downstream consumers
       publishFraudEvent({
-        alertId: alert.id,
         merchantId: merchant.id,
         alertType: input.alertType,
         riskScore: finalRiskScore,
@@ -3766,7 +3764,7 @@ const complianceKycRouter = router({
         if (adaptedDecision === 'spoof') {
           await updateKycSubmission(input.submissionId, String(user.id), {
             status: 'rejected',
-            rejectionReason: `Liveness check failed: ${result.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
+            rejectionReason: `Liveness check failed: ${result?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
         // Persist liveness result to DB regardless of outcome
@@ -4604,7 +4602,7 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const { upsertFxAlert } = await import('./db');
       const pair = `${input.baseCurrency}/${input.targetCurrency}`;
-      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.threshold });
+      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.loginAnomalyThreshold });
       return { success: true, alert };
     }),
   convertCurrency: protectedProcedure
@@ -4684,7 +4682,7 @@ const fxRouter = router({
       if (triggered.length > 0) {
         await notifyOwner({
           title: `FX Rate Alert Triggered (${triggered.length})`,
-          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.threshold})`).join("\n"),
+          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.loginAnomalyThreshold})`).join("\n"),
         });
       }
       return { triggered, checkedAt: new Date().toISOString() };
@@ -5583,7 +5581,7 @@ const settlementsRouter = router({
           logger.error("[bridge] triggerSettlement failed (non-fatal):", err);
         }
       }
-      publishAuditEvent({ action: 'settlement.created', actorId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'settlement.created', userId: ctx.user.openId, targetId: settlementId, metadata: { merchantId: merchant.id, amount: input.amount, currency: input.currency }, timestamp: new Date().toISOString() }).catch(() => {});
       return settlement;
     }),
 
@@ -6005,7 +6003,7 @@ const adminMgmtRouter = router({
       // Fire-and-forget Kafka audit event
       publishAuditEvent({
         action: 'user.role.changed',
-        actorId: ctx.user.openId,
+        userId: ctx.user.openId,
         targetId: input.userId,
         metadata: { newRole: input.role },
         timestamp: new Date().toISOString(),
@@ -6122,7 +6120,7 @@ const pushTokensRouter = router({
 
 // ─── QR Payments Router ─────────────────────────────────────────────────────
 
-const qrPaymentsRouter = router({
+const qrPaymentsLocalRouter = router({
   generate: protectedProcedure
     .input(z.object({
       amount: z.number().int().min(1).optional(),
@@ -6163,7 +6161,7 @@ const qrPaymentsRouter = router({
 
 // ─── Subscriptions Router (Recurring Payments — Nigerian context) ─────────────
 
-const subscriptionsRouter = router({
+const subscriptionsLocalRouter = router({
   list: protectedProcedure
     .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {
@@ -7364,7 +7362,7 @@ const payrollRouter = router({
     // Fire-and-forget Kafka audit event
     publishAuditEvent({
       action: 'payroll.run.approved',
-      actorId: ctx.user.openId,
+      userId: ctx.user.openId,
       targetId: input.id,
       metadata: { merchantId: merchant.id },
       timestamp: new Date().toISOString(),
@@ -7771,7 +7769,7 @@ const vendorRouter = router({
     );
     // Group by vendorId
     const grouped: Record<string, Array<{ month: string; spendKobo: number }>> = {};
-    for (const r of (result.rows ?? []) as any[]) {
+    for (const r of (result.rows ?? []) as unknown as any[]) {
       if (!r.month) continue; // skip vendors with no POs
       if (!grouped[r.vendor_id]) grouped[r.vendor_id] = [];
       grouped[r.vendor_id].push({ month: r.month as string, spendKobo: Number(r.spend_kobo) });
@@ -7783,7 +7781,7 @@ const vendorRouter = router({
 });
 // ─── Purchase Orders Router ───────────────────────────────────────────────────
 
-const purchaseOrdersRouter = router({
+const purchaseOrdersLocalRouter = router({
   create: protectedProcedure
     .input(z.object({
       inventoryItemId: z.string().optional(),
@@ -9070,7 +9068,7 @@ export const appRouter = router({
   team: teamRouter,
   settings: settingsRouter,
   auditLog: auditLogRouter,
-  purchaseOrders: purchaseOrdersRouter,
+  purchaseOrders: purchaseOrdersRouterW124,
   analytics: analyticsRouter,
   merchantAnalytics: merchantAnalyticsRouter,
   middleware: middlewareRouter,
@@ -9092,10 +9090,10 @@ export const appRouter = router({
   notificationPreferences: notificationPreferencesRouter,
   consumerNotifPrefs: consumerNotifPrefsRouter,
   adminNotifPrefs: adminNotifPrefsRouter,
-  qrPayments: qrPaymentsRouter,
+  qrPayments: qrPaymentsRouterW124,
   grpc: grpcRouter,
   // Wave 28 — Subscriptions (Go scheduler) + POS Terminals
-  subscriptions: subscriptionsRouter,
+  subscriptions: subscriptionsRouterW124,
   pos: posRouter,
   // Wave 32
   geofence: geofenceRouter,
@@ -9270,12 +9268,9 @@ export const appRouter = router({
   loanRepayments: loanRepaymentsRouter,
   posTerminals: posTerminalsRouter,
   posTransactions: posTransactionsRouter,
-  purchaseOrders: purchaseOrdersRouter,
-  qrPayments: qrPaymentsRouter,
   redEnvelopes: redEnvelopesRouter,
   referrals: referralsRouter,
   savedBeneficiaries: savedBeneficiariesRouter,
-  subscriptions: subscriptionsRouter,
   ussdSessions: ussdSessionsRouter,
   wafAlerts: wafAlertsRouter,
   offlineResilience: offlineResilienceRouter,
@@ -9298,12 +9293,6 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
-  splitBillV2: splitBillV2Router,
-  staffMgmt: staffMgmtRouter,
-  superAgentV2Mgmt: superAgentV2MgmtRouter,
-  supportChat: supportChatRouter,
-  taxFilingV2: taxFilingV2Router,
-  txReceipts: txReceiptsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

@@ -1,3 +1,4 @@
+import { ENV } from "./env";
 import "../tracing"; // MUST be first — initialises OpenTelemetry before any other imports
 import "dotenv/config";
 import express from "express";
@@ -990,7 +991,7 @@ async function startServer() {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.paymentLinks.list();
+      const data = await caller.paymentLinks.list({ limit: 50, offset: 0 });
       return res.json(data);
     } catch (e: any) {
       return res.status(500).json({ error: e.message ?? "Failed" });
@@ -1031,7 +1032,7 @@ async function startServer() {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.virtualCards.list();
+      const data = await caller.virtualCards.list({ limit: 50, offset: 0 });
       return res.json(data);
     } catch (e: any) {
       return res.status(500).json({ error: e.message ?? "Failed" });
@@ -1117,7 +1118,7 @@ async function startServer() {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.apiKeys.list();
+      const data = await caller.apiKeys.list({ limit: 50, offset: 0 });
       return res.json(data);
     } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
   });
@@ -1148,7 +1149,7 @@ async function startServer() {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.webhooks.list();
+      const data = await caller.webhooks.list({ limit: 50, offset: 0 });
       return res.json(data);
     } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
   });
@@ -1179,7 +1180,7 @@ async function startServer() {
       const ctx = await createContext({ req, res } as any);
       if (!ctx.user) return res.status(401).json({ error: "Unauthorized" });
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.team.list();
+      const data = await caller.team.list({ limit: 50, offset: 0 });
       return res.json(data);
     } catch (e: any) { return res.status(500).json({ error: e.message ?? "Failed" }); }
   });
@@ -1502,7 +1503,7 @@ async function startServer() {
             rejectionReason: `Liveness spoof detected: ${spoofType ?? 'unknown'} (confidence: ${String(spoofConfidence ?? 0)})`,
           } : {}),
         })
-        .where(eq(kycSubmissions.sessionId, submissionId));
+        .where(eq(kycSubmissions.id, submissionId));
       // Publish audit event (non-fatal)
       try {
         const { publishAuditEvent } = await import("../auditEvents");
@@ -1778,7 +1779,8 @@ async function startServer() {
       let sessionUser: { openId: string } | null = null;
       try {
         const payload = await verifySessionToken(rawToken);
-        sessionUser = { openId: payload.sub };
+        if (!payload) throw new Error("invalid token");
+        sessionUser = { openId: payload.openId };
       } catch {
         return res.status(401).json({ error: "Invalid or expired token" });
       }
@@ -2006,7 +2008,7 @@ async function startServer() {
           ussdLangPickerEnabled: schema.merchants.ussdLangPickerEnabled,
         })
         .from(schema.merchants)
-        .where(eq(schema.merchants.id, merchantId))
+        .where(eq(schema.merchants.id, String(merchantId)))
         .limit(1);
       if (!merchant) return res.status(404).json({ error: "Merchant not found" });
       return res.json({
@@ -2175,7 +2177,7 @@ async function startServer() {
       // ── 3. Notify owner if P0 issues found ─────────────────────────────────
       if (p0Failures.length > 0) {
         try {
-          const { notifyOwner } = await import("./_core/notification");
+          const { notifyOwner } = await import("./notification");
           await notifyOwner({
             title: `[SECURITY ALERT] ${p0Failures.length} P0 issue(s) detected`,
             content: `Nightly security audit found ${p0Failures.length} P0 critical issue(s):\n\n${p0Failures.map(f => `• ${f.label}`).join("\n")}\n\nAudit score: ${score}/100 (${auditResult.grade})\nRun at: ${startedAt.toISOString()}`,
@@ -2229,13 +2231,14 @@ async function startServer() {
   // and marks them as purged (ndprPurgedAt). Complies with NDPR Article 26.
   app.post("/api/scheduled/ndpr-biometric-purge", async (req: any, res: any) => {
     const cronKey = req.headers["x-cron-key"] ?? req.headers["x-internal-key"];
-    if (cronKey !== ENV.internalApiKey && cronKey !== process.env.CRON_SECRET) {
+    if (cronKey !== process.env.INTERNAL_API_KEY && cronKey !== process.env.CRON_SECRET) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const taskUid = randomUUID();
     logger.info("ndpr_purge_start", { taskUid });
     try {
-      const db = await getDb();
+      const { getDb: _getDb } = await import("../db");
+      const db = await _getDb();
       if (!db) return res.json({ ok: true, purged: 0, skipped: 0, message: "No DB" });
       const { livenessSessions: lsTbl } = await import('../../drizzle/schema');
       const { lt, isNull, isNotNull, and: andOp } = await import('drizzle-orm');

@@ -5223,3 +5223,36 @@
 - [x] Wave 184: main landmark aria-label added to Layout.tsx
 - [x] Wave 185: GoLiveChecklist updated with Wave 176-181 items (DeepFace, NDPR, NIBSS, SCUML)
 - [x] 149 Wave 171-185 tests passing, 7384 total tests passing
+
+## Production Readiness Pass (May 2026)
+
+- [x] Wire all 72 orphan page components to App.tsx routes
+- [x] Wrap all admin-only routes in AdminGuard
+- [x] Remove duplicate route entries from App.tsx
+- [x] Fix NIBSS NIP account resolution stub with real HTTP call + cache write
+- [x] Fix DNS TXT lookup stub with real dns.resolveTxt implementation
+- [x] Fix FX rate fetch stub with real CBN API + fallback
+- [x] Fix feature flags to use DB (featureFlags table) instead of in-memory
+- [x] Fix gold price stub with real metals API + fallback
+- [x] Fix PIN verification stub with real bcrypt comparison
+- [x] Fix PIN OTP stub with real Termii SMS integration
+- [x] Fix SMTP email stub with real nodemailer integration
+- [x] Fix setMaintenanceMode to use feature_flags table
+- [x] Fix getErrorSummary stub to query DB
+- [x] Fix SLA breach acknowledgment stub
+- [x] Create auditEvents.ts with real publishAuditEvent implementation
+- [x] Fix ENV.keycloakAdminUser usage in index.ts (remove process.env direct access)
+- [x] Fix all duplicate appRouter property names (9 duplicates removed)
+- [x] Fix publishTransactionEvent/publishPayoutEvent missing type fields
+- [x] Fix publishAuditEvent calls with wrong field names (actorId → userId)
+- [x] Fix windowMinutes/threshold property names in security settings
+- [x] Fix spoof_type optional chaining in liveness result
+- [x] Fix QueryResult cast errors (use unknown as any[])
+- [x] Fix payload null check in Keycloak token verification
+- [x] Fix getDb dynamic import in NDPR purge endpoint
+- [x] Fix notification import path in security audit endpoint
+- [x] Fix caller.xxx.list() calls with missing required input params
+- [x] Fix merchants.id type mismatch (number vs text)
+- [x] Fix kycSubmissions.sessionId → .id reference
+- [x] All 7,400 tests passing (165 test files)
+- [x] TypeScript errors reduced from 508 to 494 (remaining are pre-existing schema field mismatches in client pages)

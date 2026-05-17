@@ -973,21 +973,47 @@ const notifAdminRouter = router({
 // ─── 12. Configuration Panel ──────────────────────────────────────────────────
 const configPanelRouter = router({
   getFeatureFlags: adminProcedure.query(async () => {
-    // Return current feature flag configuration
-    return {
-      flags: [
-        { key: "digital_gold_enabled", value: true, description: "Enable Digital Gold trading" },
-        { key: "mutual_funds_enabled", value: true, description: "Enable Mutual Funds investment" },
-        { key: "pension_nps_enabled", value: true, description: "Enable Pension/NPS contributions" },
-        { key: "international_remittance_enabled", value: true, description: "Enable international remittance" },
-        { key: "emi_checkout_enabled", value: true, description: "Enable EMI checkout" },
-        { key: "bnpl_enabled", value: true, description: "Enable Buy Now Pay Later" },
-        { key: "crypto_ramp_enabled", value: false, description: "Enable crypto on/off ramp" },
-        { key: "consumer_portal_enabled", value: true, description: "Enable consumer portal" },
-        { key: "ollama_ai_enabled", value: true, description: "Enable local Ollama AI features" },
-        { key: "maintenance_mode", value: false, description: "Put platform in maintenance mode" },
-      ],
-    };
+    const db = await getDb();
+    // Default flags used for seeding / fallback
+    const DEFAULTS = [
+      { key: "digital_gold_enabled", enabled: true, name: "Digital Gold", description: "Enable Digital Gold trading" },
+      { key: "mutual_funds_enabled", enabled: true, name: "Mutual Funds", description: "Enable Mutual Funds investment" },
+      { key: "pension_nps_enabled", enabled: true, name: "Pension/NPS", description: "Enable Pension/NPS contributions" },
+      { key: "international_remittance_enabled", enabled: true, name: "International Remittance", description: "Enable international remittance" },
+      { key: "emi_checkout_enabled", enabled: true, name: "EMI Checkout", description: "Enable EMI checkout" },
+      { key: "bnpl_enabled", enabled: true, name: "BNPL", description: "Enable Buy Now Pay Later" },
+      { key: "crypto_ramp_enabled", enabled: false, name: "Crypto Ramp", description: "Enable crypto on/off ramp" },
+      { key: "consumer_portal_enabled", enabled: true, name: "Consumer Portal", description: "Enable consumer portal" },
+      { key: "ollama_ai_enabled", enabled: true, name: "Ollama AI", description: "Enable local Ollama AI features" },
+      { key: "maintenance_mode", enabled: false, name: "Maintenance Mode", description: "Put platform in maintenance mode" },
+    ];
+    if (!db) {
+      return { flags: DEFAULTS.map((d) => ({ key: d.key, value: d.enabled, description: d.description })) };
+    }
+    try {
+      const { featureFlags } = await import("../../drizzle/schema");
+      // Upsert defaults so table is always populated
+      for (const def of DEFAULTS) {
+        await db.insert(featureFlags).values({
+          key: def.key,
+          name: def.name,
+          description: def.description,
+          enabled: def.enabled,
+        }).onConflictDoNothing();
+      }
+      const rows = await db.select().from(featureFlags).orderBy(featureFlags.key);
+      return {
+        flags: rows.map((r) => ({
+          key: r.key,
+          value: r.enabled,
+          description: r.description ?? "",
+          rolloutPercentage: r.rolloutPercentage,
+          updatedAt: r.updatedAt,
+        })),
+      };
+    } catch {
+      return { flags: DEFAULTS.map((d) => ({ key: d.key, value: d.enabled, description: d.description })) };
+    }
   }),
 
   updateFeatureFlag: adminProcedure
@@ -996,9 +1022,18 @@ const configPanelRouter = router({
       value: z.boolean(),
       reason: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
-      // In production, this would update a feature_flags table or Redis key
-      return { updated: true, key: input.key, value: input.value };
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { updated: false, key: input.key, value: input.value, error: "DB unavailable" };
+      try {
+        const { featureFlags } = await import("../../drizzle/schema");
+        await db.update(featureFlags)
+          .set({ enabled: input.value, updatedAt: new Date(), createdBy: ctx.user.openId })
+          .where(eq(featureFlags.key, input.key));
+        return { updated: true, key: input.key, value: input.value };
+      } catch {
+        return { updated: false, key: input.key, value: input.value, error: "Update failed" };
+      }
     }),
 
   getRateLimits: adminProcedure.query(async () => {
@@ -1015,11 +1050,27 @@ const configPanelRouter = router({
 
   setMaintenanceMode: adminProcedure
     .input(z.object({ enabled: z.boolean(), message: z.string().optional() }))
-    .mutation(async ({ input }) => {
-      // In production, update Redis key or env var
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      const maintenanceMsg = input.message ?? "Platform is under maintenance. Please try again later.";
+      if (db) {
+        try {
+          const { featureFlags } = await import("../../drizzle/schema");
+          await db.insert(featureFlags).values({
+            key: "maintenance_mode",
+            name: "Maintenance Mode",
+            description: maintenanceMsg,
+            enabled: input.enabled,
+            createdBy: ctx.user.openId,
+          }).onConflictDoUpdate({
+            target: featureFlags.key,
+            set: { enabled: input.enabled, description: maintenanceMsg, updatedAt: new Date(), createdBy: ctx.user.openId },
+          });
+        } catch { /* graceful */ }
+      }
       return {
         maintenanceMode: input.enabled,
-        message: input.message ?? "Platform is under maintenance. Please try again later.",
+        message: maintenanceMsg,
         updatedAt: new Date().toISOString(),
       };
     }),

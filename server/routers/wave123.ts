@@ -645,18 +645,45 @@ export const portalHealthRouter = router({
       };
     }),
 
-  // Get recent error log summary
+  // Get recent error log summary from audit_events table
   getErrorSummary: protectedProcedure
     .input(z.object({ hours: z.number().min(1).max(168).default(24) }))
-    .query(async () => {
-      // In production, this would query OpenSearch/Loki
-      return {
-        totalErrors: 0,
-        criticalErrors: 0,
-        warningCount: 0,
-        topErrors: [] as Array<{ message: string; count: number; lastSeen: string }>,
-        errorRate: 0,
-        message: "Error aggregation requires OpenSearch/Loki integration",
-      };
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) {
+        return { totalErrors: 0, criticalErrors: 0, warningCount: 0, topErrors: [], errorRate: 0 };
+      }
+      try {
+        const since = new Date(Date.now() - input.hours * 3600_000);
+        const { auditEvents } = await import("../../drizzle/schema");
+        const { gte, like, count, desc } = await import("drizzle-orm");
+        const errorRows = await db.select().from(auditEvents)
+          .where(gte(auditEvents.createdAt, since))
+          .orderBy(desc(auditEvents.createdAt))
+          .limit(500);
+        const errors = errorRows.filter((r) => (r as any).severity === "error" || (r as any).action?.includes("error") || (r as any).action?.includes("fail"));
+        const warnings = errorRows.filter((r) => (r as any).severity === "warn" || (r as any).action?.includes("warn"));
+        const critical = errors.filter((r) => (r as any).severity === "critical");
+        // Group by action for top errors
+        const grouped: Record<string, { count: number; lastSeen: string }> = {};
+        for (const e of errors) {
+          const key = (e as any).action ?? "unknown";
+          if (!grouped[key]) grouped[key] = { count: 0, lastSeen: (e as any).createdAt?.toISOString() ?? "" };
+          grouped[key].count++;
+        }
+        const topErrors = Object.entries(grouped)
+          .sort((a, b) => b[1].count - a[1].count)
+          .slice(0, 10)
+          .map(([message, v]) => ({ message, count: v.count, lastSeen: v.lastSeen }));
+        return {
+          totalErrors: errors.length,
+          criticalErrors: critical.length,
+          warningCount: warnings.length,
+          topErrors,
+          errorRate: errors.length / input.hours,
+        };
+      } catch {
+        return { totalErrors: 0, criticalErrors: 0, warningCount: 0, topErrors: [], errorRate: 0 };
+      }
     }),
 });

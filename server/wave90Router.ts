@@ -358,9 +358,8 @@ export const loyaltyMwRouter = router({
         { name: "platinum", minPoints: 100_000 },
       ];
       // Fetch real current points from loyalty_accounts table
-      const db = await getDb();
-      if (!db) throw new Error('Database unavailable');
       let currentPoints = 0;
+      const db = await getDb();
       if (db) {
         try {
           const rows = await db.execute(sql`SELECT COALESCE(SUM(points_balance), 0) AS total_points FROM loyalty_accounts WHERE merchant_id = ${userId} LIMIT 1`);
