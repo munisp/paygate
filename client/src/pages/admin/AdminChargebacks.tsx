@@ -209,8 +209,7 @@ function ChargebackDetail({
   const { data } = trpc.wave24.chargebacks.get.useQuery({ id }, { staleTime: 30_000 });
   const { data: evidenceData, refetch: refetchEvidence } = trpc.wave26.chargebackPdf.getEvidenceForViewer.useQuery(
     { chargebackId: id },
-    { enabled: !!id }
-  , { staleTime: 30_000 });
+    { enabled: !!id }, staleTime: 30_000})
   const [notes, setNotes] = useState("");
   const [showPdfViewer, setShowPdfViewer] = useState(false);
   const [uploading, setUploading] = useState(false);

@@ -30,8 +30,7 @@ export default function OpenBanking() {
 
   const { data: customerData, isLoading: dataLoading } = trpc.tier1to5.openBanking.getCustomerData.useQuery(
     { customerId, dataType: viewDataType, consentToken },
-    { enabled: !!customerId && !!consentToken }
-  , { staleTime: 30_000 });
+    { enabled: !!customerId && !!consentToken }, staleTime: 30_000})
 
   const sdkTokenMutation = trpc.tier1to5.openBanking.issueSDKToken.useMutation({
     onSuccess: (data: any) => {

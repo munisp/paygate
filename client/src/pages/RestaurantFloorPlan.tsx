@@ -36,8 +36,7 @@ export default function RestaurantFloorPlan() {
 
   const { data, isLoading, refetch } = trpc.restaurant.listTables.useQuery(
     undefined,
-    { enabled: isAuthenticated }
-  , { staleTime: 30_000 });
+    { enabled: isAuthenticated }, staleTime: 30_000})
 
   const createTable = trpc.restaurant.createTable.useMutation({
     onSuccess: () => {

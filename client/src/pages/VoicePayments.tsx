@@ -17,12 +17,10 @@ export default function VoicePayments() {
   const {isLoading, data: devices, refetch} = trpc.newFeatures.voicePayments.getSoundboxDevices.useQuery();
   const { data: alerts } = trpc.newFeatures.voicePayments.getPaymentAlerts.useQuery(
     { deviceId: selectedDevice ?? "" },
-    { enabled: !!selectedDevice }
-  , { staleTime: 30_000 });
+    { enabled: !!selectedDevice }, staleTime: 30_000})
   const { data: stats } = trpc.newFeatures.voicePayments.getDeviceStats.useQuery(
     { deviceId: selectedDevice ?? "" },
-    { enabled: !!selectedDevice }
-  , { staleTime: 30_000 });
+    { enabled: !!selectedDevice }, staleTime: 30_000})
 
   const registerMutation = trpc.newFeatures.voicePayments.registerDevice.useMutation({
     onSuccess: (d: any) => { toast.success(`Device registered: ${d.activationCode}`); refetch(); },

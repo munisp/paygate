@@ -62,8 +62,7 @@ export default function ConsumerCrossBorder() {
       amount: amount || "0",
       rail,
     },
-    { enabled: false }
-  , { staleTime: 30_000 });
+    { enabled: false }, staleTime: 30_000})
 
   const initiate = trpc.crossBorder.initiate.useMutation({
     onSuccess: () => {

@@ -22,8 +22,7 @@ export default function ConsumerEMI() {
 
   const { data: schedule } = trpc.newFeatures.emiCheckout.getSchedule.useQuery(
     { emiId: selectedEMI! },
-    { enabled: !!selectedEMI }
-  , { staleTime: 30_000 });
+    { enabled: !!selectedEMI }, staleTime: 30_000})
 
   const initiateMutation = trpc.newFeatures.emiCheckout.initiateEMI.useMutation({
     onSuccess: (d: any) => {

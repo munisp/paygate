@@ -87,8 +87,7 @@ export default function PIXGateway() {
 
   const validateQuery = trpc.crossBorder.pix.validateKey.useQuery(
     { pixKey, keyType },
-    { enabled: step === "validate" && pixKey.length >= 3 }
-  , { staleTime: 30_000 });
+    { enabled: step === "validate" && pixKey.length >= 3 }, staleTime: 30_000})
 
   const quoteQuery = trpc.crossBorder.pix.getQuote.useQuery(
     { sourceCurrency, amount: amount || "0" },

@@ -98,8 +98,7 @@ export default function KybStateMachine() {
 
   const { data: auditLog } = trpc.wave30.kybStateMachine.getAuditLog.useQuery(
     { merchantId: selected?.merchant_id },
-    { enabled: !!selected?.merchant_id }
-  , { staleTime: 30_000 });
+    { enabled: !!selected?.merchant_id }, staleTime: 30_000})
 
   const transition = trpc.wave30.kybStateMachine.transition.useMutation({
     onSuccess: () => {
@@ -120,8 +119,7 @@ export default function KybStateMachine() {
   const [csvExporting, setCsvExporting] = useState(false);
   const exportCsvQuery = trpc.wave30.kybStateMachine.exportCsv.useQuery(
     { status: filterState || undefined, search: search || undefined },
-    { enabled: false }
-  , { staleTime: 30_000 });
+    { enabled: false }, staleTime: 30_000})
 
   const handleExportCsv = async () => {
     setCsvExporting(true);

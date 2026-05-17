@@ -97,12 +97,10 @@ export default function AdminTenantBilling() {
   const { data: tenantsData, isLoading, isError } = trpc.wave26.tenants.list.useQuery({ page: 1, pageSize: 50 }, { staleTime: 30_000 });
   const { data: usageData } = trpc.wave26.usageMetering.getUsage.useQuery(
     { tenantId: selectedTenantId! },
-    { enabled: !!selectedTenantId },
-  , { staleTime: 30_000 });
+    { enabled: !!selectedTenantId, staleTime: 30_000 });
   const { data: invoicesData } = trpc.wave26.usageMetering.getInvoices.useQuery(
     { tenantId: selectedTenantId! },
-    { enabled: !!selectedTenantId },
-  , { staleTime: 30_000 });
+    { enabled: !!selectedTenantId, staleTime: 30_000 });
 
   const tenants = (tenantsData?.tenants ?? []).filter(
     (t: any) =>

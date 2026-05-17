@@ -53,8 +53,7 @@ export default function WorkflowObservability() {
   const { data: workflowData, isLoading: workflowLoading, refetch: refetchWorkflow } =
     trpc.middleware.workflow.getStatus.useQuery(
       { workflowId: lookupId },
-      { enabled: !!lookupId }
-    , { staleTime: 30_000 });
+      { enabled: !!lookupId }, staleTime: 30_000})
 
   // Force-reject a timed-out workflow
   const forceReject = trpc.payouts.reject.useMutation({

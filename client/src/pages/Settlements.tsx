@@ -184,8 +184,7 @@ export default function Settlements() {
       offset: page * PAGE_SIZE,
       status: statusFilter !== "all" ? statusFilter : undefined,
     },
-    { enabled: isAuthenticated, refetchInterval: settlementsInterval }
-  , { staleTime: 30_000 });
+    { enabled: isAuthenticated, refetchInterval: settlementsInterval }, staleTime: 30_000})
 
   const rows: Settlement[] = (data?.rows ?? []) as Settlement[];
   const total = data?.total ?? 0;

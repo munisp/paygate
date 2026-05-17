@@ -45,8 +45,7 @@ export default function TenantProvisioning() {
   const [checkWorkflowId, setCheckWorkflowId] = useState<string | null>(null);
   const { data: workflowStatus } = trpc.tenantProvision.getStatus.useQuery(
     { workflowId: checkWorkflowId! },
-    { enabled: !!checkWorkflowId }
-  , { staleTime: 30_000 });
+    { enabled: !!checkWorkflowId }, staleTime: 30_000})
 
   const tenants = data?.tenants ?? [];
   const total = data?.total ?? 0;

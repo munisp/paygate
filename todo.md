@@ -5135,3 +5135,10 @@
 - [x] Wave 175: Wave 174-175 routes registered in App.tsx
 - [x] Wave 175: Fixed duplicate logger import in reservationExpiryWorker.ts
 - [x] Wave 171-175: 50 new vitest tests — all passing (115 total across waves 169-175)
+
+## Wave 175 — Bulk staleTime Syntax Fix
+
+- [x] Fixed 57 files with malformed useQuery staleTime pattern (pre-existing issue across waves 68-165)
+- [x] Fixed AdminTenantBilling.tsx duplicate staleTime syntax error
+- [x] Fixed reservationExpiryWorker.ts duplicate logger import
+- [x] All 115 Wave 169-175 tests still passing after bulk fix

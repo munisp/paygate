@@ -458,8 +458,7 @@ function WebhookEventLog() {
       webhookId: webhookFilter === "all" ? undefined : webhookFilter,
       limit: 20,
     },
-    { refetchInterval: devPortalInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: devPortalInterval }, staleTime: 30_000})
 
   const retryMutation = trpc.webhookDeliveries.retry.useMutation({
     onSuccess: (data) => {

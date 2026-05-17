@@ -25,8 +25,7 @@ export default function GeofenceAlerts() {
 
   const { data, isLoading, refetch } = trpc.geofence.list.useQuery(
     undefined,
-    { enabled: isAuthenticated }
-  , { staleTime: 30_000 });
+    { enabled: isAuthenticated }, staleTime: 30_000})
 
   const upsert = trpc.geofence.upsert.useMutation({
     onSuccess: () => {

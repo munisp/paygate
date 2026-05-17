@@ -20,8 +20,7 @@ export default function MerchantLending() {
   const applicationsQuery = trpc.merchantLending.getLoanApplications.useQuery(undefined, { enabled: !!user }, { staleTime: 30_000 });
   const offersQuery = trpc.merchantLending.getLoanOffers.useQuery(
     { applicationId: selectedApplicationId! },
-    { enabled: !!selectedApplicationId }
-  , { staleTime: 30_000 });
+    { enabled: !!selectedApplicationId }, staleTime: 30_000})
 
   const applyMutation = trpc.merchantLending.applyForLoan.useMutation({
     onSuccess: (data: any) => {

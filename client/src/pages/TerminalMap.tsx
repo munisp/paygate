@@ -92,8 +92,7 @@ export default function TerminalMap() {
 
   const { data, isLoading, refetch } = trpc.pos.list.useQuery(
     { limit: 200 },
-    { refetchInterval: terminalMapInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: terminalMapInterval }, staleTime: 30_000})
 
   const updateLocation = trpc.pos.updateLocation.useMutation({ onError: (e) => toast.error(e.message) });
 

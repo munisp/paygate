@@ -36,8 +36,7 @@ export default function TenantBrandingAdmin() {
 
   const { data: branding, refetch, isLoading } = trpc.tenantBrandingApi.getBySlug.useQuery(
     { slug },
-    { enabled: slug.length >= 2 }
-  , { staleTime: 30_000 });
+    { enabled: slug.length >= 2 }, staleTime: 30_000})
 
   useEffect(() => {
     if (branding) {

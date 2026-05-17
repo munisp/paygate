@@ -333,8 +333,7 @@ export default function WhiteLabelPreview() {
   // Load tenant data if tenantId provided
   const { data: tenantData, isLoading, isError } = trpc.wave28.tenantAdmin.getOverview.useQuery(
     { tenantId },
-    { enabled: !!tenantId }
-  , { staleTime: 30_000 });
+    { enabled: !!tenantId }, staleTime: 30_000})
 
   useEffect(() => {
     if (tenantData?.tenant) {

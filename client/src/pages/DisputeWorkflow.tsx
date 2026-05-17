@@ -97,8 +97,7 @@ export default function DisputeWorkflow() {
 
   const exportMutation = trpc.disputes.exportCSV.useQuery(
     { status: "all" },
-    { enabled: false }
-  , { staleTime: 30_000 });
+    { enabled: false }, staleTime: 30_000})
 
   const handleFileClick = (idx: number) => {
     setActiveUploadIdx(idx);

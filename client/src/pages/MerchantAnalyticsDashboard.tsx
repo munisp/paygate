@@ -199,8 +199,7 @@ function ChartTooltip({ active, payload, label }: any) {
 function TransactionDetailModal({ txId, open, onClose }: { txId: string | null; open: boolean; onClose: () => void }) {
   const { data: tx, isLoading } = trpc.transactions.get.useQuery(
     { id: txId ?? "" },
-    { enabled: !!txId && open },
-  , { staleTime: 30_000 });
+    { enabled: !!txId && open , staleTime: 30_000});
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text).then(() => toast.success(`${label} copied`));

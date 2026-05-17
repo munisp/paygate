@@ -46,8 +46,7 @@ export default function ActiveSessions() {
   }, { staleTime: 30_000 });
   const auditLogFullQuery = trpc.middleware.keycloak.getAnomalyConfigAuditLogFull.useQuery(
     { limit: PAGE_SIZE, offset: auditPage * PAGE_SIZE },
-    { enabled: isAdmin && showAuditModal }
-  , { staleTime: 30_000 });
+    { enabled: isAdmin && showAuditModal }, staleTime: 30_000})
   const notifEmailQuery = trpc.middleware.keycloak.getNotificationEmail.useQuery(undefined, {
     enabled: isAdmin && showConfigForm,
     onSuccess: (d, { staleTime: 30_000 }) => { if (!editingEmail) setNotifEmail(d.notificationEmail ?? ""); },
@@ -112,8 +111,7 @@ export default function ActiveSessions() {
 
   const anomalyQuery = trpc.middleware.keycloak.checkLoginAnomalies.useQuery(
     { windowMinutes: anomalyConfigQuery.data?.loginAnomalyWindowMinutes ?? 15, threshold: anomalyConfigQuery.data?.loginAnomalyThreshold ?? 5 },
-    { refetchInterval: 60000 }
-  , { staleTime: 30_000 });
+    { refetchInterval: 60000 }, staleTime: 30_000})
 
   const forceLogout = trpc.middleware.keycloak.forceLogoutSession.useMutation({
     onSuccess: (result) => {

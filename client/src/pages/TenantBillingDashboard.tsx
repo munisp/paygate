@@ -36,18 +36,15 @@ export default function TenantBillingDashboard() {
 
   const { data: quota, isLoading: quotaLoading } = trpc.wave29.tenantBilling.checkQuota.useQuery(
     { tenantId: selectedTenant },
-    { refetchInterval: tenantBillingInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: tenantBillingInterval }, staleTime: 30_000})
 
   const { data: plans } = trpc.wave29.tenantBilling.getAllPlans.useQuery();
 
   const { data: invoices } = trpc.wave29.tenantBilling.getInvoices.useQuery(
-    { tenantId: selectedTenant, limit: 12 }
-  , { staleTime: 30_000 });
+    { tenantId: selectedTenant, limit: 12 }, staleTime: 30_000})
 
   const { data: revenueAnalytics } = trpc.wave29.tenantBilling.getRevenueAnalytics.useQuery(
-    { months: 6 }
-  , { staleTime: 30_000 });
+    { months: 6 }, staleTime: 30_000})
 
   const generateInvoice = trpc.wave29.tenantBilling.generateInvoice.useMutation({
     onSuccess: (data) => {

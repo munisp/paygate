@@ -21,8 +21,7 @@ export default function RateLimitDashboard() {
   const rateLimitInterval = useAdaptiveInterval(60000);
   const { data: stats, refetch, isLoading } = trpc.wave29.rateLimitDashboard.getStats.useQuery(
     {},
-    { refetchInterval: rateLimitInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: rateLimitInterval }, staleTime: 30_000})
 
   const setOverride = trpc.wave29.rateLimitDashboard.setOverride.useMutation({
     onSuccess: () => { toast.success("Rate limit override applied"); refetch(); },

@@ -165,8 +165,7 @@ export default function NotificationsCenter() {
 
   const { data: listData, isLoading, refetch } = trpc.notifications.list.useQuery(
     { limit: 100, unreadOnly: false },
-    { refetchInterval: notifInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: notifInterval }, staleTime: 30_000})
   const notifications = listData?.notifications;
   const { data: countData } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: notifInterval }, { staleTime: 30_000 });
 

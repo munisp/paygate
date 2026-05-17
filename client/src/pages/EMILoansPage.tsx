@@ -20,8 +20,7 @@ export default function EMILoansPage() {
 
   const calcEmi = trpc.emi.calculate.useQuery(
     { principalKobo: form.principalKobo, annualRatePct: 24, tenureMonths: form.tenureMonths },
-    { enabled: false }
-  , { staleTime: 30_000 });
+    { enabled: false }, staleTime: 30_000})
 
   const applyLoan = trpc.consumerFinancial.applyEmiLoan.useMutation({
     onSuccess: () => { toast.success("EMI loan application submitted!"); refetch(); setShowApply(false); },

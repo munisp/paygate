@@ -73,8 +73,7 @@ export default function PartnerOnboard() {
 
   const validateMutation = trpc.wave28.inviteCode.validate.useQuery(
     { code: inviteCode },
-    { enabled: false }
-  , { staleTime: 30_000 });
+    { enabled: false }, staleTime: 30_000})
 
   const startSessionMutation = trpc.wave28.partnerOnboarding.startSession.useMutation({
     onSuccess: (d) => {

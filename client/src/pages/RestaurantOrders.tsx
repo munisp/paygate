@@ -303,8 +303,7 @@ export default function RestaurantOrders() {
 
   const { data, isLoading, refetch } = trpc.restaurant.listOrders.useQuery(
     { status: statusFilter === "all" ? undefined : statusFilter },
-    { refetchInterval: restaurantInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: restaurantInterval }, staleTime: 30_000})
   const { data: tablesData } = trpc.restaurant.listTables.useQuery(undefined, { staleTime: 60_000 });
   const { data: menuData } = trpc.restaurant.listMenu.useQuery(undefined, { staleTime: 60_000 });
   const { data: statsData } = trpc.restaurant.tableTurnStats.useQuery(

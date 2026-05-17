@@ -111,13 +111,11 @@ export default function BillingAnalytics() {
 
   const analyticsQuery = trpc.billingExt.getAnalytics.useQuery(
     { tenantId, from, to },
-    { refetchInterval: billingInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: billingInterval }, staleTime: 30_000})
 
   const timeSeriesQuery = trpc.billingExt.getRevenueTimeSeries.useQuery(
     { tenantId, from, to, granularity },
-    { refetchInterval: billingInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: billingInterval }, staleTime: 30_000})
 
   const analytics = analyticsQuery.data;
   const timeSeries = timeSeriesQuery.data ?? [];

@@ -204,13 +204,11 @@ function FxTicker() {
 
   const { data: ratesData, isLoading: ratesLoading, refetch } = trpc.fx.getRates.useQuery(
     { base: "USD" },
-    { refetchInterval: crossBorder30Interval }
-  , { staleTime: 30_000 });
+    { refetchInterval: crossBorder30Interval }, staleTime: 30_000})
 
   const { data: volumeData } = trpc.fx.corridorVolume.useQuery(
     { daysSince: 7 },
-    { refetchInterval: crossBorderInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: crossBorderInterval }, staleTime: 30_000})
 
   const fetchAndStore = trpc.fx.fetchAndStore.useMutation();
 

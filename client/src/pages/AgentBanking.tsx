@@ -186,8 +186,7 @@ export default function AgentBanking() {
 
   const { data: agentsData, isLoading, refetch } = trpc.agentBanking.listSubAgents.useQuery(
     undefined,
-    { refetchInterval: agentInterval }
-  , { staleTime: 30_000 });
+    { refetchInterval: agentInterval }, staleTime: 30_000})
 
   const { data: healthData } = trpc.agentBanking.kioskHealth.useQuery(undefined, { staleTime: 30_000 });
 

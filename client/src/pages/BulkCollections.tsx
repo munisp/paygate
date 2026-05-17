@@ -18,8 +18,7 @@ export default function BulkCollections() {
   const {isLoading, data: collections, refetch} = trpc.newFeatures.bulkCollections.listCollections.useQuery({ page: 1, status: "all" }, { staleTime: 30_000 });
   const { data: details } = trpc.newFeatures.bulkCollections.getCollectionDetails.useQuery(
     { collectionId: selectedCollection ?? "" },
-    { enabled: !!selectedCollection }
-  , { staleTime: 30_000 });
+    { enabled: !!selectedCollection }, staleTime: 30_000})
 
   const createMutation = trpc.newFeatures.bulkCollections.createCollection.useMutation({
     onSuccess: (d: any) => { toast.success(`Collection "${d.collectionId}" created`); refetch(); },

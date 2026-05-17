@@ -37,8 +37,7 @@ export default function BillingInvoicesPage() {
 
   const { data: invoice } = trpc.wave32.billingInvoices.get.useQuery(
     { id: selectedId! },
-    { enabled: !!selectedId }
-  , { staleTime: 30_000 });
+    { enabled: !!selectedId }, staleTime: 30_000})
 
   const markPaidMutation = trpc.wave32.billingInvoices.markPaid.useMutation({
     onSuccess: () => { toast({ title: "Invoice marked as paid" }); setSelectedId(null); refetch(); },

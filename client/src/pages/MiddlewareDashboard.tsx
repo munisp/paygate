@@ -257,8 +257,7 @@ function SearchPanel() {
   const { data: indices } = trpc.middlewareDashboard.search.indices.useQuery();
   const { data: results, isLoading: searching } = trpc.middlewareDashboard.search.query.useQuery(
     { index: searchQuery?.index ?? "paygate-transactions", query: searchQuery?.query ?? "" },
-    { enabled: !!searchQuery }
-  , { staleTime: 30_000 });
+    { enabled: !!searchQuery }, staleTime: 30_000})
 
   const handleSearch = () => {
     if (!query.trim()) return;
