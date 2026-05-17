@@ -729,6 +729,13 @@ export default function Dashboard() {
   }, [recentTxns]);
 
   // Stripe sandbox claim banner
+  // KYC status — shows a banner if no approved submission exists
+  const { data: kycStats } = trpc.complianceKyc.stats.useQuery(undefined, { staleTime: 120_000 });
+  const [kycBannerDismissed, setKycBannerDismissed] = useState(() =>
+    localStorage.getItem('kyc_banner_dismissed') === '1'
+  );
+  const kycApproved = (kycStats as any)?.approved > 0;
+
   const [stripeBannerDismissed, setStripeBannerDismissed] = useState(() =>
     localStorage.getItem("stripe_banner_dismissed") === "1"
   );
@@ -794,6 +801,32 @@ export default function Dashboard() {
             <button
               onClick={() => { localStorage.setItem("stripe_banner_dismissed", "1"); setStripeBannerDismissed(true); }}
               className="p-1 rounded-md hover:bg-violet-100 text-violet-500 hover:text-violet-700 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+      {/* ── KYC Verification Banner ──────────────────────────────────── */}
+      {!kycBannerDismissed && !kycApproved && kycStats !== undefined && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900">
+          <Shield className="w-5 h-5 shrink-0 text-amber-600" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">KYB Verification Required</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Your business documents have not been verified yet. Complete KYB to unlock payouts and live payments.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href="/onboarding"
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+            >
+              Complete KYB
+            </a>
+            <button
+              onClick={() => { localStorage.setItem('kyc_banner_dismissed', '1'); setKycBannerDismissed(true); }}
+              className="p-1 rounded-md hover:bg-amber-100 text-amber-500 hover:text-amber-700 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>

@@ -463,6 +463,12 @@ const transactionsRouter = router({
       search: z.string().optional(),
       from: z.date().optional(),
       to: z.date().optional(),
+      channel: z.enum(['card', 'bank_transfer', 'mobile_money', 'ussd', 'qr', 'bnpl']).optional(),
+      currency: z.string().length(3).optional(),
+      amountMin: z.number().min(0).optional(),
+      amountMax: z.number().min(0).optional(),
+      sortBy: z.enum(['createdAt', 'amount', 'status', 'channel']).optional(),
+      sortOrder: z.enum(['asc', 'desc']).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -3296,6 +3302,28 @@ const fraudRiskRouter = router({
 });
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
 const complianceKycRouter = router({
+  // Create a new KYC submission record (called before uploading documents)
+  createSubmission: protectedProcedure
+    .input(z.object({
+      docType: z.enum(['passport', 'national_id', 'drivers_license', 'utility_bill', 'selfie', 'cac', 'tin', 'other']).default('national_id'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+      const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
+      const newId = `kyc_${merchant.id}_${Date.now()}`;
+      await db.insert(kycTbl).values({
+        id: newId,
+        tenantId: merchant.tenantId ?? merchant.id,
+        merchantId: merchant.id,
+        docType: input.docType as any,
+        status: 'pending',
+      } as any);
+      return { submissionId: newId };
+    }),
+
   list: protectedProcedure
     .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {

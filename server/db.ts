@@ -1,5 +1,5 @@
 import { cpus } from "os";
-import { and, count, desc, eq, gte, like, lte, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, like, lte, sql, sum } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { withCache, cache, TTL } from "./cache";
@@ -152,7 +152,14 @@ export async function updateMerchant(id: string, data: Partial<InsertMerchant>) 
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
-export async function listTransactions(merchantId: string, opts: { limit?: number; offset?: number; status?: string; search?: string; from?: Date; to?: Date }) {
+export async function listTransactions(merchantId: string, opts: {
+  limit?: number; offset?: number; status?: string; search?: string;
+  from?: Date; to?: Date;
+  channel?: string; currency?: string;
+  amountMin?: number; amountMax?: number;
+  sortBy?: 'createdAt' | 'amount' | 'status' | 'channel';
+  sortOrder?: 'asc' | 'desc';
+}) {
   const db = await getDb(); if (!db) return { rows: [], total: 0 };
   if (!db) throw new Error('Database unavailable');
   const conds = [eq(transactions.merchantId, merchantId)];
@@ -160,9 +167,19 @@ export async function listTransactions(merchantId: string, opts: { limit?: numbe
   if (opts.search) conds.push(like(transactions.reference, `%${opts.search}%`));
   if (opts.from) conds.push(gte(transactions.createdAt, opts.from));
   if (opts.to) conds.push(lte(transactions.createdAt, opts.to));
+  if (opts.channel) conds.push(eq(transactions.channel, opts.channel as any));
+  if (opts.currency) conds.push(eq(transactions.currency, opts.currency));
+  if (opts.amountMin != null) conds.push(gte(transactions.amount, opts.amountMin));
+  if (opts.amountMax != null) conds.push(lte(transactions.amount, opts.amountMax));
   const w = and(...conds); const lim = opts.limit ?? 20; const off = opts.offset ?? 0;
+  // Build sort expression
+  const sortCol = opts.sortBy === 'amount' ? transactions.amount
+    : opts.sortBy === 'status' ? transactions.status
+    : opts.sortBy === 'channel' ? transactions.channel
+    : transactions.createdAt;
+  const orderExpr = opts.sortOrder === 'asc' ? asc(sortCol) : desc(sortCol);
   const [rows, tot] = await Promise.all([
-    db.select().from(transactions).where(w).orderBy(desc(transactions.createdAt)).limit(lim).offset(off),
+    db.select().from(transactions).where(w).orderBy(orderExpr).limit(lim).offset(off),
     db.select({ count: count() }).from(transactions).where(w),
   ]);
   return { rows, total: tot[0]?.count ?? 0 };

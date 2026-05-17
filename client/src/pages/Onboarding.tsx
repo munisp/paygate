@@ -406,12 +406,60 @@ export default function Onboarding() {
   const [bank, setBank] = useState({ bankName: "", accountNumber: "", accountName: "", bvn: "" });
   const [selectedFeatureKeys, setSelectedFeatureKeys] = useState<string[]>(["ai_fraud_gnn"]);
 
-  const handleDocUpload = (docId: string, file: File) => {
-    setDocs(p => ({ ...p, [docId]: { file, status: "uploading" } }));
-    setTimeout(() => {
-      setDocs(p => ({ ...p, [docId]: { file, status: "done" } }));
-      toast.success(`${file.name} uploaded successfully`);
-    }, 1500);
+  // Holds the KYC submission ID created when the merchant first enters step 3
+  const [kycSubmissionId, setKycSubmissionId] = useState<string | null>(null);
+  // Holds the S3 URLs for each uploaded document
+  const [docUrls, setDocUrls] = useState<Record<string, string>>({});
+
+  const createSubmissionMutation = trpc.complianceKyc.createSubmission.useMutation({
+    onSuccess: (data) => setKycSubmissionId(data.submissionId),
+    onError: (err) => console.error('[kyc] createSubmission failed:', err),
+  });
+
+  const uploadDocumentMutation = trpc.complianceKyc.uploadDocument.useMutation({
+    onError: (err) => toast.error(`KYC record update failed: ${err.message}`),
+  });
+
+  const handleDocUpload = async (docId: string, file: File) => {
+    // Validate file size (10 MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File too large — maximum 10 MB');
+      return;
+    }
+    setDocs(p => ({ ...p, [docId]: { file, status: 'uploading' } }));
+    try {
+      // 1. Upload to S3 via /api/upload
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData, credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error ?? 'Upload failed');
+      }
+      const { url } = await res.json() as { url: string };
+      setDocUrls(p => ({ ...p, [docId]: url }));
+
+      // 2. Ensure a KYC submission record exists
+      let subId = kycSubmissionId;
+      if (!subId) {
+        const result = await createSubmissionMutation.mutateAsync({ docType: 'other' });
+        subId = result.submissionId;
+      }
+
+      // 3. Persist document URL to KYC submission
+      await uploadDocumentMutation.mutateAsync({
+        submissionId: subId!,
+        documentType: docId,
+        fileUrl: url,
+        fileName: file.name,
+      });
+
+      setDocs(p => ({ ...p, [docId]: { file, status: 'done' } }));
+      toast.success(`${file.name} uploaded and verified`);
+    } catch (err: any) {
+      setDocs(p => ({ ...p, [docId]: { file, status: 'error' } }));
+      toast.error(err.message ?? 'Upload failed — please try again');
+    }
   };
 
   const canProceed = () => {
@@ -643,17 +691,17 @@ export default function Onboarding() {
                   {DOC_TYPES.map(doc => {
                     const state = docs[doc.id];
                     return (
-                      <label key={doc.id} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${state.status === "done" ? "border-emerald-400 bg-emerald-50/50" : state.status === "uploading" ? "border-primary/40 bg-primary/5" : "border-dashed border-border hover:border-primary/40"}`}>
+                      <label key={doc.id} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${state.status === "done" ? "border-emerald-400 bg-emerald-50/50" : state.status === "uploading" ? "border-primary/40 bg-primary/5" : state.status === "error" ? "border-red-400 bg-red-50/50" : "border-dashed border-border hover:border-primary/40"}`}>
                         <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="sr-only" onChange={e => { if (e.target.files?.[0]) handleDocUpload(doc.id, e.target.files[0]); }} />
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${state.status === "done" ? "bg-emerald-100" : "bg-muted"}`}>
-                          {state.status === "done" ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : state.status === "uploading" ? <Loader2 className="w-5 h-5 text-primary animate-spin" /> : <Upload className="w-5 h-5 text-muted-foreground" />}
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${state.status === "done" ? "bg-emerald-100" : state.status === "error" ? "bg-red-100" : "bg-muted"}`}>
+                          {state.status === "done" ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : state.status === "uploading" ? <Loader2 className="w-5 h-5 text-primary animate-spin" /> : state.status === "error" ? <AlertCircle className="w-5 h-5 text-red-500" /> : <Upload className="w-5 h-5 text-muted-foreground" />}
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-medium">{doc.label}</p>
                             {doc.required && <span className="text-xs text-red-500">Required</span>}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">{state.file ? state.file.name : doc.desc}</p>
+                          <p className={`text-xs mt-0.5 ${state.status === "error" ? "text-red-500" : "text-muted-foreground"}`}>{state.status === "error" ? "Upload failed — click to retry" : state.file ? state.file.name : doc.desc}</p>
                         </div>
                         {state.status === "done" && (
                           <button type="button" onClick={e => { e.preventDefault(); setDocs(p => ({ ...p, [doc.id]: { file: null, status: "idle" } })); }} className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500">

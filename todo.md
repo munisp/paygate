@@ -5256,3 +5256,17 @@
 - [x] Fix kycSubmissions.sessionId → .id reference
 - [x] All 7,400 tests passing (165 test files)
 - [x] TypeScript errors reduced from 508 to 494 (remaining are pre-existing schema field mismatches in client pages)
+
+## Session 3 — KYC Integration, Filtering, Skeleton Loading (May 2026)
+
+- [x] Wire KYC document upload in Onboarding.tsx to trpc.complianceKyc.uploadDocument (real S3 upload + submission creation)
+- [x] Add KYC submission creation step in Onboarding.tsx (createSubmission before uploadDocument)
+- [x] Gate dashboard access on onboarding.getStatus (KYB banner shown on dashboard if not approved)
+- [x] Add skeleton loading states to NIPBanks.tsx account resolution result card
+- [x] Add sortBy/sortOrder/channel/currency/amountMin/amountMax/dateFrom/dateTo to transactions.list backend
+- [x] Add listTransactions sort support in db.ts
+- [x] Add advanced filter panel to Transactions.tsx (date range, amount range, channel, currency, sort)
+- [x] Add sortable column headers to Transactions table
+- [x] Add date range picker to Transactions filter bar
+- [x] Add amount range filter to Transactions filter bar
+- [x] Add channel and currency filters to Transactions filter bar

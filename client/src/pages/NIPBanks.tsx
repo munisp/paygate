@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -14,7 +15,7 @@ import {
 import { toast } from "sonner";
 import {
   Building2, Search, RefreshCw, CheckCircle2, XCircle, AlertTriangle,
-  Clock, Loader2, Shield, Info,
+  Clock, Loader2, Shield, Info, Copy, User, Hash,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +40,47 @@ interface ResolutionError {
   resolvedAt: Date | null;
   resolvedAccountName: string | null;
   createdAt: Date;
+}
+
+// ─── Skeleton for the Resolution Result card ─────────────────────────────────
+
+function ResolutionResultSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse" aria-label="Loading resolution result…">
+      {/* Header row */}
+      <div className="flex items-center gap-2">
+        <Skeleton className="w-5 h-5 rounded-full" />
+        <Skeleton className="h-4 w-40" />
+      </div>
+
+      {/* Account name block */}
+      <div className="p-3 bg-muted/40 rounded-lg border space-y-2">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-6 w-56" />
+      </div>
+
+      {/* Bank code + account number row */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="p-3 bg-muted/40 rounded-lg border space-y-2">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-4 w-12" />
+        </div>
+        <div className="p-3 bg-muted/40 rounded-lg border space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      </div>
+
+      {/* Progress indicator */}
+      <div className="flex items-center gap-2 p-3 bg-primary/5 rounded-lg border border-primary/20">
+        <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />
+        <div className="space-y-1 flex-1">
+          <Skeleton className="h-3 w-48" />
+          <Skeleton className="h-2.5 w-36" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── NIPBanks Page ────────────────────────────────────────────────────────────
@@ -118,6 +160,13 @@ export default function NIPBanks() {
     setAccountNumber("");
   }
 
+  function handleCopyName() {
+    if (resolveResult?.accountName) {
+      navigator.clipboard.writeText(resolveResult.accountName);
+      toast.success("Account name copied");
+    }
+  }
+
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -144,27 +193,43 @@ export default function NIPBanks() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">Total Banks</p>
-            <p className="text-2xl font-bold">{banks.length}</p>
+            {banksQuery.isLoading ? (
+              <Skeleton className="h-8 w-12 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold">{banks.length}</p>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">NIP Enabled</p>
-            <p className="text-2xl font-bold text-green-600">
-              {banks.filter(b => b.supportsNip).length}
-            </p>
+            {banksQuery.isLoading ? (
+              <Skeleton className="h-8 w-12 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold text-green-600">
+                {banks.filter(b => b.supportsNip).length}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">Resolution Errors</p>
-            <p className="text-2xl font-bold text-amber-600">{stats?.unresolved ?? 0}</p>
+            {errorStatsQuery.isLoading ? (
+              <Skeleton className="h-8 w-12 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold text-amber-600">{stats?.unresolved ?? 0}</p>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground">Auto-Resolved</p>
-            <p className="text-2xl font-bold text-blue-600">{stats?.resolved ?? 0}</p>
+            {errorStatsQuery.isLoading ? (
+              <Skeleton className="h-8 w-12 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold text-blue-600">{stats?.resolved ?? 0}</p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -200,18 +265,27 @@ export default function NIPBanks() {
                 <Button
                   variant="outline"
                   size="sm"
-                  aria-label="Refresh" onClick={() => banksQuery.refetch()}
+                  aria-label="Refresh"
+                  onClick={() => banksQuery.refetch()}
                   disabled={banksQuery.isFetching}
-                ><RefreshCw/>
+                >
+                  <RefreshCw className={banksQuery.isFetching ? "animate-spin" : ""} />
                   Refresh
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="p-0">
               {banksQuery.isLoading ? (
-                <div className="flex items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                  Loading bank directory...
+                <div className="p-4 space-y-2">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 py-2">
+                      <Skeleton className="h-4 w-14" />
+                      <Skeleton className="h-4 flex-1" />
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                      <Skeleton className="h-5 w-14 rounded-full" />
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <Table>
@@ -274,6 +348,7 @@ export default function NIPBanks() {
         {/* ── Account Resolver Tab ───────────────────────────────────────── */}
         <TabsContent value="resolver" className="mt-4">
           <div className="grid md:grid-cols-2 gap-6">
+            {/* Input card */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Account Name Enquiry</CardTitle>
@@ -290,12 +365,20 @@ export default function NIPBanks() {
                       <SelectValue placeholder="Select a bank..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {banks.map(b => (
-                        <SelectItem key={b.bankCode} value={b.bankCode}>
-                          <span className="font-mono text-xs text-muted-foreground mr-2">{b.bankCode}</span>
-                          {b.bankName}
-                        </SelectItem>
-                      ))}
+                      {banksQuery.isLoading ? (
+                        <div className="p-2 space-y-1">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Skeleton key={i} className="h-8 w-full" />
+                          ))}
+                        </div>
+                      ) : (
+                        banks.map(b => (
+                          <SelectItem key={b.bankCode} value={b.bankCode}>
+                            <span className="font-mono text-xs text-muted-foreground mr-2">{b.bankCode}</span>
+                            {b.bankName}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -309,10 +392,31 @@ export default function NIPBanks() {
                     maxLength={10}
                     className="font-mono"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {accountNumber.length}/10 digits
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      {accountNumber.length}/10 digits
+                    </p>
+                    {accountNumber.length === 10 && (
+                      <p className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Valid NUBAN length
+                      </p>
+                    )}
+                  </div>
                 </div>
+
+                {/* Selected bank info chip */}
+                {selectedBank && (
+                  <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg border text-sm">
+                    <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="font-medium">{selectedBank.bankName}</span>
+                    {selectedBank.supportsNip ? (
+                      <Badge variant="outline" className="ml-auto text-green-600 border-green-300 text-xs">NIP ✓</Badge>
+                    ) : (
+                      <Badge variant="outline" className="ml-auto text-amber-600 border-amber-300 text-xs">No NIP</Badge>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <Button
@@ -323,7 +427,7 @@ export default function NIPBanks() {
                     {resolveMutation.isPending ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Resolving...
+                        Resolving…
                       </>
                     ) : (
                       <>
@@ -332,8 +436,10 @@ export default function NIPBanks() {
                       </>
                     )}
                   </Button>
-                  {resolveResult && (
-                    <Button variant="outline" onClick={handleClear}>Clear</Button>
+                  {(resolveResult || resolveMutation.isPending) && (
+                    <Button variant="outline" onClick={handleClear} disabled={resolveMutation.isPending}>
+                      Clear
+                    </Button>
                   )}
                 </div>
 
@@ -351,31 +457,39 @@ export default function NIPBanks() {
             {/* Result card */}
             <Card className={resolveResult ? "border-green-300 bg-green-50/30" : ""}>
               <CardHeader>
-                <CardTitle className="text-base">Resolution Result</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Resolution Result</CardTitle>
+                  {resolveResult && (
+                    <Button variant="ghost" size="sm" onClick={handleCopyName} className="h-7 gap-1 text-xs">
+                      <Copy className="w-3 h-3" />
+                      Copy Name
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
+                {/* Empty state */}
                 {!resolveResult && !resolveMutation.isPending && (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                     <Building2 className="w-10 h-10 mb-3 opacity-30" />
                     <p className="text-sm">Enter bank and account number to resolve</p>
+                    <p className="text-xs mt-1 text-center max-w-xs">
+                      The account holder's name will appear here after a successful NIP enquiry.
+                    </p>
                   </div>
                 )}
 
-                {resolveMutation.isPending && (
-                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                    <Loader2 className="w-8 h-8 animate-spin mb-3 text-primary" />
-                    <p className="text-sm">Querying NIBSS NIP gateway...</p>
-                    <p className="text-xs mt-1">Retrying automatically on failure</p>
-                  </div>
-                )}
+                {/* Skeleton loading state */}
+                {resolveMutation.isPending && <ResolutionResultSkeleton />}
 
+                {/* Success state */}
                 {resolveResult && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
                       <span className="font-semibold text-green-700">Resolved Successfully</span>
                       {resolveResult.fromCache && (
-                        <Badge variant="outline" className="text-xs gap-1">
+                        <Badge variant="outline" className="text-xs gap-1 ml-auto">
                           <Clock className="w-3 h-3" />
                           Cached
                         </Badge>
@@ -383,20 +497,34 @@ export default function NIPBanks() {
                     </div>
 
                     <div className="space-y-3">
+                      {/* Account name */}
                       <div className="p-3 bg-white rounded-lg border">
-                        <p className="text-xs text-muted-foreground">Account Name</p>
-                        <p className="text-lg font-bold mt-0.5">{resolveResult.accountName}</p>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <User className="w-3 h-3 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">Account Name</p>
+                        </div>
+                        <p className="text-lg font-bold">{resolveResult.accountName}</p>
                       </div>
+
+                      {/* Bank code + account number */}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="p-3 bg-white rounded-lg border">
-                          <p className="text-xs text-muted-foreground">Bank Code</p>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Building2 className="w-3 h-3 text-muted-foreground" />
+                            <p className="text-xs text-muted-foreground">Bank Code</p>
+                          </div>
                           <p className="font-mono font-medium">{resolveResult.bankCode}</p>
                         </div>
                         <div className="p-3 bg-white rounded-lg border">
-                          <p className="text-xs text-muted-foreground">Account Number</p>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Hash className="w-3 h-3 text-muted-foreground" />
+                            <p className="text-xs text-muted-foreground">Account Number</p>
+                          </div>
                           <p className="font-mono font-medium">{resolveResult.accountNumber}</p>
                         </div>
                       </div>
+
+                      {/* Retry warning */}
                       {resolveResult.attempts > 1 && (
                         <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
                           <p className="text-xs text-amber-700 font-medium">
@@ -426,18 +554,20 @@ export default function NIPBanks() {
                     All failed NIP account name enquiry attempts. Auto-retried errors show resolution status.
                   </CardDescription>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex gap-3 items-center">
                   {stats?.topFailingBanks && stats.topFailingBanks.length > 0 && (
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground hidden md:block">
                       Top failing: {stats.topFailingBanks.slice(0, 2).map(b => `${b.bankCode} (${b.count})`).join(", ")}
                     </div>
                   )}
                   <Button
                     variant="outline"
                     size="sm"
-                    aria-label="Refresh" onClick={() => { errorsQuery.refetch(); errorStatsQuery.refetch(); }}
+                    aria-label="Refresh"
+                    onClick={() => { errorsQuery.refetch(); errorStatsQuery.refetch(); }}
                     disabled={errorsQuery.isFetching}
-                  ><RefreshCw/>
+                  >
+                    <RefreshCw className={errorsQuery.isFetching ? "animate-spin" : ""} />
                     Refresh
                   </Button>
                 </div>
@@ -445,9 +575,18 @@ export default function NIPBanks() {
             </CardHeader>
             <CardContent className="p-0">
               {errorsQuery.isLoading ? (
-                <div className="flex items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                  Loading error log...
+                <div className="p-4 space-y-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 py-2">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-4 w-14" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-5 w-8 rounded-full" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 flex-1" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                    </div>
+                  ))}
                 </div>
               ) : errors.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">

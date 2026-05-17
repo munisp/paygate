@@ -1,12 +1,65 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
-import { Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy, Package, Star } from "lucide-react";
+import {
+  Search, Download, RefreshCw, ChevronLeft, ChevronRight, Eye, Copy,
+  Package, Star, SlidersHorizontal, X, ArrowUpDown, ArrowUp, ArrowDown,
+  ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type SortBy = "createdAt" | "amount" | "status" | "channel";
+type SortOrder = "asc" | "desc";
+type Channel = "card" | "bank_transfer" | "mobile_money" | "ussd" | "qr" | "bnpl";
+
+interface Filters {
+  status: string;
+  channel: Channel | "";
+  currency: string;
+  amountMin: string;
+  amountMax: string;
+  dateFrom: string;
+  dateTo: string;
+  sortBy: SortBy;
+  sortOrder: SortOrder;
+}
+
+const DEFAULT_FILTERS: Filters = {
+  status: "",
+  channel: "",
+  currency: "",
+  amountMin: "",
+  amountMax: "",
+  dateFrom: "",
+  dateTo: "",
+  sortBy: "createdAt",
+  sortOrder: "desc",
+};
+
+const CHANNEL_LABELS: Record<Channel, string> = {
+  card: "Card",
+  bank_transfer: "Bank Transfer",
+  mobile_money: "Mobile Money",
+  ussd: "USSD",
+  qr: "QR Code",
+  bnpl: "BNPL",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -15,12 +68,28 @@ function StatusBadge({ status }: { status: string }) {
     pending:   "bg-amber-50 text-amber-700 border-amber-200",
     processing:"bg-blue-50 text-blue-700 border-blue-200",
     failed:    "bg-red-50 text-red-700 border-red-200",
+    reversed:  "bg-purple-50 text-purple-700 border-purple-200",
   };
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.pending}`}>{status}</span>;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? map.pending}`}>
+      {status}
+    </span>
+  );
 }
 
+function SortIcon({ col, active, order }: { col: string; active: boolean; order: SortOrder }) {
+  if (!active) return <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />;
+  return order === "asc"
+    ? <ArrowUp className="w-3.5 h-3.5 text-primary" />
+    : <ArrowDown className="w-3.5 h-3.5 text-primary" />;
+}
+
+// ─── Transaction Detail Dialog ────────────────────────────────────────────────
+
 function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () => void }) {
-  const { data: tx, isLoading, refetch } = trpc.transactions.get.useQuery({ id: txId }, { enabled: !!txId }, { staleTime: 30_000 });
+  const { data: tx, isLoading, refetch } = trpc.transactions.get.useQuery(
+    { id: txId }, { enabled: !!txId, staleTime: 30_000 }
+  );
   const [showRefund, setShowRefund] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("");
@@ -74,7 +143,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               { label: "Amount", value: `${tx.currency} ${Number(tx.amount).toLocaleString()}` },
               { label: "Fee", value: tx.feeAmount ? `${tx.currency} ${Number(tx.feeAmount).toLocaleString()}` : "—" },
               { label: "Net Amount", value: tx.netAmount ? `${tx.currency} ${Number(tx.netAmount).toLocaleString()}` : "—" },
-              { label: "Channel", value: tx.channel?.replace("_", " ") ?? "—" },
+              { label: "Channel", value: tx.channel?.replace(/_/g, " ") ?? "—" },
               { label: "Customer", value: tx.customerName ?? tx.customerEmail ?? "—" },
               { label: "Description", value: tx.description ?? "—" },
               { label: "Created", value: new Date(tx.createdAt).toLocaleString() },
@@ -164,7 +233,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
               );
             })()}
 
-            {/* Retry history timeline — shown when retryCount >= 1 */}
+            {/* Retry history */}
             {(() => {
               const meta = (tx.metadata ?? {}) as Record<string, any>;
               const retryCount = typeof meta.retryCount === "number" ? meta.retryCount : 0;
@@ -186,23 +255,22 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                       {retryHistory.map((r: any, i: any) => (
                         <div key={i} className="flex items-center justify-between text-xs text-muted-foreground pl-2">
                           <span className="font-medium">Attempt #{r.attempt}</span>
-                          <span className={r.status === 'completed' ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>{r.status}</span>
+                          <span className={r.status === "completed" ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>{r.status}</span>
                           <span>{new Date(r.timestamp).toLocaleString()}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground pl-5">Retried {retryCount} time{retryCount !== 1 ? 's' : ''} — no detailed history recorded</p>
+                    <p className="text-xs text-muted-foreground pl-5">Retried {retryCount} time{retryCount !== 1 ? "s" : ""} — no detailed history recorded</p>
                   )}
                 </div>
               );
             })()}
 
-            {/* Retry button — only for failed transactions */}
-            {tx.status === 'failed' && (
+            {/* Retry button */}
+            {tx.status === "failed" && (
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 className="w-full mt-2 border-blue-200 text-blue-600 hover:bg-blue-50"
                 disabled={retryMutation.isPending}
                 onClick={() => {
@@ -225,17 +293,16 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
             )}
 
             {/* Refund section */}
-            {tx.status === 'completed' && !showRefund && (
+            {tx.status === "completed" && !showRefund && (
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 className="w-full mt-2 border-red-200 text-red-600 hover:bg-red-50"
                 onClick={() => { setRefundAmount(String(tx.amount)); setShowRefund(true); }}
               >
                 Initiate Refund
               </Button>
             )}
-            {tx.status === 'reversed' && (
+            {tx.status === "reversed" && (
               <div className="mt-2 p-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 text-center font-medium">
                 This transaction has been refunded
               </div>
@@ -266,9 +333,7 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
                 </div>
                 <div className="flex gap-2">
                   <Button
-                    size="sm"
-                    variant="destructive"
-                    className="flex-1"
+                    size="sm" variant="destructive" className="flex-1"
                     disabled={refundMutation.isPending || !refundAmount}
                     onClick={() => refundMutation.mutate({ id: tx.id, amount: Number(refundAmount), reason: refundReason || undefined })}
                   >
@@ -287,17 +352,103 @@ function TransactionDetailDialog({ txId, onClose }: { txId: string; onClose: () 
   );
 }
 
+// ─── Active Filter Chip ───────────────────────────────────────────────────────
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+      {label}
+      <button onClick={onRemove} className="hover:text-primary/60 transition-colors">
+        <X className="w-3 h-3" />
+      </button>
+    </span>
+  );
+}
+
+// ─── Main Transactions Page ───────────────────────────────────────────────────
+
 export default function Transactions() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportingStatement, setExportingStatement] = useState(false);
-  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const limit = 20;
 
   const utils = trpc.useUtils();
   const now = new Date();
+
+  // Build query input from active filters
+  const queryInput = useMemo(() => ({
+    limit,
+    offset: page * limit,
+    search: search || undefined,
+    status: filters.status || undefined,
+    channel: (filters.channel || undefined) as any,
+    currency: filters.currency || undefined,
+    amountMin: filters.amountMin ? Number(filters.amountMin) * 100 : undefined, // kobo
+    amountMax: filters.amountMax ? Number(filters.amountMax) * 100 : undefined,
+    from: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
+    to: filters.dateTo ? new Date(filters.dateTo + "T23:59:59") : undefined,
+    sortBy: filters.sortBy,
+    sortOrder: filters.sortOrder,
+  }), [page, search, filters]);
+
+  const txInterval = useAdaptiveInterval(60_000);
+  const { data, isLoading, refetch, isFetching } = trpc.transactions.list.useQuery(
+    queryInput,
+    { staleTime: 30_000, refetchInterval: txInterval }
+  );
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
+
+  // Count active (non-default) filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.status) count++;
+    if (filters.channel) count++;
+    if (filters.currency) count++;
+    if (filters.amountMin) count++;
+    if (filters.amountMax) count++;
+    if (filters.dateFrom) count++;
+    if (filters.dateTo) count++;
+    return count;
+  }, [filters]);
+
+  // Column sort toggle
+  const handleSort = useCallback((col: SortBy) => {
+    setFilters(f => ({
+      ...f,
+      sortBy: col,
+      sortOrder: f.sortBy === col && f.sortOrder === "desc" ? "asc" : "desc",
+    }));
+    setPage(0);
+  }, []);
+
+  // Apply draft filters
+  const applyFilters = () => {
+    setFilters(draftFilters);
+    setPage(0);
+    setFilterOpen(false);
+  };
+
+  const resetFilters = () => {
+    const reset = { ...DEFAULT_FILTERS };
+    setDraftFilters(reset);
+    setFilters(reset);
+    setPage(0);
+    setFilterOpen(false);
+  };
+
+  const openFilterPanel = () => {
+    setDraftFilters(filters); // sync draft to current
+    setFilterOpen(true);
+  };
 
   const handleMonthlyStatement = async () => {
     setExportingStatement(true);
@@ -307,7 +458,7 @@ export default function Transactions() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `statement-${result.summary.period.replace(/\s/g, '-')}.csv`;
+      a.download = `statement-${result.summary.period.replace(/\s/g, "-")}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -323,7 +474,7 @@ export default function Transactions() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const result = await utils.export.transactions.fetch({ status: statusFilter });
+      const result = await utils.export.transactions.fetch({ status: filters.status || undefined });
       const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -341,25 +492,25 @@ export default function Transactions() {
     }
   };
 
-  const txInterval = useAdaptiveInterval(60_000);
-  const { data, isLoading, refetch, isFetching } = trpc.transactions.list.useQuery(
-    { limit, offset: page * limit, search: search || undefined, status: statusFilter as any },
-    { staleTime: 30_000, refetchInterval: txInterval }
-  );
-
-  const rows = data?.rows ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = Math.ceil(total / limit);
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Transactions</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{total.toLocaleString()} total transactions</p>
+          <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
+            Transactions
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {total.toLocaleString()} result{total !== 1 ? "s" : ""}
+            {activeFilterCount > 0 && ` · ${activeFilterCount} filter${activeFilterCount !== 1 ? "s" : ""} active`}
+          </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetch(); }} disabled={isFetching}><RefreshCw/>Refresh
+          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={isFetching ? "animate-spin" : ""} />
+            Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={handleMonthlyStatement} disabled={exportingStatement}>
             <Download className={`w-4 h-4 mr-1.5 ${exportingStatement ? "animate-spin" : ""}`} />
@@ -372,63 +523,325 @@ export default function Transactions() {
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search + Filter bar */}
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(0); }}
-            placeholder="Search by reference, customer..." className="w-full pl-9 pr-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none" />
+          <Input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+            placeholder="Search by reference, customer…"
+            className="pl-9"
+          />
         </div>
-        <select value={statusFilter ?? ""} onChange={(e: any) => { setStatusFilter(e.target.value || undefined); setPage(0); }}
-          className="px-3 py-2 text-sm bg-muted rounded-lg border-0 focus:ring-2 focus:ring-primary outline-none">
-          <option value="">All statuses</option>
-          <option value="completed">Completed</option>
-          <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
-          <option value="failed">Failed</option>
-        </select>
+
+        {/* Quick status filter */}
+        <Select
+          value={filters.status || "all"}
+          onValueChange={(v) => { setFilters(f => ({ ...f, status: v === "all" ? "" : v })); setPage(0); }}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="processing">Processing</SelectItem>
+            <SelectItem value="failed">Failed</SelectItem>
+            <SelectItem value="reversed">Reversed</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Advanced filters popover */}
+        <Popover open={filterOpen} onOpenChange={(o) => { if (o) openFilterPanel(); else setFilterOpen(false); }}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <SlidersHorizontal className="w-4 h-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <Badge variant="default" className="h-4 px-1.5 text-xs rounded-full">
+                  {activeFilterCount}
+                </Badge>
+              )}
+              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-4 space-y-4" align="start">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Advanced Filters</p>
+              <button onClick={resetFilters} className="text-xs text-muted-foreground hover:text-foreground underline">
+                Reset all
+              </button>
+            </div>
+            <Separator />
+
+            {/* Channel */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Channel</label>
+              <Select
+                value={draftFilters.channel || "all"}
+                onValueChange={(v) => setDraftFilters(f => ({ ...f, channel: v === "all" ? "" : v as Channel }))}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="All channels" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All channels</SelectItem>
+                  {(Object.keys(CHANNEL_LABELS) as Channel[]).map(ch => (
+                    <SelectItem key={ch} value={ch}>{CHANNEL_LABELS[ch]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Currency */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Currency</label>
+              <Select
+                value={draftFilters.currency || "all"}
+                onValueChange={(v) => setDraftFilters(f => ({ ...f, currency: v === "all" ? "" : v }))}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="All currencies" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All currencies</SelectItem>
+                  <SelectItem value="NGN">NGN — Nigerian Naira</SelectItem>
+                  <SelectItem value="USD">USD — US Dollar</SelectItem>
+                  <SelectItem value="GBP">GBP — British Pound</SelectItem>
+                  <SelectItem value="EUR">EUR — Euro</SelectItem>
+                  <SelectItem value="GHS">GHS — Ghanaian Cedi</SelectItem>
+                  <SelectItem value="KES">KES — Kenyan Shilling</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Amount range */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Amount Range (₦)</label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={draftFilters.amountMin}
+                  onChange={(e) => setDraftFilters(f => ({ ...f, amountMin: e.target.value }))}
+                  className="h-8 text-sm"
+                  min={0}
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={draftFilters.amountMax}
+                  onChange={(e) => setDraftFilters(f => ({ ...f, amountMax: e.target.value }))}
+                  className="h-8 text-sm"
+                  min={0}
+                />
+              </div>
+            </div>
+
+            {/* Date range */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Date Range</label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={draftFilters.dateFrom}
+                  onChange={(e) => setDraftFilters(f => ({ ...f, dateFrom: e.target.value }))}
+                  className="h-8 text-sm flex-1"
+                />
+                <Input
+                  type="date"
+                  value={draftFilters.dateTo}
+                  onChange={(e) => setDraftFilters(f => ({ ...f, dateTo: e.target.value }))}
+                  className="h-8 text-sm flex-1"
+                />
+              </div>
+            </div>
+
+            {/* Sort */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sort By</label>
+              <div className="flex gap-2">
+                <Select
+                  value={draftFilters.sortBy}
+                  onValueChange={(v) => setDraftFilters(f => ({ ...f, sortBy: v as SortBy }))}
+                >
+                  <SelectTrigger className="h-8 text-sm flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="createdAt">Date</SelectItem>
+                    <SelectItem value="amount">Amount</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="channel">Channel</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={draftFilters.sortOrder}
+                  onValueChange={(v) => setDraftFilters(f => ({ ...f, sortOrder: v as SortOrder }))}
+                >
+                  <SelectTrigger className="h-8 text-sm w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="desc">Newest first</SelectItem>
+                    <SelectItem value="asc">Oldest first</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Button className="w-full" size="sm" onClick={applyFilters}>
+              Apply Filters
+            </Button>
+          </PopoverContent>
+        </Popover>
+
+        {/* Clear all */}
+        {(activeFilterCount > 0 || search) && (
+          <Button
+            variant="ghost" size="sm"
+            className="text-muted-foreground gap-1"
+            onClick={() => { resetFilters(); setSearch(""); }}
+          >
+            <X className="w-3.5 h-3.5" />
+            Clear all
+          </Button>
+        )}
       </div>
 
+      {/* Active filter chips */}
+      {activeFilterCount > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {filters.status && (
+            <FilterChip
+              label={`Status: ${filters.status}`}
+              onRemove={() => { setFilters(f => ({ ...f, status: "" })); setPage(0); }}
+            />
+          )}
+          {filters.channel && (
+            <FilterChip
+              label={`Channel: ${CHANNEL_LABELS[filters.channel as Channel]}`}
+              onRemove={() => { setFilters(f => ({ ...f, channel: "" })); setPage(0); }}
+            />
+          )}
+          {filters.currency && (
+            <FilterChip
+              label={`Currency: ${filters.currency}`}
+              onRemove={() => { setFilters(f => ({ ...f, currency: "" })); setPage(0); }}
+            />
+          )}
+          {(filters.amountMin || filters.amountMax) && (
+            <FilterChip
+              label={`Amount: ${filters.amountMin ? `₦${Number(filters.amountMin).toLocaleString()}` : "0"} – ${filters.amountMax ? `₦${Number(filters.amountMax).toLocaleString()}` : "∞"}`}
+              onRemove={() => { setFilters(f => ({ ...f, amountMin: "", amountMax: "" })); setPage(0); }}
+            />
+          )}
+          {(filters.dateFrom || filters.dateTo) && (
+            <FilterChip
+              label={`Date: ${filters.dateFrom || "…"} → ${filters.dateTo || "…"}`}
+              onRemove={() => { setFilters(f => ({ ...f, dateFrom: "", dateTo: "" })); setPage(0); }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Table */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <div className="overflow-x-auto"><table className="w-full text-sm">
-          <thead className="bg-muted/50 border-b border-border">
-            <tr>
-              {["Reference", "Customer", "Amount", "Channel", "Status", "Date", ""].map((h: any) => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {isLoading ? Array(8).fill(0).map((_, i) => (
-              <tr key={i}><td colSpan={7} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td></tr>
-            )) : rows.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">No transactions found</td></tr>
-            ) : rows.map((txn) => (
-              <tr key={txn.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{txn.reference}</td>
-                <td className="px-4 py-3 font-medium">{txn.customerName ?? txn.customerEmail ?? "—"}</td>
-                <td className="px-4 py-3 font-mono font-semibold">{txn.currency} {Number(txn.amount).toLocaleString()}</td>
-                <td className="px-4 py-3 text-muted-foreground capitalize">{txn.channel.replace("_", " ")}</td>
-                <td className="px-4 py-3"><StatusBadge status={txn.status} /></td>
-                <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(txn.createdAt).toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <button onClick={() => setSelectedTxId(txn.id)} className="p-1.5 rounded hover:bg-muted transition-colors" title="View details">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 border-b border-border">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Reference
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Customer
+                </th>
+                {/* Sortable columns */}
+                {(["amount", "channel", "status", "createdAt"] as const).map((col) => {
+                  const labels: Record<string, string> = { amount: "Amount", channel: "Channel", status: "Status", createdAt: "Date" };
+                  return (
+                    <th
+                      key={col}
+                      className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide cursor-pointer select-none hover:text-foreground transition-colors"
+                      onClick={() => handleSort(col)}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {labels[col]}
+                        <SortIcon col={col} active={filters.sortBy === col} order={filters.sortOrder} />
+                      </div>
+                    </th>
+                  );
+                })}
+                <th className="px-4 py-3 w-10" />
               </tr>
-            ))}
-          </tbody>
-        </table></div>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {isLoading
+                ? Array(8).fill(0).map((_, i) => (
+                    <tr key={i}>
+                      <td colSpan={7} className="px-4 py-3">
+                        <Skeleton className="h-5 w-full" />
+                      </td>
+                    </tr>
+                  ))
+                : rows.length === 0
+                  ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <Search className="w-8 h-8 opacity-30" />
+                          <p className="font-medium">No transactions found</p>
+                          {(activeFilterCount > 0 || search) && (
+                            <p className="text-xs">Try adjusting your filters or search term</p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                  : rows.map((txn) => (
+                    <tr key={txn.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{txn.reference}</td>
+                      <td className="px-4 py-3 font-medium">{txn.customerName ?? txn.customerEmail ?? "—"}</td>
+                      <td className="px-4 py-3 font-mono font-semibold">{txn.currency} {Number(txn.amount / 100).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-muted-foreground capitalize">{txn.channel.replace(/_/g, " ")}</td>
+                      <td className="px-4 py-3"><StatusBadge status={txn.status} /></td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                        {new Date(txn.createdAt).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setSelectedTxId(txn.id)}
+                          className="p-1.5 rounded hover:bg-muted transition-colors"
+                          title="View details"
+                        >
+                          <Eye className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
 
+      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Page {page + 1} of {totalPages} · {total.toLocaleString()} results</p>
+          <p className="text-sm text-muted-foreground">
+            Page {page + 1} of {totalPages} · {total.toLocaleString()} results
+          </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
               <ChevronLeft className="w-4 h-4" />
+              Previous
             </Button>
             <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+              Next
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
