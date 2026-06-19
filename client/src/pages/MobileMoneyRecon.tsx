@@ -358,7 +358,7 @@ export default function MobileMoneyRecon() {
 }
 
 function MmReconDbPanel() {
-  const { data, isLoading, isError, isError } = trpc.mobileMoneyRecon.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data, isLoading, isError } = trpc.mobileMoneyRecon.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: stats } = trpc.mobileMoneyRecon.stats.useQuery(undefined, { staleTime: 60_000 });
 
   return (

@@ -3324,6 +3324,21 @@ const complianceKycRouter = router({
       return { submissionId: newId };
     }),
 
+  getMyLatest: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const db = await getDb();
+      if (!db) return null;
+      const { kycSubmissions: kycTbl } = await import('../drizzle/schema');
+      const { desc: descOrd } = await import('drizzle-orm');
+      const [latest] = await db.select().from(kycTbl)
+        .where((await import('drizzle-orm')).eq(kycTbl.merchantId, merchant.id))
+        .orderBy(descOrd(kycTbl.createdAt))
+        .limit(1);
+      return latest ?? null;
+    }),
+
   list: protectedProcedure
     .input(z.object({ status: z.string().optional(), limit: z.number().min(1).max(100).default(20), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {

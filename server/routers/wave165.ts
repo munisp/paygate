@@ -11,8 +11,11 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { readFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const ROOT = join(__dirname, "..");
 
 function readProjectFile(relPath: string): string {

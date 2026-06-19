@@ -14,9 +14,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ShieldCheck, CheckCircle, XCircle, AlertTriangle, Eye, X,
-  FileText, User, Camera, ZoomIn, ZoomOut, ExternalLink, Info,
+  FileText, User, Camera, ZoomIn, ZoomOut, ExternalLink, Info, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
 
 // ── Score helpers ─────────────────────────────────────────────────────────────
 const scoreColor = (v: number | null | undefined) => {
@@ -268,6 +271,7 @@ export default function AdminKYCReview() {
 
   const utils = trpc.useUtils();
   const statsQuery = trpc.admin.kyc.getStats.useQuery();
+  const throughputQuery = trpc.admin.kyc.getDailyThroughput.useQuery(undefined, { staleTime: 60_000 });
   const listQuery = trpc.admin.kyc.listPending.useQuery(
     { page, limit: 20, status: statusFilter },
     { staleTime: 30_000 }
@@ -350,6 +354,36 @@ export default function AdminKYCReview() {
             ))}
           </div>
         )}
+
+        {/* 7-Day Review Throughput Chart */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-white text-sm flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" /> 7-Day Review Throughput
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {throughputQuery.isLoading ? (
+              <Skeleton className="h-48 w-full bg-slate-800" />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={throughputQuery.data ?? []} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: "#94a3b8" }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
+                  <Bar dataKey="approved" name="Approved" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="rejected" name="Rejected" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="pending" name="Pending" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Submissions table */}
         <Card className="bg-slate-900 border-slate-800">

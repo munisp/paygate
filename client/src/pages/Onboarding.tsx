@@ -411,6 +411,12 @@ export default function Onboarding() {
   // Holds the S3 URLs for each uploaded document
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
 
+  // Fetch the latest KYC submission to show rejection reason on re-entry
+  const { data: latestSubmission } = trpc.complianceKyc.getMyLatest.useQuery(undefined, {
+    enabled: step === 3,
+    staleTime: 30_000,
+  });
+
   const createSubmissionMutation = trpc.complianceKyc.createSubmission.useMutation({
     onSuccess: (data) => setKycSubmissionId(data.submissionId),
     onError: (err) => console.error('[kyc] createSubmission failed:', err),
@@ -687,6 +693,33 @@ export default function Onboarding() {
                   <h2 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Upload KYB documents</h2>
                   <p className="text-muted-foreground text-sm mt-1">Upload clear, legible copies of the following documents</p>
                 </div>
+
+                {/* Rejection banner — shown when the latest submission was rejected */}
+                {latestSubmission?.status === "rejected" && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-red-700">Previous submission was rejected</p>
+                      {latestSubmission.reviewNotes && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Reason: {latestSubmission.reviewNotes}
+                        </p>
+                      )}
+                      <p className="text-xs text-red-500 mt-1">Please re-upload the required documents to resubmit.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Pending/under-review banner */}
+                {(latestSubmission?.status === "pending" || latestSubmission?.status === "under_review") && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                    <Loader2 className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5 animate-spin" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-700">Submission under review</p>
+                      <p className="text-xs text-amber-600 mt-1">Your documents are being reviewed. You'll be notified once a decision is made.</p>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-3">
                   {DOC_TYPES.map(doc => {
                     const state = docs[doc.id];

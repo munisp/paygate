@@ -426,6 +426,10 @@ const ServiceIntegrationAuditPage = lz(() => import("./pages/ServiceIntegrationA
 const UIUXAuditDashboardPage = lz(() => import("./pages/UIUXAuditDashboard"));
 // Wave 165: Production Readiness Dashboard
 const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionReadinessDashboard"));
+// Wave 174: UBO Manager
+const UBOManagerPage = lz(() => import("./pages/UBOManager"));
+// Admin: Corridor Monitor
+const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -882,6 +886,8 @@ function Router() {
         <Route path="/tenant/corridors" component={TenantCorridorsPage} />
         <Route path="/tenant/plan-limits" component={PlanLimitsPage} />
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
+        <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
+        <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

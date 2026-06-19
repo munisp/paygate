@@ -296,6 +296,33 @@ const kycReviewRouter = router({
           title: notifTitle,
           message: notifBody,
         });
+        // Send transactional email to merchant
+        if (existing.merchantEmail) {
+          const { sendEmail } = await import('../emailService');
+          const isApproved = input.decision === 'approved';
+          await sendEmail({
+            to: existing.merchantEmail,
+            subject: isApproved
+              ? 'Your PayGate KYC/KYB Verification Has Been Approved'
+              : 'Action Required: Your PayGate KYC/KYB Submission Was Rejected',
+            html: isApproved
+              ? `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                  <h2 style="color:#16a34a">✓ KYC/KYB Verification Approved</h2>
+                  <p>Congratulations! Your business verification documents have been reviewed and approved.</p>
+                  <p>You now have full access to all PayGate features including live payments, payouts, and virtual cards.</p>
+                  <a href="https://paygate.io/dashboard" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px">Go to Dashboard</a>
+                  <p style="margin-top:24px;color:#6b7280;font-size:12px">PayGate — Powering African Payments</p>
+                </div>`
+              : `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                  <h2 style="color:#dc2626">KYC/KYB Submission Rejected</h2>
+                  <p>Unfortunately, your KYC/KYB submission could not be approved at this time.</p>
+                  ${input.notes ? `<p><strong>Reason:</strong> ${input.notes}</p>` : ''}
+                  <p>Please review the requirements and resubmit your documents with the necessary corrections.</p>
+                  <a href="https://paygate.io/onboarding" style="display:inline-block;background:#dc2626;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px">Resubmit Documents</a>
+                  <p style="margin-top:24px;color:#6b7280;font-size:12px">PayGate — Powering African Payments</p>
+                </div>`,
+          }).catch(() => { /* non-fatal — email failure should not block the review */ });
+        }
       }
       return { reviewed: true, decision: input.decision };
     }),
@@ -328,6 +355,36 @@ const kycReviewRouter = router({
       cnt: count(),
     }).from(kycSubmissions).groupBy(kycSubmissions.status);
     return rows.reduce((acc, r) => ({ ...acc, [r.status as string]: r.cnt }), {} as Record<string, number>);
+  }),
+
+  getDailyThroughput: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    const { kycSubmissions } = await import("../drizzle/schema");
+    const now = new Date();
+    const days: { date: string; approved: number; rejected: number; pending: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      const nextD = new Date(d);
+      nextD.setDate(nextD.getDate() + 1);
+      const rows = await db.select({ status: kycSubmissions.status, cnt: count() })
+        .from(kycSubmissions)
+        .where(and(
+          gte(kycSubmissions.createdAt, d),
+          sql`${kycSubmissions.createdAt} < ${nextD}`,
+        ))
+        .groupBy(kycSubmissions.status);
+      const byStatus = rows.reduce((a: Record<string, number>, r) => ({ ...a, [r.status as string]: r.cnt }), {});
+      days.push({
+        date: d.toLocaleDateString("en-GB", { month: "short", day: "numeric" }),
+        approved: byStatus.approved ?? 0,
+        rejected: byStatus.rejected ?? 0,
+        pending: byStatus.pending ?? 0,
+      });
+    }
+    return days;
   }),
 });
 

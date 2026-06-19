@@ -22,7 +22,7 @@ import {
   livenessSessions,
 } from "../../drizzle/schema";
 import { invokeLLM } from "../_core/llm";
-import { publishAuditEvent } from "../_core/index";
+import { publishAuditEvent } from "../auditEvents";
 
 // ─── 1. UBO Management Router ─────────────────────────────────────────────────
 export const uboMgmtRouter = router({

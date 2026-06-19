@@ -1030,6 +1030,24 @@ export const qrPaymentsRouter = router({
         .where(conditions.length ? and(...conditions) : undefined);
       return stats;
     }),
+  scan: publicProcedure
+    .input(z.object({ qrId: z.string() }))
+    .query(async ({ input }) => {
+      const [row] = await db.select().from(schema.qrPayments)
+        .where(eq(schema.qrPayments.transactionRef, input.qrId));
+      if (!row) return { valid: false, qrId: input.qrId, message: 'QR code not found or expired' };
+      if (row.status === 'expired') return { valid: false, qrId: input.qrId, message: 'QR code has expired' };
+      return { valid: true, qrId: input.qrId, merchantId: row.merchantId, amount: row.amount, currency: row.currency, message: 'QR code is valid' };
+    }),
+  recentScans: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }))
+    .query(async ({ input }) => {
+      const rows = await db.select().from(schema.qrPayments)
+        .where(eq(schema.qrPayments.status, 'claimed'))
+        .orderBy(desc(schema.qrPayments.createdAt))
+        .limit(input.limit);
+      return { rows, total: rows.length };
+    }),
 });
 
 // ─── 14. Red Envelopes ────────────────────────────────────────────────────────

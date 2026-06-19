@@ -19,7 +19,7 @@ import {
 } from "../../drizzle/schema";
 import { invokeLLM } from "../_core/llm";
 import { notifyOwner } from "../_core/notification";
-import { publishAuditEvent } from "../_core/index";
+import { publishAuditEvent } from "../auditEvents";
 
 // ─── 1. SCUML Router ──────────────────────────────────────────────────────────
 export const scumlRouter = router({

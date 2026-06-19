@@ -32,7 +32,7 @@ const RAIL_STATS = {
 };
 
 export default function MojaloopDashboard() {
-  const { data: crossBorderTransfers, isLoading, isError, isError } = trpc.crossBorder.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const { data: crossBorderTransfers, isLoading, isError } = trpc.crossBorder.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
   const { data: middlewareHealth } = trpc.middlewareDashboard.kafkaTopics.useQuery();
   const [selectedRail, setSelectedRail] = useState("all");
   const [search, setSearch] = useState("");

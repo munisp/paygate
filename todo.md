@@ -5285,3 +5285,15 @@
 - [x] Generate mTLS certificates in infra/certs/ (ca.crt, server.crt, client.crt)
 - [x] Create /home/ubuntu/skills/paygate-merchant-portal/SKILL.md with full platform documentation
 - [x] All 7,400 tests passing (165 test files, 0 failures)
+
+## Session 5 — Analytics Chart, Orphan Sweep, Test Fixes (June 2026)
+
+- [x] Fix duplicate `isError` build error in BNPLCalculator.tsx, MojaloopDashboard.tsx, MobileMoneyRecon.tsx
+- [x] Add 7-day review throughput BarChart to AdminKYCReview.tsx (recharts, approved/rejected/pending bars)
+- [x] Add getDailyThroughput procedure to admin.kyc router (7-day breakdown by status)
+- [x] Confirm NotificationPanel KYC-specific toast banners already complete from Session 4
+- [x] Wire UBOManager.tsx to /kyb/ubo-manager route in App.tsx
+- [x] Wire AdminCorridorMonitor.tsx to /admin/corridor-monitor route in App.tsx (AdminGuard)
+- [x] Add scan and recentScans procedures to qrPaymentsRouter in wave124.ts (fix wave67 test)
+- [x] Generate infra/certs/ca.crt, server.crt, client.crt via OpenSSL (fix wave95/wave129/wave130 mTLS tests)
+- [x] All 7,643 tests passing (177 test files, 0 failures)
