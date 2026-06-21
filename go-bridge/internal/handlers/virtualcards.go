@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/redis"
@@ -313,17 +312,6 @@ func TerminateVirtualCard(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	slog.Info("[virtualcards] terminated", "card_id", cardID)
-	// Stream to Fluvio (non-blocking)
-	go func() {
-		_ = fluvio.Get().ProduceVirtualCardEvent(ctx, fluvio.VirtualCardFundFlowEvent{
-			EventID:    uuid.NewString(),
-			CardID:     cardID,
-			MerchantID: req.MerchantID,
-			EventType:  "terminated",
-			OccurredAt: time.Now().UTC(),
-		})
-	}()
-
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "status": "terminated"})
 }
 

@@ -141,11 +141,6 @@ func RegisterWorker(c client.Client) worker.Worker {
 	w.RegisterActivity(acts.AutoFreezeFraudRing)
 	w.RegisterActivity(acts.PublishFraudRingFrozenEvent)
 
-	// ── Cross-Border + Dispute Workflows ────────────────────────────────────
-	RegisterCrossBorderWorkflows(w)
-	RegisterTier7Workflows(w)
-	RegisterTier8Workflows(w)
-
 	return w
 }
 

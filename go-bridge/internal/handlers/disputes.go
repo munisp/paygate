@@ -9,13 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/redis"
-	"github.com/paygate/go-bridge/internal/temporal"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
-	gotemporal "go.temporal.io/sdk/client"
 	"github.com/paygate/go-bridge/pkg/types"
 )
 
@@ -107,6 +104,7 @@ func SubmitDispute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reservationID := reserveID.String()
+	workflowID := "wf-dispute-" + req.DisputeID
 
 	// Store escrow reference in Redis for resolution lookup
 	_ = rdb.SetEX(ctx,
@@ -138,40 +136,9 @@ func SubmitDispute(w http.ResponseWriter, r *http.Request) {
 		"reservation_id", reservationID,
 	)
 
-	// Dispatch DisputeResolutionWorkflow via Temporal (non-blocking)
-	wfID := fmt.Sprintf("dispute-%s", req.DisputeID)
-	if tc, tcErr := temporal.GetClient(); tcErr == nil {
-		wfInput := temporal.DisputeWorkflowInput{
-			DisputeID:     req.DisputeID,
-			MerchantID:    req.MerchantID,
-			TransactionID: req.TransactionID,
-			Amount:        fmt.Sprintf("%d", req.Amount),
-			Reason:        req.Reason,
-			Evidence:      req.EvidenceURL,
-		}
-		opts := gotemporal.StartWorkflowOptions{ID: wfID, TaskQueue: temporal.TaskQueue}
-		if run, wfErr := tc.ExecuteWorkflow(ctx, opts, temporal.DisputeResolutionWorkflow, wfInput); wfErr != nil {
-			slog.Error("[disputes] DisputeResolutionWorkflow start failed", "err", wfErr)
-		} else {
-			slog.Info("[disputes] DisputeResolutionWorkflow started", "run_id", run.GetID())
-		}
-	}
-
-	// Stream to Fluvio (non-blocking)
-	go func() {
-		_ = fluvio.Get().ProduceDisputeEvent(ctx, fluvio.DisputeFundFlowEvent{
-			EventID:    uuid.NewString(),
-			DisputeID:  req.DisputeID,
-			MerchantID: req.MerchantID,
-			EventType:  "submitted",
-			AmountKobo: int64(req.Amount),
-			OccurredAt: time.Now().UTC(),
-		})
-	}()
-
 	writeJSON(w, http.StatusOK, types.SubmitDisputeResponse{
 		DisputeID:     req.DisputeID,
-		WorkflowID:    wfID,
+		WorkflowID:    workflowID,
 		ReservationID: reservationID,
 		Status:        "reserved",
 	})

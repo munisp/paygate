@@ -9,12 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/redis"
-	"github.com/paygate/go-bridge/internal/temporal"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
-	gotemporal "go.temporal.io/sdk/client"
 	"github.com/paygate/go-bridge/pkg/types"
 )
 
@@ -101,6 +98,7 @@ func CreateBNPLLoan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reservationID := reserveID.String()
+	workflowID := "wf-bnpl-" + req.LoanID
 
 	// Store loan schedule in Redis
 	_ = rdb.SetJSON(ctx, fmt.Sprintf("bnpl:loan:%s", req.LoanID), map[string]any{
@@ -138,37 +136,9 @@ func CreateBNPLLoan(w http.ResponseWriter, r *http.Request) {
 		"reservation_id", reservationID,
 	)
 
-	// Dispatch LoanDisbursementWorkflow via Temporal (BNPL variant)
-	wfID := fmt.Sprintf("bnpl-loan-%s", req.LoanID)
-	if tc, tcErr := temporal.GetClient(); tcErr == nil {
-		wfInput := temporal.LoanDisbursementInput{
-			LoanID:     req.LoanID,
-			MerchantID: req.MerchantID,
-			AmountKobo: req.PrincipalAmount,
-		}
-		opts := gotemporal.StartWorkflowOptions{ID: wfID, TaskQueue: temporal.TaskQueue}
-		if run, wfErr := tc.ExecuteWorkflow(ctx, opts, temporal.LoanDisbursementWorkflow, wfInput); wfErr != nil {
-			slog.Error("[bnpl] LoanDisbursementWorkflow start failed", "err", wfErr)
-		} else {
-			slog.Info("[bnpl] LoanDisbursementWorkflow started", "run_id", run.GetID())
-		}
-	}
-
-	// Stream to Fluvio (non-blocking)
-	go func() {
-		_ = fluvio.Get().ProduceBNPLEvent(ctx, fluvio.BNPLFundFlowEvent{
-			EventID:    uuid.NewString(),
-			LoanID:     req.LoanID,
-			MerchantID: req.MerchantID,
-			EventType:  "loan_created",
-			AmountKobo: int64(req.PrincipalAmount),
-			OccurredAt: time.Now().UTC(),
-		})
-	}()
-
 	writeJSON(w, http.StatusOK, types.CreateBNPLLoanResponse{
 		LoanID:        req.LoanID,
-		WorkflowID:    wfID,
+		WorkflowID:    workflowID,
 		ReservationID: reservationID,
 		Status:        "active",
 	})

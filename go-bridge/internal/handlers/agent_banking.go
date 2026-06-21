@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/redis"
@@ -19,16 +18,15 @@ import (
 
 // AgentBankingHandler manages agent network operations
 type AgentBankingHandler struct {
-	db     *pgdb.DB
-	redis  *redis.Client
-	kafka  *kafka.Producer
-	tb     *tigerbeetle.Client
-	fluvio *fluvio.Producer
+	db    *pgdb.DB
+	redis *redis.Client
+	kafka *kafka.Producer
+	tb    *tigerbeetle.Client
 }
 
 // NewAgentBankingHandler creates a new AgentBankingHandler.
 func NewAgentBankingHandler(db *pgdb.DB, r *redis.Client, k *kafka.Producer, tb *tigerbeetle.Client) *AgentBankingHandler {
-	return &AgentBankingHandler{db: db, redis: r, kafka: k, tb: tb, fluvio: fluvio.Get()}
+	return &AgentBankingHandler{db: db, redis: r, kafka: k, tb: tb}
 }
 
 // RegisterAgent POST /agent/register
@@ -107,18 +105,6 @@ func (h *AgentBankingHandler) TopUpFloat(w http.ResponseWriter, r *http.Request)
 		"amount":    req.Amount,
 		"reference": req.Reference,
 	})
-	// Stream to Fluvio (non-blocking)
-	go func() {
-		_ = h.fluvio.ProduceAgentBankingEvent(r.Context(), fluvio.AgentBankingFundFlowEvent{
-			EventID:    uuid.NewString(),
-			AgentID:    agentID,
-			EventType:  "float_top_up",
-			AmountKobo: int64(req.Amount * 100),
-			Reference:  req.Reference,
-			OccurredAt: time.Now().UTC(),
-		})
-	}()
-
 	jsonOK(w, map[string]interface{}{
 		"agent_id":  agentID,
 		"amount":    req.Amount,
@@ -163,18 +149,6 @@ func (h *AgentBankingHandler) ProcessAgentDeposit(w http.ResponseWriter, r *http
 	_ = h.kafka.Publish(r.Context(), "agent.deposit", agentID, map[string]interface{}{
 		"tx_id": txID, "amount": req.Amount, "commission": commission,
 	})
-	// Stream to Fluvio (non-blocking)
-	go func() {
-		_ = h.fluvio.ProduceAgentBankingEvent(r.Context(), fluvio.AgentBankingFundFlowEvent{
-			EventID:    uuid.NewString(),
-			AgentID:    agentID,
-			EventType:  "deposit",
-			AmountKobo: int64(req.Amount * 100),
-			Reference:  req.Reference,
-			OccurredAt: time.Now().UTC(),
-		})
-	}()
-
 	jsonOK(w, map[string]interface{}{
 		"transaction_id": txID,
 		"amount":         req.Amount,

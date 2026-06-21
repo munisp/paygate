@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/redis"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
@@ -147,21 +146,6 @@ func RecordFXConversion(w http.ResponseWriter, r *http.Request) {
 		"target", fmt.Sprintf("%d %s", req.TargetAmount, req.TargetCurrency),
 		"ledger_entry_id", ledgerEntryID,
 	)
-
-	// Stream to Fluvio (non-blocking)
-	go func() {
-		_ = fluvio.Get().ProduceFXEvent(ctx, fluvio.FXFundFlowEvent{
-			EventID:      uuid.NewString(),
-			ConversionID: req.ConversionID,
-			MerchantID:   req.MerchantID,
-			EventType:    "conversion_completed",
-			FromAmount:   int64(req.SourceAmount),
-			FromCurrency: req.SourceCurrency,
-			ToAmount:     int64(req.TargetAmount),
-			ToCurrency:   req.TargetCurrency,
-			OccurredAt:   time.Now().UTC(),
-		})
-	}()
 
 	writeJSON(w, http.StatusOK, types.FXConversionResponse{
 		ConversionID:  req.ConversionID,

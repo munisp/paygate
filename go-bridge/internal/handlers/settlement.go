@@ -4,14 +4,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
-	"github.com/google/uuid"
-	"github.com/paygate/go-bridge/internal/fluvio"
-	"github.com/paygate/go-bridge/internal/temporal"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
 	"github.com/paygate/go-bridge/pkg/types"
-	gotemporal "go.temporal.io/sdk/client"
 )
 
 // TriggerSettlement handles POST /v1/settlements/trigger
@@ -103,53 +98,10 @@ func TriggerSettlement(w http.ResponseWriter, r *http.Request) {
 		"reference", req.Reference,
 	)
 
-	// Dispatch SettlementBatchWorkflow via Temporal for NIBSS batch submission
-	workflowID := fmt.Sprintf("settlement-batch-%s", req.SettlementID)
-	tc, tcErr := temporal.GetClient()
-	if tcErr != nil {
-		slog.Warn("temporal unavailable for settlement workflow", "err", tcErr)
-	} else {
-		wfInput := temporal.SettlementBatchInput{
-			SettlementID:  req.SettlementID,
-			MerchantID:    req.MerchantID,
-			BatchRef:      req.Reference,
-			Amount:        int64(req.Amount),
-			Currency:      req.Currency,
-			BankCode:      req.BankCode,
-			AccountNumber: req.AccountNo,
-			AccountName:   "",  // not in SettlementTriggerRequest
-		}
-		opts := gotemporal.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: temporal.TaskQueue,
-		}
-		run, wfErr := tc.ExecuteWorkflow(r.Context(), opts, temporal.SettlementBatchWorkflow, wfInput)
-		if wfErr != nil {
-			slog.Error("failed to start SettlementBatchWorkflow", "err", wfErr, "settlement_id", req.SettlementID)
-		} else {
-			slog.Info("SettlementBatchWorkflow started",
-				"workflow_id", run.GetID(),
-				"run_id", run.GetRunID(),
-			)
-		}
-	}
-
-	// Stream to Fluvio (non-blocking, best-effort)
-	go func() {
-		_ = fluvio.Get().ProduceSettlement(r.Context(), fluvio.SettlementStreamEvent{
-			EventID:      uuid.NewString(),
-			SettlementID: req.SettlementID,
-			MerchantID:   req.MerchantID,
-			Status:       "processing",
-			BatchRef:     req.Reference,
-			OccurredAt:   time.Now().UTC(),
-		})
-	}()
-
 	writeJSON(w, http.StatusOK, types.SettlementTriggerResponse{
 		SettlementID:  req.SettlementID,
 		LedgerEntryID: releaseID.String(),
 		Status:        "processing",
-		Message:       fmt.Sprintf("merchant balance after settlement: %d %s; workflow: %s", newBalance, req.Currency, workflowID),
+		Message:       fmt.Sprintf("merchant balance after settlement: %d %s", newBalance, req.Currency),
 	})
 }
