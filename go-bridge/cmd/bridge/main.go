@@ -30,6 +30,7 @@ import (
 	"github.com/paygate/go-bridge/internal/keycloak"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
+	"github.com/paygate/go-bridge/internal/insider"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/redis"
@@ -684,6 +685,18 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/bandwidth/probe", handlers.ProbeBandwidth)
 	mux.HandleFunc("/v1/bandwidth/report", handlers.ProbeReport)
 	mux.HandleFunc("/v1/bandwidth/stats", handlers.ProbeStats)
+
+	// ─── Insider Threat Prevention ─────────────────────────────────────────────
+	insider.Init()
+	mux.HandleFunc("/v1/insider/session/bind", handlers.BindSession)
+	mux.HandleFunc("/v1/insider/session/validate", handlers.ValidateSession)
+	mux.HandleFunc("/v1/insider/action/gate", handlers.GateAction)
+	mux.HandleFunc("/v1/insider/approval/create", handlers.CreateApprovalRequest)
+	mux.HandleFunc("/v1/insider/approval/resolve", handlers.ResolveApprovalRequest)
+	mux.HandleFunc("/v1/insider/approval/status", handlers.GetApprovalStatus)
+	mux.HandleFunc("/v1/insider/alerts", handlers.ListInsiderAlerts)
+	mux.HandleFunc("/v1/insider/alert/resolve", handlers.ResolveInsiderAlert)
+	mux.HandleFunc("/v1/insider/score", handlers.GetInsiderRiskScore)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
