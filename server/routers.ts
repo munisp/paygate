@@ -193,6 +193,7 @@ import { wave164Router } from './routers/wave164';
 import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
+import { insiderThreatRouter } from './routers/insiderThreat';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9335,6 +9336,7 @@ export const appRouter = router({
   scuml: scumlRouter,
   accessibility: accessibilityRouter,
   locale: localeRouter,
+  insiderThreat: insiderThreatRouter,
   // Wave 120b — additional CRUD routers
 });
 export type AppRouter = typeof appRouter;
