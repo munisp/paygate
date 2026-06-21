@@ -48,7 +48,7 @@ export const sipRouter = router({
       // Try middleware bridge for gold SIPs
       if (isBridgeAvailable() && input.assetType === "gold") {
         const dayOfMonth = input.startDate ? new Date(input.startDate).getDate() : new Date().getDate();
-        const result = await createGoldSIPViaMiddleware(ctx.user.id, input.amountKobo / 100, dayOfMonth);
+        const result = await createGoldSIPViaMiddleware(String(ctx.user.id), input.amountKobo / 100, dayOfMonth);
         if (result) return { success: true, planId: result.sipId, nextExecutionAt: new Date().toISOString() };
       }
       const db = await getDb();

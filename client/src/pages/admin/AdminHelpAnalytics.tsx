@@ -16,7 +16,7 @@ export default function AdminHelpAnalytics() {
     limit: 20,
   }, { staleTime: 30_000 });
 
-  const { data: unanswered, isLoading, isError: unansweredLoading } = trpc.wave24.helpAnalytics.getUnansweredQueries.useQuery({
+  const { data: unanswered, isLoading: isLoadingUnanswered, isError: unansweredLoading } = trpc.wave24.helpAnalytics.getUnansweredQueries.useQuery({
     days,
     limit: 20,
   }, { staleTime: 30_000 });

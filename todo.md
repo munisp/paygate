@@ -5297,3 +5297,13 @@
 - [x] Add scan and recentScans procedures to qrPaymentsRouter in wave124.ts (fix wave67 test)
 - [x] Generate infra/certs/ca.crt, server.crt, client.crt via OpenSSL (fix wave95/wave129/wave130 mTLS tests)
 - [x] All 7,643 tests passing (177 test files, 0 failures)
+
+## Bug Fixes & Audit (Session — June 21, 2026)
+- [x] Fix duplicate isLoading declaration in AdminHelpAnalytics.tsx (Vite parse error)
+- [x] Fix sipRouter.ts: convert ctx.user.id (number) to String for createGoldSIPViaMiddleware
+- [x] Regenerate mTLS certificates (infra/certs/) after sandbox restore
+- [x] Write AUDIT_REPORT.md with production readiness scores (78/100)
+- [ ] Fix duplicate startSIPProcessor() call in server/_core/index.ts (P1 bug)
+- [ ] Move payloadScanMiddleware registration to before tRPC adapter (P1 security fix)
+- [ ] Commit mTLS certs or add postinstall script to auto-generate them
+- [ ] Add /api/health endpoint for load balancer health checks

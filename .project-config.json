@@ -13,10 +13,11 @@
   "experiments": null,
   "git_remote": {
     "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663412555753/cmub7FPkYZGWin9HgyNbPk",
-    "access_key_id": "ASIAZV3A2ECZAVBTAOL3",
-    "secret_access_key": "J6wxvft47pcFzLTuKApkIVh8i18mTszBM6RMUqmK",
-    "session_token": "IQoJb3JpZ2luX2VjEMH//////////wEaCXVzLWVhc3QtMSJGMEQCIEgxZ9h8Mu5GWpRbj4Yj5he9HSUHX401hcdVuK5kWwZ4AiBy5cSdaf7UFyw4mCGXEb338N/kYeq1X5ARU+XvAA8x4ir/AwiK//////////8BEAQaDDY2NTM4NjA5ODg2NiIMDXrsGx7dHt9zbC9YKtMDwMtpHGxgwoo6E7pM1SgAKdYhbmIvAV+lFDFQbq55wgopkA8Cn6Wpt1Q4GgoIF94oNbeAjZFCL9dFjntxlk2I22a7Hf3xnFCcZOu5FSAODkeOxkIjpPt8HTRyMcN6jYUp7AWj3qxbvi6S2ZmMi7vo9DhZeUASp6JjWIzbFewwblbAvIaSSozyRh7VqxPuAqot9xqst0+negKNhWlW23jGJakmFQRd7z25olhvvEPGM/hqPZNukWIGHJdinnalpOIHojYgz5M0CASHhfK1Q94AC1rdl8L6WOrHSG1azx0Jo+bn9zPQhOkXAWmSMbA49NjfSh/7kpX1lvUV1XBeA1SXLr0CpR0/cJmKpq5j7XnPASg/Cpfw/AAi/MVAwf/u73nqsj4xQudKetN86ZoNiHLIWPFDRfJ1Y8CnBIaQ+vvDJUgeWiLwH0yZmTpsAS3BiEt+Jhc5pRez2Yfzqv/M6rl5aUxCh6k2YIrQVu/CGYkEgji7Mdm3wElWM3bgVhANDh9w17plJtNnW8NP0tBO1A8rcVhw3LdA4TfnNVeOIcuvDJu/hunt6ANfuv9hCzPzPSvliQeXev1TvI2lTRaRfGiBbu+NZSNtXahUYcU5mmErK4kqiDswtLXJ0QY6ngFHl+BczRg3QYQ0wRd3dUb9GVnXtCnTjBafdjqUQ58y4uSJolnWlon8vSdiUfuFPIzjUItBeABb+S3iO5PaQdzMHps8c6lsuajm3B8XyV1vwkgeqWXyQAdJgD7h1IUxKXpsUQjG0mVzHUpI1oywkNXHvi3vxrVa+GzlAi3gN+RD0f19u8TUevPoBXvrebO6ILPDtczGGFK0wMBiKeP2HA==",
-    "expiration": "2026-06-17T20:28:36.000Z"
+    "access_key_id": "ASIAZV3A2ECZG7OJ2WD2",
+    "secret_access_key": "7JcfUv4BRwd/DUokVtOGoP3jHC3sSk/xuxlFJAyW",
+    "session_token": "IQoJb3JpZ2luX2VjECkaCXVzLWVhc3QtMSJHMEUCIQCqADXIRN5D6KLpBTKbH0295JU0iRMl+TJevt84KUlEsAIgP4c01yIneOB2z/ln2OMysVPlqgJGMGKzYGk4Z2WWLikq/wMI8v//////////ARAEGgw2NjUzODYwOTg4NjYiDAZnJdHLQCehTp5wOCrTA61JTS8qs/fXfkxwjrTjZNDm8tl/mt0A9fYJX7TrI0O6sdfGoRqOi2Ie32ByypXhyA8A/rxIFZcRm2cOCyC6k254QQnRs/28uFfkXFVhK0p2OkaYW2VCbPSncSqgfEd0rHqHbMoXFxpcoLUv1k/+bdcCpFwf7MJl0Zrmcp2yRJGzU/LB04ORi5flulWyw9eZ3aLrCURuJKLVrjwoQUzGUBaAulHCvm4YQD+cQqP5uQjOiNj206cLxpYsA9e5ChZtOsM3OXq8O2k0EmrLoKqQ1RoSqhU6YDBoiRrUQs0W0m8Ijn1cixxv3ffNCTKePolPQ+rO9CGiHa/3DlbLHYBKY8q291Kct/6xUXZsIhwTxJq8s8PtSkE9cv+Glrb+tJba3IACayLeNKeX0BZBqVB43WSSF4txjEx3mZhZ222RXKdfcw/piJQrBDYqkn/8lgr/fxWoGixq4r4FuDEz/WN1KURqqAVKZL+4rimUastAIX1+FDbYt/oF6XPFZBFF1a13Wxw7ejUo7bEGYzxKmtNNaJD8sC0+mlS8OMHrPiySngQYI7Iznjrn1qncVt3p/jk8+6ZZ0dyYecmJgWYX5gjFUPQ3J/lBs8q7O80B0G4Su8XuJcl4MOix4NEGOp0BafjGNdVD0fcejEAzMqoqU0nybjypKF9H/pJh1MSjX2nSpYo+jAiVcTqr2Oef5FvhTssmbKX8CxyE2pcDgD6pVNIoBo7yJEA1DHHUbYUzdGX1pFNrlAXHDc60VP97KmUFDjliApQXW236arYY1rKICk78pK2BIb4DeVD0yy9jU4gUEY6FWrvtqct0/fTJhyZSm/vpnWT3igP53RVGFg==",
+    "expiration": "2026-06-22T05:01:28.000Z",
+    "backend": "GIT_BACKEND_S3"
   },
   "name": "paygate-merchant-portal",
   "path": "/home/ubuntu/paygate-merchant-portal",
