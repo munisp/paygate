@@ -60,6 +60,7 @@ const Disputes = lz(() => import("./pages/Disputes"));
 const DisputeWorkflow = lz(() => import("./pages/DisputeWorkflow"));
 const PaymentLinks = lz(() => import("./pages/PaymentLinks"));
 const FraudRisk = lz(() => import("./pages/FraudRisk"));
+const InsiderThreat = lz(() => import("./pages/InsiderThreat"));
 const ReconciliationAlerts = lz(() => import("./pages/ReconciliationAlerts"));
 const BNPL = lz(() => import("./pages/BNPL"));
 const FXDashboard = lz(() => import("./pages/FXDashboard"));
@@ -557,6 +558,7 @@ function Router() {
           <Route path="/disputes/:id" component={DisputeWorkflow} />
           <Route path="/payment-links" component={PaymentLinks} />
           <Route path="/fraud-risk" component={FraudRisk} />
+          <Route path="/insider-threat" component={InsiderThreat} />
         <Route path="/fraud/alerts" component={FraudAlertsDashboard} />
             <Route path="/infra/waf-alerts" component={WAFAlertDashboard} />
             <Route path="/bnpl/calculator" component={BNPLCalculator} />
