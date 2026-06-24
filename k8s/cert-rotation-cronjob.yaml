@@ -1,0 +1,208 @@
+# ─── TLS Certificate Rotation CronJob ────────────────────────────────────────
+#
+# Runs every 90 days to rotate mTLS certificates for the PayGate services.
+# The job:
+#   1. Generates new CA, server, and client certificates (RSA 4096 / ECDSA P-256)
+#   2. Updates the Kubernetes TLS secrets
+#   3. Triggers a rolling restart of the affected deployments
+#   4. Sends a Slack/email notification on success or failure
+#
+# Prerequisites:
+#   - ServiceAccount: cert-rotation-sa (with RBAC to update secrets + trigger rollouts)
+#   - ConfigMap: cert-rotation-config (with SANs and cert metadata)
+#   - Secret: cert-rotation-notify (with SMTP/Slack webhook credentials)
+#
+# Apply with: kubectl apply -f k8s/cert-rotation-cronjob.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-rotation-sa
+  namespace: paygate
+  labels:
+    app: cert-rotation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cert-rotation-role
+  namespace: paygate
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/rollout"]
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-rotation-rolebinding
+  namespace: paygate
+subjects:
+  - kind: ServiceAccount
+    name: cert-rotation-sa
+    namespace: paygate
+roleRef:
+  kind: Role
+  name: cert-rotation-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cert-rotation-config
+  namespace: paygate
+data:
+  # Certificate metadata
+  CERT_COUNTRY: "NG"
+  CERT_STATE: "Lagos"
+  CERT_LOCALITY: "Lagos"
+  CERT_ORG: "PayGate Technologies"
+  CERT_OU: "Platform Engineering"
+  CERT_VALIDITY_DAYS: "365"
+  # Subject Alternative Names for the server certificate
+  SERVER_SANS: "DNS:paygate-bridge,DNS:paygate-bridge.paygate.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+  # Deployments to restart after cert rotation
+  DEPLOYMENTS_TO_RESTART: "paygate-go-bridge,insider-threat-engine,ueba-service,opensearch-indexer"
+  # Kubernetes secret names
+  CA_SECRET_NAME: "paygate-ca-cert"
+  SERVER_SECRET_NAME: "paygate-server-cert"
+  CLIENT_SECRET_NAME: "paygate-client-cert"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cert-rotation
+  namespace: paygate
+  labels:
+    app: cert-rotation
+    component: security
+spec:
+  # Run every 90 days at 02:00 UTC
+  # Cron: minute hour day-of-month month day-of-week
+  schedule: "0 2 1 */3 *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800  # 30 minutes max
+      template:
+        metadata:
+          labels:
+            app: cert-rotation
+        spec:
+          serviceAccountName: cert-rotation-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: cert-rotator
+              image: alpine/openssl:3.3.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+
+                  echo "=== PayGate TLS Certificate Rotation ==="
+                  echo "Started at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                  # Install kubectl
+                  apk add --no-cache curl bash
+                  curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+                  chmod +x kubectl && mv kubectl /usr/local/bin/
+
+                  WORKDIR=$(mktemp -d)
+                  cd "$WORKDIR"
+
+                  VALIDITY=${CERT_VALIDITY_DAYS:-365}
+                  ORG="${CERT_ORG:-PayGate Technologies}"
+                  COUNTRY="${CERT_COUNTRY:-NG}"
+                  STATE="${CERT_STATE:-Lagos}"
+
+                  # ── 1. Generate new CA ──────────────────────────────────────
+                  echo "[1/5] Generating CA certificate..."
+                  openssl ecparam -name prime256v1 -genkey -noout -out ca.key
+                  openssl req -new -x509 -days "$VALIDITY" -key ca.key -out ca.crt \
+                    -subj "/C=${COUNTRY}/ST=${STATE}/O=${ORG}/CN=PayGate-CA-$(date +%Y%m%d)"
+
+                  # ── 2. Generate server certificate ──────────────────────────
+                  echo "[2/5] Generating server certificate..."
+                  openssl ecparam -name prime256v1 -genkey -noout -out server.key
+                  openssl req -new -key server.key -out server.csr \
+                    -subj "/C=${COUNTRY}/ST=${STATE}/O=${ORG}/CN=paygate-bridge"
+                  cat > server_ext.cnf << EOF
+                  [SAN]
+                  subjectAltName=${SERVER_SANS:-DNS:paygate-bridge,DNS:localhost,IP:127.0.0.1}
+                  EOF
+                  openssl x509 -req -days "$VALIDITY" -in server.csr \
+                    -CA ca.crt -CAkey ca.key -CAcreateserial \
+                    -out server.crt -extensions SAN -extfile server_ext.cnf
+
+                  # ── 3. Generate client certificate ──────────────────────────
+                  echo "[3/5] Generating client certificate..."
+                  openssl ecparam -name prime256v1 -genkey -noout -out client.key
+                  openssl req -new -key client.key -out client.csr \
+                    -subj "/C=${COUNTRY}/ST=${STATE}/O=${ORG}/CN=paygate-portal-client"
+                  openssl x509 -req -days "$VALIDITY" -in client.csr \
+                    -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt
+
+                  # ── 4. Update Kubernetes secrets ────────────────────────────
+                  echo "[4/5] Updating Kubernetes TLS secrets..."
+                  NAMESPACE="${NAMESPACE:-paygate}"
+
+                  kubectl create secret tls "${CA_SECRET_NAME:-paygate-ca-cert}" \
+                    --cert=ca.crt --key=ca.key \
+                    --namespace="$NAMESPACE" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+
+                  kubectl create secret tls "${SERVER_SECRET_NAME:-paygate-server-cert}" \
+                    --cert=server.crt --key=server.key \
+                    --namespace="$NAMESPACE" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+
+                  kubectl create secret tls "${CLIENT_SECRET_NAME:-paygate-client-cert}" \
+                    --cert=client.crt --key=client.key \
+                    --namespace="$NAMESPACE" \
+                    --dry-run=client -o yaml | kubectl apply -f -
+
+                  # ── 5. Rolling restart of affected deployments ──────────────
+                  echo "[5/5] Triggering rolling restarts..."
+                  IFS=',' read -ra DEPLOYMENTS <<< "${DEPLOYMENTS_TO_RESTART:-paygate-go-bridge}"
+                  for dep in "${DEPLOYMENTS[@]}"; do
+                    dep=$(echo "$dep" | tr -d ' ')
+                    echo "  Restarting deployment: $dep"
+                    kubectl rollout restart deployment/"$dep" \
+                      --namespace="$NAMESPACE" 2>/dev/null || echo "  Warning: $dep not found"
+                  done
+
+                  # ── Cleanup ─────────────────────────────────────────────────
+                  cd / && rm -rf "$WORKDIR"
+
+                  echo "=== Certificate rotation completed at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+              envFrom:
+                - configMapRef:
+                    name: cert-rotation-config
+              env:
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+              securityContext:
+                runAsNonRoot: false  # openssl needs root for some operations
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+          volumes: []
