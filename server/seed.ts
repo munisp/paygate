@@ -593,7 +593,7 @@ async function main() {
   console.log("\n-> Seeding POS terminals...");
   const posTerminalData = [
     { id: "pos_001", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-001-2024", model: "soundbox_basic" as const, label: "Main Counter", location: "Lagos HQ", status: "active" as const },
-    { id: "pos_002", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-002-2024", model: "android_pos" as const, label: "Gate 2", location: "Lagos HQ", status: "active" as const },
+    { id: "pos_002", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-002-2024", model: "pos_smart" as const, label: "Gate 2", location: "Lagos HQ", status: "active" as const },
     { id: "pos_003", merchantId: merchantData[1]?.id ?? merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-003-2024", model: "mpos" as const, label: "Mobile Agent", location: "Abuja Branch", status: "active" as const },
   ];
   for (const pos of posTerminalData) {
