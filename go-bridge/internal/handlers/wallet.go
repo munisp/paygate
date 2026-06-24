@@ -13,13 +13,6 @@ import (
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("writeJSON encode error", "err", err)
-	}
-}
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, types.ErrorResponse{Error: msg, Code: status})

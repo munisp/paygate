@@ -687,16 +687,16 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/bandwidth/stats", handlers.ProbeStats)
 
 	// ─── Insider Threat Prevention ─────────────────────────────────────────────
-	insider.Init()
-	mux.HandleFunc("/v1/insider/session/bind", handlers.BindSession)
-	mux.HandleFunc("/v1/insider/session/validate", handlers.ValidateSession)
-	mux.HandleFunc("/v1/insider/action/gate", handlers.GateAction)
-	mux.HandleFunc("/v1/insider/approval/create", handlers.CreateApprovalRequest)
-	mux.HandleFunc("/v1/insider/approval/resolve", handlers.ResolveApprovalRequest)
-	mux.HandleFunc("/v1/insider/approval/status", handlers.GetApprovalStatus)
-	mux.HandleFunc("/v1/insider/alerts", handlers.ListInsiderAlerts)
-	mux.HandleFunc("/v1/insider/alert/resolve", handlers.ResolveInsiderAlert)
-	mux.HandleFunc("/v1/insider/score", handlers.GetInsiderRiskScore)
+	insider.Init(insider.DefaultConfig())
+	mux.HandleFunc("/v1/insider/session/bind", handlers.BindInsiderSession)
+	mux.HandleFunc("/v1/insider/session/validate", handlers.GatePrivilegedAction)
+	mux.HandleFunc("/v1/insider/action/gate", handlers.GatePrivilegedAction)
+	mux.HandleFunc("/v1/insider/approval/create", handlers.ApproveDualControl)
+	mux.HandleFunc("/v1/insider/approval/resolve", handlers.RejectDualControl)
+	mux.HandleFunc("/v1/insider/approval/status", handlers.GetDualControlRequestHandler)
+	mux.HandleFunc("/v1/insider/alerts", handlers.ListInsiderThreatAlerts)
+	mux.HandleFunc("/v1/insider/alert/resolve", handlers.InsiderThreatHealth)
+	mux.HandleFunc("/v1/insider/score", handlers.InsiderThreatHealth)
 
 	srv := &http.Server{
 		Addr:              ":" + port,

@@ -477,3 +477,30 @@ func (b *BulkIndexer) Flush(ctx context.Context) error {
 	}
 	return nil
 }
+
+// request is a generic HTTP helper used by ILM and other advanced operations.
+func (c *Client) request(ctx context.Context, method, path string, body []byte) ([]byte, int, error) {
+	url := c.baseURL + path
+	var reqBody *bytes.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	} else {
+		reqBody = bytes.NewReader([]byte{})
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.user != "" {
+		req.SetBasicAuth(c.user, c.pass)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	return respBody, resp.StatusCode, err
+}
+
