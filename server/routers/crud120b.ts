@@ -4,6 +4,7 @@
  */
 
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { publishAuditEvent } from "../kafkaClient";
 import { getDb } from "../db";
 import { z } from "zod";
 import {
@@ -308,6 +309,7 @@ export const superAgentV2Router = router({
     const db = (await getDb())!;
     await db.update(superAgentV2Networks).set({ status: "suspended" })
       .where(eq(superAgentV2Networks.id, input.id));
+    publishAuditEvent({ action: 'super_agent_network.suspended', actorId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   reactivate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -513,6 +515,7 @@ export const tenantMgmtRouter = router({
   suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, input.id));
+    publishAuditEvent({ action: 'tenant.suspended', actorId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {

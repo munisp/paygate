@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/paygate/go-bridge/internal/apisix"
+	""github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/dapr"
 	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/keycloak"
@@ -245,6 +246,10 @@ slog.Info("env var validation complete")
 	// NIP / NIBSS name enquiry + instant debit (Wave 131)
 	mux.HandleFunc("POST /v1/nibss/name-enquiry", authMiddleware(handlers.NIPNameEnquiry))
 	mux.HandleFunc("POST /v1/nip/instant-debit", authMiddleware(handlers.NIPInstantDebit))
+	// Lakehouse analytics (Wave 133)
+	mux.HandleFunc("POST /v1/lakehouse/query", authMiddleware(lakehouse.QueryHandler))
+	mux.HandleFunc("GET /v1/lakehouse/tables", authMiddleware(lakehouse.TablesHandler))
+	mux.HandleFunc("POST /v1/lakehouse/export", authMiddleware(lakehouse.ExportHandler))
 	// Biometric token exchange (Wave 131)
 	mux.HandleFunc("POST /v1/auth/biometric-token", authMiddleware(handlers.BiometricToken))
 	mux.HandleFunc("POST /v1/auth/biometric-revoke", authMiddleware(handlers.BiometricRevoke))

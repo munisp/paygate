@@ -1231,6 +1231,34 @@ services:
       retries: 3
       start_period: 60s
 
+  opensearch-indexer:
+    build:
+      context: ./python-services/opensearch-indexer
+      dockerfile: Dockerfile
+    image: paygate/opensearch-indexer:latest
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      OPENSEARCH_USER: ${OPENSEARCH_USER:-admin}
+      OPENSEARCH_PASS: ${OPENSEARCH_PASS:-admin}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8003:8003"
+    networks:
+      - paygate
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+
 volumes:
   nifi_data:
   nifi_logs:

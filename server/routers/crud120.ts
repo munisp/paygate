@@ -12,6 +12,7 @@
  */
 
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { publishAuditEvent } from "../kafkaClient";
 import { getDb } from "../db";
 import { z } from "zod";
 import {
@@ -693,6 +694,7 @@ const emiLoansRouter = router({
     const db = (await getDb())!;
     await db.update(emiLoans).set({ status: "active", disbursedAt: new Date() })
       .where(eq(emiLoans.id, input.id));
+    publishAuditEvent({ action: 'emi_loan.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   listRepayments: protectedProcedure.input(paginationInput.extend({
@@ -1058,6 +1060,7 @@ const inviteCodesRouter = router({
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(inviteCodes).set({ status: "revoked" }).where(eq(inviteCodes.id, input.id));
+    publishAuditEvent({ action: 'invite_code.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   validate: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
@@ -1469,6 +1472,7 @@ const moneyRequestsRouter = router({
     const db = (await getDb())!;
     await db.update(moneyRequests).set({ status: "approved", approvedAt: new Date() })
       .where(eq(moneyRequests.id, input.id));
+    publishAuditEvent({ action: 'money_request.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
@@ -1686,6 +1690,7 @@ const openBankingRouter = router({
     const db = (await getDb())!;
     await db.update(openBankingConsentsV2).set({ status: "revoked", revokedAt: new Date() })
       .where(eq(openBankingConsentsV2.id, input.id));
+    publishAuditEvent({ action: 'open_banking_consent.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
 });
@@ -1770,6 +1775,7 @@ const payrollRouter = router({
     const db = (await getDb())!;
     await db.update(payrollRuns).set({ status: "approved", approvedAt: new Date() })
       .where(eq(payrollRuns.id, input.id));
+    publishAuditEvent({ action: 'payroll_run.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -2259,6 +2265,7 @@ const sdkTokensRouter = router({
     const db = (await getDb())!;
     await db.update(sdkTokens).set({ status: "revoked", revokedAt: new Date() })
       .where(eq(sdkTokens.id, input.id));
+    publishAuditEvent({ action: 'sdk_token.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
