@@ -219,13 +219,25 @@ async function startServer() {
     maxAge: 86400, // 24h preflight cache
   }));
 
-  // ─── Request Logger ────────────────────────────────────────────────────────
+  // ─── X-Request-ID Tracing (Wave 183) ─────────────────────────────────────
+  app.use((req: any, res: any, next: any) => {
+    const reqId: string = (req.headers["x-request-id"] as string) || (() => {
+      try { return require("crypto").randomUUID(); } catch { return Math.random().toString(36).slice(2); }
+    })();
+    req.id = reqId;
+    res.setHeader("X-Request-ID", reqId);
+    next();
+  });
+  // ─── Structured Request Logger (Wave 183) ──────────────────────────────────
   app.use((req: any, res: any, next: any) => {
     const start = Date.now();
     res.on("finish", () => {
-      logRequest(req.method, req.path, res.statusCode, Date.now() - start, {
+      const ms = Date.now() - start;
+      logRequest(req.method, req.path, res.statusCode, ms, {
         ip: req.ip,
         ua: req.headers["user-agent"]?.slice(0, 80),
+        reqId: req.id,
+        contentLength: res.getHeader("content-length"),
       });
     });
     next();
@@ -2345,12 +2357,29 @@ async function startServer() {
           skipped++;
         }
       }
-      logger.info("ndpr_purge_complete", { taskUid, purged, skipped, total: expired.length });
+      // ─── Wave 179: Also purge face_embeddings older than 2 years ──────────────
+      let embeddingsPurged = 0;
+      try {
+        const { faceEmbeddings } = await import("../../drizzle/schema");
+        const { lt } = await import("drizzle-orm");
+        const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000);
+        const db = await getDb();
+        if (db) {
+          const deleted = await db.delete(faceEmbeddings)
+            .where(lt(faceEmbeddings.createdAt, twoYearsAgo))
+            .returning({ id: faceEmbeddings.id });
+          embeddingsPurged = deleted.length;
+          logger.info("ndpr_face_embeddings_purged", { taskUid, count: embeddingsPurged });
+        }
+      } catch (embErr: any) {
+        logger.warn("ndpr_face_embeddings_purge_error", { taskUid, err: embErr.message });
+      }
+      logger.info("ndpr_purge_complete", { taskUid, purged, skipped, total: expired.length, embeddingsPurged });
       await notifyOwner({
         title: `NDPR Biometric Purge Complete`,
-        content: `Purged ${purged} expired liveness sessions. Skipped: ${skipped}. Total eligible: ${expired.length}.`,
+        content: `Purged ${purged} expired liveness sessions (skipped: ${skipped}). Face embeddings purged: ${embeddingsPurged}. Total eligible: ${expired.length}.`,
       }).catch(() => {});
-      return res.json({ ok: true, purged, skipped, total: expired.length, taskUid });
+      return res.json({ ok: true, purged, skipped, total: expired.length, embeddingsPurged, taskUid });
     } catch (err: any) {
       logger.error("ndpr_purge_error", { taskUid, err: err.message });
       return res.status(500).json({ ok: false, error: err.message, taskUid });
@@ -2521,6 +2550,9 @@ function validateEnv() {
   const required: [string, string][] = [
     ["DATABASE_URL", "PostgreSQL connection string"],
     ["JWT_SECRET", "Session cookie signing secret"],
+    // Wave 182: additional required vars for production hardening
+    ["VITE_APP_ID", "Manus OAuth application ID"],
+    ["OAUTH_SERVER_URL", "Manus OAuth backend base URL"],
   ];
   const missing = required.filter(([key]) => !process.env[key]);
   if (missing.length > 0) {
@@ -2541,6 +2573,15 @@ function validateEnv() {
     ["NIP_API_KEY", "NIP name enquiry for P2P transfers"],
     ["PUSH_SERVICE_KEY", "Push notification service"],
     ["REDIS_URL", "Redis (rate limiting + USSD sessions)"],
+    // Wave 182: additional optional vars
+    ["DEEPFACE_SIDECAR_URL", "DeepFace neural liveness + face verification sidecar"],
+    ["FLUVIO_ENDPOINT", "Fluvio real-time event streaming"],
+    ["KAFKA_BOOTSTRAP_SERVERS", "Kafka event bus"],
+    ["TEMPORAL_HOST_PORT", "Temporal workflow orchestration"],
+    ["MOJALOOP_URL", "Mojaloop interoperability layer"],
+    ["NIBSS_GATEWAY_URL", "NIBSS NIP payment gateway"],
+    ["KEYCLOAK_URL", "Keycloak identity provider"],
+    ["PERMIFY_URL", "Permify fine-grained authorization"],
   ];
   optional.forEach(([key, feature]) => {
     if (!process.env[key]) {

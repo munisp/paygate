@@ -210,6 +210,15 @@ slog.Info("env var validation complete")
 
 	// Auth / role sync
 	mux.HandleFunc("POST /v1/auth/sync-roles", authMiddleware(handlers.SyncRolesToPermify))
+	// u2500u2500 Permify policy sync + relationship management (Wave 131) u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+	mux.HandleFunc("POST /v1/permify/schema/write", authMiddleware(handlers.PermifyWriteSchema))
+	mux.HandleFunc("POST /v1/permify/relationships/write", authMiddleware(handlers.PermifyWriteRelationships))
+	mux.HandleFunc("POST /v1/permify/relationships/delete", authMiddleware(handlers.PermifyDeleteRelationship))
+	mux.HandleFunc("POST /v1/permify/relationships/list", authMiddleware(handlers.PermifyListRelationships))
+	// u2500u2500 Keycloak admin: group + role management (Wave 131) u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+	mux.HandleFunc("POST /v1/keycloak/users/sync-group", authMiddleware(handlers.KeycloakSyncGroup))
+	mux.HandleFunc("POST /v1/keycloak/users/assign-role", authMiddleware(handlers.KeycloakAssignRole))
+	mux.HandleFunc("POST /v1/keycloak/users/revoke-role", authMiddleware(handlers.KeycloakRevokeRole))
 
 	// ── Fluvio SSE stream endpoint ──────────────────────────────────────────────
 	// Clients subscribe to GET /v1/stream/events for real-time SSE updates
@@ -233,8 +242,14 @@ slog.Info("env var validation complete")
 	// Notifications
 	mux.HandleFunc("POST /v1/notifications/payout-approval-email", authMiddleware(handlers.SendPayoutApprovalEmail))
 
-	// NIP / NIBSS name enquiry
+	// NIP / NIBSS name enquiry + instant debit (Wave 131)
 	mux.HandleFunc("POST /v1/nibss/name-enquiry", authMiddleware(handlers.NIPNameEnquiry))
+	mux.HandleFunc("POST /v1/nip/instant-debit", authMiddleware(handlers.NIPInstantDebit))
+	// Biometric token exchange (Wave 131)
+	mux.HandleFunc("POST /v1/auth/biometric-token", authMiddleware(handlers.BiometricToken))
+	mux.HandleFunc("POST /v1/auth/biometric-revoke", authMiddleware(handlers.BiometricRevoke))
+	mux.HandleFunc("POST /v1/auth/biometric/token", authMiddleware(handlers.BiometricToken))
+	mux.HandleFunc("POST /v1/auth/biometric/revoke", authMiddleware(handlers.BiometricRevoke))
 	// USDC payout operations (native Solana engine)
 	mux.HandleFunc("POST /v1/usdc/payout", authMiddleware(handlers.InitiateUSDCPayout))
 	mux.HandleFunc("POST /v1/usdc/wallet/validate", authMiddleware(handlers.ValidateUSDCWallet))
