@@ -38,6 +38,7 @@ import { getWave31SecurityReport } from "../security31";
 import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
+import { registerFluvioSseEndpoint } from "../fluvioSse";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -1534,6 +1535,7 @@ async function startServer() {
     const { getDb } = await import("../db");
     const { isBridgeAvailable } = await import("../middlewareBridge");
     let dbOk = false;
+    let redisOk = false;
     try {
       const db = await getDb();
       if (db) {
@@ -1541,16 +1543,36 @@ async function startServer() {
         dbOk = true;
       }
     } catch { dbOk = false; }
+    // Redis health check
+    try {
+      const { cache } = await import("../cache");
+      if (cache && typeof (cache as any).ping === "function") {
+        await (cache as any).ping();
+        redisOk = true;
+      } else if (process.env.REDIS_URL) {
+        // Attempt lightweight TCP connect to Redis
+        const { createConnection } = await import("net");
+        const url = new URL(process.env.REDIS_URL);
+        await new Promise<void>((resolve, reject) => {
+          const sock = createConnection({ host: url.hostname, port: Number(url.port) || 6379 }, () => { sock.destroy(); resolve(); });
+          sock.on("error", reject);
+          setTimeout(() => { sock.destroy(); reject(new Error("timeout")); }, 2000);
+        });
+        redisOk = true;
+      }
+    } catch { redisOk = false; }
     const circuitBreakers = getAllCircuitBreakerStats();
     const allCbClosed = circuitBreakers.every(cb => cb.state === "CLOSED");
-    const status = dbOk ? "ok" : "degraded";
-    res.status(dbOk ? 200 : 503).json({
+    const healthy = dbOk;
+    const status = healthy ? "ok" : "degraded";
+    res.status(healthy ? 200 : 503).json({
       status,
       timestamp: Date.now(),
       service: "paygate-merchant",
       version: process.env.npm_package_version ?? "1.0.0",
       checks: {
         database: dbOk ? "ok" : "error",
+        redis: redisOk ? "ok" : (process.env.REDIS_URL ? "error" : "not_configured"),
         bridge: isBridgeAvailable() ? "configured" : "not_configured",
         circuitBreakers: allCbClosed ? "all_closed" : "some_open",
       },
@@ -1937,9 +1959,6 @@ async function startServer() {
   // ─── Background Jobs ─────────────────────────────────────────────────────
   startSIPProcessor(); // Gold SIP auto-debit: runs daily at 08:00 UTC
 
-  // ─── Background Jobs ─────────────────────────────────────────────────────
-  startSIPProcessor(); // Gold SIP auto-debit: runs daily at 08:00 UTC
-
   // ─── SSE: Fraud Alert Stream ───────────────────────────────────────────────
   const fraudAlertClients = new Map<string, Set<any>>();
   (app as any)._fraudAlertBroadcast = (merchantId: string, alert: unknown) => {
@@ -1981,6 +2000,9 @@ async function startServer() {
       res.status(500).json({ error: "Fraud SSE setup failed" });
     }
   });
+
+  // ─── SSE: Fluvio Real-time Event Stream ─────────────────────────────────────
+  registerFluvioSseEndpoint(app);
 
   // ─── Per-route mutation rate limiters ──────────────────────────────────────
   // These run before the tRPC middleware and apply stricter limits to sensitive

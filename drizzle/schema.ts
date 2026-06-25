@@ -4768,3 +4768,26 @@ export const userLocalePreferences = pgTable("user_locale_preferences", {
 ]);
 export type UserLocalePreference = typeof userLocalePreferences.$inferSelect;
 export type InsertUserLocalePreference = typeof userLocalePreferences.$inferInsert;
+
+// ─── Wave 180: Face Embeddings (pgvector-ready) ───────────────────────────────
+// Dedicated table for ArcFace 512-d embeddings stored as JSON arrays.
+// When pgvector extension is available, migrate face_embedding to vector(512).
+export const faceEmbeddings = pgTable("face_embeddings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  userId: text("user_id"),
+  submissionId: text("submission_id"),               // FK → kyc_submissions
+  embedding: jsonb("embedding").notNull(),            // ArcFace 512-d float array
+  model: text("model").default("ArcFace").notNull(), // ArcFace | Facenet | VGG-Face
+  imageUrl: text("image_url"),                       // S3 URL of source image
+  imageType: text("image_type"),                     // selfie | id_front | id_back
+  qualityScore: real("quality_score"),               // 0.0–1.0 face quality
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("face_embed_merchant_idx").on(t.merchantId),
+  index("face_embed_user_idx").on(t.userId),
+  index("face_embed_submission_idx").on(t.submissionId),
+  index("face_embed_model_idx").on(t.model),
+]);
+export type FaceEmbedding = typeof faceEmbeddings.$inferSelect;
+export type InsertFaceEmbedding = typeof faceEmbeddings.$inferInsert;
