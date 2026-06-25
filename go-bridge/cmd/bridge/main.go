@@ -220,6 +220,17 @@ slog.Info("env var validation complete")
 	mux.HandleFunc("POST /v1/keycloak/users/sync-group", authMiddleware(handlers.KeycloakSyncGroup))
 	mux.HandleFunc("POST /v1/keycloak/users/assign-role", authMiddleware(handlers.KeycloakAssignRole))
 	mux.HandleFunc("POST /v1/keycloak/users/revoke-role", authMiddleware(handlers.KeycloakRevokeRole))
+	// ── APISIX Admin API routes ────────────────────────────────────────────────
+	mux.HandleFunc("GET /v1/apisix/routes", authMiddleware(handlers.APISIXListRoutes))
+	mux.HandleFunc("POST /v1/apisix/routes", authMiddleware(handlers.APISIXUpsertRoute))
+	mux.HandleFunc("DELETE /v1/apisix/routes/{id}", authMiddleware(handlers.APISIXDeleteRoute))
+	mux.HandleFunc("GET /v1/apisix/consumers", authMiddleware(handlers.APISIXListConsumers))
+	mux.HandleFunc("POST /v1/apisix/consumers", authMiddleware(handlers.APISIXUpsertConsumer))
+	mux.HandleFunc("DELETE /v1/apisix/consumers/{username}", authMiddleware(handlers.APISIXDeleteConsumer))
+	mux.HandleFunc("GET /v1/apisix/plugins", authMiddleware(handlers.APISIXListPlugins))
+	mux.HandleFunc("POST /v1/apisix/plugins/enable", authMiddleware(handlers.APISIXEnablePlugin))
+	mux.HandleFunc("POST /v1/apisix/plugins/disable", authMiddleware(handlers.APISIXDisablePlugin))
+	mux.HandleFunc("GET /v1/apisix/health", handlers.APISIXHealth)
 
 	// ── Fluvio SSE stream endpoint ──────────────────────────────────────────────
 	// Clients subscribe to GET /v1/stream/events for real-time SSE updates

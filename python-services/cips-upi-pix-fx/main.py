@@ -655,3 +655,239 @@ if __name__ == "__main__":
     log.info(f"CIPS/UPI/PIX FX Corridor Service starting on port {PORT}")
     log.info(f"Corridors: {len(CORRIDORS)}, Rails: {len(RAILS)}, Currencies: {len(FX_RATES_VS_USD)}")
     app.run(host="0.0.0.0", port=PORT, debug=False)
+
+
+# ─── FX Hedge endpoint ─────────────────────────────────────────────────────────
+
+@app.route("/v1/fx/hedge", methods=["POST"])
+@auth_required
+def fx_hedge():
+    """
+    POST /v1/fx/hedge
+    Request a forward FX hedge for a corridor payment.
+    Body: { source_currency, target_currency, amount, settlement_date, hedge_type }
+    Returns: hedge_id, locked_rate, premium_bps, expiry_ts
+    """
+    import uuid as _uuid
+
+    data = request.get_json(force=True, silent=True) or {}
+    source = data.get("source_currency", "").upper()
+    target = data.get("target_currency", "").upper()
+    amount = data.get("amount")
+    settlement_date = data.get("settlement_date")  # ISO-8601 date string
+    hedge_type = data.get("hedge_type", "forward")  # forward | option | ndf
+
+    if not source or not target or amount is None:
+        return jsonify({"error": "source_currency, target_currency, and amount are required"}), 400
+    if hedge_type not in ("forward", "option", "ndf"):
+        return jsonify({"error": "hedge_type must be one of: forward, option, ndf"}), 400
+
+    rate = get_exchange_rate(source, target)
+    if rate is None:
+        return jsonify({"error": f"Unsupported currency pair: {source}/{target}"}), 422
+
+    # Premium schedule (basis points): forward=5, option=25, ndf=15
+    premium_map = {"forward": 5, "option": 25, "ndf": 15}
+    premium_bps = premium_map[hedge_type]
+
+    # Locked rate includes a small spread for the hedge premium
+    spread_factor = 1.0 + (premium_bps / 10_000)
+    locked_rate = round(rate * spread_factor, 6)
+
+    hedge_id = f"HDG-{_uuid.uuid4().hex[:12].upper()}"
+
+    # Expiry: settlement_date or 30 days from now
+    if settlement_date:
+        try:
+            expiry = datetime.fromisoformat(settlement_date).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return jsonify({"error": "settlement_date must be ISO-8601 format"}), 400
+    else:
+        expiry = datetime.now(timezone.utc) + timedelta(days=30)
+
+    log.info(f"FX hedge created: {hedge_id} {source}/{target} {amount} {hedge_type} locked={locked_rate}")
+    return jsonify({
+        "hedge_id": hedge_id,
+        "source_currency": source,
+        "target_currency": target,
+        "amount": amount,
+        "hedge_type": hedge_type,
+        "locked_rate": locked_rate,
+        "premium_bps": premium_bps,
+        "expiry_ts": expiry.isoformat(),
+        "status": "confirmed",
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+# ─── ISO 20022 validation endpoint ────────────────────────────────────────────
+
+@app.route("/v1/iso20022/validate", methods=["POST"])
+@auth_required
+def validate_iso20022():
+    """
+    POST /v1/iso20022/validate
+    Validate an ISO 20022 XML message against supported namespaces.
+    Body: { xml } or raw XML in request body.
+    Returns: { valid, namespace, message_type, errors }
+    """
+    SUPPORTED_NAMESPACES = {
+        "urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08": "pacs.008",
+        "urn:iso:std:iso:20022:tech:xsd:pacs.002.001.10": "pacs.002",
+        "urn:iso:std:iso:20022:tech:xsd:pain.001.001.09": "pain.001",
+        "urn:iso:std:iso:20022:tech:xsd:pain.002.001.10": "pain.002",
+        "urn:iso:std:iso:20022:tech:xsd:camt.053.001.08": "camt.053",
+        "urn:iso:std:iso:20022:tech:xsd:camt.054.001.08": "camt.054",
+    }
+
+    REQUIRED_ELEMENTS = {
+        "pacs.008": ["GrpHdr", "CdtTrfTxInf"],
+        "pacs.002": ["GrpHdr", "TxInfAndSts"],
+        "pain.001": ["GrpHdr", "PmtInf"],
+        "pain.002": ["GrpHdr", "OrgnlGrpInfAndSts"],
+        "camt.053": ["GrpHdr", "Stmt"],
+        "camt.054": ["GrpHdr", "Ntfctn"],
+    }
+
+    # Accept JSON body with xml field, or raw XML
+    content_type = request.content_type or ""
+    if "application/json" in content_type:
+        body = request.get_json(force=True, silent=True) or {}
+        xml_str = body.get("xml", "")
+    else:
+        xml_str = request.get_data(as_text=True)
+
+    if not xml_str or not xml_str.strip():
+        return jsonify({"valid": False, "errors": ["Empty XML body"]}), 400
+
+    errors = []
+    namespace = None
+    message_type = None
+
+    try:
+        root = ET.fromstring(xml_str.strip())
+        # Extract namespace from root tag {ns}element
+        if root.tag.startswith("{"):
+            ns = root.tag.split("}")[0][1:]
+            namespace = ns
+            message_type = SUPPORTED_NAMESPACES.get(ns)
+            if message_type is None:
+                errors.append(f"Unsupported namespace: {ns}")
+            else:
+                # Check required elements
+                required = REQUIRED_ELEMENTS.get(message_type, [])
+                for elem in required:
+                    found = root.find(f".//{{{ns}}}{elem}") or root.find(f".//{elem}")
+                    if found is None:
+                        errors.append(f"Missing required element: {elem}")
+        else:
+            errors.append("Root element must have an ISO 20022 namespace")
+    except ET.ParseError as e:
+        errors.append(f"XML parse error: {str(e)}")
+
+    valid = len(errors) == 0
+    status_code = 200 if valid else 422
+    return jsonify({
+        "valid": valid,
+        "namespace": namespace,
+        "message_type": message_type,
+        "errors": errors,
+    }), status_code
+
+
+# ─── Corridor fees endpoint ────────────────────────────────────────────────────
+
+@app.route("/v1/corridors/fees", methods=["GET", "POST"])
+@auth_required
+def corridor_fees():
+    """
+    GET  /v1/corridors/fees?source=NGN&target=USD&amount=100000
+    POST /v1/corridors/fees  { source_currency, target_currency, amount }
+    Returns: per-rail fee breakdown for the corridor.
+    """
+    if request.method == "POST":
+        data = request.get_json(force=True, silent=True) or {}
+        source = data.get("source_currency", "").upper()
+        target = data.get("target_currency", "").upper()
+        amount = data.get("amount", 0)
+    else:
+        source = request.args.get("source", "").upper()
+        target = request.args.get("target", "").upper()
+        try:
+            amount = float(request.args.get("amount", 0))
+        except ValueError:
+            return jsonify({"error": "amount must be a number"}), 400
+
+    if not source or not target:
+        return jsonify({"error": "source_currency and target_currency are required"}), 400
+
+    rate = get_exchange_rate(source, target)
+    if rate is None:
+        return jsonify({"error": f"Unsupported currency pair: {source}/{target}"}), 422
+
+    amount = float(amount) if amount else 0.0
+
+    # Build per-rail fee breakdown from CORRIDORS list
+    rail_fees = []
+    seen_rails = set()
+    for corridor in CORRIDORS:
+        if corridor["source"] == source and corridor["target"] == target:
+            rail_id = corridor["rail"]
+            if rail_id in seen_rails:
+                continue
+            seen_rails.add(rail_id)
+            fee_bps = corridor.get("fee_bps", 50)
+            fee_amount = calculate_fee(amount, fee_bps) if amount > 0 else None
+            converted = round(amount * rate, 2) if amount > 0 else None
+            net_converted = round((amount - (fee_amount or 0)) * rate, 2) if amount > 0 else None
+            # Find rail metadata
+            rail_meta = next((r for r in RAILS if r["id"] == rail_id), {})
+            rail_fees.append({
+                "rail": rail_id,
+                "name": rail_meta.get("name", rail_id),
+                "fee_bps": fee_bps,
+                "fee_amount": fee_amount,
+                "fee_currency": source,
+                "converted_amount": converted,
+                "net_converted_amount": net_converted,
+                "target_currency": target,
+                "exchange_rate": rate,
+                "estimated_settlement": corridor.get("settlement_time", "unknown"),
+                "min_amount": corridor.get("min_amount"),
+                "max_amount": corridor.get("max_amount"),
+                "status": rail_meta.get("status", "active"),
+            })
+
+    if not rail_fees:
+        # Fallback: generic estimate using recommended rail
+        rec_rail_id = recommend_rail(source, target)
+        fee_bps = 75
+        fee_amount = calculate_fee(amount, fee_bps) if amount > 0 else None
+        rail_meta = next((r for r in RAILS if r["id"] == rec_rail_id), {})
+        rail_fees.append({
+            "rail": rec_rail_id,
+            "name": rail_meta.get("name", rec_rail_id),
+            "fee_bps": fee_bps,
+            "fee_amount": fee_amount,
+            "fee_currency": source,
+            "converted_amount": round(amount * rate, 2) if amount > 0 else None,
+            "net_converted_amount": round((amount - (fee_amount or 0)) * rate, 2) if amount > 0 else None,
+            "target_currency": target,
+            "exchange_rate": rate,
+            "estimated_settlement": "varies",
+            "min_amount": None,
+            "max_amount": None,
+            "status": "active",
+        })
+
+    cheapest = min(rail_fees, key=lambda r: r["fee_bps"])["rail"] if rail_fees else None
+
+    return jsonify({
+        "source_currency": source,
+        "target_currency": target,
+        "amount": amount,
+        "exchange_rate": rate,
+        "rail_fees": rail_fees,
+        "cheapest_rail": cheapest,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
