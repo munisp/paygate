@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/paygate/go-bridge/internal/apisix"
-	""github.com/paygate/go-bridge/internal/lakehouse"
+	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/dapr"
 	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/keycloak"
