@@ -1259,6 +1259,36 @@ services:
         condition: service_healthy
 
 
+  # ─── Ollama LLM Server ──────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.3.14
+    container_name: paygate-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama/models
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=/root/.ollama/models
+      - OLLAMA_KEEP_ALIVE=5m
+      - OLLAMA_NUM_PARALLEL=2
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+
+
 volumes:
   nifi_data:
   nifi_logs:
@@ -1266,3 +1296,4 @@ volumes:
   dbt_logs:
   tigerbeetle_data:
   fluvio_data:
+  ollama_models:
