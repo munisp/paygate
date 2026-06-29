@@ -380,6 +380,7 @@ const AuditLogViewerPage = lz(() => import("./pages/AuditLogViewer"));
 const FraudRuleEnginePage = lz(() => import("./pages/FraudRuleEngine"));
 const KYBDocumentUploadPage = lz(() => import("./pages/KYBDocumentUpload"));
 const KYBDirectorWizard = lz(() => import("./pages/KYBDirectorWizard"));
+const KYCWizard = lz(() => import("./pages/KYCWizard"));
 const LoyaltyRedemptionPage = lz(() => import("./pages/LoyaltyRedemption"));
 // Wave 123
 const AIModelAdminPage = lz(() => import("./pages/AIModelAdmin"));
@@ -827,6 +828,8 @@ function Router() {
           <Route path="/fraud-rule-engine" component={FraudRuleEnginePage} />
           <Route path="/kyb-document-upload" component={KYBDocumentUploadPage} />
           <Route path="/kyb/director-kyc/:id" component={KYBDirectorWizard} />
+          <Route path="/kyc-wizard" component={KYCWizard} />
+          <Route path="/compliance/liveness/:sessionId" component={LivenessReplayViewerPage} />
           <Route path="/loyalty-redemption" component={LoyaltyRedemptionPage} />
           {/* Wave 123 */}
           <Route path="/ai-model-admin" component={AIModelAdminPage} />

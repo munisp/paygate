@@ -58,7 +58,7 @@ export default function ComplianceSettings() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <div className="p-6 max-w-3xl mx-auto space-y-6" role="main" aria-label="Compliance settings">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2"><Shield className="h-6 w-6 text-primary" /> Compliance Settings</h1>

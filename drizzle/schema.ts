@@ -4791,3 +4791,34 @@ export const faceEmbeddings = pgTable("face_embeddings", {
 ]);
 export type FaceEmbedding = typeof faceEmbeddings.$inferSelect;
 export type InsertFaceEmbedding = typeof faceEmbeddings.$inferInsert;
+
+// ─── Wave 170: Security Audit Snapshots ──────────────────────────────────────
+export const securityAuditSnapshots = pgTable("security_audit_snapshots", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  overallScore: integer("overall_score").notNull(),
+  findings: jsonb("findings").notNull(),
+  triggeredBy: text("triggered_by").default("heartbeat"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("sec_audit_merchant_idx").on(t.merchantId),
+  index("sec_audit_created_idx").on(t.createdAt),
+]);
+export type SecurityAuditSnapshot = typeof securityAuditSnapshots.$inferSelect;
+export type InsertSecurityAuditSnapshot = typeof securityAuditSnapshots.$inferInsert;
+
+// ─── Wave 170: Keycloak Role Sync Logs ───────────────────────────────────────
+export const keycloakRoleSyncLogs = pgTable("keycloak_role_sync_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull(),
+  action: text("action").notNull(),
+  syncedAt: timestamp("synced_at").defaultNow().notNull(),
+  status: text("status").default("success").notNull(),
+  errorMessage: text("error_message"),
+}, (t) => [
+  index("kc_role_sync_user_idx").on(t.userId),
+  index("kc_role_sync_action_idx").on(t.action),
+]);
+export type KeycloakRoleSyncLog = typeof keycloakRoleSyncLogs.$inferSelect;
+export type InsertKeycloakRoleSyncLog = typeof keycloakRoleSyncLogs.$inferInsert;

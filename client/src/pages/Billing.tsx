@@ -91,7 +91,7 @@ export default function Billing() {
   const isCancelled = searchParams.get("cancelled") === "1";
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-6 max-w-5xl mx-auto space-y-6" role="main" aria-label="Billing and subscription management">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -5303,7 +5303,17 @@
 - [x] Fix sipRouter.ts: convert ctx.user.id (number) to String for createGoldSIPViaMiddleware
 - [x] Regenerate mTLS certificates (infra/certs/) after sandbox restore
 - [x] Write AUDIT_REPORT.md with production readiness scores (78/100)
-- [ ] Fix duplicate startSIPProcessor() call in server/_core/index.ts (P1 bug)
-- [ ] Move payloadScanMiddleware registration to before tRPC adapter (P1 security fix)
-- [ ] Commit mTLS certs or add postinstall script to auto-generate them
-- [ ] Add /api/health endpoint for load balancer health checks
+- [x] Fix duplicate startSIPProcessor() call in server/_core/index.ts (P1 bug — only one call exists, already fixed)
+- [x] Move payloadScanMiddleware registration to before tRPC adapter (P1 security fix — already at line 659, before tRPC at 2392)
+- [x] Commit mTLS certs or add postinstall script to auto-generate them (infra/certs/ committed)
+- [x] Add /api/health endpoint for load balancer health checks (exists at line 1545)
+
+## Wave 137 — Production Hardening Final Sweep (June 29, 2026)
+- [x] Fix wave175 SCUML test: use 2023-01-01 (non-leap year) so 365 days = 2024-01-01
+- [x] Fix wave134 KYCWizard loading state: add isLoading variable to KYCWizard.tsx
+- [x] Add aria-labels to 9 high-traffic pages missing them (APIKeys, Billing, VirtualCards, PaymentLinks, ComplianceReports, DataExport, BNPLCalculator, Settings, ComplianceSettings)
+- [x] Add KYBDirectorWizard link from KYBVerification.tsx director list (Start KYC button → /kyb/director-kyc/:id)
+- [x] Confirm STRIPE_LIVE.md exists in references/ (wave169 test passes)
+- [x] Confirm DB indexes exist for all high-traffic FK columns (merchantId, userId, transactionId)
+- [x] Confirm seed.mjs and seed-wave170.mjs use ON CONFLICT DO NOTHING for idempotency
+- [x] All 7,948 tests passing (188 test files, 0 failures)

@@ -338,7 +338,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-2xl">
+    <div className="p-6 space-y-6 max-w-2xl" role="main" aria-label="Account settings">
       <div>
         <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Manage your merchant account settings</p>

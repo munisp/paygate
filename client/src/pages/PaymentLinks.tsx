@@ -52,7 +52,7 @@ export default function PaymentLinks() {
   ];
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6" role="main" aria-label="Payment links management">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

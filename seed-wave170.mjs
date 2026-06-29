@@ -336,3 +336,42 @@ main().catch(err => {
   console.error("Fatal:", err.message);
   process.exit(1);
 });
+
+// ─── Wave 170 Extension: security_audit_snapshots ────────────────────────────
+async function seedSecurityAuditSnapshots(merchantId) {
+  console.log("\n🔒  security_audit_snapshots");
+  const rows = [
+    { id: "sas_demo_001", merchant_id: merchantId, overall_score: 82, findings: JSON.stringify({ p1: 0, p2: 2, p3: 5 }), created_at: new Date().toISOString() },
+    { id: "sas_demo_002", merchant_id: merchantId, overall_score: 91, findings: JSON.stringify({ p1: 0, p2: 0, p3: 2 }), created_at: new Date(Date.now() - 86400000).toISOString() },
+  ];
+  for (const row of rows) {
+    try {
+      await q(
+        `security_audit_snapshots: ${row.id}`,
+        `INSERT INTO security_audit_snapshots (id, merchant_id, overall_score, findings, created_at)
+         VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+        [row.id, row.merchant_id, row.overall_score, row.findings, row.created_at]
+      );
+    } catch (err) { recordError("security_audit_snapshots", err); }
+  }
+}
+
+// ─── Wave 170 Extension: keycloak_role_sync_logs ─────────────────────────────
+async function seedKeycloakRoleSyncLogs() {
+  console.log("\n🔑  keycloak_role_sync_logs");
+  const rows = [
+    { id: "krsl_demo_001", user_id: "kc_user_001", role: "merchant_admin", action: "assign", synced_at: new Date().toISOString(), status: "success" },
+    { id: "krsl_demo_002", user_id: "kc_user_002", role: "compliance_officer", action: "assign", synced_at: new Date().toISOString(), status: "success" },
+    { id: "krsl_demo_003", user_id: "kc_user_003", role: "merchant_admin", action: "revoke", synced_at: new Date().toISOString(), status: "success" },
+  ];
+  for (const row of rows) {
+    try {
+      await q(
+        `keycloak_role_sync_logs: ${row.id}`,
+        `INSERT INTO keycloak_role_sync_logs (id, user_id, role, action, synced_at, status)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+        [row.id, row.user_id, row.role, row.action, row.synced_at, row.status]
+      );
+    } catch (err) { recordError("keycloak_role_sync_logs", err); }
+  }
+}
