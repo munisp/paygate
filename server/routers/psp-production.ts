@@ -979,6 +979,140 @@ export const regulatoryReportsRouter = router({
       return { success: true };
     }),
 
+  /**
+   * Interchange P&L analytics — daily/monthly fee income grouped by scheme, channel, card type.
+   */
+  interchangePnl: adminProcedure
+    .input(z.object({
+      period: z.enum(["7d", "30d", "90d", "12m"]).default("30d"),
+    }))
+    .query(async ({ input }) => {
+      const db = (await getDb())!;
+      const periodDays = input.period === "7d" ? 7 : input.period === "30d" ? 30 : input.period === "90d" ? 90 : 365;
+      const since = new Date(Date.now() - periodDays * 86_400_000);
+      const byScheme = await db
+        .select({
+          scheme: interchangeFeeRecords.scheme,
+          channel: interchangeFeeRecords.channel,
+          cardType: interchangeFeeRecords.cardType,
+          billingPeriod: interchangeFeeRecords.billingPeriod,
+          totalFeeKobo: sql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+          totalVolumeKobo: sql<number>`coalesce(sum(${interchangeFeeRecords.transactionAmountKobo}), 0)`,
+          txCount: sql<number>`count(*)`,
+          avgBps: sql<number>`coalesce(avg(${interchangeFeeRecords.basisPoints}), 0)`,
+        })
+        .from(interchangeFeeRecords)
+        .where(gte(interchangeFeeRecords.createdAt, since))
+        .groupBy(
+          interchangeFeeRecords.scheme,
+          interchangeFeeRecords.channel,
+          interchangeFeeRecords.cardType,
+          interchangeFeeRecords.billingPeriod,
+        )
+        .orderBy(desc(interchangeFeeRecords.billingPeriod));
+      const totalFeeKobo = byScheme.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+      const totalVolumeKobo = byScheme.reduce((s, r) => s + Number(r.totalVolumeKobo), 0);
+      return {
+        summary: {
+          totalFeeKobo,
+          totalVolumeKobo,
+          effectiveBps: totalVolumeKobo > 0 ? Math.round((totalFeeKobo / totalVolumeKobo) * 10_000) : 0,
+          txCount: byScheme.reduce((s, r) => s + Number(r.txCount), 0),
+        },
+        rows: byScheme.map(r => ({
+          ...r,
+          totalFeeKobo: Number(r.totalFeeKobo),
+          totalVolumeKobo: Number(r.totalVolumeKobo),
+          txCount: Number(r.txCount),
+          avgBps: Number(r.avgBps),
+        })),
+      };
+    }),
+
+  /**
+   * STR filing queue — pending STRs with countdown to 24h CBN deadline.
+   */
+  pendingStrQueue: adminProcedure
+    .query(async () => {
+      const db = (await getDb())!;
+      const rows = await db
+        .select()
+        .from(strRecords)
+        .where(eq(strRecords.submissionStatus, "pending"))
+        .orderBy(strRecords.filedAt)
+        .limit(200);
+      const now = Date.now();
+      return rows.map(r => {
+        const ageMs = now - new Date(r.filedAt).getTime();
+        const deadlineMs = 24 * 3_600_000;
+        const remainingMs = Math.max(0, deadlineMs - ageMs);
+        const remainingHours = remainingMs / 3_600_000;
+        return {
+          ...r,
+          ageHours: Math.round(ageMs / 3_600_000 * 10) / 10,
+          remainingHours: Math.round(remainingHours * 10) / 10,
+          isUrgent: remainingHours < 4,
+          isOverdue: remainingMs === 0,
+        };
+      });
+    }),
+
+  /**
+   * Submit a single STR to NFIU via the Go bridge — one-click from the filing queue.
+   */
+  submitStrToNfiu: adminProcedure
+    .input(z.object({ strId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [record] = await db
+        .select()
+        .from(strRecords)
+        .where(eq(strRecords.id, input.strId))
+        .limit(1);
+      if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "STR record not found" });
+      if (record.submissionStatus === "submitted" || record.submissionStatus === "acknowledged") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "STR already submitted" });
+      }
+      const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
+      const resp = await fetch(`${bridgeUrl}/api/cbn/str/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "",
+        },
+        body: JSON.stringify({
+          str_id: record.id,
+          transaction_id: record.transactionId,
+          merchant_id: record.merchantId,
+          subject_data: record.subjectData,
+          transaction_data: record.transactionData,
+          suspicion_type: record.suspicionType,
+          suspicion_grounds: record.suspicionGrounds,
+          narrative: record.narrative,
+        }),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.text();
+        await db.update(strRecords).set({
+          submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
+          lastAttemptAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(strRecords.id, input.strId));
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `NFIU submission failed: ${errBody}` });
+      }
+      const result = await resp.json() as { reference: string };
+      await db.update(strRecords).set({
+        nfiuRef: result.reference,
+        nfiuSubmittedAt: new Date(),
+        submissionStatus: "submitted",
+        submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
+        lastAttemptAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(strRecords.id, input.strId));
+      await publishEvent("str.submitted", { strId: input.strId, nfiuReference: result.reference });
+      return { success: true, nfiuReference: result.reference };
+    }),
+
   upcomingDeadlines: adminProcedure
     .input(z.object({ daysAhead: z.number().int().min(1).max(30).default(7) }))
     .query(async () => {

@@ -5057,3 +5057,381 @@ export const regulatoryReportSubmissions = pgTable("regulatory_report_submission
 ]);
 export type RegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferSelect;
 export type InsertRegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferInsert;
+
+// ─── E-Commerce: Enums ────────────────────────────────────────────────────────
+export const productStatusEnum = pgEnum("product_status", ["draft", "active", "archived"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]);
+export const fulfilmentStatusEnum = pgEnum("fulfilment_status", ["unfulfilled", "partial", "fulfilled", "returned"]);
+export const checkoutSessionStatusEnum = pgEnum("checkout_session_status", ["pending", "completed", "expired", "failed"]);
+export const paymentMethodEnum = pgEnum("payment_method_type", ["card", "bank_transfer", "ussd", "bnpl", "usdc"]);
+
+// ─── E-Commerce: Products ─────────────────────────────────────────────────────
+export const products = pgTable("products", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  description: text("description"),
+  status: productStatusEnum("status").default("draft").notNull(),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  comparePriceKobo: bigint("compare_price_kobo", { mode: "number" }),
+  currency: text("currency").default("NGN").notNull(),
+  sku: text("sku"),
+  barcode: text("barcode"),
+  trackInventory: boolean("track_inventory").default(false).notNull(),
+  inventoryQty: integer("inventory_qty").default(0).notNull(),
+  weight: real("weight"),
+  weightUnit: text("weight_unit").default("kg"),
+  imageUrls: jsonb("image_urls").$type<string[]>().default([]),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  category: text("category"),
+  taxable: boolean("taxable").default(true).notNull(),
+  taxCode: text("tax_code"),
+  requiresShipping: boolean("requires_shipping").default(true).notNull(),
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("products_merchant_idx").on(t.merchantId),
+  index("products_tenant_idx").on(t.tenantId),
+  index("products_status_idx").on(t.status),
+  index("products_slug_idx").on(t.slug),
+  index("products_category_idx").on(t.category),
+]);
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = typeof products.$inferInsert;
+
+// ─── E-Commerce: Product Variants ────────────────────────────────────────────
+export const productVariants = pgTable("product_variants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  sku: text("sku"),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  comparePriceKobo: bigint("compare_price_kobo", { mode: "number" }),
+  inventoryQty: integer("inventory_qty").default(0).notNull(),
+  imageUrl: text("image_url"),
+  options: jsonb("options").$type<Record<string, string>>().default({}),
+  weight: real("weight"),
+  barcode: text("barcode"),
+  position: integer("position").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("variants_product_idx").on(t.productId),
+]);
+export type ProductVariant = typeof productVariants.$inferSelect;
+export type InsertProductVariant = typeof productVariants.$inferInsert;
+
+// ─── E-Commerce: Carts ────────────────────────────────────────────────────────
+export const carts = pgTable("carts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  consumerId: text("consumer_id"),
+  sessionToken: text("session_token"),
+  currency: text("currency").default("NGN").notNull(),
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }).default(0).notNull(),
+  discountKobo: bigint("discount_kobo", { mode: "number" }).default(0).notNull(),
+  shippingKobo: bigint("shipping_kobo", { mode: "number" }).default(0).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0).notNull(),
+  totalKobo: bigint("total_kobo", { mode: "number" }).default(0).notNull(),
+  couponCode: text("coupon_code"),
+  notes: text("notes"),
+  expiresAt: timestamp("expires_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("carts_merchant_idx").on(t.merchantId),
+  index("carts_consumer_idx").on(t.consumerId),
+  index("carts_session_idx").on(t.sessionToken),
+]);
+export type Cart = typeof carts.$inferSelect;
+export type InsertCart = typeof carts.$inferInsert;
+
+// ─── E-Commerce: Cart Items ───────────────────────────────────────────────────
+export const cartItems = pgTable("cart_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cartId: text("cart_id").notNull().references(() => carts.id, { onDelete: "cascade" }),
+  productId: text("product_id").notNull().references(() => products.id),
+  variantId: text("variant_id").references(() => productVariants.id),
+  quantity: integer("quantity").notNull().default(1),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }).notNull(),
+  totalPriceKobo: bigint("total_price_kobo", { mode: "number" }).notNull(),
+  productSnapshot: jsonb("product_snapshot").$type<{ name: string; imageUrl?: string; sku?: string }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cart_items_cart_idx").on(t.cartId),
+  index("cart_items_product_idx").on(t.productId),
+]);
+export type CartItem = typeof cartItems.$inferSelect;
+export type InsertCartItem = typeof cartItems.$inferInsert;
+
+// ─── E-Commerce: Checkout Sessions ───────────────────────────────────────────
+export const checkoutSessions = pgTable("checkout_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cartId: text("cart_id").notNull().references(() => carts.id),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  consumerId: text("consumer_id"),
+  status: checkoutSessionStatusEnum("status").default("pending").notNull(),
+  paymentMethod: paymentMethodEnum("payment_method"),
+  paymentIntentId: text("payment_intent_id"),   // Stripe PaymentIntent ID
+  stripeClientSecret: text("stripe_client_secret"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  // Shipping address
+  shippingName: text("shipping_name"),
+  shippingPhone: text("shipping_phone"),
+  shippingEmail: text("shipping_email"),
+  shippingLine1: text("shipping_line1"),
+  shippingLine2: text("shipping_line2"),
+  shippingCity: text("shipping_city"),
+  shippingState: text("shipping_state"),
+  shippingCountry: text("shipping_country").default("NG"),
+  shippingPostalCode: text("shipping_postal_code"),
+  // Billing address (may differ)
+  billingName: text("billing_name"),
+  billingLine1: text("billing_line1"),
+  billingCity: text("billing_city"),
+  billingState: text("billing_state"),
+  billingCountry: text("billing_country").default("NG"),
+  // Metadata
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}),
+  temporalWorkflowId: text("temporal_workflow_id"),
+  kafkaEventId: text("kafka_event_id"),
+  tigerBeetleTransferId: bigint("tigerbeetle_transfer_id", { mode: "number" }),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("checkout_sessions_cart_idx").on(t.cartId),
+  index("checkout_sessions_merchant_idx").on(t.merchantId),
+  index("checkout_sessions_status_idx").on(t.status),
+  index("checkout_sessions_payment_intent_idx").on(t.paymentIntentId),
+]);
+export type CheckoutSession = typeof checkoutSessions.$inferSelect;
+export type InsertCheckoutSession = typeof checkoutSessions.$inferInsert;
+
+// ─── E-Commerce: Orders ───────────────────────────────────────────────────────
+export const orders = pgTable("orders", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderNumber: text("order_number").notNull().unique(),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  consumerId: text("consumer_id"),
+  checkoutSessionId: text("checkout_session_id").references(() => checkoutSessions.id),
+  status: orderStatusEnum("status").default("pending").notNull(),
+  fulfilmentStatus: fulfilmentStatusEnum("fulfilment_status").default("unfulfilled").notNull(),
+  paymentMethod: paymentMethodEnum("payment_method"),
+  paymentIntentId: text("payment_intent_id"),
+  paidAt: timestamp("paid_at"),
+  // Amounts
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }).notNull(),
+  discountKobo: bigint("discount_kobo", { mode: "number" }).default(0).notNull(),
+  shippingKobo: bigint("shipping_kobo", { mode: "number" }).default(0).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0).notNull(),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  refundedKobo: bigint("refunded_kobo", { mode: "number" }).default(0).notNull(),
+  // Shipping
+  shippingName: text("shipping_name"),
+  shippingPhone: text("shipping_phone"),
+  shippingEmail: text("shipping_email"),
+  shippingLine1: text("shipping_line1"),
+  shippingLine2: text("shipping_line2"),
+  shippingCity: text("shipping_city"),
+  shippingState: text("shipping_state"),
+  shippingCountry: text("shipping_country").default("NG"),
+  shippingPostalCode: text("shipping_postal_code"),
+  // Tracking
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"),
+  shippedAt: timestamp("shipped_at"),
+  deliveredAt: timestamp("delivered_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelReason: text("cancel_reason"),
+  // Middleware
+  temporalWorkflowId: text("temporal_workflow_id"),
+  kafkaEventId: text("kafka_event_id"),
+  tigerBeetleTransferId: bigint("tigerbeetle_transfer_id", { mode: "number" }),
+  notes: text("notes"),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("orders_merchant_idx").on(t.merchantId),
+  index("orders_tenant_idx").on(t.tenantId),
+  index("orders_status_idx").on(t.status),
+  index("orders_consumer_idx").on(t.consumerId),
+  index("orders_payment_intent_idx").on(t.paymentIntentId),
+  index("orders_order_number_idx").on(t.orderNumber),
+]);
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = typeof orders.$inferInsert;
+
+// ─── E-Commerce: Order Items ──────────────────────────────────────────────────
+export const orderItems = pgTable("order_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  productId: text("product_id").notNull().references(() => products.id),
+  variantId: text("variant_id").references(() => productVariants.id),
+  quantity: integer("quantity").notNull(),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }).notNull(),
+  totalPriceKobo: bigint("total_price_kobo", { mode: "number" }).notNull(),
+  discountKobo: bigint("discount_kobo", { mode: "number" }).default(0).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0).notNull(),
+  fulfilmentStatus: fulfilmentStatusEnum("fulfilment_status").default("unfulfilled").notNull(),
+  productSnapshot: jsonb("product_snapshot").$type<{
+    name: string; sku?: string; imageUrl?: string; variantTitle?: string;
+  }>(),
+  refundedQty: integer("refunded_qty").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("order_items_order_idx").on(t.orderId),
+  index("order_items_product_idx").on(t.productId),
+]);
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = typeof orderItems.$inferInsert;
+
+// ─── E-Commerce: Fulfilment Events ───────────────────────────────────────────
+export const fulfilmentEvents = pgTable("fulfilment_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  eventType: text("event_type").notNull(), // "payment_received" | "confirmed" | "shipped" | "delivered" | "cancelled" | "refunded"
+  status: text("status").notNull(),
+  message: text("message"),
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"),
+  trackingUrl: text("tracking_url"),
+  actorId: text("actor_id"),               // user/system that triggered the event
+  actorType: text("actor_type"),           // "merchant" | "system" | "webhook"
+  webhookSource: text("webhook_source"),   // "stripe" | "temporal" | "manual"
+  kafkaOffset: bigint("kafka_offset", { mode: "number" }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("fulfilment_events_order_idx").on(t.orderId),
+  index("fulfilment_events_merchant_idx").on(t.merchantId),
+  index("fulfilment_events_type_idx").on(t.eventType),
+]);
+export type FulfilmentEvent = typeof fulfilmentEvents.$inferSelect;
+export type InsertFulfilmentEvent = typeof fulfilmentEvents.$inferInsert;
+
+// ─── Checkout Themes ──────────────────────────────────────────────────────────
+// Per-merchant branding for the hosted payment page.
+export const checkoutThemes = pgTable("checkout_themes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  tenantId: text("tenant_id").notNull(),
+  // Branding
+  logoUrl: text("logo_url"),
+  primaryColor: text("primary_color").default("#4F46E5").notNull(),
+  backgroundColor: text("background_color").default("#ffffff").notNull(),
+  textColor: text("text_color").default("#111827").notNull(),
+  accentColor: text("accent_color").default("#10B981").notNull(),
+  fontFamily: text("font_family").default("Inter").notNull(),
+  borderRadius: text("border_radius").default("12").notNull(), // px
+  // Content
+  businessName: text("business_name"),
+  tagline: text("tagline"),
+  supportEmail: text("support_email"),
+  supportPhone: text("support_phone"),
+  customDomain: text("custom_domain"),
+  // Feature flags
+  showPaymentMethods: jsonb("show_payment_methods").$type<string[]>().default(["card", "bank_transfer", "ussd", "bnpl"]),
+  showOrderSummary: boolean("show_order_summary").default(true).notNull(),
+  showSecurityBadge: boolean("show_security_badge").default(true).notNull(),
+  requireBillingAddress: boolean("require_billing_address").default(false).notNull(),
+  // Custom CSS override (sanitised)
+  customCss: text("custom_css"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("checkout_themes_merchant_idx").on(t.merchantId),
+  index("checkout_themes_tenant_idx").on(t.tenantId),
+]);
+export type CheckoutTheme = typeof checkoutThemes.$inferSelect;
+export type InsertCheckoutTheme = typeof checkoutThemes.$inferInsert;
+
+// ─── Hosted Payment Sessions ──────────────────────────────────────────────────
+// A hosted payment session is created when a customer opens a payment link.
+// It tracks the full lifecycle: method selection → payment initiation → confirmation.
+export const hostedPaymentSessions = pgTable("hosted_payment_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // Reference
+  paymentLinkId: text("payment_link_id"),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  // Customer
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  // Amount
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  description: text("description"),
+  reference: text("reference").notNull().unique(), // merchant-supplied or auto-generated
+  // Status
+  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | expired | abandoned
+  paymentMethod: text("payment_method"),              // card | bank_transfer | ussd | bnpl | usdc
+  // Card (Stripe)
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeClientSecret: text("stripe_client_secret"),
+  // Bank Transfer (NIBSS NIP virtual account)
+  nipVirtualAccountNumber: text("nip_virtual_account_number"),
+  nipBankCode: text("nip_bank_code"),
+  nipBankName: text("nip_bank_name"),
+  nipSessionId: text("nip_session_id"),
+  nipExpiresAt: timestamp("nip_expires_at"),
+  // USSD
+  ussdCode: text("ussd_code"),                        // e.g. *737*000*123456#
+  ussdReference: text("ussd_reference"),
+  ussdBankCode: text("ussd_bank_code"),
+  // BNPL
+  bnplProvider: text("bnpl_provider"),                // "carbon" | "fairmoney" | "creditcorp"
+  bnplInstallmentKobo: bigint("bnpl_installment_kobo", { mode: "number" }),
+  bnplInstallmentCount: integer("bnpl_installment_count"),
+  bnplPlanId: text("bnpl_plan_id"),
+  bnplApprovalUrl: text("bnpl_approval_url"),
+  // USDC
+  usdcWalletAddress: text("usdc_wallet_address"),
+  usdcAmountUsdc: real("usdc_amount_usdc"),
+  usdcNetwork: text("usdc_network").default("ethereum"),
+  // Confirmation
+  paidAt: timestamp("paid_at"),
+  failedAt: timestamp("failed_at"),
+  failureReason: text("failure_reason"),
+  // Middleware
+  tigerBeetleTransferId: bigint("tigerbeetle_transfer_id", { mode: "number" }),
+  temporalWorkflowId: text("temporal_workflow_id"),
+  kafkaEventId: text("kafka_event_id"),
+  // Webhook delivery
+  webhookDeliveredAt: timestamp("webhook_delivered_at"),
+  webhookAttempts: integer("webhook_attempts").default(0).notNull(),
+  receiptEmailSentAt: timestamp("receipt_email_sent_at"),
+  // Metadata
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("hps_merchant_idx").on(t.merchantId),
+  index("hps_status_idx").on(t.status),
+  index("hps_reference_idx").on(t.reference),
+  index("hps_payment_link_idx").on(t.paymentLinkId),
+  index("hps_stripe_pi_idx").on(t.stripePaymentIntentId),
+  index("hps_nip_va_idx").on(t.nipVirtualAccountNumber),
+]);
+export type HostedPaymentSession = typeof hostedPaymentSessions.$inferSelect;
+export type InsertHostedPaymentSession = typeof hostedPaymentSessions.$inferInsert;

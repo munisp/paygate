@@ -204,6 +204,9 @@ const GrpcHealthCheck = lz(() => import("./pages/wave80/GrpcHealthCheck"));
 const UssdSessionV2 = lz(() => import("./pages/wave80/UssdSessionV2"));
 const RealtimeNotifications = lz(() => import("./pages/wave80/RealtimeNotifications"));
 
+// ── Hosted Payment Page (public — no auth required) ─────────────────────────
+const HostedPaymentPage = lz(() => import("./pages/HostedPaymentPage"));
+
 // ── Wave 84 pages ─────────────────────────────────────────────────────────────
 const QRGenerator = lz(() => import("./pages/QRGenerator"));
 const USSDSessions = lz(() => import("./pages/USSDSessions"));
@@ -454,6 +457,15 @@ function Router() {
   const isAuthPage = location === "/" || location === "/login" || location === "/onboarding";
   const isConsumerPage = location.startsWith("/consumer");
   const isOrderPage = location.startsWith("/order/");
+  const isPayPage = location.startsWith("/pay/");
+
+  if (isPayPage) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Route path="/pay/:slug" component={HostedPaymentPage} />
+      </Suspense>
+    );
+  }
 
   if (isOrderPage) {
     const slug = location.replace("/order/", "");

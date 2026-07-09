@@ -201,6 +201,8 @@ import {
   chargebackLifecycleRouter,
   regulatoryReportsRouter,
 } from './routers/psp-production';
+import { ecommerceRouter } from './routers/ecommerce';
+import { hostedCheckoutRouter } from './routers/hostedCheckout';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -2503,7 +2505,7 @@ const merchantAnalyticsRouter = router({
         ]);
       return { merchant, comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats };
     }),
-  /** Manually trigger analytics digest email for the current merchant */
+    /** Manually trigger analytics digest email for the current merchant */
   sendDigest: protectedProcedure
     .mutation(async ({ ctx }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2512,8 +2514,121 @@ const merchantAnalyticsRouter = router({
       await sendMerchantDailyDigest(merchant.id);
       return { sent: true };
     }),
-});
 
+  /**
+   * Interchange P&L analytics — daily/monthly fee income vs scheme costs
+   * Queries interchange_fee_records grouped by rail and card type.
+   */
+  interchangePL: protectedProcedure
+    .input(z.object({
+      from: z.date(),
+      to: z.date(),
+      groupBy: z.enum(['day', 'month', 'rail', 'cardType']).default('day'),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { interchangeFeeRecords } = await import('../drizzle/schema');
+      const { sql: drizzleSql, and: drizzleAnd, gte: drizzleGte, lte: drizzleLte, eq: drizzleEq } = await import('drizzle-orm');
+      const { db } = await import('./db');
+
+      const baseWhere = drizzleAnd(
+        drizzleEq(interchangeFeeRecords.merchantId, merchant.id),
+        drizzleGte(interchangeFeeRecords.createdAt, input.from),
+        drizzleLte(interchangeFeeRecords.createdAt, input.to),
+      );
+
+      if (input.groupBy === 'rail') {
+        const rows = await db
+          .select({
+            rail: interchangeFeeRecords.rail,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            txnCount: drizzleSql<number>`count(*)`,
+          })
+          .from(interchangeFeeRecords)
+          .where(baseWhere)
+          .groupBy(interchangeFeeRecords.rail);
+        const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+        const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
+        return { groupBy: 'rail', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
+      }
+
+      if (input.groupBy === 'cardType') {
+        const rows = await db
+          .select({
+            cardType: interchangeFeeRecords.cardType,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            txnCount: drizzleSql<number>`count(*)`,
+          })
+          .from(interchangeFeeRecords)
+          .where(baseWhere)
+          .groupBy(interchangeFeeRecords.cardType);
+        const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+        const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
+        return { groupBy: 'cardType', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
+      }
+
+      // day or month grouping — use DATE_FORMAT for MySQL-compatible syntax
+      const truncFn = input.groupBy === 'month'
+        ? drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m')`
+        : drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m-%d')`;
+
+      const rows = await db
+        .select({
+          period: truncFn,
+          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
+          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+          txnCount: drizzleSql<number>`count(*)`,
+        })
+        .from(interchangeFeeRecords)
+        .where(baseWhere)
+        .groupBy(truncFn)
+        .orderBy(truncFn);
+
+      const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+      const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
+      return {
+        groupBy: input.groupBy,
+        rows,
+        summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost },
+      };
+    }),
+
+  /**
+   * PSP integration health — AML alerts, velocity breaches, STR backlog, scheme status
+   */
+  pspIntegrationHealth: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { strRecords, velocityBreaches, schemeMemberships } = await import('../drizzle/schema');
+      const { sql: drizzleSql, eq: drizzleEq, and: drizzleAnd, gte: drizzleGte } = await import('drizzle-orm');
+      const { db } = await import('./db');
+
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const [strBacklog, recentBreaches, activeSchemes] = await Promise.all([
+        db.select({ count: drizzleSql<number>`count(*)` })
+          .from(strRecords)
+          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.status, 'pending'))),
+        db.select({ count: drizzleSql<number>`count(*)` })
+          .from(velocityBreaches)
+          .where(drizzleAnd(drizzleEq(velocityBreaches.merchantId, merchant.id), drizzleGte(velocityBreaches.createdAt, since24h))),
+        db.select({ scheme: schemeMemberships.scheme, status: schemeMemberships.status })
+          .from(schemeMemberships)
+          .where(drizzleEq(schemeMemberships.merchantId, merchant.id)),
+      ]);
+
+      return {
+        strBacklog: Number(strBacklog[0]?.count ?? 0),
+        velocityBreachesLast24h: Number(recentBreaches[0]?.count ?? 0),
+        activeSchemes,
+        healthStatus: Number(strBacklog[0]?.count ?? 0) > 0 ? 'warning' : 'healthy',
+      };
+    }),
+});
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
@@ -9351,6 +9466,10 @@ export const appRouter = router({
   schemeMembership: schemeMembershipRouter,
   chargebackLifecycle: chargebackLifecycleRouter,
   regulatoryReports: regulatoryReportsRouter,
+  // E-Commerce
+  ecommerce: ecommerceRouter,
+  // Hosted Checkout Payment Page
+  hostedCheckout: hostedCheckoutRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
