@@ -5380,3 +5380,42 @@
 - [x] Terminal (Fluvio) nav item added to POS & Terminals sidebar section
 - [x] Mobile Money nav item added to Settlements sidebar section
 - [x] Routes registered in App.tsx
+
+## Wave 184-187: Analytics Chart + STR Queue + MoMo Webhook (Jul 2026)
+- [ ] Analytics chart UI: Recharts line chart on Checkout page (hostedCheckout.getDailyStats)
+- [ ] Analytics chart UI: Conversion funnel bar chart (hostedCheckout.getLinkAnalytics)
+- [ ] STR filing queue: pending STRs tab with NFIU countdown badges on Compliance page
+- [ ] STR filing queue: one-click goAML submit + acknowledgement tracking
+- [ ] Mobile Money webhook: /api/webhooks/momo Express endpoint (MTN/Airtel/M-Pesa callbacks)
+- [ ] Mobile Money webhook: auto-complete pending momo_transactions on provider callback
+
+## Wave 184-190: STR + MoMo Webhook — Multi-Language (Jul 2026)
+- [ ] Go: str_handler.go — goAML bridge handler (Permify, Redis, Kafka, Fluvio, Dapr, APISIX)
+- [ ] Go: momo_webhook_handler.go — MoMo provider callback bridge handler
+- [ ] Go: kafka/topics/topics.go — add paygate.str.* and paygate.momo.webhook.* topics
+- [ ] Go: apisix/routes/str_momo_routes.yaml — APISIX routes for STR and MoMo webhook endpoints
+- [ ] Rust: crates/str-events/src/lib.rs — STR + MoMo event serde types, Fluvio producer
+- [ ] Python: python/str/goaml_client.py — NFIU goAML REST client (submit, poll, acknowledge)
+- [ ] Python: python/str/str_analytics.py — STR analytics aggregator (by type, status, overdue)
+- [ ] Python: python/momo/webhook_processor.py — MoMo webhook processor (MTN/Airtel/M-Pesa/OPay)
+- [ ] Python: python/str/temporal_activities.py — Temporal activity stubs (submit, retry, escalate)
+- [ ] TypeScript: str tRPC procedures (submitToNFIU, getPendingWithCountdown, getOverdue)
+- [ ] TypeScript: /api/webhooks/momo Express endpoint (verify HMAC, update momo_transactions)
+- [ ] TypeScript: analytics chart UI on Checkout page (Recharts line + funnel bar)
+- [ ] UI: STR filing queue tab on Compliance page (countdown badges, one-click submit, ack tracking)
+
+## Wave 184-187: STR Filing Queue + MoMo Webhook + Mojaloop Analysis
+- [x] Go: STR goAML bridge handler (str_handler.go)
+- [x] Go: MoMo webhook bridge handler (momo_webhook_handler.go)
+- [x] Go: APISIX routes for STR and MoMo (str_momo_routes.yaml)
+- [x] Rust: str-events crate with serde/bincode serialisation and Fluvio producer
+- [x] Python: NFIU goAML REST client (goaml_client.py)
+- [x] Python: STR analytics aggregator (str_analytics.py)
+- [x] Python: MoMo webhook processor (webhook_processor.py)
+- [x] Python: Temporal activity stubs for STR workflows
+- [x] TypeScript: str.submitToNFIU procedure (one-click NFIU submit)
+- [x] TypeScript: str.getPendingWithCountdown procedure (countdown queue)
+- [x] TypeScript: MoMo webhook endpoints /api/webhooks/momo/:provider
+- [x] STRFilingQueue.tsx UI with countdown badges and goAML submit dialog
+- [x] Route /str-filing-queue registered in App.tsx
+- [x] STR Filing Queue nav item added to Layout.tsx sidebar

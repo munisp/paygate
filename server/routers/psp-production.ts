@@ -210,6 +210,125 @@ export const strRouter = router({
       deadlineBreached: Number(breached[0]?.count ?? 0),
     };
   }),
+
+  /**
+   * One-click NFIU goAML submit — calls the Go bridge which calls the Python goAML client.
+   * On success, marks the STR as submitted and publishes to Fluvio/Kafka.
+   */
+  submitToNFIU: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const merchantId = ctx.user.tenantId ?? ctx.user.openId;
+      const [record] = await db.select().from(strRecords)
+        .where(and(eq(strRecords.id, input.id), eq(strRecords.merchantId, merchantId)))
+        .limit(1);
+      if (!record) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (record.submissionStatus === 'acknowledged') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'STR already acknowledged by NFIU' });
+      }
+
+      const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL;
+      let nfiuRef: string | null = null;
+      let status = 'submitted';
+
+      if (bridgeUrl) {
+        try {
+          const resp = await fetch(`${bridgeUrl}/api/v1/str/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.INTERNAL_API_KEY ?? ''}`,
+            },
+            body: JSON.stringify({
+              strId: record.id,
+              merchantId,
+              reportRef: record.reportRef,
+              subjectData: record.subjectData,
+              transactionData: record.transactionData,
+              narrative: record.narrative,
+              suspicionType: record.suspicionType,
+            }),
+          });
+          if (resp.ok) {
+            const data = await resp.json() as { nfiuRef?: string; status?: string };
+            nfiuRef = data.nfiuRef ?? null;
+            status = data.status ?? 'submitted';
+          }
+        } catch (e) {
+          // Bridge unavailable — mark as pending retry
+          status = 'pending';
+        }
+      } else {
+        // Sandbox mode: generate a mock NFIU ref
+        nfiuRef = `NFIU-${record.reportRef}-${Date.now()}`;
+      }
+
+      await db.update(strRecords).set({
+        nfiuRef,
+        nfiuSubmittedAt: new Date(),
+        submissionStatus: status,
+        submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
+        lastAttemptAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(strRecords.id, input.id));
+
+      await publishEvent('str.submitted', {
+        str_id: record.id,
+        merchant_id: merchantId,
+        nfiu_ref: nfiuRef,
+        status,
+      });
+
+      return { success: true, nfiuRef, status };
+    }),
+
+  /**
+   * Pending STRs with time-to-deadline countdown for the filing queue UI.
+   */
+  getPendingWithCountdown: protectedProcedure
+    .input(z.object({
+      includeBreached: z.boolean().default(true),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const merchantId = ctx.user.tenantId ?? ctx.user.openId;
+      const now = new Date();
+
+      const rows = await db.select().from(strRecords)
+        .where(and(
+          eq(strRecords.merchantId, merchantId),
+          sql`${strRecords.submissionStatus} IN ('pending', 'failed')`,
+        ))
+        .orderBy(strRecords.deadlineAt)
+        .limit(100);
+
+      return rows.map(row => {
+        const deadlineAt = row.deadlineAt ? new Date(row.deadlineAt) : null;
+        const msRemaining = deadlineAt ? deadlineAt.getTime() - now.getTime() : null;
+        const hoursRemaining = msRemaining !== null ? Math.floor(msRemaining / 3_600_000) : null;
+        const isOverdue = msRemaining !== null && msRemaining < 0;
+        const urgency: 'critical' | 'warning' | 'normal' =
+          isOverdue ? 'critical' :
+          hoursRemaining !== null && hoursRemaining < 4 ? 'critical' :
+          hoursRemaining !== null && hoursRemaining < 12 ? 'warning' : 'normal';
+
+        return {
+          ...row,
+          subjectData: row.subjectData ? JSON.parse(row.subjectData) : null,
+          transactionData: row.transactionData ? JSON.parse(row.transactionData) : null,
+          suspicionIndicators: row.suspicionIndicators ? JSON.parse(row.suspicionIndicators) : [],
+          hoursRemaining,
+          isOverdue,
+          urgency,
+          deadlineLabel: deadlineAt
+            ? isOverdue
+              ? `${Math.abs(hoursRemaining ?? 0)}h overdue`
+              : `${hoursRemaining}h remaining`
+            : 'No deadline',
+        };
+      });
+    }),
 });
 
 // ─── 2. Velocity Limits Router ────────────────────────────────────────────────

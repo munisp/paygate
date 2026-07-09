@@ -1941,6 +1941,26 @@ async function startServer() {
   startSIPProcessor(); // Gold SIP auto-debit: runs daily at 08:00 UTC
 
   // ─── SSE: Fraud Alert Stream ───────────────────────────────────────────────
+  // ─── Mobile Money Webhook Endpoints ────────────────────────────────────────
+  // Receives callbacks from MTN MoMo, Airtel, M-Pesa, OPay, PalmPay, Wave, Orange.
+  for (const momoProvider of ["mtn", "airtel", "mpesa", "opay", "palmpay", "wave", "orange"]) {
+    app.post(`/api/webhooks/momo/${momoProvider}`, express.json({ limit: "256kb" }), async (req: any, res: any) => {
+      try {
+        const body = req.body as Record<string, unknown>;
+        const externalRef = String(body.externalId ?? body.financialTransactionId ?? body.transactionId ?? body.txnRef ?? "");
+        const rawStatus = String(body.status ?? body.Status ?? body.transaction_status ?? "");
+        const normalised = rawStatus.toUpperCase();
+        const status = ["SUCCESSFUL","SUCCESS","COMPLETED"].includes(normalised) ? "SUCCESSFUL" : ["FAILED","FAILURE","DECLINED"].includes(normalised) ? "FAILED" : "PENDING";
+        if (externalRef) {
+          try { const { getDb } = await import("../db"); const db = await getDb(); if (db) { const { momoTransactions } = await import("../../drizzle/schema"); const { eq } = await import("drizzle-orm"); await db.update(momoTransactions).set({ status, financialTxnId: String(body.financialTransactionId ?? ""), completedAt: status === "SUCCESSFUL" ? new Date() : null, updatedAt: new Date() }).where(eq(momoTransactions.externalRef, externalRef)); } } catch (dbErr: any) { console.error(`[MoMo/${momoProvider}] DB update failed:`, dbErr.message); }
+        }
+        try { const { publishFluvioEvent } = await import("../fluvioClient"); await publishFluvioEvent(`paygate.momo.${momoProvider}.events`, { eventType: status === "SUCCESSFUL" ? "payment_completed" : "payment_pending", provider: momoProvider, externalRef, status, timestamp: new Date().toISOString() }); } catch (e: any) { console.warn(`[MoMo/${momoProvider}] Fluvio publish failed:`, e.message); }
+        console.log(`[MoMo/${momoProvider}] Webhook: ref=${externalRef} status=${status}`);
+        res.status(200).json({ received: true });
+      } catch (err: any) { console.error(`[MoMo/${momoProvider}] Webhook error:`, err.message); res.status(500).json({ error: "Internal server error" }); }
+    });
+  }
+
   const fraudAlertClients = new Map<string, Set<any>>();
   (app as any)._fraudAlertBroadcast = (merchantId: string, alert: unknown) => {
     const clients = fraudAlertClients.get(merchantId);

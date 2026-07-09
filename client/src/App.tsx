@@ -217,6 +217,7 @@ const USSDSessions = lz(() => import("./pages/USSDSessions"));
 const DeveloperSandbox = lz(() => import("./pages/DeveloperSandbox"));
 const KYBVerification = lz(() => import("./pages/KYBVerification"));
 const ComplianceReports = lz(() => import("./pages/ComplianceReports"));
+const STRFilingQueue = lz(() => import("./pages/STRFilingQueue"));
 const SDKTokens = lz(() => import("./pages/SDKTokens"));
 const MerchantGuide = lz(() => import("./pages/docs/MerchantGuide"));
 const ConsumerGuide = lz(() => import("./pages/docs/ConsumerGuide"));
@@ -780,6 +781,7 @@ function Router() {
           <Route path="/developer-sandbox" component={DeveloperSandbox} />
           <Route path="/kyb-verification" component={KYBVerification} />
           <Route path="/compliance-reports" component={ComplianceReports} />
+          <Route path="/str-filing-queue" component={STRFilingQueue} />
           <Route path="/sdk-tokens" component={SDKTokens} />
           <Route path="/tenant/billing" component={TenantBillingDashboard} />
           <Route path="/tenant/corridors" component={CorridorManagement} />

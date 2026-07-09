@@ -178,6 +178,7 @@ const navGroups: NavGroup[] = [
       { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow" },
       { icon: Building2, label: "KYB Verification", path: "/kyb-verification", badge: "New" },
       { icon: FileCheck, label: "Compliance Reports", path: "/compliance-reports", badge: "New" },
+      { icon: AlertTriangle, label: "STR Filing Queue", path: "/str-filing-queue", badge: "New" },
       { icon: Receipt, label: "Tax Filing", path: "/tax-filing", badge: "New" },
       { icon: Receipt, label: "Tax Filing V2", path: "/tax-filing-v2", badge: "New" },
       { icon: Receipt, label: "Tx Receipts", path: "/transaction-receipts", badge: "New" },

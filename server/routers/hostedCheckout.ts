@@ -10,7 +10,8 @@ import { eq, and, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { db } from "../db";
-import { hostedPaymentSessions, checkoutThemes, paymentLinks } from "../../drizzle/schema";
+import { hostedPaymentSessions, checkoutThemes, paymentLinks, paymentLinkEvents } from "../../drizzle/schema";
+import { sql, count, gte, lte } from "drizzle-orm";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -684,6 +685,119 @@ export const hostedCheckoutRouter = router({
         .limit(input.limit)
         .offset(input.offset);
       return rows;
+    }),
+
+  // ── Analytics ─────────────────────────────────────────────────────────────
+  trackEvent: publicProcedure
+    .input(z.object({
+      paymentLinkId: z.string(),
+      merchantId: z.string(),
+      eventType: z.enum(["view", "method_selected", "payment_initiated", "payment_completed", "payment_failed", "abandoned"]),
+      paymentMethod: z.string().optional(),
+      sessionId: z.string().optional(),
+      amount: z.number().int().optional(),
+      currency: z.string().default("NGN"),
+      userAgent: z.string().optional(),
+      ipAddress: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const [event] = await db.insert(paymentLinkEvents)
+        .values(input as any)
+        .returning();
+      return event;
+    }),
+
+  getLinkAnalytics: protectedProcedure
+    .input(z.object({
+      paymentLinkId: z.string(),
+      merchantId: z.string(),
+      startDate: z.date().optional(),
+      endDate: z.date().optional(),
+    }))
+    .query(async ({ input }) => {
+      const { paymentLinkId, merchantId, startDate, endDate } = input;
+      const conditions: any[] = [
+        eq(paymentLinkEvents.paymentLinkId, paymentLinkId),
+        eq(paymentLinkEvents.merchantId, merchantId),
+        ...(startDate ? [gte(paymentLinkEvents.createdAt, startDate)] : []),
+        ...(endDate ? [lte(paymentLinkEvents.createdAt, endDate)] : []),
+      ];
+      const rows = await db.select({
+        eventType: paymentLinkEvents.eventType,
+        cnt: count(),
+      }).from(paymentLinkEvents)
+        .where(and(...conditions))
+        .groupBy(paymentLinkEvents.eventType);
+
+      const byType = Object.fromEntries(rows.map(r => [r.eventType, Number(r.cnt)]));
+      const views = byType["view"] ?? 0;
+      const methodSelected = byType["method_selected"] ?? 0;
+      const initiated = byType["payment_initiated"] ?? 0;
+      const completed = byType["payment_completed"] ?? 0;
+      const failed = byType["payment_failed"] ?? 0;
+      const abandoned = byType["abandoned"] ?? 0;
+
+      const byMethod = await db.select({
+        method: paymentLinkEvents.paymentMethod,
+        cnt: count(),
+      }).from(paymentLinkEvents)
+        .where(and(...conditions, eq(paymentLinkEvents.eventType, "payment_completed")))
+        .groupBy(paymentLinkEvents.paymentMethod);
+
+      return {
+        funnel: [
+          { stage: "Views", count: views, rate: 100 },
+          { stage: "Method Selected", count: methodSelected, rate: views > 0 ? Math.round((methodSelected / views) * 100) : 0 },
+          { stage: "Payment Initiated", count: initiated, rate: views > 0 ? Math.round((initiated / views) * 100) : 0 },
+          { stage: "Completed", count: completed, rate: views > 0 ? Math.round((completed / views) * 100) : 0 },
+        ],
+        conversionRate: views > 0 ? Math.round((completed / views) * 100) : 0,
+        dropOffRate: initiated > 0 ? Math.round(((initiated - completed) / initiated) * 100) : 0,
+        failureRate: (completed + failed) > 0 ? Math.round((failed / (completed + failed)) * 100) : 0,
+        abandonRate: initiated > 0 ? Math.round((abandoned / initiated) * 100) : 0,
+        byMethod,
+      };
+    }),
+
+  getDailyStats: protectedProcedure
+    .input(z.object({
+      merchantId: z.string(),
+      paymentLinkId: z.string().optional(),
+      days: z.number().int().min(1).max(90).default(30),
+    }))
+    .query(async ({ input }) => {
+      const { merchantId, paymentLinkId, days } = input;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+
+      const conditions: any[] = [
+        eq(paymentLinkEvents.merchantId, merchantId),
+        gte(paymentLinkEvents.createdAt, since),
+        ...(paymentLinkId ? [eq(paymentLinkEvents.paymentLinkId, paymentLinkId)] : []),
+      ];
+
+      const rows = await db.select({
+        date: sql<string>`DATE(${paymentLinkEvents.createdAt})`,
+        eventType: paymentLinkEvents.eventType,
+        cnt: count(),
+      }).from(paymentLinkEvents)
+        .where(and(...conditions))
+        .groupBy(sql`DATE(${paymentLinkEvents.createdAt})`, paymentLinkEvents.eventType)
+        .orderBy(sql`DATE(${paymentLinkEvents.createdAt})`);
+
+      const byDate: Record<string, Record<string, number>> = {};
+      for (const row of rows) {
+        if (!byDate[row.date]) byDate[row.date] = {};
+        byDate[row.date][row.eventType] = Number(row.cnt);
+      }
+
+      return Object.entries(byDate).map(([date, events]) => ({
+        date,
+        views: events["view"] ?? 0,
+        initiated: events["payment_initiated"] ?? 0,
+        completed: events["payment_completed"] ?? 0,
+        failed: events["payment_failed"] ?? 0,
+      }));
     }),
 
   // ── Checkout Theme CRUD ───────────────────────────────────────────────────
