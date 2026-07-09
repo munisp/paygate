@@ -5327,44 +5327,44 @@
 - [x] Competitive analysis: PayGate vs Paystack vs Flutterwave report
 
 ## Wave 179-183: Terminal + Mobile Money + Analytics UI + STR UI + SDK (Jul 2026)
-- [ ] DB schema: terminals, terminal_transactions, mobile_money_providers, mobile_money_transactions
-- [ ] tRPC: terminalRouter (provision, list, transactions, refund, heartbeat)
-- [ ] tRPC: mobileMoneyRouter (initiate, poll, webhook, providers list)
-- [ ] UI: Terminal management page (/terminal)
-- [ ] UI: Mobile Money page (/mobile-money) with provider selector + status polling
-- [ ] UI: Payment link analytics chart (Recharts line + funnel bar) on Checkout page
-- [ ] UI: STR filing queue with countdown badges + NFIU one-click submit
-- [ ] SDK: tsup bundle + @paygate/checkout-react package.json + CDN checkout.js
-- [ ] Register all new routes in App.tsx + DashboardLayout sidebar
+- [x] DB schema: terminals, terminal_transactions, mobile_money_providers, mobile_money_transactions
+- [x] tRPC: terminalRouter (provision, list, transactions, refund, heartbeat)
+- [x] tRPC: mobileMoneyRouter (initiate, poll, webhook, providers list)
+- [x] UI: Terminal management page (/terminal)
+- [x] UI: Mobile Money page (/mobile-money) with provider selector + status polling
+- [x] UI: Payment link analytics chart (Recharts line + funnel bar) on Checkout page
+- [x] UI: STR filing queue with countdown badges + NFIU one-click submit
+- [x] SDK: tsup bundle + @paygate/checkout-react package.json + CDN checkout.js
+- [x] Register all new routes in App.tsx + DashboardLayout sidebar
 
 ## Wave 184: Terminal × Fluvio Integration (Jul 2026)
-- [ ] Go: fluvio/terminal_producer.go — Produce terminal events to Fluvio topics
-- [ ] Go: fluvio/terminal_consumer.go — Consume terminal events, update DB, push to Redis pub/sub
-- [ ] Go: terminal_handler.go — bridge HTTP handlers for terminal Fluvio events
-- [ ] Go: kafka/topics/topics.go — add paygate.terminal.* Fluvio topics
-- [ ] Portal: server/routers/terminal.ts — replace Kafka publish with Fluvio via bridge
-- [ ] Portal: server/_core/index.ts — SSE endpoint /api/events/terminal/:merchantId
-- [ ] Portal: client Terminal UI with live SSE event feed
+- [x] Go: fluvio/terminal_producer.go — Produce terminal events to Fluvio topics
+- [x] Go: fluvio/terminal_consumer.go — Consume terminal events, update DB, push to Redis pub/sub
+- [x] Go: terminal_handler.go — bridge HTTP handlers for terminal Fluvio events
+- [x] Go: kafka/topics/topics.go — add paygate.terminal.* Fluvio topics
+- [x] Portal: server/routers/terminal.ts — replace Kafka publish with Fluvio via bridge
+- [x] Portal: server/_core/index.ts — SSE endpoint /api/events/terminal/:merchantId
+- [x] Portal: client Terminal UI with live SSE event feed
 
 ## Wave 184-190: Terminal × Full Middleware Integration (Jul 2026)
-- [ ] Go: fluvio/terminal_producer.go — Produce terminal events to Fluvio (provisioned, activated, heartbeat, txn_completed, txn_failed, refunded, voided)
-- [ ] Go: fluvio/terminal_consumer.go — Consume terminal events, update DB, push to Redis pub/sub for SSE fan-out
-- [ ] Go: terminal_handler.go — bridge HTTP handlers (provision, heartbeat, txn, refund, void, stream)
-- [ ] Go: kafka/topics/topics.go — add paygate.terminal.* Fluvio + Kafka topics
-- [ ] Go: apisix/routes/terminal_routes.yaml — APISIX routes for all terminal endpoints
-- [ ] Go: dapr/pubsub/terminal_pubsub.go — Dapr pub/sub bindings for terminal events
-- [ ] Go: permify/terminal_permissions.go — Permify authz checks (terminal:read, terminal:write, terminal:refund)
-- [ ] Go: redis/terminal_cache.go — Redis cache helpers (terminal status, heartbeat TTL, txn idempotency)
-- [ ] Rust: crates/terminal-events/src/lib.rs — serde + bincode event types, TigerBeetle settlement on txn_completed
-- [ ] Rust: crates/terminal-events/src/fluvio_client.rs — Fluvio native producer/consumer
-- [ ] Rust: crates/terminal-events/src/tigerbeetle.rs — double-entry settlement (merchant debit, float credit)
-- [ ] Python: python/terminal/fluvio_consumer.py — FastAPI Fluvio consumer worker
-- [ ] Python: python/terminal/analytics_aggregator.py — real-time analytics aggregation (volume, count, avg ticket per terminal)
-- [ ] Python: python/terminal/lakehouse_writer.py — write terminal events to Lakehouse (Iceberg/Delta)
-- [ ] Python: python/terminal/temporal_activities.py — Temporal activity stubs (settlement, reconciliation, dispute)
-- [ ] TypeScript: server/routers/terminal.ts — replace Kafka publish with Fluvio bridge calls
-- [ ] TypeScript: server/_core/index.ts — SSE endpoint /api/events/terminal/:merchantId (Redis sub → SSE)
-- [ ] TypeScript: server/routers/terminal.ts — Permify authz on refund/void procedures
+- [x] Go: fluvio/terminal_producer.go — Produce terminal events to Fluvio (provisioned, activated, heartbeat, txn_completed, txn_failed, refunded, voided)
+- [x] Go: fluvio/terminal_consumer.go — Consume terminal events, update DB, push to Redis pub/sub for SSE fan-out
+- [x] Go: terminal_handler.go — bridge HTTP handlers (provision, heartbeat, txn, refund, void, stream)
+- [x] Go: kafka/topics/topics.go — add paygate.terminal.* Fluvio + Kafka topics
+- [x] Go: apisix/routes/terminal_routes.yaml — APISIX routes for all terminal endpoints
+- [x] Go: dapr/pubsub/terminal_pubsub.go — Dapr pub/sub bindings for terminal events
+- [x] Go: permify/terminal_permissions.go — Permify authz checks (terminal:read, terminal:write, terminal:refund)
+- [x] Go: redis/terminal_cache.go — Redis cache helpers (terminal status, heartbeat TTL, txn idempotency)
+- [x] Rust: crates/terminal-events/src/lib.rs — serde + bincode event types, TigerBeetle settlement on txn_completed
+- [x] Rust: crates/terminal-events/src/fluvio_client.rs — Fluvio native producer/consumer
+- [x] Rust: crates/terminal-events/src/tigerbeetle.rs — double-entry settlement (merchant debit, float credit)
+- [x] Python: python/terminal/fluvio_consumer.py — FastAPI Fluvio consumer worker
+- [x] Python: python/terminal/analytics_aggregator.py — real-time analytics aggregation (volume, count, avg ticket per terminal)
+- [x] Python: python/terminal/lakehouse_writer.py — write terminal events to Lakehouse (Iceberg/Delta)
+- [x] Python: python/terminal/temporal_activities.py — Temporal activity stubs (settlement, reconciliation, dispute)
+- [x] TypeScript: server/routers/terminal.ts — replace Kafka publish with Fluvio bridge calls
+- [x] TypeScript: server/_core/index.ts — SSE endpoint /api/events/terminal/:merchantId (Redis sub → SSE)
+- [x] TypeScript: server/routers/terminal.ts — Permify authz on refund/void procedures
 
 ## Wave 179-183 Completed Items
 - [x] Terminal DB schema (terminals, terminal_transactions tables)
@@ -5382,27 +5382,27 @@
 - [x] Routes registered in App.tsx
 
 ## Wave 184-187: Analytics Chart + STR Queue + MoMo Webhook (Jul 2026)
-- [ ] Analytics chart UI: Recharts line chart on Checkout page (hostedCheckout.getDailyStats)
-- [ ] Analytics chart UI: Conversion funnel bar chart (hostedCheckout.getLinkAnalytics)
-- [ ] STR filing queue: pending STRs tab with NFIU countdown badges on Compliance page
-- [ ] STR filing queue: one-click goAML submit + acknowledgement tracking
-- [ ] Mobile Money webhook: /api/webhooks/momo Express endpoint (MTN/Airtel/M-Pesa callbacks)
-- [ ] Mobile Money webhook: auto-complete pending momo_transactions on provider callback
+- [x] Analytics chart UI: Recharts line chart on Checkout page (hostedCheckout.getDailyStats)
+- [x] Analytics chart UI: Conversion funnel bar chart (hostedCheckout.getLinkAnalytics)
+- [x] STR filing queue: pending STRs tab with NFIU countdown badges on Compliance page
+- [x] STR filing queue: one-click goAML submit + acknowledgement tracking
+- [x] Mobile Money webhook: /api/webhooks/momo Express endpoint (MTN/Airtel/M-Pesa callbacks)
+- [x] Mobile Money webhook: auto-complete pending momo_transactions on provider callback
 
 ## Wave 184-190: STR + MoMo Webhook — Multi-Language (Jul 2026)
-- [ ] Go: str_handler.go — goAML bridge handler (Permify, Redis, Kafka, Fluvio, Dapr, APISIX)
-- [ ] Go: momo_webhook_handler.go — MoMo provider callback bridge handler
-- [ ] Go: kafka/topics/topics.go — add paygate.str.* and paygate.momo.webhook.* topics
-- [ ] Go: apisix/routes/str_momo_routes.yaml — APISIX routes for STR and MoMo webhook endpoints
-- [ ] Rust: crates/str-events/src/lib.rs — STR + MoMo event serde types, Fluvio producer
-- [ ] Python: python/str/goaml_client.py — NFIU goAML REST client (submit, poll, acknowledge)
-- [ ] Python: python/str/str_analytics.py — STR analytics aggregator (by type, status, overdue)
-- [ ] Python: python/momo/webhook_processor.py — MoMo webhook processor (MTN/Airtel/M-Pesa/OPay)
-- [ ] Python: python/str/temporal_activities.py — Temporal activity stubs (submit, retry, escalate)
-- [ ] TypeScript: str tRPC procedures (submitToNFIU, getPendingWithCountdown, getOverdue)
-- [ ] TypeScript: /api/webhooks/momo Express endpoint (verify HMAC, update momo_transactions)
-- [ ] TypeScript: analytics chart UI on Checkout page (Recharts line + funnel bar)
-- [ ] UI: STR filing queue tab on Compliance page (countdown badges, one-click submit, ack tracking)
+- [x] Go: str_handler.go — goAML bridge handler (Permify, Redis, Kafka, Fluvio, Dapr, APISIX)
+- [x] Go: momo_webhook_handler.go — MoMo provider callback bridge handler
+- [x] Go: kafka/topics/topics.go — add paygate.str.* and paygate.momo.webhook.* topics
+- [x] Go: apisix/routes/str_momo_routes.yaml — APISIX routes for STR and MoMo webhook endpoints
+- [x] Rust: crates/str-events/src/lib.rs — STR + MoMo event serde types, Fluvio producer
+- [x] Python: python/str/goaml_client.py — NFIU goAML REST client (submit, poll, acknowledge)
+- [x] Python: python/str/str_analytics.py — STR analytics aggregator (by type, status, overdue)
+- [x] Python: python/momo/webhook_processor.py — MoMo webhook processor (MTN/Airtel/M-Pesa/OPay)
+- [x] Python: python/str/temporal_activities.py — Temporal activity stubs (submit, retry, escalate)
+- [x] TypeScript: str tRPC procedures (submitToNFIU, getPendingWithCountdown, getOverdue)
+- [x] TypeScript: /api/webhooks/momo Express endpoint (verify HMAC, update momo_transactions)
+- [x] TypeScript: analytics chart UI on Checkout page (Recharts line + funnel bar)
+- [x] UI: STR filing queue tab on Compliance page (countdown badges, one-click submit, ack tracking)
 
 ## Wave 184-187: STR Filing Queue + MoMo Webhook + Mojaloop Analysis
 - [x] Go: STR goAML bridge handler (str_handler.go)
