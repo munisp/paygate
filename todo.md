@@ -5317,3 +5317,11 @@
 - [x] Confirm DB indexes exist for all high-traffic FK columns (merchantId, userId, transactionId)
 - [x] Confirm seed.mjs and seed-wave170.mjs use ON CONFLICT DO NOTHING for idempotency
 - [x] All 7,948 tests passing (188 test files, 0 failures)
+
+## Wave 177-178: Checkout Next Steps + PSP Production (Jul 2026)
+- [x] Stripe webhook: auto-confirm hosted checkout sessions, publish Kafka payment.completed
+- [x] Payment link analytics: trackEvent, getLinkAnalytics (funnel), getDailyStats (chart) procedures
+- [x] Checkout SDK embed: paygate-checkout-sdk.ts + <PayGateCheckout /> React component
+- [x] PSP production tables: strRecords, velocityLimitConfigs, velocityBreaches, interchangeSchedule, interchangeFeeRecords, schemeMemberships, chargebackEvidencePackages, chargebackTimeline, regulatoryReportSubmissions
+- [x] Hosted payment page: /pay/:slug public route registered in App.tsx
+- [x] Competitive analysis: PayGate vs Paystack vs Flutterwave report
