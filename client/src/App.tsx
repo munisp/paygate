@@ -60,7 +60,6 @@ const Disputes = lz(() => import("./pages/Disputes"));
 const DisputeWorkflow = lz(() => import("./pages/DisputeWorkflow"));
 const PaymentLinks = lz(() => import("./pages/PaymentLinks"));
 const FraudRisk = lz(() => import("./pages/FraudRisk"));
-const InsiderThreat = lz(() => import("./pages/InsiderThreat"));
 const ReconciliationAlerts = lz(() => import("./pages/ReconciliationAlerts"));
 const BNPL = lz(() => import("./pages/BNPL"));
 const FXDashboard = lz(() => import("./pages/FXDashboard"));
@@ -381,6 +380,7 @@ const AuditLogViewerPage = lz(() => import("./pages/AuditLogViewer"));
 const FraudRuleEnginePage = lz(() => import("./pages/FraudRuleEngine"));
 const KYBDocumentUploadPage = lz(() => import("./pages/KYBDocumentUpload"));
 const KYBDirectorWizard = lz(() => import("./pages/KYBDirectorWizard"));
+const KYCWizard = lz(() => import("./pages/KYCWizard"));
 const LoyaltyRedemptionPage = lz(() => import("./pages/LoyaltyRedemption"));
 // Wave 123
 const AIModelAdminPage = lz(() => import("./pages/AIModelAdmin"));
@@ -431,6 +431,10 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
+// PSP Licence: Management, Dispute Lifecycle, and CBN Reports
+const PSPManagementPage = lz(() => import("./pages/PSPManagement"));
+const DisputeLifecyclePage = lz(() => import("./pages/DisputeLifecycle"));
+const CBNReportsDashboard = lz(() => import("./pages/CBNReportsDashboard"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -558,7 +562,6 @@ function Router() {
           <Route path="/disputes/:id" component={DisputeWorkflow} />
           <Route path="/payment-links" component={PaymentLinks} />
           <Route path="/fraud-risk" component={FraudRisk} />
-          <Route path="/insider-threat" component={InsiderThreat} />
         <Route path="/fraud/alerts" component={FraudAlertsDashboard} />
             <Route path="/infra/waf-alerts" component={WAFAlertDashboard} />
             <Route path="/bnpl/calculator" component={BNPLCalculator} />
@@ -829,6 +832,8 @@ function Router() {
           <Route path="/fraud-rule-engine" component={FraudRuleEnginePage} />
           <Route path="/kyb-document-upload" component={KYBDocumentUploadPage} />
           <Route path="/kyb/director-kyc/:id" component={KYBDirectorWizard} />
+          <Route path="/kyc-wizard" component={KYCWizard} />
+          <Route path="/compliance/liveness/:sessionId" component={LivenessReplayViewerPage} />
           <Route path="/loyalty-redemption" component={LoyaltyRedemptionPage} />
           {/* Wave 123 */}
           <Route path="/ai-model-admin" component={AIModelAdminPage} />
@@ -890,6 +895,9 @@ function Router() {
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
         <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
+          <Route path="/psp-management" component={PSPManagementPage} />
+          <Route path="/dispute-lifecycle" component={DisputeLifecyclePage} />
+          <Route path="/cbn-reports" component={CBNReportsDashboard} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
