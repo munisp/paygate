@@ -431,9 +431,10 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
-// PSP Licence: Management and Dispute Lifecycle
+// PSP Licence: Management, Dispute Lifecycle, and CBN Reports
 const PSPManagementPage = lz(() => import("./pages/PSPManagement"));
 const DisputeLifecyclePage = lz(() => import("./pages/DisputeLifecycle"));
+const CBNReportsDashboard = lz(() => import("./pages/CBNReportsDashboard"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -896,6 +897,7 @@ function Router() {
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
           <Route path="/psp-management" component={PSPManagementPage} />
           <Route path="/dispute-lifecycle" component={DisputeLifecyclePage} />
+          <Route path="/cbn-reports" component={CBNReportsDashboard} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

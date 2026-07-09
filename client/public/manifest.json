@@ -89,6 +89,27 @@
       "description": "View analytics",
       "url": "/analytics",
       "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "PSP Management",
+      "short_name": "PSP",
+      "description": "Interchange, velocity limits, scheme membership and STR filings",
+      "url": "/psp-management",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Dispute Lifecycle",
+      "short_name": "Disputes",
+      "description": "Chargeback evidence and Stripe dispute arbitration",
+      "url": "/dispute-lifecycle",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "CBN Reports",
+      "short_name": "CBN",
+      "description": "Generate and submit CBN Form A/B/C regulatory reports",
+      "url": "/cbn-reports",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ],
   "screenshots": [

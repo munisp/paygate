@@ -902,6 +902,83 @@ export const regulatoryReportsRouter = router({
       return { success: true };
     }),
 
+  /**
+   * Retry a failed or pending regulatory report submission.
+   * Re-publishes the Kafka event so the Python service picks it up again.
+   */
+  retrySubmission: adminProcedure
+    .input(z.object({ reportId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [report] = await db.select().from(regulatoryReports)
+        .where(eq(regulatoryReports.id, input.reportId)).limit(1);
+      if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' });
+      if (report.status === 'acknowledged') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Report already acknowledged by regulator' });
+      const eventType = report.reportType === 'CBN_FORM_A' ? 'regulatory.generate_form_a'
+        : report.reportType === 'CBN_FORM_B' ? 'regulatory.generate_form_b'
+        : 'regulatory.generate_form_c';
+      await publishEvent(eventType, {
+        report_id: report.id,
+        merchant_id: report.merchantId,
+        period: report.period,
+        retry: true,
+      });
+      await db.update(regulatoryReports).set({ status: 'pending', updatedAt: new Date() })
+        .where(eq(regulatoryReports.id, input.reportId));
+      return { success: true, reportId: input.reportId };
+    }),
+
+  /**
+   * List all submission attempts for a given report (submission history table).
+   */
+  listSubmissions: protectedProcedure
+    .input(z.object({
+      reportId: z.string().optional(),
+      merchantId: z.string().optional(),
+      limit: z.number().int().min(1).max(100).default(50),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const targetMerchantId = input.merchantId ?? ctx.user.tenantId ?? ctx.user.openId;
+      const conditions = [eq(regulatoryReportSubmissions.merchantId, targetMerchantId)];
+      if (input.reportId) conditions.push(eq(regulatoryReportSubmissions.reportId, input.reportId));
+      const where = conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]);
+      const rows = await db.select().from(regulatoryReportSubmissions)
+        .where(where)
+        .orderBy(desc(regulatoryReportSubmissions.submittedAt))
+        .limit(input.limit);
+      return { submissions: rows };
+    }),
+
+  /**
+   * Record the CBN portal acknowledgement reference number against a submission.
+   */
+  acknowledgeSubmission: adminProcedure
+    .input(z.object({
+      submissionId: z.string(),
+      regulatorRef: z.string().min(1),
+      acknowledgedAt: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [submission] = await db.select().from(regulatoryReportSubmissions)
+        .where(eq(regulatoryReportSubmissions.id, input.submissionId)).limit(1);
+      if (!submission) throw new TRPCError({ code: 'NOT_FOUND', message: 'Submission not found' });
+      const ackAt = input.acknowledgedAt ? new Date(input.acknowledgedAt) : new Date();
+      await db.update(regulatoryReportSubmissions).set({
+        regulatorRef: input.regulatorRef,
+        acknowledgedAt: ackAt,
+        status: 'acknowledged',
+      }).where(eq(regulatoryReportSubmissions.id, input.submissionId));
+      // Propagate acknowledged status to the parent report
+      await db.update(regulatoryReports).set({
+        status: 'acknowledged',
+        acknowledgedAt: ackAt,
+        updatedAt: new Date(),
+      }).where(eq(regulatoryReports.id, submission.reportId));
+      return { success: true };
+    }),
+
   upcomingDeadlines: adminProcedure
     .input(z.object({ daysAhead: z.number().int().min(1).max(30).default(7) }))
     .query(async () => {
