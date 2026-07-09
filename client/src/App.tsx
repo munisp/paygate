@@ -431,6 +431,9 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
+// PSP Licence: Management and Dispute Lifecycle
+const PSPManagementPage = lz(() => import("./pages/PSPManagement"));
+const DisputeLifecyclePage = lz(() => import("./pages/DisputeLifecycle"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -891,6 +894,8 @@ function Router() {
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
         <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
+          <Route path="/psp-management" component={PSPManagementPage} />
+          <Route path="/dispute-lifecycle" component={DisputeLifecyclePage} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

@@ -4822,3 +4822,238 @@ export const keycloakRoleSyncLogs = pgTable("keycloak_role_sync_logs", {
 ]);
 export type KeycloakRoleSyncLog = typeof keycloakRoleSyncLogs.$inferSelect;
 export type InsertKeycloakRoleSyncLog = typeof keycloakRoleSyncLogs.$inferInsert;
+
+// ─── PSP Production: Suspicious Transaction Reports (STR) ────────────────────
+export const strRecords = pgTable("str_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id").notNull(),
+  strType: text("str_type").notNull().default("STR"), // STR | SAR
+  subjectType: text("subject_type").notNull().default("INDIVIDUAL"),
+  subjectData: text("subject_data").notNull(), // JSON
+  transactionData: text("transaction_data").notNull(), // JSON
+  suspicionGrounds: text("suspicion_grounds").notNull(),
+  suspicionType: text("suspicion_type").notNull().default("MONEY_LAUNDERING"),
+  suspicionIndicators: text("suspicion_indicators"), // JSON array
+  narrative: text("narrative").notNull(),
+  actionTaken: text("action_taken"),
+  filedBy: text("filed_by").notNull(),
+  filedAt: timestamp("filed_at").defaultNow().notNull(),
+  nfiuRef: text("nfiu_ref"),
+  nfiuSubmittedAt: timestamp("nfiu_submitted_at"),
+  nfiuAcknowledgedAt: timestamp("nfiu_acknowledged_at"),
+  submissionStatus: text("submission_status").notNull().default("pending"),
+  submissionAttempts: integer("submission_attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  lastError: text("last_error"),
+  deadlineAt: timestamp("deadline_at").notNull(),
+  deadlineBreached: boolean("deadline_breached").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("str_merchant_idx").on(t.merchantId),
+  index("str_transaction_idx").on(t.transactionId),
+  index("str_status_idx").on(t.submissionStatus),
+  index("str_deadline_idx").on(t.deadlineAt),
+  index("str_filed_at_idx").on(t.filedAt),
+]);
+export type STRRecord = typeof strRecords.$inferSelect;
+export type InsertSTRRecord = typeof strRecords.$inferInsert;
+
+// ─── PSP Production: Sub-Merchant Velocity Limits ────────────────────────────
+export const velocityLimitConfigs = pgTable("velocity_limit_configs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  channel: text("channel").notNull().default("all"),
+  limitType: text("limit_type").notNull(), // per_minute | per_hour | per_day | per_month
+  maxCount: integer("max_count"),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  singleTxMaxKobo: bigint("single_tx_max_kobo", { mode: "number" }),
+  currency: text("currency").notNull().default("NGN"),
+  riskTier: text("risk_tier").notNull().default("standard"),
+  isActive: boolean("is_active").notNull().default(true),
+  effectiveFrom: timestamp("effective_from").defaultNow().notNull(),
+  effectiveTo: timestamp("effective_to"),
+  setBy: text("set_by").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("velocity_merchant_channel_idx").on(t.merchantId, t.channel),
+  index("velocity_merchant_active_idx").on(t.merchantId, t.isActive),
+]);
+export type VelocityLimitConfig = typeof velocityLimitConfigs.$inferSelect;
+export type InsertVelocityLimitConfig = typeof velocityLimitConfigs.$inferInsert;
+
+export const velocityBreaches = pgTable("velocity_breaches", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id").notNull(),
+  limitConfigId: text("limit_config_id").notNull(),
+  breachType: text("breach_type").notNull(),
+  channel: text("channel").notNull(),
+  currentCount: integer("current_count"),
+  currentAmountKobo: bigint("current_amount_kobo", { mode: "number" }),
+  limitCount: integer("limit_count"),
+  limitAmountKobo: bigint("limit_amount_kobo", { mode: "number" }),
+  transactionAmountKobo: bigint("transaction_amount_kobo", { mode: "number" }),
+  action: text("action").notNull().default("blocked"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: text("resolved_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("breach_merchant_idx").on(t.merchantId),
+  index("breach_tx_idx").on(t.transactionId),
+  index("breach_created_idx").on(t.createdAt),
+]);
+export type VelocityBreach = typeof velocityBreaches.$inferSelect;
+export type InsertVelocityBreach = typeof velocityBreaches.$inferInsert;
+
+// ─── PSP Production: Interchange Fee Schedule ─────────────────────────────────
+export const interchangeSchedule = pgTable("interchange_schedule", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  scheme: text("scheme").notNull(),
+  cardType: text("card_type").notNull(),
+  channel: text("channel").notNull(),
+  mcc: text("mcc"),
+  basisPoints: integer("basis_points").notNull(),
+  fixedFeeKobo: bigint("fixed_fee_kobo", { mode: "number" }).notNull().default(0),
+  minFeeKobo: bigint("min_fee_kobo", { mode: "number" }).notNull().default(0),
+  maxFeeKobo: bigint("max_fee_kobo", { mode: "number" }).notNull().default(0),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  isActive: boolean("is_active").notNull().default(true),
+  source: text("source").notNull().default("cbn_schedule"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("interchange_scheme_channel_idx").on(t.scheme, t.channel),
+  index("interchange_scheme_card_idx").on(t.scheme, t.cardType),
+  index("interchange_active_idx").on(t.isActive),
+]);
+export type InterchangeScheduleEntry = typeof interchangeSchedule.$inferSelect;
+export type InsertInterchangeScheduleEntry = typeof interchangeSchedule.$inferInsert;
+
+export const interchangeFeeRecords = pgTable("interchange_fee_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transactionId: text("transaction_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  scheduleId: text("schedule_id").notNull(),
+  scheme: text("scheme").notNull(),
+  cardType: text("card_type"),
+  channel: text("channel").notNull(),
+  transactionAmountKobo: bigint("transaction_amount_kobo", { mode: "number" }).notNull(),
+  feeKobo: bigint("fee_kobo", { mode: "number" }).notNull(),
+  percentageFeeKobo: bigint("percentage_fee_kobo", { mode: "number" }).notNull(),
+  fixedFeeKobo: bigint("fixed_fee_kobo", { mode: "number" }).notNull(),
+  basisPoints: integer("basis_points").notNull(),
+  settledAt: timestamp("settled_at"),
+  billingPeriod: text("billing_period"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("interchange_fee_tx_idx").on(t.transactionId),
+  index("interchange_fee_merchant_idx").on(t.merchantId),
+  index("interchange_fee_period_idx").on(t.billingPeriod),
+  index("interchange_fee_scheme_idx").on(t.scheme),
+]);
+export type InterchangeFeeRecord = typeof interchangeFeeRecords.$inferSelect;
+export type InsertInterchangeFeeRecord = typeof interchangeFeeRecords.$inferInsert;
+
+// ─── PSP Production: Scheme Membership ────────────────────────────────────────
+export const schemeMemberships = pgTable("scheme_memberships", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  scheme: text("scheme").notNull(),
+  membershipType: text("membership_type").notNull().default("principal"),
+  memberId: text("member_id").notNull(),
+  status: text("status").notNull().default("active"),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  renewalDate: timestamp("renewal_date"),
+  contactEmail: text("contact_email"),
+  complianceOfficer: text("compliance_officer"),
+  binRanges: text("bin_ranges"), // JSON array
+  sponsoredMerchants: text("sponsored_merchants"), // JSON array
+  annualFeeUsd: integer("annual_fee_usd"),
+  lastRenewalAt: timestamp("last_renewal_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("scheme_membership_scheme_idx").on(t.scheme),
+  index("scheme_membership_status_idx").on(t.status),
+]);
+export type SchemeMembership = typeof schemeMemberships.$inferSelect;
+export type InsertSchemeMembership = typeof schemeMemberships.$inferInsert;
+
+// ─── PSP Production: Chargeback Evidence Packages ────────────────────────────
+export const chargebackEvidencePackages = pgTable("chargeback_evidence_packages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  chargebackId: text("chargeback_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  evidenceType: text("evidence_type").notNull(),
+  fileName: text("file_name").notNull(),
+  fileKey: text("file_key").notNull(),
+  fileUrl: text("file_url").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSizeBytes: integer("file_size_bytes"),
+  uploadedBy: text("uploaded_by").notNull(),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  submittedToScheme: boolean("submitted_to_scheme").notNull().default(false),
+  submittedAt: timestamp("submitted_at"),
+}, (t) => [
+  index("cb_evidence_chargeback_idx").on(t.chargebackId),
+  index("cb_evidence_merchant_idx").on(t.merchantId),
+]);
+export type ChargebackEvidencePackage = typeof chargebackEvidencePackages.$inferSelect;
+export type InsertChargebackEvidencePackage = typeof chargebackEvidencePackages.$inferInsert;
+
+export const chargebackTimeline = pgTable("chargeback_timeline", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  chargebackId: text("chargeback_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  event: text("event").notNull(),
+  previousState: text("previous_state"),
+  newState: text("new_state").notNull(),
+  actorId: text("actor_id"),
+  actorType: text("actor_type").notNull().default("system"),
+  notes: text("notes"),
+  schemeRef: text("scheme_ref"),
+  deadlineAt: timestamp("deadline_at"),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+}, (t) => [
+  index("cb_timeline_chargeback_idx").on(t.chargebackId),
+  index("cb_timeline_merchant_idx").on(t.merchantId),
+  index("cb_timeline_occurred_idx").on(t.occurredAt),
+]);
+export type ChargebackTimelineEntry = typeof chargebackTimeline.$inferSelect;
+export type InsertChargebackTimelineEntry = typeof chargebackTimeline.$inferInsert;
+
+// ─── PSP Production: Regulatory Report Submissions ───────────────────────────
+export const regulatoryReportSubmissions = pgTable("regulatory_report_submissions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  reportId: text("report_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  formType: text("form_type").notNull(),
+  period: text("period").notNull(),
+  submissionMethod: text("submission_method").notNull().default("api"),
+  submissionEndpoint: text("submission_endpoint"),
+  httpStatus: integer("http_status"),
+  responseBody: text("response_body"),
+  regulatorRef: text("regulator_ref"),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  status: text("status").notNull().default("submitted"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  fileKey: text("file_key"),
+  fileUrl: text("file_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("reg_submission_report_idx").on(t.reportId),
+  index("reg_submission_merchant_idx").on(t.merchantId),
+  index("reg_submission_form_idx").on(t.formType),
+  index("reg_submission_period_idx").on(t.period),
+  index("reg_submission_status_idx").on(t.status),
+]);
+export type RegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferSelect;
+export type InsertRegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferInsert;

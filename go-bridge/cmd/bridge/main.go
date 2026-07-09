@@ -717,6 +717,34 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/bandwidth/report", handlers.ProbeReport)
 	mux.HandleFunc("/v1/bandwidth/stats", handlers.ProbeStats)
 
+	// ── CBN STR (Suspicious Transaction Report) Pipeline ──────────────────────
+	mux.HandleFunc("POST /v1/cbn/str", authMiddleware(handlers.CreateSTR))
+	mux.HandleFunc("GET /v1/cbn/str", authMiddleware(handlers.ListSTRs))
+	mux.HandleFunc("GET /v1/cbn/str/{id}", authMiddleware(handlers.GetSTR))
+	mux.HandleFunc("POST /v1/cbn/str/{id}/submit", authMiddleware(handlers.SubmitSTRToFIU))
+	mux.HandleFunc("POST /v1/cbn/str/{id}/acknowledge", authMiddleware(handlers.AcknowledgeSTR))
+
+	// ── Sub-merchant Velocity Limits ──────────────────────────────────────────
+	mux.HandleFunc("GET /v1/velocity/config/{merchant_id}", authMiddleware(handlers.GetVelocityConfig))
+	mux.HandleFunc("PUT /v1/velocity/config/{merchant_id}", authMiddleware(handlers.UpsertVelocityConfig))
+	mux.HandleFunc("POST /v1/velocity/check", authMiddleware(handlers.CheckVelocity))
+	mux.HandleFunc("GET /v1/velocity/counters/{merchant_id}", authMiddleware(handlers.GetVelocityCounters))
+
+	// ── Chargeback Lifecycle (full state machine) ──────────────────────────────
+	mux.HandleFunc("POST /v1/chargebacks/{id}/advance", authMiddleware(handlers.AdvanceChargebackState))
+	mux.HandleFunc("POST /v1/chargebacks/{id}/stripe-sync", authMiddleware(handlers.SyncChargebackFromStripe))
+	mux.HandleFunc("GET /v1/chargebacks/{id}/timeline", authMiddleware(handlers.GetChargebackTimeline))
+
+	// ── Interchange Fee Engine ─────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/interchange/calculate", authMiddleware(handlers.CalculateInterchange))
+	mux.HandleFunc("GET /v1/interchange/schedule", authMiddleware(handlers.GetInterchangeSchedule))
+	mux.HandleFunc("PUT /v1/interchange/schedule", authMiddleware(handlers.UpsertInterchangeSchedule))
+
+	// ── Scheme Membership (Visa/Mastercard BIN sponsorship) ───────────────────
+	mux.HandleFunc("GET /v1/scheme/membership", authMiddleware(handlers.GetSchemeMembership))
+	mux.HandleFunc("POST /v1/scheme/bin-lookup", authMiddleware(handlers.BINLookup))
+	mux.HandleFunc("POST /v1/scheme/dispute/submit", authMiddleware(handlers.SubmitSchemeDispute))
+
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           loggingMiddleware(mux),

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Code2, LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { Code2, LayoutDashboard, LogOut, PanelLeft, Users, Shield, FileWarning } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -32,6 +32,8 @@ const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: Users, label: "Customers", path: "/customers" },
   { icon: Code2, label: "White-Label SDK", path: "/sdk" },
+  { icon: Shield, label: "PSP Management", path: "/psp-management" },
+  { icon: FileWarning, label: "Dispute Lifecycle", path: "/dispute-lifecycle" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

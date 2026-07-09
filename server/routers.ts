@@ -194,6 +194,14 @@ import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
 import {
+  strRouter,
+  velocityLimitsRouter,
+  interchangeRouter,
+  schemeMembershipRouter,
+  chargebackLifecycleRouter,
+  regulatoryReportsRouter,
+} from './routers/psp-production';
+import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
   rustReserveInventory, rustReleaseInventory,
@@ -9336,6 +9344,13 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
+  // PSP Licence Holder — production routers
+  str: strRouter,
+  velocityLimits: velocityLimitsRouter,
+  interchange: interchangeRouter,
+  schemeMembership: schemeMembershipRouter,
+  chargebackLifecycle: chargebackLifecycleRouter,
+  regulatoryReports: regulatoryReportsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
