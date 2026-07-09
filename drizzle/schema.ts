@@ -4987,3 +4987,116 @@ export const regulatoryReportSubmissions = pgTable("regulatory_report_submission
 }, (t) => [index("rrs_report_idx").on(t.reportId), index("rrs_merchant_idx").on(t.merchantId)]);
 export type RegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferSelect;
 export type InsertRegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferInsert;
+
+// ─── Wave 179: Terminal + Mobile Money Tables ─────────────────────────────────
+
+// POS Terminals
+export const terminals = pgTable("terminals", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  serialNumber: text("serial_number").notNull().unique(),
+  model: text("model").notNull(), // PAX A920 | Verifone P400 | Ingenico DESK3500
+  label: text("label"), // human-readable name e.g. "Counter 1"
+  location: text("location"), // branch/store description
+  status: text("status").default("inactive").notNull(), // active | inactive | suspended | maintenance
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  firmwareVersion: text("firmware_version"),
+  ipAddress: text("ip_address"),
+  activatedAt: timestamp("activated_at"),
+  deactivatedAt: timestamp("deactivated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("term_merchant_idx").on(t.merchantId),
+  index("term_status_idx").on(t.status),
+  index("term_serial_idx").on(t.serialNumber),
+]);
+export type Terminal = typeof terminals.$inferSelect;
+export type InsertTerminal = typeof terminals.$inferInsert;
+
+// Terminal Transactions
+export const terminalTransactions = pgTable("terminal_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  terminalId: text("terminal_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  reference: text("reference").notNull().unique(),
+  type: text("type").notNull(), // sale | refund | void | pre_auth | completion
+  paymentMethod: text("payment_method").notNull(), // card | contactless | qr | ussd
+  cardBrand: text("card_brand"), // visa | mastercard | verve | amex
+  cardLast4: text("card_last4"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  status: text("status").default("pending").notNull(), // pending | approved | declined | voided | refunded
+  authCode: text("auth_code"),
+  rrn: text("rrn"), // Retrieval Reference Number
+  stan: text("stan"), // System Trace Audit Number
+  responseCode: text("response_code"),
+  responseMessage: text("response_message"),
+  receiptData: text("receipt_data"), // JSON
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("tt_terminal_idx").on(t.terminalId),
+  index("tt_merchant_idx").on(t.merchantId),
+  index("tt_status_idx").on(t.status),
+  index("tt_created_idx").on(t.createdAt),
+]);
+export type TerminalTransaction = typeof terminalTransactions.$inferSelect;
+export type InsertTerminalTransaction = typeof terminalTransactions.$inferInsert;
+
+// Mobile Money Providers
+export const mobileMoneyProviders = pgTable("mobile_money_providers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  code: text("code").notNull().unique(), // mtn_momo | airtel_money | mpesa | tigo | orange
+  name: text("name").notNull(),
+  country: text("country").notNull(), // NG | GH | KE | TZ | UG
+  currency: text("currency").notNull(), // NGN | GHS | KES | TZS | UGX
+  logoUrl: text("logo_url"),
+  isActive: boolean("is_active").default(true).notNull(),
+  supportsCollection: boolean("supports_collection").default(true).notNull(),
+  supportsDisbursement: boolean("supports_disbursement").default(true).notNull(),
+  minAmountKobo: bigint("min_amount_kobo", { mode: "number" }).default(100),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }).default(100000000),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("mmp_country_idx").on(t.country),
+  index("mmp_active_idx").on(t.isActive),
+]);
+export type MobileMoneyProvider = typeof mobileMoneyProviders.$inferSelect;
+export type InsertMobileMoneyProvider = typeof mobileMoneyProviders.$inferInsert;
+
+// Mobile Money Transactions
+export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  providerCode: text("provider_code").notNull(), // mtn_momo | airtel_money | mpesa etc
+  type: text("type").notNull(), // collection | disbursement
+  reference: text("reference").notNull().unique(),
+  externalReference: text("external_reference"), // provider's reference
+  customerMsisdn: text("customer_msisdn").notNull(), // phone number
+  customerName: text("customer_name"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull(),
+  status: text("status").default("pending").notNull(), // pending | processing | successful | failed | expired | cancelled
+  failureReason: text("failure_reason"),
+  providerStatus: text("provider_status"), // raw status from provider
+  ussdCode: text("ussd_code"), // for USSD-based providers
+  paymentPromptSentAt: timestamp("payment_prompt_sent_at"),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"),
+  webhookDeliveredAt: timestamp("webhook_delivered_at"),
+  metadata: text("metadata"), // JSON
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("mmt_merchant_idx").on(t.merchantId),
+  index("mmt_provider_idx").on(t.providerCode),
+  index("mmt_status_idx").on(t.status),
+  index("mmt_msisdn_idx").on(t.customerMsisdn),
+  index("mmt_created_idx").on(t.createdAt),
+]);
+export type MobileMoneyTransaction = typeof mobileMoneyTransactions.$inferSelect;
+export type InsertMobileMoneyTransaction = typeof mobileMoneyTransactions.$inferInsert;

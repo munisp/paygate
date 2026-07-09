@@ -5325,3 +5325,58 @@
 - [x] PSP production tables: strRecords, velocityLimitConfigs, velocityBreaches, interchangeSchedule, interchangeFeeRecords, schemeMemberships, chargebackEvidencePackages, chargebackTimeline, regulatoryReportSubmissions
 - [x] Hosted payment page: /pay/:slug public route registered in App.tsx
 - [x] Competitive analysis: PayGate vs Paystack vs Flutterwave report
+
+## Wave 179-183: Terminal + Mobile Money + Analytics UI + STR UI + SDK (Jul 2026)
+- [ ] DB schema: terminals, terminal_transactions, mobile_money_providers, mobile_money_transactions
+- [ ] tRPC: terminalRouter (provision, list, transactions, refund, heartbeat)
+- [ ] tRPC: mobileMoneyRouter (initiate, poll, webhook, providers list)
+- [ ] UI: Terminal management page (/terminal)
+- [ ] UI: Mobile Money page (/mobile-money) with provider selector + status polling
+- [ ] UI: Payment link analytics chart (Recharts line + funnel bar) on Checkout page
+- [ ] UI: STR filing queue with countdown badges + NFIU one-click submit
+- [ ] SDK: tsup bundle + @paygate/checkout-react package.json + CDN checkout.js
+- [ ] Register all new routes in App.tsx + DashboardLayout sidebar
+
+## Wave 184: Terminal × Fluvio Integration (Jul 2026)
+- [ ] Go: fluvio/terminal_producer.go — Produce terminal events to Fluvio topics
+- [ ] Go: fluvio/terminal_consumer.go — Consume terminal events, update DB, push to Redis pub/sub
+- [ ] Go: terminal_handler.go — bridge HTTP handlers for terminal Fluvio events
+- [ ] Go: kafka/topics/topics.go — add paygate.terminal.* Fluvio topics
+- [ ] Portal: server/routers/terminal.ts — replace Kafka publish with Fluvio via bridge
+- [ ] Portal: server/_core/index.ts — SSE endpoint /api/events/terminal/:merchantId
+- [ ] Portal: client Terminal UI with live SSE event feed
+
+## Wave 184-190: Terminal × Full Middleware Integration (Jul 2026)
+- [ ] Go: fluvio/terminal_producer.go — Produce terminal events to Fluvio (provisioned, activated, heartbeat, txn_completed, txn_failed, refunded, voided)
+- [ ] Go: fluvio/terminal_consumer.go — Consume terminal events, update DB, push to Redis pub/sub for SSE fan-out
+- [ ] Go: terminal_handler.go — bridge HTTP handlers (provision, heartbeat, txn, refund, void, stream)
+- [ ] Go: kafka/topics/topics.go — add paygate.terminal.* Fluvio + Kafka topics
+- [ ] Go: apisix/routes/terminal_routes.yaml — APISIX routes for all terminal endpoints
+- [ ] Go: dapr/pubsub/terminal_pubsub.go — Dapr pub/sub bindings for terminal events
+- [ ] Go: permify/terminal_permissions.go — Permify authz checks (terminal:read, terminal:write, terminal:refund)
+- [ ] Go: redis/terminal_cache.go — Redis cache helpers (terminal status, heartbeat TTL, txn idempotency)
+- [ ] Rust: crates/terminal-events/src/lib.rs — serde + bincode event types, TigerBeetle settlement on txn_completed
+- [ ] Rust: crates/terminal-events/src/fluvio_client.rs — Fluvio native producer/consumer
+- [ ] Rust: crates/terminal-events/src/tigerbeetle.rs — double-entry settlement (merchant debit, float credit)
+- [ ] Python: python/terminal/fluvio_consumer.py — FastAPI Fluvio consumer worker
+- [ ] Python: python/terminal/analytics_aggregator.py — real-time analytics aggregation (volume, count, avg ticket per terminal)
+- [ ] Python: python/terminal/lakehouse_writer.py — write terminal events to Lakehouse (Iceberg/Delta)
+- [ ] Python: python/terminal/temporal_activities.py — Temporal activity stubs (settlement, reconciliation, dispute)
+- [ ] TypeScript: server/routers/terminal.ts — replace Kafka publish with Fluvio bridge calls
+- [ ] TypeScript: server/_core/index.ts — SSE endpoint /api/events/terminal/:merchantId (Redis sub → SSE)
+- [ ] TypeScript: server/routers/terminal.ts — Permify authz on refund/void procedures
+
+## Wave 179-183 Completed Items
+- [x] Terminal DB schema (terminals, terminal_transactions tables)
+- [x] Mobile Money DB schema (mobile_money_providers, mobile_money_transactions tables)
+- [x] Go: Fluvio terminal producer/consumer, bridge HTTP handlers, Redis cache, Permify authz, Dapr pub/sub, APISIX routes
+- [x] Rust: terminal-events crate (serde+bincode), Fluvio native client, TigerBeetle settlement service
+- [x] Python: FastAPI Fluvio consumer worker, analytics aggregator, Lakehouse writer, Temporal activity stubs
+- [x] TypeScript: terminal tRPC router (provision, list, stats, listTransactions, updateStatus, refund, heartbeat)
+- [x] TypeScript: mobileMoney tRPC router (initiateCollection, initiateDisbursement, listTransactions, stats, webhook)
+- [x] SSE endpoint /api/events/terminal/:merchantId wired to Fluvio HTTP proxy
+- [x] Terminal UI page (/terminal): device list, provision form, transaction history, refund dialog, live SSE feed
+- [x] Mobile Money UI page (/mobile-money-pay): provider grid, collection/disbursement forms, transaction history
+- [x] Terminal (Fluvio) nav item added to POS & Terminals sidebar section
+- [x] Mobile Money nav item added to Settlements sidebar section
+- [x] Routes registered in App.tsx

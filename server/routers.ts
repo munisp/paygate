@@ -1,3 +1,5 @@
+import { terminalRouter } from "./routers/terminal";
+import { mobileMoneyRouter } from "./routers/mobileMoney";
 import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
 import { publishTransactionEvent, publishPayoutEvent, publishFraudEvent, publishAuditEvent } from "./kafkaClient";
 import { ollamaRouter } from "./ollamaRouter";
@@ -9342,6 +9344,8 @@ export const appRouter = router({
   // Wave 120b — additional CRUD routers
   // Hosted Checkout — customer-facing payment page
   hostedCheckout: hostedCheckoutRouter,
+  terminal: terminalRouter,
+  mobileMoney: mobileMoneyRouter,
   // PSP Production — STR, velocity limits, interchange, scheme membership, chargebacks, regulatory reports
   str: strRouter,
   velocityLimits: velocityLimitsRouter,

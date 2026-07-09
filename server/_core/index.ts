@@ -1982,6 +1982,73 @@ async function startServer() {
     }
   });
 
+  // ─── SSE: Terminal Live Event Stream ─────────────────────────────────────────
+  // Proxies Fluvio HTTP consumer to the browser as SSE.
+  // Filters events by merchantId so each merchant only sees their own terminals.
+  // URL: GET /api/events/terminal/:merchantId
+  const terminalClients = new Map<string, Set<any>>();
+
+  app.get("/api/events/terminal/:merchantId", async (req: any, res: any) => {
+    try {
+      const { merchantId } = req.params;
+      const fluvioEndpoint = process.env.FLUVIO_ENDPOINT;
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      // Register client
+      if (!terminalClients.has(merchantId)) terminalClients.set(merchantId, new Set());
+      terminalClients.get(merchantId)!.add(res);
+      res.write(`data: ${JSON.stringify({ type: "connected", merchantId })}\n\n`);
+
+      // Poll Fluvio HTTP proxy and fan-out to SSE clients
+      let active = true;
+      const poll = async () => {
+        while (active) {
+          try {
+            if (fluvioEndpoint) {
+              const r = await fetch(
+                `${fluvioEndpoint}/consume/paygate.terminal.events?partition=0&max_records=20`,
+                { signal: AbortSignal.timeout(2000) }
+              );
+              if (r.ok) {
+                const events: any[] = await r.json();
+                for (const evt of events) {
+                  if (evt.merchant_id === merchantId) {
+                    const clients = terminalClients.get(merchantId);
+                    if (clients) {
+                      for (const client of clients) {
+                        client.write(`data: ${JSON.stringify(evt)}\n\n`);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } catch { /* ignore poll errors */ }
+          await new Promise(r => setTimeout(r, 500));
+        }
+      };
+      poll();
+
+      // Heartbeat to keep connection alive
+      const hb = setInterval(() => {
+        if (!res.writableEnded) res.write(`: heartbeat\n\n`);
+      }, 15000);
+
+      req.on("close", () => {
+        active = false;
+        clearInterval(hb);
+        terminalClients.get(merchantId)?.delete(res);
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Terminal SSE setup failed" });
+    }
+  });
+
   // ─── Per-route mutation rate limiters ──────────────────────────────────────
   // These run before the tRPC middleware and apply stricter limits to sensitive
   // financial mutation endpoints.  tRPC batch requests include the procedure

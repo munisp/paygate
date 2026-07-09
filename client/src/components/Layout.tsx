@@ -139,6 +139,7 @@ const navGroups: NavGroup[] = [
       { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement" },
       { icon: Layers, label: "PTSP Batches", path: "/ptsp-batches" },
       { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
+      { icon: Smartphone, label: "Mobile Money", path: "/mobile-money-pay", badge: "New" },
       { icon: FileSpreadsheet, label: "Recon Engine", path: "/reconciliation" },
       { icon: Scale, label: "Recon Alerts", path: "/reconciliation-alerts" },
     ],
@@ -265,6 +266,7 @@ const navGroups: NavGroup[] = [
     icon: Monitor,
     items: [
       { icon: Monitor, label: "POS Terminals", path: "/pos-terminals" },
+      { icon: Activity, label: "Terminal (Fluvio)", path: "/terminal", badge: "New" },
       { icon: ArrowLeftRight, label: "POS Transactions", path: "/pos-transactions", badge: "New" },
       { icon: Map, label: "Terminal Map", path: "/terminal-map" },
       { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },

@@ -207,6 +207,10 @@ const RealtimeNotifications = lz(() => import("./pages/wave80/RealtimeNotificati
 // ── Hosted Payment Page (public — no auth required) ─────────────────────────
 const HostedPaymentPage = lz(() => import("./pages/HostedPaymentPage"));
 
+// ── Terminal + Mobile Money (Fluvio-wired) ────────────────────────────────────
+const Terminal = lz(() => import("./pages/Terminal"));
+const MobileMoney = lz(() => import("./pages/MobileMoney"));
+
 // ── Wave 84 pages ─────────────────────────────────────────────────────────────
 const QRGenerator = lz(() => import("./pages/QRGenerator"));
 const USSDSessions = lz(() => import("./pages/USSDSessions"));
@@ -608,6 +612,8 @@ function Router() {
           <Route path="/subscriptions" component={Subscriptions} />
           <Route path="/pos-terminals" component={POSTerminals} />
           <Route path="/terminal-map" component={TerminalMap} />
+          <Route path="/terminal" component={Terminal} />
+          <Route path="/mobile-money-pay" component={MobileMoney} />
           <Route path="/pos-reconciliation" component={POSReconciliation} />
           <Route path="/ptsp-settlement" component={PTSPSettlement} />
           <Route path="/ptsp-batches" component={PtspBatches} />
