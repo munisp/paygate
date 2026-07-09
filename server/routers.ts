@@ -8,6 +8,8 @@ import { grpcRouter } from "./grpcRouter"; // hoisted to top to prevent TDZ duri
 import { billingRouter, billingExtRouter } from "./routers/billing";
 import { crud119Router } from "./routers/crud119";
 import { crud120Router } from "./routers/crud120";
+import { hostedCheckoutRouter } from "./routers/hostedCheckout";
+import { strRouter, velocityLimitsRouter, interchangeRouter, schemeMembershipRouter, chargebackLifecycleRouter, regulatoryReportsRouter } from "./routers/psp-production";
 import { splitBillRouter as splitBillV2Router, staffRouter as staffMgmtRouter, stripeSubscriptionsRouter, superAgentV2Router as superAgentV2MgmtRouter, supportRouter as supportChatRouter, taxFilingRouter as taxFilingV2Router, tenantMgmtRouter, transactionReceiptsRouter as txReceiptsRouter, usdcRouter as usdcV3Router, insuranceClaimsRouter, webhookSimulatorRouter as webhookSimV2Router } from "./routers/crud120b";
 import { feeSchedulesRouter, chargebackMgmtRouter, fraudRulesRouter, kybMgmtRouter, invoiceFinV2Router, loyaltyV3Router, openSearchAuditRouter, tenantProvisionRouter } from "./routers/wave121";
 import { fraudRuleEngineRouter, kybDocUploadRouter, loyaltyRedemptionRouter } from "./routers/wave122";
@@ -9338,6 +9340,15 @@ export const appRouter = router({
   locale: localeRouter,
   insiderThreat: insiderThreatRouter,
   // Wave 120b — additional CRUD routers
+  // Hosted Checkout — customer-facing payment page
+  hostedCheckout: hostedCheckoutRouter,
+  // PSP Production — STR, velocity limits, interchange, scheme membership, chargebacks, regulatory reports
+  str: strRouter,
+  velocityLimits: velocityLimitsRouter,
+  interchange: interchangeRouter,
+  schemeMembership: schemeMembershipRouter,
+  chargebackLifecycle: chargebackLifecycleRouter,
+  regulatoryReports: regulatoryReportsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
