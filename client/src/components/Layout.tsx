@@ -121,7 +121,6 @@ const navGroups: NavGroup[] = [
       { icon: Radio, label: "RTGS", path: "/rtgs" },
       { icon: MessageSquareCode, label: "ISO 20022", path: "/iso20022" },
       { icon: Network, label: "MojaLoop", path: "/mojaloop" },
-      { icon: Send, label: "MJL Transfers", path: "/mojaloop/transfers" },
       { icon: Activity, label: "Rail Monitor", path: "/cross-border/rail-monitor", badge: "Live" },
       { icon: Globe, label: "CIPS Gateway", path: "/cross-border/cips" },
       { icon: Globe, label: "UPI Gateway", path: "/cross-border/upi" },
@@ -140,7 +139,6 @@ const navGroups: NavGroup[] = [
       { icon: Wallet, label: "PTSP Settlement", path: "/ptsp-settlement" },
       { icon: Layers, label: "PTSP Batches", path: "/ptsp-batches" },
       { icon: ArrowLeftRight, label: "MoMo Recon", path: "/mobile-money" },
-      { icon: Smartphone, label: "Mobile Money", path: "/mobile-money-pay", badge: "New" },
       { icon: FileSpreadsheet, label: "Recon Engine", path: "/reconciliation" },
       { icon: Scale, label: "Recon Alerts", path: "/reconciliation-alerts" },
     ],
@@ -150,7 +148,6 @@ const navGroups: NavGroup[] = [
     icon: Shield,
     items: [
       { icon: Brain, label: "Fraud & Risk", path: "/fraud-risk", badge: "AI" },
-      { icon: ShieldAlert, label: "Insider Threat", path: "/insider-threat", badge: "New" },
       { icon: Flame, label: "Fraud Heatmap", path: "/fraud-heatmap" },
       { icon: Radio, label: "Live Alerts", path: "/fraud/alerts", badge: "LIVE" },
       { icon: ShieldAlert, label: "WAF Alerts", path: "/infra/waf-alerts" },
@@ -179,7 +176,6 @@ const navGroups: NavGroup[] = [
       { icon: FileCheck, label: "KYB Workflow", path: "/kyb-workflow" },
       { icon: Building2, label: "KYB Verification", path: "/kyb-verification", badge: "New" },
       { icon: FileCheck, label: "Compliance Reports", path: "/compliance-reports", badge: "New" },
-      { icon: AlertTriangle, label: "STR Filing Queue", path: "/str-filing-queue", badge: "New" },
       { icon: Receipt, label: "Tax Filing", path: "/tax-filing", badge: "New" },
       { icon: Receipt, label: "Tax Filing V2", path: "/tax-filing-v2", badge: "New" },
       { icon: Receipt, label: "Tx Receipts", path: "/transaction-receipts", badge: "New" },
@@ -268,7 +264,6 @@ const navGroups: NavGroup[] = [
     icon: Monitor,
     items: [
       { icon: Monitor, label: "POS Terminals", path: "/pos-terminals" },
-      { icon: Activity, label: "Terminal (Fluvio)", path: "/terminal", badge: "New" },
       { icon: ArrowLeftRight, label: "POS Transactions", path: "/pos-transactions", badge: "New" },
       { icon: Map, label: "Terminal Map", path: "/terminal-map" },
       { icon: FileCheck, label: "POS Reconciliation", path: "/pos-reconciliation" },
@@ -378,6 +373,18 @@ const navGroups: NavGroup[] = [
       { icon: Users2, label: "Invite Codes", path: "/admin/invite-codes-v2", badge: "Admin" },
       { icon: ShieldAlert, label: "Fraud Rings", path: "/admin/fraud-rings", badge: "Admin" },
       { icon: Brain, label: "GNN Thresholds", path: "/admin/gnn-threshold", badge: "Admin" },
+    ],
+  },
+  {
+    title: "NextHub SRBE",
+    icon: Landmark,
+    items: [
+      { icon: Landmark, label: "Settlement Windows", path: "/nexthub/settlement", badge: "NextHub" },
+      { icon: Scale, label: "Reconciliation", path: "/nexthub/reconciliation", badge: "NextHub" },
+      { icon: Banknote, label: "Billing Hub", path: "/nexthub/billing", badge: "NextHub" },
+      { icon: ShieldAlert, label: "Disputes", path: "/nexthub/disputes", badge: "NextHub" },
+      { icon: Network, label: "Security Dashboard", path: "/nexthub/security", badge: "NextHub" },
+      { icon: Building2, label: "DFSP Management", path: "/nexthub/dfsps", badge: "NextHub" },
     ],
   },
 ];

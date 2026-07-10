@@ -77,7 +77,6 @@ const DeveloperPortal = lz(() => import("./pages/DeveloperPortal"));
 const WorkflowObservability = lz(() => import("./pages/WorkflowObservability"));
 const KeycloakRoleSync = lz(() => import("./pages/KeycloakRoleSync"));
 const NIPBanks = lz(() => import("./pages/NIPBanks"));
-const MojaloopTransfers = lz(() => import("./pages/MojaloopTransfers"));
 const Subscriptions = lz(() => import("./pages/Subscriptions"));
 const POSTerminals = lz(() => import("./pages/POSTerminals"));
 const TerminalMap = lz(() => import("./pages/TerminalMap"));
@@ -205,20 +204,12 @@ const GrpcHealthCheck = lz(() => import("./pages/wave80/GrpcHealthCheck"));
 const UssdSessionV2 = lz(() => import("./pages/wave80/UssdSessionV2"));
 const RealtimeNotifications = lz(() => import("./pages/wave80/RealtimeNotifications"));
 
-// ── Hosted Payment Page (public — no auth required) ─────────────────────────
-const HostedPaymentPage = lz(() => import("./pages/HostedPaymentPage"));
-
-// ── Terminal + Mobile Money (Fluvio-wired) ────────────────────────────────────
-const Terminal = lz(() => import("./pages/Terminal"));
-const MobileMoney = lz(() => import("./pages/MobileMoney"));
-
 // ── Wave 84 pages ─────────────────────────────────────────────────────────────
 const QRGenerator = lz(() => import("./pages/QRGenerator"));
 const USSDSessions = lz(() => import("./pages/USSDSessions"));
 const DeveloperSandbox = lz(() => import("./pages/DeveloperSandbox"));
 const KYBVerification = lz(() => import("./pages/KYBVerification"));
 const ComplianceReports = lz(() => import("./pages/ComplianceReports"));
-const STRFilingQueue = lz(() => import("./pages/STRFilingQueue"));
 const SDKTokens = lz(() => import("./pages/SDKTokens"));
 const MerchantGuide = lz(() => import("./pages/docs/MerchantGuide"));
 const ConsumerGuide = lz(() => import("./pages/docs/ConsumerGuide"));
@@ -389,7 +380,6 @@ const AuditLogViewerPage = lz(() => import("./pages/AuditLogViewer"));
 const FraudRuleEnginePage = lz(() => import("./pages/FraudRuleEngine"));
 const KYBDocumentUploadPage = lz(() => import("./pages/KYBDocumentUpload"));
 const KYBDirectorWizard = lz(() => import("./pages/KYBDirectorWizard"));
-const KYCWizard = lz(() => import("./pages/KYCWizard"));
 const LoyaltyRedemptionPage = lz(() => import("./pages/LoyaltyRedemption"));
 // Wave 123
 const AIModelAdminPage = lz(() => import("./pages/AIModelAdmin"));
@@ -440,10 +430,13 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
-// PSP Licence: Management, Dispute Lifecycle, and CBN Reports
-const PSPManagementPage = lz(() => import("./pages/PSPManagement"));
-const DisputeLifecyclePage = lz(() => import("./pages/DisputeLifecycle"));
-const CBNReportsDashboard = lz(() => import("./pages/CBNReportsDashboard"));
+// NextHub SRBE
+const NHSettlementWindows = lz(() => import("./pages/nexthub/SettlementWindows"));
+const NHReconciliationExceptions = lz(() => import("./pages/nexthub/ReconciliationExceptions"));
+const NHBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
+const NHDisputesHub = lz(() => import("./pages/nexthub/DisputesHub"));
+const NHSecurityDashboard = lz(() => import("./pages/nexthub/SecurityDashboard"));
+const NHDFSPManagement = lz(() => import("./pages/nexthub/DFSPManagement"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -463,15 +456,6 @@ function Router() {
   const isAuthPage = location === "/" || location === "/login" || location === "/onboarding";
   const isConsumerPage = location.startsWith("/consumer");
   const isOrderPage = location.startsWith("/order/");
-  const isPayPage = location.startsWith("/pay/");
-
-  if (isPayPage) {
-    return (
-      <Suspense fallback={<PageLoader />}>
-        <Route path="/pay/:slug" component={HostedPaymentPage} />
-      </Suspense>
-    );
-  }
 
   if (isOrderPage) {
     const slug = location.replace("/order/", "");
@@ -607,7 +591,6 @@ function Router() {
           <Route path="/cross-border/upi" component={UPIGateway} />
           <Route path="/cross-border/pix" component={PIXGateway} />
           <Route path="/mojaloop" component={MojaloopDashboard} />
-          <Route path="/mojaloop/transfers" component={MojaloopTransfers} />
           <Route path="/developer" component={DeveloperPortal} />
           <Route path="/workflows" component={WorkflowObservability} />
           <Route path="/role-sync" component={KeycloakRoleSync} />
@@ -615,8 +598,6 @@ function Router() {
           <Route path="/subscriptions" component={Subscriptions} />
           <Route path="/pos-terminals" component={POSTerminals} />
           <Route path="/terminal-map" component={TerminalMap} />
-          <Route path="/terminal" component={Terminal} />
-          <Route path="/mobile-money-pay" component={MobileMoney} />
           <Route path="/pos-reconciliation" component={POSReconciliation} />
           <Route path="/ptsp-settlement" component={PTSPSettlement} />
           <Route path="/ptsp-batches" component={PtspBatches} />
@@ -783,7 +764,6 @@ function Router() {
           <Route path="/developer-sandbox" component={DeveloperSandbox} />
           <Route path="/kyb-verification" component={KYBVerification} />
           <Route path="/compliance-reports" component={ComplianceReports} />
-          <Route path="/str-filing-queue" component={STRFilingQueue} />
           <Route path="/sdk-tokens" component={SDKTokens} />
           <Route path="/tenant/billing" component={TenantBillingDashboard} />
           <Route path="/tenant/corridors" component={CorridorManagement} />
@@ -854,8 +834,6 @@ function Router() {
           <Route path="/fraud-rule-engine" component={FraudRuleEnginePage} />
           <Route path="/kyb-document-upload" component={KYBDocumentUploadPage} />
           <Route path="/kyb/director-kyc/:id" component={KYBDirectorWizard} />
-          <Route path="/kyc-wizard" component={KYCWizard} />
-          <Route path="/compliance/liveness/:sessionId" component={LivenessReplayViewerPage} />
           <Route path="/loyalty-redemption" component={LoyaltyRedemptionPage} />
           {/* Wave 123 */}
           <Route path="/ai-model-admin" component={AIModelAdminPage} />
@@ -917,9 +895,13 @@ function Router() {
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
         <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
-          <Route path="/psp-management" component={PSPManagementPage} />
-          <Route path="/dispute-lifecycle" component={DisputeLifecyclePage} />
-          <Route path="/cbn-reports" component={CBNReportsDashboard} />
+        {/* NextHub SRBE Routes */}
+        <Route path="/nexthub/settlement" component={NHSettlementWindows} />
+        <Route path="/nexthub/reconciliation" component={NHReconciliationExceptions} />
+        <Route path="/nexthub/billing" component={NHBillingHub} />
+        <Route path="/nexthub/disputes" component={NHDisputesHub} />
+        <Route path="/nexthub/security" component={NHSecurityDashboard} />
+        <Route path="/nexthub/dfsps" component={NHDFSPManagement} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
