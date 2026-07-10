@@ -5589,3 +5589,57 @@
 
 ### Part 5: Architecture Documents
 - [x] Doc: Parts XVI–XIX in paygate-nexthub-design-v2.md — NextHub-PayGate integration, APISIX API key management, monetisation model, Wave 219 roadmap
+
+## Wave 219: Native Domain Interoperability Protocols + Kafka + APISIX + Bridge Handlers
+
+### Protocol Stack (open-source first)
+- [ ] Healthcare: FHIR R4 via Medplum (open-source FHIR server) — Go adapter + Python bridge
+- [ ] Insurance: ACORD XML/JSON (open-source schema) — Go adapter + Python actuary bridge
+- [ ] SCF: GS1/EDIFACT/UBL (open-source invoice standards) — Go adapter + Rust tokeniser
+- [ ] G2P: OpenG2P/MOSIP (open-source social protection platform) — Go adapter + Python NIN/BVN bridge
+- [ ] Energy: DLMS/COSEM + IEC 62055-41 STS (open-source meter protocol) — Go adapter + Rust token engine
+- [ ] CBDC: ISO 20022 CBDC (pacs.008 + camt.054) + mBridge — Go adapter + Rust ledger
+- [ ] Remittance: SWIFT gpi + ISO 20022 pacs.008 + FATF Travel Rule (IVMS101) — Go adapter + Rust signer
+
+### Kafka Topics (all 7 domains)
+- [ ] Go: kafka/topics/wave219_topics.go — domain-specific Kafka topics for all 7 domains
+- [ ] Healthcare: paygate.healthcare.claim.submitted, claim.adjudicated, claim.disbursed, eligibility.checked
+- [ ] Insurance: paygate.insurance.policy.created, premium.collected, claim.filed, claim.paid, lapse.detected
+- [ ] SCF: paygate.scf.invoice.submitted, discount.requested, discount.approved, invoice.settled
+- [ ] G2P: paygate.g2p.batch.created, item.disbursed, batch.completed, batch.reconciled
+- [ ] Energy: paygate.energy.vend.initiated, token.generated, vend.completed, vend.failed
+- [ ] CBDC: paygate.cbdc.mint.initiated, transfer.completed, redemption.processed, atomic.swap.completed
+- [ ] Remittance: paygate.remittance.transfer.initiated, travel_rule.cleared, transfer.completed, transfer.failed
+
+### APISIX Route Configs
+- [ ] Go: apisix/routes/wave219_domain_routes.yaml — APISIX routes for all 7 domain protocol endpoints
+- [ ] Healthcare: /nexthub/fhir/* → medplum-go:8080 (FHIR R4 REST API)
+- [ ] Insurance: /nexthub/acord/* → insurance-go:8081 (ACORD XML/JSON API)
+- [ ] SCF: /nexthub/gs1/* → scf-go:8082 (GS1/UBL invoice API)
+- [ ] G2P: /nexthub/openg2p/* → g2p-go:8083 (OpenG2P/MOSIP API)
+- [ ] Energy: /nexthub/dlms/* → energy-go:8084 (DLMS/COSEM meter API)
+- [ ] CBDC: /nexthub/cbdc/iso20022/* → cbdc-go:8085 (ISO 20022 CBDC API)
+- [ ] Remittance: /nexthub/swift/* → remittance-go:8086 (SWIFT gpi + ISO 20022 API)
+
+### Go Bridge Handlers
+- [ ] Go: healthcare/fhir_handler.go — FHIR R4 REST handler (Patient, Claim, Coverage, Organization)
+- [ ] Go: insurance/acord_handler.go — ACORD XML/JSON handler (policy, premium, claim)
+- [ ] Go: scf/gs1_handler.go — GS1/UBL invoice handler (invoice, despatch advice, receipt advice)
+- [ ] Go: g2p/openg2p_handler.go — OpenG2P/MOSIP handler (beneficiary, disbursement, voucher)
+- [ ] Go: energy/dlms_handler.go — DLMS/COSEM handler (meter read, vend, token delivery)
+- [ ] Go: cbdc/iso20022_handler.go — ISO 20022 CBDC handler (pacs.008, camt.054, atomic swap)
+
+### Portal UI
+- [ ] UI: Protocol badges on all domain pages (FHIR, ACORD, GS1, OpenG2P, DLMS, ISO 20022)
+- [ ] UI: FHIR Resource Viewer on Healthcare page (Patient, Claim, Coverage resources)
+- [ ] UI: ACORD Schema Explorer on Insurance page (policy, premium, claim schemas)
+- [ ] UI: Protocol health status on Domain Overview dashboard
+
+### Participant Limits (deferred from Wave 218)
+- [ ] Go: participants/limits.go — position limits, net debit cap, liquidity management
+- [ ] TS: nexthubParticipants router — getLimits, setLimits, getPositions procedures
+- [ ] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants)
+
+### CBDC Atomic Swap (deferred from Wave 218)
+- [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money)
+- [ ] TS: cbdcRouter.atomicSwap procedure

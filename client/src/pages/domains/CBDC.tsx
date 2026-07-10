@@ -12,6 +12,7 @@ import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Coins, Plus, ArrowRightLeft, Wallet, TrendingUp, Shield } from "lucide-react";
+import { DomainProtocolBanner } from "@/components/ProtocolBadge";
 
 const STATUS_COLORS: Record<string, string> = {
   INITIATED: "bg-blue-100 text-blue-800",
@@ -78,6 +79,7 @@ export default function CBDC() {
 
   return (
     <div className="p-6 space-y-6">
+          <DomainProtocolBanner domain="cbdc" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

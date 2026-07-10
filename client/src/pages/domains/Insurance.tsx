@@ -12,6 +12,8 @@ import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Shield, Plus, TrendingDown, AlertTriangle, CheckCircle, DollarSign } from "lucide-react";
+import { DomainProtocolBanner } from "@/components/ProtocolBadge";
+import { ACORDSchemaExplorer } from "@/components/ACORDSchemaExplorer";
 
 const STATUS_COLORS: Record<string, string> = {
   ACTIVE: "bg-green-100 text-green-800",
@@ -76,6 +78,10 @@ export default function Insurance() {
 
   return (
     <div className="p-6 space-y-6">
+          <DomainProtocolBanner domain="insurance" />
+          {/* ACORD Schema Explorer */}
+          <ACORDSchemaExplorer />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

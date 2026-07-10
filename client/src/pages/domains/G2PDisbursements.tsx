@@ -13,6 +13,7 @@ import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, Plus, CheckCircle, AlertTriangle, Clock, Upload } from "lucide-react";
+import { DomainProtocolBanner } from "@/components/ProtocolBadge";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-blue-100 text-blue-800",
@@ -75,6 +76,7 @@ export default function G2PDisbursements() {
 
   return (
     <div className="p-6 space-y-6">
+          <DomainProtocolBanner domain="g2p" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

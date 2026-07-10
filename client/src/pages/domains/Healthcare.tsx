@@ -12,6 +12,8 @@ import { SortableTableHeader } from "@/components/SortableTableHeader";
 import { useDomainTable } from "@/hooks/useDomainTable";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Heart, FileText, CheckCircle, Clock, XCircle, Plus, Activity } from "lucide-react";
+import { DomainProtocolBanner } from "@/components/ProtocolBadge";
+import { FHIRResourceViewer } from "@/components/FHIRResourceViewer";
 
 const STATUS_COLORS: Record<string, string> = {
   SUBMITTED: "bg-blue-100 text-blue-800",
@@ -76,6 +78,10 @@ export default function Healthcare() {
 
   return (
     <div className="p-6 space-y-6">
+          <DomainProtocolBanner domain="healthcare" />
+          {/* FHIR R4 Resource Explorer */}
+          <FHIRResourceViewer />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
