@@ -5463,3 +5463,80 @@
 - [x] UI: PISPConsents.tsx portal page
 - [x] Design doc: Parts XII–XV — Parity gap, drop-in guide, monetisation, domain expansion
 - [x] GitHub: PR for feature/wave210-mojaloop-parity
+
+## Wave 211: ISO 20022 + Participant Lifecycle + Remittance Corridor
+
+- [x] Go: iso20022/parser.go — pacs.008, pacs.002, camt.054, pain.001 message parser
+- [x] Go: iso20022/converter.go — FSPIOP ↔ ISO 20022 message converter
+- [x] Go: participants/handler.go — participant lifecycle (onboard, suspend, offboard, limits)
+- [ ] Go: participants/limits.go — position limits, net debit cap, liquidity management (Wave 218)
+- [x] Go: remittance/corridor.go — FX corridor engine (rate lock, TTL, multi-hop routing)
+- [x] Go: remittance/travel_rule.go — FATF Travel Rule enforcement (VASP identity, threshold)
+- [x] Rust: nexthub/src/travel_rule.rs — RSA/ECDSA Travel Rule payload signing
+- [x] Python: nexthub/remittance/travel_rule_service.py — FastAPI Travel Rule compliance service
+- [ ] TypeScript: nexthubParticipants tRPC router (onboard, suspend, offboard, getLimits, setLimits) (Wave 218)
+- [x] TypeScript: nexthubRemittance tRPC router — remittanceRouter (corridor CRUD, transfer, Travel Rule)
+- [x] Schema: remittance_corridors, remittance_transfers tables (in wave211_217 schema)
+- [x] UI: /domains/remittance portal page (Remittance.tsx)
+- [ ] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants) (Wave 218)
+- [ ] APISIX: routes for /nexthub/participants/* and /nexthub/remittance/* (Wave 218)
+
+## Wave 212: Healthcare Claims Hub
+
+- [x] Go: healthcare/claim_workflow.go — ClaimAdjudicationWorkflow (Temporal, 6-step saga)
+- [ ] Go: healthcare/handler.go — bridge handler (Wave 218)
+- [ ] Go: healthcare/nhia_adapter.go — NHIA API adapter (Wave 218)
+- [x] Python: nexthub/healthcare/nhia_service.py — FastAPI NHIA integration + ML adjudicator
+- [x] TypeScript: healthcareRouter (submitClaim, adjudicateClaim, listClaims, checkEligibility, stats)
+- [x] Schema: healthcare_claims table (in wave211_217 schema)
+- [x] UI: /domains/healthcare portal page (Healthcare.tsx)
+- [ ] Kafka: paygate.healthcare.* topics (Wave 218)
+
+## Wave 213: Insurance Platform
+
+- [x] Go: insurance/premium_workflow.go — PremiumCollectionWorkflow (Temporal, lapse management)
+- [ ] Go: insurance/handler.go — bridge handler (Wave 218)
+- [x] Python: nexthub/insurance/lapse_detector.py — ML lapse prediction service
+- [x] TypeScript: insuranceRouter (createPolicy, listPolicies, getPolicyStats, scoreLapseRisk, listPremiumPayments)
+- [x] Schema: insurance_policies, insurance_premium_payments tables
+- [x] UI: /domains/insurance portal page (Insurance.tsx)
+- [ ] Kafka: paygate.insurance.* topics (Wave 218)
+
+## Wave 214: Supply Chain Finance
+
+- [x] Go: scf/discounting_workflow.go — DynamicDiscountingWorkflow (Temporal, 3-way settlement)
+- [ ] Go: scf/handler.go — bridge handler (Wave 218)
+- [x] Rust: nexthub/src/invoice_token.rs — invoice tokenisation (SHA-256, ed25519, ERC-1155 style)
+- [x] TypeScript: scfRouter (submitInvoice, requestDiscount, settleInvoice, listInvoices, getSCFStats)
+- [x] Schema: scf_invoices table
+- [x] UI: /domains/scf portal page (SupplyChainFinance.tsx)
+- [ ] Kafka: paygate.scf.* topics (Wave 218)
+
+## Wave 215: G2P Disbursements
+
+- [x] Go: g2p/disbursement_hub.go — bulk G2P disbursement hub (NASIMS/CCT/N-Power adapters, 30M beneficiary scale)
+- [x] Python: nexthub/g2p/nasims_adapter.py — NIN/BVN resolver + NASIMS beneficiary adapter
+- [x] TypeScript: g2pRouter (createBatch, listBatches, getBatchStats, resolveNIN, getG2PStats)
+- [x] Schema: g2p_disbursement_batches table
+- [x] UI: /domains/g2p portal page (G2PDisbursements.tsx)
+- [ ] Kafka: paygate.g2p.* topics (Wave 218)
+
+## Wave 216: Energy / VEND
+
+- [x] Go: energy/vend_workflow.go — VendWorkflow (Temporal, DISCO integration, meter lookup, token delivery)
+- [ ] Go: energy/handler.go — bridge handler (Wave 218)
+- [x] Rust: nexthub/src/nepa_token.rs — NEPA STS token engine (IEC 62055-41, AES-128)
+- [x] TypeScript: energyRouter (initiateVend, lookupMeter, listVendTransactions, getVendStats)
+- [x] Schema: energy_vend_transactions table
+- [x] UI: /domains/energy portal page (EnergyVend.tsx)
+- [ ] Kafka: paygate.energy.* topics (Wave 218)
+
+## Wave 217: CBDC Rail Connector
+
+- [x] Go: cbdc/rail_connector.go — unified CBDC rail connector (eNaira/CBN, ECB TIPS, FedNow, DCEP, SAND)
+- [x] Rust: nexthub/src/cbdc_ledger.rs — TigerBeetle CBDC ledger (128-bit IDs, atomic double-entry, mint/burn)
+- [x] TypeScript: cbdcRouter (createAccount, listAccounts, initiateTransfer, listTransfers, getCBDCStats, getRailHealth)
+- [x] Schema: cbdc_accounts, cbdc_transfers tables
+- [x] UI: /domains/cbdc portal page (CBDC.tsx)
+- [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (Wave 218)
+- [ ] Kafka: paygate.cbdc.* topics (Wave 218)

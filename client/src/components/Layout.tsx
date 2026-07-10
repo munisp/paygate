@@ -391,6 +391,19 @@ const navGroups: NavGroup[] = [
       { icon: ShieldCheck, label: "PISP Consents", path: "/nexthub/pisp", badge: "NextHub" },
     ],
   },
+  {
+    title: "Domain Expansion",
+    icon: Globe,
+    items: [
+      { icon: Send, label: "Remittance Corridors", path: "/domains/remittance", badge: "W211" },
+      { icon: Briefcase, label: "Healthcare Claims", path: "/domains/healthcare", badge: "W212" },
+      { icon: Umbrella, label: "Insurance Hub", path: "/domains/insurance", badge: "W213" },
+      { icon: FileText, label: "Supply Chain Finance", path: "/domains/scf", badge: "W214" },
+      { icon: Users, label: "G2P Disbursements", path: "/domains/g2p", badge: "W215" },
+      { icon: Zap, label: "Energy VEND", path: "/domains/energy", badge: "W216" },
+      { icon: Coins, label: "CBDC Rails", path: "/domains/cbdc", badge: "W217" },
+    ],
+  },
 ];
 
 const devItems: NavItem[] = [

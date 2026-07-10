@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, serial, text, integer, bigint, varchar,
-  boolean, timestamp, jsonb, real, unique, index, uniqueIndex,
+  boolean, timestamp, jsonb, real, unique, index, uniqueIndex, doublePrecision,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -5157,3 +5157,219 @@ export const nexthubPispConsents = pgTable("nexthub_pisp_consents", {
   index("npc_state_idx").on(t.state),
 ]);
 export type NexhubPispConsent = typeof nexthubPispConsents.$inferSelect;
+
+// ─── Wave 211: Remittance Corridors ──────────────────────────────────────────
+
+export const remittanceCorridors = pgTable("remittance_corridors", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  fromCurrency: varchar("from_currency", { length: 8 }).notNull(),
+  toCurrency: varchar("to_currency", { length: 8 }).notNull(),
+  fromCountry: varchar("from_country", { length: 4 }).notNull(),
+  toCountry: varchar("to_country", { length: 4 }).notNull(),
+  exchangeRate: doublePrecision("exchange_rate").notNull(),
+  fee: doublePrecision("fee").notNull().default(0),
+  feeType: varchar("fee_type", { length: 16 }).notNull().default("FLAT"),
+  minAmount: doublePrecision("min_amount").notNull().default(100),
+  maxAmount: doublePrecision("max_amount").notNull().default(5000000),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("rc_from_to_idx").on(t.fromCurrency, t.toCurrency),
+  index("rc_active_idx").on(t.isActive),
+]);
+
+export const remittanceTransfers = pgTable("remittance_transfers", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  corridorId: varchar("corridor_id", { length: 64 }).notNull(),
+  senderFsp: varchar("sender_fsp", { length: 64 }).notNull(),
+  senderAccount: varchar("sender_account", { length: 64 }).notNull(),
+  receiverFsp: varchar("receiver_fsp", { length: 64 }).notNull(),
+  receiverAccount: varchar("receiver_account", { length: 64 }).notNull(),
+  sendAmount: doublePrecision("send_amount").notNull(),
+  sendCurrency: varchar("send_currency", { length: 8 }).notNull(),
+  receiveAmount: doublePrecision("receive_amount"),
+  receiveCurrency: varchar("receive_currency", { length: 8 }),
+  exchangeRate: doublePrecision("exchange_rate"),
+  fee: doublePrecision("fee"),
+  receiverName: varchar("receiver_name", { length: 128 }).notNull(),
+  narration: varchar("narration", { length: 256 }),
+  status: varchar("status", { length: 32 }).notNull().default("INITIATED"),
+  railRef: varchar("rail_ref", { length: 128 }),
+  travelRuleRef: varchar("travel_rule_ref", { length: 128 }),
+  riskScore: integer("risk_score"),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  settledAt: timestamp("settled_at"),
+}, (t) => [
+  index("rt_status_idx").on(t.status),
+  index("rt_corridor_idx").on(t.corridorId),
+]);
+
+// ─── Wave 212: Healthcare Claims ─────────────────────────────────────────────
+
+export const healthcareClaims = pgTable("healthcare_claims", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  policyNumber: varchar("policy_number", { length: 64 }).notNull(),
+  beneficiaryId: varchar("beneficiary_id", { length: 64 }).notNull(),
+  beneficiaryName: varchar("beneficiary_name", { length: 128 }).notNull(),
+  providerId: varchar("provider_id", { length: 64 }).notNull(),
+  providerName: varchar("provider_name", { length: 128 }).notNull(),
+  claimType: varchar("claim_type", { length: 32 }).notNull(),
+  diagnosisCodes: text("diagnosis_codes").notNull().default("[]"),
+  procedureCodes: text("procedure_codes").notNull().default("[]"),
+  claimAmount: doublePrecision("claim_amount").notNull(),
+  approvedAmount: doublePrecision("approved_amount"),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  serviceDate: varchar("service_date", { length: 16 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("SUBMITTED"),
+  nhiaClaimRef: varchar("nhia_claim_ref", { length: 128 }),
+  adjudicationNotes: text("adjudication_notes"),
+  submittedBy: varchar("submitted_by", { length: 64 }),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  adjudicatedAt: timestamp("adjudicated_at"),
+  paidAt: timestamp("paid_at"),
+}, (t) => [
+  index("hc_status_idx").on(t.status),
+  index("hc_policy_idx").on(t.policyNumber),
+  index("hc_provider_idx").on(t.providerId),
+]);
+
+// ─── Wave 213: Insurance Premium Payments ─────────────────────────────────────
+
+export const insurancePremiumPayments = pgTable("insurance_premium_payments", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  policyId: varchar("policy_id", { length: 64 }).notNull(),
+  policyNumber: varchar("policy_number", { length: 64 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  dueDate: varchar("due_date", { length: 16 }).notNull(),
+  paidAt: timestamp("paid_at"),
+  transferRef: varchar("transfer_ref", { length: 128 }),
+  status: varchar("status", { length: 32 }).notNull().default("PENDING"),
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("ipp_policy_idx").on(t.policyId),
+  index("ipp_status_idx").on(t.status),
+  index("ipp_due_date_idx").on(t.dueDate),
+]);
+
+// ─── Wave 214: Supply Chain Finance ──────────────────────────────────────────
+
+export const scfInvoices = pgTable("scf_invoices", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  tokenId: varchar("token_id", { length: 64 }).notNull(),
+  invoiceNumber: varchar("invoice_number", { length: 64 }).notNull(),
+  supplierId: varchar("supplier_id", { length: 64 }).notNull(),
+  supplierFsp: varchar("supplier_fsp", { length: 64 }).notNull(),
+  supplierAccount: varchar("supplier_account", { length: 64 }).notNull(),
+  buyerId: varchar("buyer_id", { length: 64 }).notNull(),
+  buyerFsp: varchar("buyer_fsp", { length: 64 }).notNull(),
+  buyerAccount: varchar("buyer_account", { length: 64 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  dueDate: varchar("due_date", { length: 16 }).notNull(),
+  discountRate: doublePrecision("discount_rate"),
+  discountAmount: doublePrecision("discount_amount"),
+  netAmount: doublePrecision("net_amount"),
+  status: varchar("status", { length: 32 }).notNull().default("SUBMITTED"),
+  transferRef: varchar("transfer_ref", { length: 128 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  paidAt: timestamp("paid_at"),
+}, (t) => [
+  index("scf_status_idx").on(t.status),
+  index("scf_supplier_idx").on(t.supplierId),
+  index("scf_buyer_idx").on(t.buyerId),
+]);
+
+// ─── Wave 215: G2P Disbursements ─────────────────────────────────────────────
+
+export const g2pDisbursementBatches = pgTable("g2p_disbursement_batches", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  programType: varchar("program_type", { length: 32 }).notNull(),
+  programId: varchar("program_id", { length: 64 }).notNull(),
+  payerFsp: varchar("payer_fsp", { length: 64 }).notNull(),
+  payerAccount: varchar("payer_account", { length: 64 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  totalAmount: doublePrecision("total_amount").notNull(),
+  beneficiaryCount: integer("beneficiary_count").notNull(),
+  disbursedCount: integer("disbursed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  status: varchar("status", { length: 32 }).notNull().default("PENDING"),
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("g2p_program_idx").on(t.programType),
+  index("g2p_status_idx").on(t.status),
+]);
+
+// ─── Wave 216: Energy / VEND ──────────────────────────────────────────────────
+
+export const energyVendTransactions = pgTable("energy_vend_transactions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  meterNumber: varchar("meter_number", { length: 32 }).notNull(),
+  disco: varchar("disco", { length: 16 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull().default("NGN"),
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  customerFsp: varchar("customer_fsp", { length: 64 }).notNull(),
+  customerAccount: varchar("customer_account", { length: 64 }).notNull(),
+  token: varchar("token", { length: 24 }),
+  units: doublePrecision("units"),
+  transferRef: varchar("transfer_ref", { length: 128 }),
+  discoRef: varchar("disco_ref", { length: 128 }),
+  status: varchar("status", { length: 32 }).notNull().default("INITIATED"),
+  errorCode: varchar("error_code", { length: 64 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  vendedAt: timestamp("vended_at"),
+}, (t) => [
+  index("evt_meter_idx").on(t.meterNumber),
+  index("evt_disco_idx").on(t.disco),
+  index("evt_status_idx").on(t.status),
+]);
+
+// ─── Wave 217: CBDC ───────────────────────────────────────────────────────────
+
+export const cbdcAccounts = pgTable("cbdc_accounts", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  rail: varchar("rail", { length: 16 }).notNull(),
+  walletId: varchar("wallet_id", { length: 128 }).notNull(),
+  ownerId: varchar("owner_id", { length: 64 }).notNull(),
+  ownerType: varchar("owner_type", { length: 32 }).notNull(),
+  balance: doublePrecision("balance").notNull().default(0),
+  currency: varchar("currency", { length: 8 }).notNull(),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("cbdc_acc_rail_idx").on(t.rail),
+  index("cbdc_acc_owner_idx").on(t.ownerId),
+  index("cbdc_acc_wallet_idx").on(t.walletId),
+]);
+
+export const cbdcTransfers = pgTable("cbdc_transfers", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  rail: varchar("rail", { length: 16 }).notNull(),
+  senderWallet: varchar("sender_wallet", { length: 128 }).notNull(),
+  receiverWallet: varchar("receiver_wallet", { length: 128 }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull(),
+  narration: varchar("narration", { length: 256 }),
+  status: varchar("status", { length: 32 }).notNull().default("INITIATED"),
+  railRef: varchar("rail_ref", { length: 128 }),
+  tigerBeetleRef: varchar("tiger_beetle_ref", { length: 128 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  settledAt: timestamp("settled_at"),
+}, (t) => [
+  index("cbdc_tx_rail_idx").on(t.rail),
+  index("cbdc_tx_status_idx").on(t.status),
+]);

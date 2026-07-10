@@ -204,6 +204,8 @@ import { nexthubOraclesRouter } from './routers/nexthubOracles';
 import { nexthubFXRouter } from './routers/nexthubFX';
 import { nexthubBulkTransfersRouter } from './routers/nexthubBulkTransfers';
 import { nexthubPISPRouter } from './routers/nexthubPISP';
+// Wave 211-217 — Domain Expansion
+import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRouter, energyRouter, cbdcRouter } from './routers/wave211_217';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9381,6 +9383,20 @@ export const appRouter = router({
   nexthubFX: nexthubFXRouter,
   nexthubBulkTransfers: nexthubBulkTransfersRouter,
   nexthubPISP: nexthubPISPRouter,
+  // Wave 211 — Remittance Corridor Engine
+  remittance: remittanceRouter,
+  // Wave 212 — Healthcare Claims Hub
+  healthcare: healthcareRouter,
+  // Wave 213 — Insurance Premium & Claims
+  insurance: insuranceRouter,
+  // Wave 214 — Supply Chain Finance
+  scf: scfRouter,
+  // Wave 215 — G2P Disbursements
+  g2p: g2pRouter,
+  // Wave 216 — Energy / VEND
+  energy: energyRouter,
+  // Wave 217 — CBDC Rail Connector
+  cbdc: cbdcRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
