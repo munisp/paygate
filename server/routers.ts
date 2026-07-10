@@ -1,3 +1,4 @@
+import { mojaloopRouter } from "./routers/mojaloop";
 import { terminalRouter } from "./routers/terminal";
 import { mobileMoneyRouter } from "./routers/mobileMoney";
 import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
@@ -9346,6 +9347,7 @@ export const appRouter = router({
   hostedCheckout: hostedCheckoutRouter,
   terminal: terminalRouter,
   mobileMoney: mobileMoneyRouter,
+  mojaloop: mojaloopRouter,
   // PSP Production — STR, velocity limits, interchange, scheme membership, chargebacks, regulatory reports
   str: strRouter,
   velocityLimits: velocityLimitsRouter,

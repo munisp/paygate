@@ -392,6 +392,16 @@ export default function HostedPaymentPage() {
 
   const initiateMutation = trpc.hostedCheckout.initiatePayment.useMutation();
   const confirmMutation = trpc.hostedCheckout.confirmPayment.useMutation();
+  const trackEvent = trpc.hostedCheckout.trackEvent.useMutation();
+
+  // Fire 'view' event on page load
+  const linkId = linkData?.link?.id;
+  useEffect(() => {
+    if (linkId) {
+      trackEvent.mutate({ paymentLinkId: linkId, eventType: "view" });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkId]);
   const { data: statusData, refetch: refetchStatus } = trpc.hostedCheckout.getStatus.useQuery(
     { sessionId: session?.id ?? "" },
     { enabled: !!session?.id && paymentState === "processing", refetchInterval: 3000 },
@@ -422,6 +432,8 @@ export default function HostedPaymentPage() {
 
   const handleInitiate = async (method: string) => {
     if (!link) return;
+    // Fire analytics events
+    trackEvent.mutate({ paymentLinkId: link.id, eventType: "method_selected", metadata: { method } });
     setSelectedMethod(method);
     setPaymentState("processing");
     try {
@@ -441,6 +453,7 @@ export default function HostedPaymentPage() {
       });
       setSession(s);
       setStep("pay");
+      trackEvent.mutate({ paymentLinkId: link.id, eventType: "initiated", metadata: { method, sessionId: s.id } });
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to initiate payment");
       setPaymentState("idle");

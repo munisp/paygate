@@ -5100,3 +5100,82 @@ export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
 ]);
 export type MobileMoneyTransaction = typeof mobileMoneyTransactions.$inferSelect;
 export type InsertMobileMoneyTransaction = typeof mobileMoneyTransactions.$inferInsert;
+
+// ─── Mojaloop DFSP Tables ─────────────────────────────────────────────────────
+
+export const mojaloopParties = pgTable("mojaloop_parties", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: varchar("merchant_id", { length: 36 }).notNull(),
+  partyIdType: varchar("party_id_type", { length: 32 }).notNull(), // MSISDN, ACCOUNT_ID, IBAN, etc.
+  partyIdentifier: varchar("party_identifier", { length: 128 }).notNull(),
+  partySubIdOrType: varchar("party_sub_id_or_type", { length: 64 }),
+  fspId: varchar("fsp_id", { length: 64 }).notNull(),
+  displayName: varchar("display_name", { length: 256 }),
+  firstName: varchar("first_name", { length: 128 }),
+  lastName: varchar("last_name", { length: 128 }),
+  dateOfBirth: varchar("date_of_birth", { length: 16 }),
+  merchantClassificationCode: varchar("merchant_classification_code", { length: 8 }),
+  lookupStatus: varchar("lookup_status", { length: 16 }).notNull().default("pending"), // pending|found|not_found|error
+  rawResponse: text("raw_response"),
+  createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
+});
+
+export const mojaloopQuotes = pgTable("mojaloop_quotes", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  quoteId: varchar("quote_id", { length: 36 }).notNull().unique(),
+  transactionId: varchar("transaction_id", { length: 36 }).notNull(),
+  merchantId: varchar("merchant_id", { length: 36 }).notNull(),
+  payerFspId: varchar("payer_fsp_id", { length: 64 }).notNull(),
+  payeeFspId: varchar("payee_fsp_id", { length: 64 }).notNull(),
+  amountCurrency: varchar("amount_currency", { length: 3 }).notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(), // in minor units
+  feeCurrency: varchar("fee_currency", { length: 3 }),
+  feeAmount: bigint("fee_amount", { mode: "number" }),
+  transferAmountCurrency: varchar("transfer_amount_currency", { length: 3 }),
+  transferAmount: bigint("transfer_amount", { mode: "number" }),
+  expiration: timestamp("expiration"),
+  ilpPacket: text("ilp_packet"),
+  condition: varchar("condition", { length: 256 }),
+  status: varchar("status", { length: 16 }).notNull().default("pending"), // pending|accepted|rejected|expired
+  rawRequest: text("raw_request"),
+  rawResponse: text("raw_response"),
+  createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at").notNull().$defaultFn(() => new Date()),
+});
+
+export const mojaloopTransfers = pgTable("mojaloop_transfers", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transferId: varchar("transfer_id", { length: 36 }).notNull().unique(),
+  quoteId: varchar("quote_id", { length: 36 }).notNull(),
+  merchantId: varchar("merchant_id", { length: 36 }).notNull(),
+  payerFspId: varchar("payer_fsp_id", { length: 64 }).notNull(),
+  payeeFspId: varchar("payee_fsp_id", { length: 64 }).notNull(),
+  amountCurrency: varchar("amount_currency", { length: 3 }).notNull(),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  ilpPacket: text("ilp_packet"),
+  condition: varchar("condition", { length: 256 }),
+  fulfilment: varchar("fulfilment", { length: 256 }),
+  completedTimestamp: timestamp("completed_timestamp"),
+  transferState: varchar("transfer_state", { length: 16 }).notNull().default("RECEIVED"),
+  // RECEIVED | RESERVED | COMMITTED | ABORTED
+  tigerBeetleTransferId: varchar("tiger_beetle_transfer_id", { length: 64 }),
+  kafkaOffset: bigint("kafka_offset", { mode: "number" }),
+  rawRequest: text("raw_request"),
+  rawResponse: text("raw_response"),
+  errorCode: varchar("error_code", { length: 8 }),
+  errorDescription: text("error_description"),
+  createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at").notNull().$defaultFn(() => new Date()),
+});
+
+export const mojaloopErrors = pgTable("mojaloop_errors", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transferId: varchar("transfer_id", { length: 36 }),
+  quoteId: varchar("quote_id", { length: 36 }),
+  merchantId: varchar("merchant_id", { length: 36 }).notNull(),
+  errorCode: varchar("error_code", { length: 8 }).notNull(),
+  errorDescription: text("error_description").notNull(),
+  errorInformation: text("error_information"), // full JSON
+  source: varchar("source", { length: 64 }), // which DFSP or hub reported the error
+  createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
+});
