@@ -5733,3 +5733,13 @@
 - [x] NextHub SRBE sidebar expanded (DFSP Topology, Bulk Transfer, NDC/Limits, Settlement Banks)
 - [x] SSE saga streaming endpoint (/api/saga-stream/:sagaId)
 - [x] LiveSagaVisualizer component with auto-reconnect and per-step duration tracking
+
+## Wave 224 — Real-time Streaming, Compliance Automation, Regulator Portal
+
+- [x] Compliance Heartbeat cron activated (task_uid: WggdEwiorvpGV8hDCdJ58A, nightly 01:00 UTC)
+- [x] NDC breach SSE endpoint (/api/ndc-stream) polling participant limits every 5s
+- [x] NDCPositionLimitEditor: live warning/critical banners with toast + owner notification on critical breach
+- [x] Regulator Read-Only Portal (/regulator) with regulatorProcedure middleware
+- [x] RegulatorDashboard: settlement reports, participant limits, compliance scorecards, audit log
+- [x] wave224_regulator.ts router: settlement summary, participant limits, compliance checks, audit log
+- [x] Regulator Portal nav section added to sidebar

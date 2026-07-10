@@ -39,6 +39,7 @@ import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
 import { sagaStreamHandler } from "../sagaStream";
+import { ndcBreachStreamHandler } from "../ndcBreachStream";
 import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -2427,6 +2428,8 @@ async function startServer() {
   // ─── Saga SSE Stream ─────────────────────────────────────────────────────────
   // GET /api/saga-stream/:sagaId — real-time saga step updates via Server-Sent Events
   app.get("/api/saga-stream/:sagaId", sagaStreamHandler);
+  // GET /api/ndc-stream — real-time NDC breach alert SSE stream
+  app.get("/api/ndc-stream", ndcBreachStreamHandler);
 
   // POST /api/scheduled/compliance-scorecard — nightly compliance evaluation Heartbeat job
   app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
