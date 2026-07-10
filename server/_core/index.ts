@@ -38,6 +38,8 @@ import { getWave31SecurityReport } from "../security31";
 import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
+import { sagaStreamHandler } from "../sagaStream";
+import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -2421,6 +2423,13 @@ async function startServer() {
       return res.status(500).json({ ok: false, error: err.message, taskUid });
     }
   });
+
+  // ─── Saga SSE Stream ─────────────────────────────────────────────────────────
+  // GET /api/saga-stream/:sagaId — real-time saga step updates via Server-Sent Events
+  app.get("/api/saga-stream/:sagaId", sagaStreamHandler);
+
+  // POST /api/scheduled/compliance-scorecard — nightly compliance evaluation Heartbeat job
+  app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(

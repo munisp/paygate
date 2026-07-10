@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, createContext, useContext } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,15 +12,101 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   Key, Webhook, Activity, Plus, Trash2, Eye, EyeOff, Copy, RefreshCw,
-  CheckCircle2, XCircle, Clock, AlertTriangle, Code2
+  CheckCircle2, XCircle, Clock, AlertTriangle, Code2, FlaskConical, Globe, Server
 } from "lucide-react";
 import { format } from "date-fns";
 
+// ── Environment Context ────────────────────────────────────────────────────────
+type DevEnvironment = "sandbox" | "staging" | "production";
+
+const EnvironmentContext = createContext<{
+  env: DevEnvironment;
+  setEnv: (e: DevEnvironment) => void;
+}>({ env: "sandbox", setEnv: () => {} });
+
+function useDevEnvironment() {
+  return useContext(EnvironmentContext);
+}
+
+const ENV_CONFIG: Record<DevEnvironment, {
+  label: string;
+  badgeClass: string;
+  description: string;
+  icon: React.ReactNode;
+  baseUrl: string;
+  keyPrefix: string;
+  warningBanner?: string;
+}> = {
+  sandbox: {
+    label: "Sandbox",
+    badgeClass: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    description: "Isolated test environment. No real money moves. Safe to experiment.",
+    icon: <FlaskConical className="h-4 w-4" />,
+    baseUrl: "https://sandbox-api.paygate.io/v1",
+    keyPrefix: "sk_test_",
+  },
+  staging: {
+    label: "Staging",
+    badgeClass: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+    description: "Pre-production environment. Mirrors production data structure. Limited real transactions.",
+    icon: <Server className="h-4 w-4" />,
+    baseUrl: "https://staging-api.paygate.io/v1",
+    keyPrefix: "sk_staging_",
+    warningBanner: "Staging keys may process limited real transactions. Handle with care.",
+  },
+  production: {
+    label: "Production",
+    badgeClass: "bg-red-500/10 text-red-600 border-red-500/20",
+    description: "Live environment. Real money. All changes are permanent.",
+    icon: <Globe className="h-4 w-4" />,
+    baseUrl: "https://api.paygate.io/v1",
+    keyPrefix: "sk_live_",
+    warningBanner: "You are viewing LIVE production keys. Treat them as passwords.",
+  },
+};
+
+function EnvironmentSwitcher() {
+  const { env, setEnv } = useDevEnvironment();
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted-foreground font-medium shrink-0">Environment:</span>
+        <div className="flex gap-1">
+          {(Object.keys(ENV_CONFIG) as DevEnvironment[]).map((e) => (
+            <button
+              key={e}
+              onClick={() => setEnv(e)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                env === e
+                  ? `${ENV_CONFIG[e].badgeClass} border`
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              {ENV_CONFIG[e].icon}
+              {ENV_CONFIG[e].label}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto text-xs text-muted-foreground hidden sm:block">
+          <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{ENV_CONFIG[env].baseUrl}</code>
+        </div>
+      </div>
+      {ENV_CONFIG[env].warningBanner && (
+        <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-2 py-1.5">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          {ENV_CONFIG[env].warningBanner}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── API Keys Tab ──────────────────────────────────────────────────────────────
 function ApiKeysTab() {
+  const { env } = useDevEnvironment();
   const [showCreate, setShowCreate] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyEnv, setNewKeyEnv] = useState<"test" | "live">("test");
+  const [newKeyEnv, setNewKeyEnv] = useState<"test" | "live">(env === "production" ? "live" : "test");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
 
@@ -57,12 +143,21 @@ function ApiKeysTab() {
     toast.success("Copied to clipboard");
   };
 
+  // Filter keys by current environment
+  const filteredKeys = (keys ?? []).filter((k) => {
+    if (env === "production") return k.environment === "live";
+    if (env === "staging") return k.environment === "live" || k.environment === "test";
+    return k.environment === "test";
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">API Keys</h3>
-          <p className="text-sm text-muted-foreground">Manage authentication keys for your integrations</p>
+          <p className="text-sm text-muted-foreground">
+            Manage {ENV_CONFIG[env].label} authentication keys · prefix: <code className="bg-muted px-1 rounded text-xs">{ENV_CONFIG[env].keyPrefix}</code>
+          </p>
         </div>
         <Button onClick={() => setShowCreate(true)} size="sm">
           <Plus className="h-4 w-4 mr-2" /> Create Key
@@ -93,13 +188,13 @@ function ApiKeysTab() {
       )}
 
       <div className="space-y-3">
-        {(keys ?? []).length === 0 && (
+        {filteredKeys.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
             <Key className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No API keys yet. Create one to get started.</p>
+            <p className="text-sm">No {ENV_CONFIG[env].label} API keys yet. Create one to get started.</p>
           </div>
         )}
-        {(keys ?? []).map((key) => (
+        {filteredKeys.map((key) => (
           <Card key={key.id} className={!key.isActive ? "opacity-60" : ""}>
             <CardContent className="pt-4">
               <div className="flex items-start justify-between gap-4">
@@ -152,8 +247,8 @@ function ApiKeysTab() {
               <Select value={newKeyEnv} onValueChange={(v) => setNewKeyEnv(v as "test" | "live")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="test">Test</SelectItem>
-                  <SelectItem value="live">Live</SelectItem>
+                  <SelectItem value="test">Test (Sandbox / Staging)</SelectItem>
+                  <SelectItem value="live">Live (Production)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -181,6 +276,7 @@ const WEBHOOK_EVENTS = [
 ];
 
 function WebhooksTab() {
+  const { env } = useDevEnvironment();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ url: "", description: "", events: [] as string[], retryPolicy: "exponential" as const });
 
@@ -214,7 +310,9 @@ function WebhooksTab() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Webhook Endpoints</h3>
-          <p className="text-sm text-muted-foreground">Configure URLs to receive real-time event notifications</p>
+          <p className="text-sm text-muted-foreground">
+            Configure {ENV_CONFIG[env].label} URLs to receive real-time event notifications
+          </p>
         </div>
         <Button onClick={() => setShowCreate(true)} size="sm">
           <Plus className="h-4 w-4 mr-2" /> Add Endpoint
@@ -312,6 +410,7 @@ function WebhooksTab() {
 
 // ── Delivery Logs Tab ─────────────────────────────────────────────────────────
 function DeliveryLogsTab() {
+  const { env } = useDevEnvironment();
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const { data: logs, refetch } = trpc.wave221.deliveryLogs.list.useQuery({
@@ -338,7 +437,9 @@ function DeliveryLogsTab() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Delivery Logs</h3>
-          <p className="text-sm text-muted-foreground">Monitor webhook delivery attempts and retry failures</p>
+          <p className="text-sm text-muted-foreground">
+            Monitor {ENV_CONFIG[env].label} webhook delivery attempts and retry failures
+          </p>
         </div>
       </div>
 
@@ -411,58 +512,64 @@ function DeliveryLogsTab() {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DeveloperSettings() {
+  const [activeEnv, setActiveEnv] = useState<DevEnvironment>("sandbox");
+
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-lg bg-primary/10">
-          <Code2 className="h-6 w-6 text-primary" />
+    <EnvironmentContext.Provider value={{ env: activeEnv, setEnv: setActiveEnv }}>
+      <div className="p-6 space-y-6 max-w-5xl">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-primary/10">
+            <Code2 className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">Developer Settings</h1>
+            <p className="text-muted-foreground text-sm">Manage API keys, webhook endpoints, and monitor delivery logs for third-party integrations</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">Developer Settings</h1>
-          <p className="text-muted-foreground text-sm">Manage API keys, webhook endpoints, and monitor delivery logs for third-party integrations</p>
+
+        <EnvironmentSwitcher />
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card className="border-blue-500/20 bg-blue-500/5">
+            <CardContent className="pt-4 flex items-start gap-3">
+              <Key className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">API Keys</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Bearer tokens for server-to-server authentication. Never expose live keys in client code.</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-purple-500/20 bg-purple-500/5">
+            <CardContent className="pt-4 flex items-start gap-3">
+              <Webhook className="h-5 w-5 text-purple-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Webhooks</p>
+                <p className="text-xs text-muted-foreground mt-0.5">HTTPS endpoints that receive signed event payloads. Verify with HMAC-SHA256.</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-green-500/20 bg-green-500/5">
+            <CardContent className="pt-4 flex items-start gap-3">
+              <Activity className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Delivery Logs</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Full audit trail of every webhook attempt with response codes and retry history.</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="border-blue-500/20 bg-blue-500/5">
-          <CardContent className="pt-4 flex items-start gap-3">
-            <Key className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium">API Keys</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Bearer tokens for server-to-server authentication. Never expose live keys in client code.</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-purple-500/20 bg-purple-500/5">
-          <CardContent className="pt-4 flex items-start gap-3">
-            <Webhook className="h-5 w-5 text-purple-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium">Webhooks</p>
-              <p className="text-xs text-muted-foreground mt-0.5">HTTPS endpoints that receive signed event payloads. Verify with HMAC-SHA256.</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-green-500/20 bg-green-500/5">
-          <CardContent className="pt-4 flex items-start gap-3">
-            <Activity className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium">Delivery Logs</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Full audit trail of every webhook attempt with response codes and retry history.</p>
-            </div>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="api-keys">
+          <TabsList>
+            <TabsTrigger value="api-keys"><Key className="h-4 w-4 mr-2" /> API Keys</TabsTrigger>
+            <TabsTrigger value="webhooks"><Webhook className="h-4 w-4 mr-2" /> Webhooks</TabsTrigger>
+            <TabsTrigger value="delivery-logs"><Activity className="h-4 w-4 mr-2" /> Delivery Logs</TabsTrigger>
+          </TabsList>
+          <TabsContent value="api-keys" className="mt-4"><ApiKeysTab /></TabsContent>
+          <TabsContent value="webhooks" className="mt-4"><WebhooksTab /></TabsContent>
+          <TabsContent value="delivery-logs" className="mt-4"><DeliveryLogsTab /></TabsContent>
+        </Tabs>
       </div>
-
-      <Tabs defaultValue="api-keys">
-        <TabsList>
-          <TabsTrigger value="api-keys"><Key className="h-4 w-4 mr-2" /> API Keys</TabsTrigger>
-          <TabsTrigger value="webhooks"><Webhook className="h-4 w-4 mr-2" /> Webhooks</TabsTrigger>
-          <TabsTrigger value="delivery-logs"><Activity className="h-4 w-4 mr-2" /> Delivery Logs</TabsTrigger>
-        </TabsList>
-        <TabsContent value="api-keys" className="mt-4"><ApiKeysTab /></TabsContent>
-        <TabsContent value="webhooks" className="mt-4"><WebhooksTab /></TabsContent>
-        <TabsContent value="delivery-logs" className="mt-4"><DeliveryLogsTab /></TabsContent>
-      </Tabs>
-    </div>
+    </EnvironmentContext.Provider>
   );
 }

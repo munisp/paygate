@@ -5668,3 +5668,18 @@
 - [x] Platform Ops sidebar section in Layout.tsx — Domain Health, Saga Metrics, Compliance Score, Protocol Validator, Beneficiary Registry, Cost Centres
 - [x] Developer Settings nav item added to Developer sidebar section
 - [x] Saga Visualizer nav item added to Domain Expansion sidebar section
+
+## Wave 222 — Real-time Streaming, Compliance Automation, Environment Switcher
+
+- [x] SSE endpoint /api/saga-stream/:sagaId for real-time saga step updates
+- [x] LiveSagaVisualizer component — SSE-powered with auto-reconnect and step duration tracking
+- [x] SagaVisualizer updated: imports deduplicated, Wifi/WifiOff/RefreshCw icons added
+- [x] Compliance Scorecard nightly Heartbeat job (POST /api/scheduled/compliance-scorecard)
+- [x] 8 compliance check evaluators: KYC, AML, PCI DSS, ISO 20022, GDPR, CBN, FHIR R4, CBDC
+- [x] Owner notification when any check drops below threshold
+- [x] complianceScorecardJobHandler registered in index.ts
+- [x] Developer Settings environment switcher: Sandbox / Staging / Production
+- [x] EnvironmentContext provider with per-env base URL, key prefix, and warning banners
+- [x] API Keys tab filtered by active environment
+- [x] Webhooks and Delivery Logs tabs show environment-scoped labels
+- [x] NextHub ↔ PayGate integration architecture document (docs/nexthub-paygate-integration.md)
