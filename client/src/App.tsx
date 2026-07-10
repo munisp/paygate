@@ -430,6 +430,13 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
+// NextHub SRBE
+const NHSettlementWindows = lz(() => import("./pages/nexthub/SettlementWindows"));
+const NHReconciliationExceptions = lz(() => import("./pages/nexthub/ReconciliationExceptions"));
+const NHBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
+const NHDisputesHub = lz(() => import("./pages/nexthub/DisputesHub"));
+const NHSecurityDashboard = lz(() => import("./pages/nexthub/SecurityDashboard"));
+const NHDFSPManagement = lz(() => import("./pages/nexthub/DFSPManagement"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -888,6 +895,13 @@ function Router() {
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
         <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
+        {/* NextHub SRBE Routes */}
+        <Route path="/nexthub/settlement" component={NHSettlementWindows} />
+        <Route path="/nexthub/reconciliation" component={NHReconciliationExceptions} />
+        <Route path="/nexthub/billing" component={NHBillingHub} />
+        <Route path="/nexthub/disputes" component={NHDisputesHub} />
+        <Route path="/nexthub/security" component={NHSecurityDashboard} />
+        <Route path="/nexthub/dfsps" component={NHDFSPManagement} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

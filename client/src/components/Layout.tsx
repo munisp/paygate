@@ -375,6 +375,18 @@ const navGroups: NavGroup[] = [
       { icon: Brain, label: "GNN Thresholds", path: "/admin/gnn-threshold", badge: "Admin" },
     ],
   },
+  {
+    title: "NextHub SRBE",
+    icon: Landmark,
+    items: [
+      { icon: Landmark, label: "Settlement Windows", path: "/nexthub/settlement", badge: "NextHub" },
+      { icon: Scale, label: "Reconciliation", path: "/nexthub/reconciliation", badge: "NextHub" },
+      { icon: Banknote, label: "Billing Hub", path: "/nexthub/billing", badge: "NextHub" },
+      { icon: ShieldAlert, label: "Disputes", path: "/nexthub/disputes", badge: "NextHub" },
+      { icon: Network, label: "Security Dashboard", path: "/nexthub/security", badge: "NextHub" },
+      { icon: Building2, label: "DFSP Management", path: "/nexthub/dfsps", badge: "NextHub" },
+    ],
+  },
 ];
 
 const devItems: NavItem[] = [

@@ -193,6 +193,12 @@ import { wave164Router } from './routers/wave164';
 import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
+import { nexthubSettlementRouter } from './routers/nexthubSettlement';
+import { nexthubReconciliationRouter } from './routers/nexthubReconciliation';
+import { nexthubBillingRouter } from './routers/nexthubBilling';
+import { nexthubDisputesRouter } from './routers/nexthubDisputes';
+import { nexthubSecurityRouter } from './routers/nexthubSecurity';
+import { nexthubDfspsRouter } from './routers/nexthubDfsps';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9336,6 +9342,14 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
+
+  // NextHub SRBE — Settlement, Reconciliation, Billing Engine
+  nexthubSettlement: nexthubSettlementRouter,
+  nexthubReconciliation: nexthubReconciliationRouter,
+  nexthubBilling: nexthubBillingRouter,
+  nexthubDisputes: nexthubDisputesRouter,
+  nexthubSecurity: nexthubSecurityRouter,
+  nexthubDfsps: nexthubDfspsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
