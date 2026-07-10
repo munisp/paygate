@@ -218,6 +218,7 @@ import { regulatorPortalRouter } from './routers/wave224_regulator';
 import { regulatorAuthRouter } from './routers/wave225_regulator_auth';
 import { sagaWiringRouter } from './routers/wave225_saga';
 import { wave223ExtRouter } from './routers/wave223_extensions';
+
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9421,6 +9422,7 @@ export const appRouter = router({
   regulatorPortal: regulatorPortalRouter,
   regulatorAuth: regulatorAuthRouter,
   sagaWiring: sagaWiringRouter,
+
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

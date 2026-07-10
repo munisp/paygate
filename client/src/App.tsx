@@ -480,6 +480,7 @@ const APIRateLimitDashboard = lz(() => import("./pages/platform/APIRateLimitDash
 const CBDCWalletManagement = lz(() => import("./pages/cbdc/CBDCWalletManagement"));
 const SubscriptionBilling = lz(() => import("./pages/billing/SubscriptionBilling"));
 
+
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -1010,6 +1011,7 @@ function Router() {
         <Route path="/cbdc/wallets" component={CBDCWalletManagement} />
         <Route path="/billing/subscriptions" component={SubscriptionBilling} />
         <Route path="/platform/audit-log" component={PlatformAuditLogViewer} />
+
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

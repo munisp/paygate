@@ -425,6 +425,8 @@ const platformOpsItems: NavItem[] = [
   { icon: Shield, label: "API Rate Limits", path: "/platform/api-rate-limits", badge: "W223" },
   { icon: FileText, label: "KYC Documents", path: "/compliance/kyc-documents", badge: "W223" },
   { icon: CheckCircle2, label: "Merchant Verification", path: "/compliance/merchant-verification", badge: "W223" },
+    ],
+  },
 ];
 
 const devItems: NavItem[] = [
