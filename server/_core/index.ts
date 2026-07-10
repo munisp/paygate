@@ -39,7 +39,6 @@ import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
 import { sagaStreamHandler } from "../sagaStream";
-import { ndcBreachStreamHandler } from "../ndcBreachStream";
 import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -2429,7 +2428,6 @@ async function startServer() {
   // GET /api/saga-stream/:sagaId — real-time saga step updates via Server-Sent Events
   app.get("/api/saga-stream/:sagaId", sagaStreamHandler);
   // GET /api/ndc-stream — real-time NDC breach alert SSE stream
-  app.get("/api/ndc-stream", ndcBreachStreamHandler);
 
   // POST /api/scheduled/compliance-scorecard — nightly compliance evaluation Heartbeat job
   app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
@@ -2559,21 +2557,11 @@ async function startServer() {
   const { startUSDCBalanceMonitor, stopUSDCBalanceMonitor } = await import("../usdcBalanceMonitor");
     startUSDCBalanceMonitor();
 
-  // ─── NextHub Integration: Start Kafka + Fluvio consumers ──────────────────
-  // Consumes: nexthub.ndc.breach.v1, nexthub.fx.rates.v1,
-  //           nexthub.settlement.closed.v1, nexthub.participant.status.v1
   try {
-    const { startNexhubKafkaConsumers } = await import("../nexthub/nexthubKafkaConsumer");
-    await startNexhubKafkaConsumers();
   } catch (e: any) {
-    logger.warn("nexthub_kafka_consumers_failed", { error: e?.message });
   }
-  // Consumes: ndc-breach-alerts, fx-rate-ticks, settlement-updates, transfer-state-changes
   try {
-    const { startNexhubFluvioConsumers } = await import("../nexthub/nexthubFluvioConsumer");
-    await startNexhubFluvioConsumers();
   } catch (e: any) {
-    logger.warn("nexthub_fluvio_consumers_failed", { error: e?.message });
   }
 
   // ─── Graceful Shutdown (SIGTERM / SIGINT) ──────────────────────────────────

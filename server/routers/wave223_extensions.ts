@@ -14,14 +14,11 @@ import {
   auditLogs,
   posTerminals,
   settlementBanks,
-  nexthubParticipantLimits,
   kybDocuments,
   kybVerifications,
   realtimeNotificationPreferences,
   apiRateLimitRules,
   fxRates,
-  nexthubDfsps,
-  nexthubParticipants,
 } from "../../drizzle/schema";
 import { storagePut } from "../storage";
 import { notifyOwner } from "../_core/notification";
@@ -467,38 +464,6 @@ const merchantVerificationRouter = router({
     }),
 });
 
-// ─── 10. NDC / Position Limits ────────────────────────────────────────────
-const ndcPositionLimitsRouter = router({
-  list: protectedProcedure
-    .input(z.object({ participantId: z.string().optional() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const conditions: any[] = [];
-      if (input.participantId) conditions.push(eq(nexthubParticipantLimits.participantId, input.participantId));
-      return db.select().from(nexthubParticipantLimits)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(desc(nexthubParticipantLimits.updatedAt));
-    }),
-  update: protectedProcedure
-    .input(z.object({
-      id: z.string(),
-      netDebitCap: z.number().positive().optional(),
-      positionLimit: z.number().positive().optional(),
-      liquidityCover: z.number().min(0).optional(),
-      alertThreshold: z.number().min(0).max(1).optional(),
-      currency: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("DB unavailable");
-      const { id, ...rest } = input;
-      const [row] = await db.update(nexthubParticipantLimits)
-        .set({ ...rest, updatedAt: new Date() } as any)
-        .where(eq(nexthubParticipantLimits.id, id)).returning();
-      return row;
-    }),
-});
 
 // ─── 11. Bulk Transfers ───────────────────────────────────────────────────
 const bulkTransfersRouter = router({
@@ -543,32 +508,6 @@ const bulkTransfersRouter = router({
     }),
 });
 
-// ─── 12. DFSP Topology ────────────────────────────────────────────────────
-const dfspTopologyRouter = router({
-  get: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return { dfsps: [], participants: [], edges: [] };
-    const dfsps = await db.select().from(nexthubDfsps).orderBy(nexthubDfsps.dfspName);
-    const participants = await db.select().from(nexthubParticipants).limit(200);
-    return {
-      dfsps: dfsps.map((d: any) => ({
-        id: d.id, name: d.dfspName, dfspId: d.dfspId ?? d.id,
-        status: d.status ?? "ACTIVE", country: d.country ?? "NG",
-        participantCount: participants.filter((p: any) => p.dfspId === d.id).length,
-        currency: d.currency ?? "NGN", type: d.type ?? "DFSP",
-      })),
-      participants: participants.slice(0, 100).map((p: any) => ({
-        id: p.id, name: p.name, dfspId: p.dfspId, status: p.status, fspId: p.fspId ?? p.id,
-      })),
-      edges: dfsps.slice(0, 20).flatMap((d: any, i: number) =>
-        dfsps.slice(i + 1, Math.min(i + 4, dfsps.length)).map((d2: any) => ({
-          source: d.id, target: d2.id, volume: Math.floor(Math.random() * 1000),
-        }))
-      ),
-    };
-  }),
-});
-
 // ─── Main Wave 223 Extensions Router ──────────────────────────────────────
 export const wave223ExtRouter = router({
   auditLogs: auditLogsRouter,
@@ -580,7 +519,5 @@ export const wave223ExtRouter = router({
   settlementBanks: settlementBanksExtRouter,
   kycDocuments: kycDocumentsRouter,
   merchantVerification: merchantVerificationRouter,
-  ndcPositionLimits: ndcPositionLimitsRouter,
   bulkTransfers: bulkTransfersRouter,
-  dfspTopology: dfspTopologyRouter,
 });

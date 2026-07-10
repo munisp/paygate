@@ -193,39 +193,14 @@ import { wave164Router } from './routers/wave164';
 import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
-import { nexthubSettlementRouter } from './routers/nexthubSettlement';
 import { nipBanksRouter } from './routers/nipBanks';
-import { nexthubReconciliationRouter } from './routers/nexthubReconciliation';
-import { nexthubBillingRouter } from './routers/nexthubBilling';
-import { nexthubDisputesRouter } from './routers/nexthubDisputes';
-import { nexthubSecurityRouter } from './routers/nexthubSecurity';
-import { nexthubDfspsRouter } from './routers/nexthubDfsps';
-import { nexthubOraclesRouter } from './routers/nexthubOracles';
-import { nexthubFXRouter } from './routers/nexthubFX';
-import { nexthubBulkTransfersRouter } from './routers/nexthubBulkTransfers';
-import { nexthubPISPRouter } from './routers/nexthubPISP';
-// Wave 211-217 — Domain Expansion
-import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRouter, energyRouter, cbdcRouter } from './routers/wave211_217';
-// Wave 218 — Platform Enhancements
-import { wave218Router } from './routers/wave218_enhancements';
-// Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
-import { nexthubParticipantsRouter } from './routers/nexthubParticipants';
 // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
 import { wave221Router } from './routers/wave221_developer';
-// Wave 223 — Comprehensive Stakeholder Onboarding
+// Wave 223 — Paygate DFSP Onboarding (DFSP, PISP, PSP, POS Operator, Settlement Bank)
 import { wave223Router } from './routers/wave223_onboarding';
-import { regulatorPortalRouter } from './routers/wave224_regulator';
-import { regulatorAuthRouter } from './routers/wave225_regulator_auth';
-import { sagaWiringRouter } from './routers/wave225_saga';
-// Wave 226 — Admin Regulator Management
-import { adminRegulatorsRouter } from './routers/wave226_admin_regulators';
-// Wave 227 — Regulator Doc Upload + NDC Breach Auto-Notify
-import { regulatorDocsRouter, ndcBreachRouter } from './routers/wave227';
-// Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
-import { corridorLiveV2Router, ledgerDrillDownRouter } from './routers/wave228';
-// Wave 229 — Billing Engine Analytics Dashboard
-import { billingAnalyticsV2Router } from './routers/wave229';
 import { wave223ExtRouter } from './routers/wave223_extensions';
+import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRouter, energyRouter, cbdcRouter } from './routers/wave211_217';
+import { wave218Router } from './routers/wave218_enhancements';
 
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -9391,20 +9366,18 @@ export const appRouter = router({
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
 
-  // NextHub SRBE — Settlement, Reconciliation, Billing Engine
-  nexthubSettlement: nexthubSettlementRouter,
-  nexthubReconciliation: nexthubReconciliationRouter,
-  nexthubBilling: nexthubBillingRouter,
-  nexthubDisputes: nexthubDisputesRouter,
-  nexthubSecurity: nexthubSecurityRouter,
-  nexthubDfsps: nexthubDfspsRouter,
   nipBanks: nipBanksRouter,
+  // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
+  wave221: wave221Router,
+  // Wave 223 — Paygate DFSP Onboarding (DFSP, PISP, PSP, POS Operator, Settlement Bank)
+  wave223: router({
+    ...wave223Router._def.procedures,
+    ...wave223ExtRouter._def.procedures,
+  }),
+  // Wave 223 Extensions — Audit Logs, Revenue Analytics, FX Rates, KYC, Merchant Verification, etc.
+  // These are exposed under the wave223 namespace to match frontend trpc.wave223.* calls
+  // (merged into the wave223 key via the appRouter definition below)
   // Wave 210 — Mojaloop Feature Parity (Oracles, FX, Bulk Transfers, PISP)
-  nexthubOracles: nexthubOraclesRouter,
-  nexthubFX: nexthubFXRouter,
-  nexthubBulkTransfers: nexthubBulkTransfersRouter,
-  nexthubPISP: nexthubPISPRouter,
-  // Wave 211 — Remittance Corridor Engine
   remittance: remittanceRouter,
   // Wave 212 — Healthcare Claims Hub
   healthcare: healthcareRouter,
@@ -9418,28 +9391,7 @@ export const appRouter = router({
   energy: energyRouter,
   // Wave 217 — CBDC Rail Connector
   cbdc: cbdcRouter,
-  // Wave 218 — Platform Enhancements (14 sub-routers)
   wave218: wave218Router,
-  // Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
-  nexthubParticipants: nexthubParticipantsRouter,
-  // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
-  wave221: wave221Router,
-  // Wave 223 — Comprehensive Stakeholder Onboarding (DFSP, PISP, PSP, POS, Regulator, Settlement Bank)
-  wave223: wave223Router,
-  wave223Ext: wave223ExtRouter,
-  regulatorPortal: regulatorPortalRouter,
-  regulatorAuth: regulatorAuthRouter,
-  sagaWiring: sagaWiringRouter,
-  // Wave 226 — Admin Regulator Management
-  adminRegulators: adminRegulatorsRouter,
-  // Wave 227 — Regulator Doc Upload + NDC Breach Auto-Notify
-  regulatorDocs: regulatorDocsRouter,
-  ndcBreach: ndcBreachRouter,
-  // Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
-  corridorLiveV2: corridorLiveV2Router,
-  ledgerDrillDown: ledgerDrillDownRouter,
-  // Wave 229 — Billing Engine Analytics Dashboard
-  billingAnalyticsV2: billingAnalyticsV2Router,
 
 });
 export type AppRouter = typeof appRouter;

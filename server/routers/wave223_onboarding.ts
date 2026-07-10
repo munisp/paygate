@@ -11,9 +11,7 @@ import {
   pispOnboardingSessions,
   pspOnboardingSessions,
   posOperatorOnboardingSessions,
-  nexthubRegulators,
   settlementBanks,
-  nexthubDfsps,
 } from "../../drizzle/schema";
 import { notifyOwner } from "../_core/notification";
 
@@ -350,65 +348,6 @@ const posOperatorOnboardingRouter = router({
     }),
 });
 
-// ── Regulator Management ──────────────────────────────────────────────────────
-const regulatorRouter = router({
-  list: protectedProcedure.query(async () => {
-    const db = getDb();
-    return db.select().from(nexthubRegulators).orderBy(desc(nexthubRegulators.createdAt)).limit(50);
-  }),
-
-  create: protectedProcedure
-    .input(z.object({
-      regulatorCode: z.string().min(2).max(20),
-      regulatorName: z.string().min(2),
-      jurisdiction: z.string().length(2).default("NG"),
-      regulatoryType: z.enum(["central_bank", "securities_regulator", "deposit_insurer", "financial_intelligence"]),
-      contactEmail: z.string().email().optional(),
-      reportingFrequency: z.enum(["realtime", "hourly", "daily", "weekly", "monthly"]).default("daily"),
-      dataAccessLevel: z.enum(["aggregate", "anonymized", "full"]).default("aggregate"),
-      apiEndpoint: z.string().url().optional(),
-      webhookUrl: z.string().url().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      const id = uid("reg");
-      await db.insert(nexthubRegulators).values({
-        id,
-        ...input,
-        status: "active",
-        onboardedAt: new Date(),
-      });
-      await notifyOwner({
-        title: "New Regulator Onboarded",
-        content: `${input.regulatorName} (${input.regulatorCode}) has been onboarded as a ${input.regulatoryType}.`,
-      });
-      return { id };
-    }),
-
-  update: protectedProcedure
-    .input(z.object({
-      id: z.string(),
-      data: z.record(z.any()),
-    }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.update(nexthubRegulators)
-        .set(input.data)
-        .where(eq(nexthubRegulators.id, input.id));
-      return { success: true };
-    }),
-
-  delete: protectedProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.update(nexthubRegulators)
-        .set({ status: "inactive" })
-        .where(eq(nexthubRegulators.id, input.id));
-      return { success: true };
-    }),
-});
-
 // ── Settlement Bank Management ────────────────────────────────────────────────
 const settlementBankRouter = router({
   list: protectedProcedure.query(async () => {
@@ -467,6 +406,5 @@ export const wave223Router = router({
   pispOnboarding: pispOnboardingRouter,
   pspOnboarding: pspOnboardingRouter,
   posOperatorOnboarding: posOperatorOnboardingRouter,
-  regulators: regulatorRouter,
   settlementBanks: settlementBankRouter,
 });

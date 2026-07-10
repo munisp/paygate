@@ -410,9 +410,7 @@ const OnboardingStatusPage = lz(() => import("./pages/OnboardingStatus"));
 const ClaimDocumentsPage = lz(() => import("./pages/ClaimDocuments"));
 const CorridorLiveStatsPage = lz(() => import("./pages/CorridorLiveStats"));
 // Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
-const CorridorLiveStatsV2Page = lz(() => import("./pages/CorridorLiveStatsV2"));
 // Wave 229 — Billing Engine Analytics Dashboard
-const BillingEngineDashboardPage = lz(() => import("./pages/billing/BillingEngineDashboard"));
 const PortfolioRebalancingPage = lz(() => import("./pages/PortfolioRebalancing"));
 // Wave 155-156: Liveness verification
 const LivenessCheckPage = lz(() => import("./pages/LivenessCheck"));
@@ -434,20 +432,7 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
-// NextHub SRBE
 const HostedPaymentLazy = lz(() => import("./pages/HostedPayment"));
-const NHSettlementWindows = lz(() => import("./pages/nexthub/SettlementWindows"));
-const NHReconciliationExceptions = lz(() => import("./pages/nexthub/ReconciliationExceptions"));
-const NHBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
-const NHDisputesHub = lz(() => import("./pages/nexthub/DisputesHub"));
-const NHSecurityDashboard = lz(() => import("./pages/nexthub/SecurityDashboard"));
-const NHDFSPManagement = lz(() => import("./pages/nexthub/DFSPManagement"));
-// Wave 210 — Mojaloop Feature Parity
-const NHOracleManagement = lz(() => import("./pages/nexthub/OracleManagement"));
-const NHFXDashboard = lz(() => import("./pages/nexthub/FXDashboard"));
-const NHBulkTransfers = lz(() => import("./pages/nexthub/BulkTransfers"));
-const NHPISPConsents = lz(() => import("./pages/nexthub/PISPConsents"));
-const NHParticipants = lz(() => import("./pages/nexthub/ParticipantLifecycle"));
 // Wave 211-217 — Domain Expansion
 const DomainOverview = lz(() => import("./pages/domains/DomainOverview"));
 const DomainRemittance = lz(() => import("./pages/domains/Remittance"));
@@ -466,18 +451,9 @@ const ComplianceScorecard = lz(() => import("./pages/platform/ComplianceScorecar
 const ProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"));
 const BeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
 const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
-const RegulatorDashboard = lazy(() => import('./pages/regulator/RegulatorDashboard'));
-const RegulatorLogin = lazy(() => import('./pages/regulator/RegulatorLogin'));
-const RegulatorVerify = lazy(() => import('./pages/regulator/RegulatorVerify'));
-const RegulatorManagement = lz(() => import('./pages/admin/RegulatorManagement'));
 const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
 const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
 const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
-const NDCPositionLimitEditor = lz(() => import("./pages/nexthub/NDCPositionLimitEditor"));
-const NdcBreachEvents = lz(() => import("./pages/nexthub/NdcBreachEvents"));
-const SettlementBankManagement = lz(() => import("./pages/nexthub/SettlementBankManagement"));
-const DFSPTopologyMap = lz(() => import("./pages/nexthub/DFSPTopologyMap"));
-const BulkTransferWizard = lz(() => import("./pages/nexthub/BulkTransferWizard"));
 const FXRateManagement = lz(() => import("./pages/fx/FXRateManagement"));
 const RevenueAnalytics = lz(() => import("./pages/analytics/RevenueAnalytics"));
 const NotificationPreferences = lz(() => import("./pages/settings/NotificationPreferences"));
@@ -534,18 +510,12 @@ function Router() {
     );
   }
 
-  const isRegulatorPage =
-    location === "/regulator" ||
-    location === "/regulator/login" ||
-    location === "/regulator/verify";
+  const isRegulatorPage = false;
 
   if (isRegulatorPage) {
     return (
       <Suspense fallback={<PageLoader />}>
         <Switch>
-          <Route path="/regulator/login" component={RegulatorLogin} />
-          <Route path="/regulator/verify" component={RegulatorVerify} />
-          <Route path="/regulator" component={RegulatorDashboard} />
         </Switch>
       </Suspense>
     );
@@ -717,7 +687,6 @@ function Router() {
           <Route path="/admin/tenant-billing"><AdminGuard><AdminTenantBilling /></AdminGuard></Route>
           <Route path="/admin/sla-monitor"><AdminGuard><AdminSlaMonitorPage /></AdminGuard></Route>
           <Route path="/admin/tenant-revenue"><AdminGuard><AdminTenantRevenuePage /></AdminGuard></Route>
-          <Route path="/admin/regulator-management"><AdminGuard><RegulatorManagement /></AdminGuard></Route>
           <Route path="/sdk" component={WhiteLabelSDKPage} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
           <Route path="/admin/tenant"><AdminGuard><TenantAdminDashboard /></AdminGuard></Route>
@@ -862,7 +831,6 @@ function Router() {
           <Route path="/admin/billing-invoices"><AdminGuard><BillingInvoicesPage /></AdminGuard></Route>
           <Route path="/billing-engine/analytics" component={BillingAnalyticsPage} />
           {/* Wave 229 — Billing Engine Analytics Dashboard */}
-          <Route path="/billing-engine/dashboard" component={BillingEngineDashboardPage} />
           <Route path="/billing-engine" component={BillingConfigPage} />
           <Route path="/admin/sso-config"><AdminGuard><SSOConfigPage /></AdminGuard></Route>
           <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
@@ -933,7 +901,6 @@ function Router() {
           <Route path="/claim-documents" component={ClaimDocumentsPage} />
           <Route path="/corridor-live" component={CorridorLiveStatsPage} />
           {/* Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down */}
-          <Route path="/corridor-live-v2" component={CorridorLiveStatsV2Page} />
           <Route path="/portfolio-rebalancing" component={PortfolioRebalancingPage} />
           <Route path="/liveness-check" component={LivenessCheckPage} />
           <Route path="/liveness-replay" component={LivenessReplayViewerPage} />
@@ -967,19 +934,12 @@ function Router() {
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
         <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
-        {/* NextHub SRBE Routes */}
-        <Route path="/nexthub/settlement" component={NHSettlementWindows} />
-        <Route path="/nexthub/reconciliation" component={NHReconciliationExceptions} />
-        <Route path="/nexthub/billing" component={NHBillingHub} />
-        <Route path="/nexthub/disputes" component={NHDisputesHub} />
-        <Route path="/nexthub/security" component={NHSecurityDashboard} />
-        <Route path="/nexthub/dfsps" component={NHDFSPManagement} />
+
         {/* Wave 210 — Mojaloop Feature Parity */}
-        <Route path="/nexthub/oracles" component={NHOracleManagement} />
-        <Route path="/nexthub/fx" component={NHFXDashboard} />
-        <Route path="/nexthub/bulk-transfers" component={NHBulkTransfers} />
-        <Route path="/nexthub/pisp" component={NHPISPConsents} />
-        <Route path="/nexthub/participants" component={NHParticipants} />
+
+
+
+
         {/* Wave 211-217 Domain Expansion Routes */}
         <Route path="/domains/overview" component={DomainOverview} />
         <Route path="/domains/remittance" component={DomainRemittance} />
@@ -1004,17 +964,15 @@ function Router() {
         <Route path="/onboarding/pisp" component={PISPOnboarding} />
         <Route path="/onboarding/psp" component={PSPOnboarding} />
         <Route path="/onboarding/pos-operator" component={POSOperatorOnboarding} />
-        <Route path="/onboarding/regulator" component={RegulatorOnboarding} />
         <Route path="/onboarding/settlement-bank" component={SettlementBankOnboarding} />
         {/* Wave 223 — POS Terminal Management */}
         <Route path="/settings/pos-terminals" component={POSTerminalManagement} />
         <Route path="/compliance/kyc-documents" component={KYCDocumentUpload} />
         <Route path="/compliance/merchant-verification" component={MerchantVerification} />
-        <Route path="/nexthub/ndc-limits" component={NDCPositionLimitEditor} />
-        <Route path="/nexthub/ndc-breaches" component={NdcBreachEvents} />
-        <Route path="/nexthub/settlement-banks" component={SettlementBankManagement} />
-        <Route path="/nexthub/topology" component={DFSPTopologyMap} />
-        <Route path="/nexthub/bulk-transfer" component={BulkTransferWizard} />
+
+
+
+
         <Route path="/fx/rates" component={FXRateManagement} />
         <Route path="/analytics/revenue" component={RevenueAnalytics} />
         <Route path="/settings/notifications" component={NotificationPreferences} />
