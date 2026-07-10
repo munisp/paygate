@@ -221,6 +221,10 @@ import { sagaWiringRouter } from './routers/wave225_saga';
 import { adminRegulatorsRouter } from './routers/wave226_admin_regulators';
 // Wave 227 — Regulator Doc Upload + NDC Breach Auto-Notify
 import { regulatorDocsRouter, ndcBreachRouter } from './routers/wave227';
+// Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
+import { corridorLiveV2Router, ledgerDrillDownRouter } from './routers/wave228';
+// Wave 229 — Billing Engine Analytics Dashboard
+import { billingAnalyticsV2Router } from './routers/wave229';
 import { wave223ExtRouter } from './routers/wave223_extensions';
 
 import {
@@ -9431,6 +9435,11 @@ export const appRouter = router({
   // Wave 227 — Regulator Doc Upload + NDC Breach Auto-Notify
   regulatorDocs: regulatorDocsRouter,
   ndcBreach: ndcBreachRouter,
+  // Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
+  corridorLiveV2: corridorLiveV2Router,
+  ledgerDrillDown: ledgerDrillDownRouter,
+  // Wave 229 — Billing Engine Analytics Dashboard
+  billingAnalyticsV2: billingAnalyticsV2Router,
 
 });
 export type AppRouter = typeof appRouter;

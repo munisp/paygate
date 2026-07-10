@@ -104,6 +104,7 @@ const navGroups: NavGroup[] = [
       { icon: CreditCard, label: "Portal Billing", path: "/billing" },
       { icon: Calculator, label: "Billing Engine", path: "/billing-engine", badge: "New" },
       { icon: BarChart2, label: "Billing Analytics", path: "/billing-engine/analytics" },
+      { icon: BarChart2, label: "Billing Dashboard", path: "/billing-engine/dashboard", badge: "W229" },
       { icon: Rocket, label: "Payment Config", path: "/settings/payments", badge: "Go-Live" },
     ],
   },
@@ -113,6 +114,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: TrendingUp, label: "FX & Rates", path: "/fx" },
       { icon: Activity, label: "Corridor Live Stats", path: "/corridor-live", badge: "New" },
+      { icon: Activity, label: "Corridor Live V2", path: "/corridor-live-v2", badge: "W228" },
       { icon: Globe, label: "Cross-Border", path: "/cross-border" },
       { icon: Send, label: "Remittance", path: "/remittance" },
       { icon: MapPin, label: "Remittance Tracker", path: "/remittance/tracker" },

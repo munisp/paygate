@@ -409,6 +409,10 @@ const DataExportPage = lz(() => import("./pages/DataExport"));
 const OnboardingStatusPage = lz(() => import("./pages/OnboardingStatus"));
 const ClaimDocumentsPage = lz(() => import("./pages/ClaimDocuments"));
 const CorridorLiveStatsPage = lz(() => import("./pages/CorridorLiveStats"));
+// Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
+const CorridorLiveStatsV2Page = lz(() => import("./pages/CorridorLiveStatsV2"));
+// Wave 229 — Billing Engine Analytics Dashboard
+const BillingEngineDashboardPage = lz(() => import("./pages/billing/BillingEngineDashboard"));
 const PortfolioRebalancingPage = lz(() => import("./pages/PortfolioRebalancing"));
 // Wave 155-156: Liveness verification
 const LivenessCheckPage = lz(() => import("./pages/LivenessCheck"));
@@ -857,6 +861,8 @@ function Router() {
           <Route path="/admin/plan-limits"><AdminGuard><PlanLimitsPage /></AdminGuard></Route>
           <Route path="/admin/billing-invoices"><AdminGuard><BillingInvoicesPage /></AdminGuard></Route>
           <Route path="/billing-engine/analytics" component={BillingAnalyticsPage} />
+          {/* Wave 229 — Billing Engine Analytics Dashboard */}
+          <Route path="/billing-engine/dashboard" component={BillingEngineDashboardPage} />
           <Route path="/billing-engine" component={BillingConfigPage} />
           <Route path="/admin/sso-config"><AdminGuard><SSOConfigPage /></AdminGuard></Route>
           <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
@@ -926,6 +932,8 @@ function Router() {
           <Route path="/onboarding-status" component={OnboardingStatusPage} />
           <Route path="/claim-documents" component={ClaimDocumentsPage} />
           <Route path="/corridor-live" component={CorridorLiveStatsPage} />
+          {/* Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down */}
+          <Route path="/corridor-live-v2" component={CorridorLiveStatsV2Page} />
           <Route path="/portfolio-rebalancing" component={PortfolioRebalancingPage} />
           <Route path="/liveness-check" component={LivenessCheckPage} />
           <Route path="/liveness-replay" component={LivenessReplayViewerPage} />
