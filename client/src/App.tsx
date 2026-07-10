@@ -77,6 +77,7 @@ const DeveloperPortal = lz(() => import("./pages/DeveloperPortal"));
 const WorkflowObservability = lz(() => import("./pages/WorkflowObservability"));
 const KeycloakRoleSync = lz(() => import("./pages/KeycloakRoleSync"));
 const NIPBanks = lz(() => import("./pages/NIPBanks"));
+const MojaloopTransfers = lz(() => import("./pages/MojaloopTransfers"));
 const Subscriptions = lz(() => import("./pages/Subscriptions"));
 const POSTerminals = lz(() => import("./pages/POSTerminals"));
 const TerminalMap = lz(() => import("./pages/TerminalMap"));
@@ -606,6 +607,7 @@ function Router() {
           <Route path="/cross-border/upi" component={UPIGateway} />
           <Route path="/cross-border/pix" component={PIXGateway} />
           <Route path="/mojaloop" component={MojaloopDashboard} />
+          <Route path="/mojaloop/transfers" component={MojaloopTransfers} />
           <Route path="/developer" component={DeveloperPortal} />
           <Route path="/workflows" component={WorkflowObservability} />
           <Route path="/role-sync" component={KeycloakRoleSync} />

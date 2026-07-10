@@ -5179,3 +5179,55 @@ export const mojaloopErrors = pgTable("mojaloop_errors", {
   source: varchar("source", { length: 64 }), // which DFSP or hub reported the error
   createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
 });
+
+// ─── NIBSS NIP: Nigerian Banks ───────────────────────────────────────────────
+export const nibssBanks = pgTable("nibss_banks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  nipCode: text("nip_code").notNull().unique(),        // e.g. "000013"
+  bankCode: text("bank_code"),                          // CBN sort code e.g. "058"
+  bankName: text("bank_name").notNull(),
+  shortName: text("short_name"),
+  category: text("category").notNull().default("commercial"), // commercial|microfinance|merchant|digital
+  ussdCode: text("ussd_code"),                          // e.g. "*737#"
+  ussdTransferTemplate: text("ussd_transfer_template"),
+  logoUrl: text("logo_url"),
+  isActive: boolean("is_active").notNull().default(true),
+  supportsNip: boolean("supports_nip").notNull().default(true),
+  supportsUssd: boolean("supports_ussd").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ─── NIBSS NIP: Virtual Accounts ─────────────────────────────────────────────
+export const nipVirtualAccounts = pgTable("nip_virtual_accounts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  paymentLinkId: text("payment_link_id"),
+  checkoutSessionId: text("checkout_session_id"),
+  bankNipCode: text("bank_nip_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  amountExpected: integer("amount_expected"),           // in kobo
+  currency: text("currency").notNull().default("NGN"),
+  reference: text("reference").notNull().unique(),
+  expiresAt: timestamp("expires_at"),
+  status: text("status").notNull().default("pending"),  // pending|paid|expired|cancelled
+  paidAt: timestamp("paid_at"),
+  paidAmount: integer("paid_amount"),
+  nipSessionId: text("nip_session_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ─── NIBSS NIP: Name Enquiry Cache ───────────────────────────────────────────
+export const nipNameEnquiryCache = pgTable("nip_name_enquiry_cache", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  bankNipCode: text("bank_nip_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  bankVerificationNumber: text("bank_verification_number"),
+  kycLevel: text("kyc_level"),
+  cachedAt: timestamp("cached_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+});

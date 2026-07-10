@@ -121,6 +121,7 @@ const navGroups: NavGroup[] = [
       { icon: Radio, label: "RTGS", path: "/rtgs" },
       { icon: MessageSquareCode, label: "ISO 20022", path: "/iso20022" },
       { icon: Network, label: "MojaLoop", path: "/mojaloop" },
+      { icon: Send, label: "MJL Transfers", path: "/mojaloop/transfers" },
       { icon: Activity, label: "Rail Monitor", path: "/cross-border/rail-monitor", badge: "Live" },
       { icon: Globe, label: "CIPS Gateway", path: "/cross-border/cips" },
       { icon: Globe, label: "UPI Gateway", path: "/cross-border/upi" },

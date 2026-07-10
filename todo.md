@@ -5419,3 +5419,14 @@
 - [x] STRFilingQueue.tsx UI with countdown badges and goAML submit dialog
 - [x] Route /str-filing-queue registered in App.tsx
 - [x] STR Filing Queue nav item added to Layout.tsx sidebar
+
+## Wave 188-196: Nigerian Bank Integration + Mojaloop Transfers UI
+
+- [x] DB schema: nibss_banks, nip_virtual_accounts, nip_name_enquiry_cache tables
+- [ ] Seed all CBN-licensed Nigerian banks with NIP codes
+- [x] Go: NIBSS NIP bridge handler (bank list, name enquiry, virtual account, transfer status)
+- [x] Rust: NIP event serialisation crate, Fluvio producer, TigerBeetle settlement
+- [x] Python: NIP transfer consumer worker, analytics aggregator, Temporal activities
+- [x] TypeScript: nipBanks tRPC router (list, nameEnquiry, generateVirtualAccount, getTransferStatus)
+- [ ] Hosted payment page: searchable bank dropdown, name enquiry, virtual account display
+- [x] Mojaloop Transfers UI: /mojaloop/transfers page with party lookup and transfer initiation

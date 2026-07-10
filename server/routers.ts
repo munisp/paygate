@@ -1,3 +1,4 @@
+import { nipBanksRouter } from "./routers/nipBanks";
 import { mojaloopRouter } from "./routers/mojaloop";
 import { terminalRouter } from "./routers/terminal";
 import { mobileMoneyRouter } from "./routers/mobileMoney";
@@ -9348,6 +9349,7 @@ export const appRouter = router({
   terminal: terminalRouter,
   mobileMoney: mobileMoneyRouter,
   mojaloop: mojaloopRouter,
+  nipBanks: nipBanksRouter,
   // PSP Production — STR, velocity limits, interchange, scheme membership, chargebacks, regulatory reports
   str: strRouter,
   velocityLimits: velocityLimitsRouter,
