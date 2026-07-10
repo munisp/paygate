@@ -5683,3 +5683,53 @@
 - [x] API Keys tab filtered by active environment
 - [x] Webhooks and Delivery Logs tabs show environment-scoped labels
 - [x] NextHub ↔ PayGate integration architecture document (docs/nexthub-paygate-integration.md)
+
+## Wave 223 — Comprehensive Onboarding + 30 Production-Readiness Features
+
+### Stakeholder Onboarding
+- [x] Audit existing onboarding coverage (Merchant, Partner, Consumer KYC confirmed; DFSP/PISP/PSP/POS/Regulator/SettlementBank gaps identified)
+- [x] OnboardingHub landing page (/onboarding) — stakeholder selector with status cards
+- [x] DFSPOnboarding wizard (/onboarding/dfsp) — 6-step: Profile, Technical, Compliance, Settlement, Testing, Go-Live
+- [x] PISPOnboarding wizard (/onboarding/pisp) — 5-step: Profile, Consent Framework, API Integration, Compliance, Activation
+- [x] PSPOnboarding wizard (/onboarding/psp) — 5-step: Profile, Acquiring Config, Risk & Compliance, Integration, Certification
+- [x] POSOperatorOnboarding wizard (/onboarding/pos-operator) — 4-step: Business, Terminal Fleet, PTSP Config, Go-Live
+- [x] RegulatorOnboarding wizard (/onboarding/regulator) — 4-step: Authority Profile, Access Scope, Reporting Config, Activation
+- [x] SettlementBankOnboarding wizard (/onboarding/settlement-bank) — 5-step: Institution, RTGS/NIP Config, Liquidity, Compliance, Activation
+- [x] wave223_onboarding.ts server router with 7 sub-routers (dfsp, pisp, psp, posOperator, regulator, settlementBank, onboardingHub)
+
+### Suggested Next Steps (Wave 222)
+- [x] Register compliance scorecard Heartbeat cron job (server/jobs/complianceScorecardJob.ts)
+- [x] Wire LiveSagaVisualizer to DomainSagas page with saga-launch mutation
+- [x] POS Terminal Management page (/settings/pos-terminals)
+
+### Production-Readiness Features (30)
+- [x] KYC Document Upload page (/compliance/kyc-documents)
+- [x] Merchant Verification Workflow admin page (/compliance/merchant-verification)
+- [x] NDC / Position Limit Editor (/nexthub/ndc-limits)
+- [x] Settlement Bank Management (/nexthub/settlement-banks)
+- [x] DFSP Network Topology Map (/nexthub/topology)
+- [x] Bulk Transfer Wizard (/nexthub/bulk-transfer)
+- [x] FX Rate Management (/fx/rates)
+- [x] Revenue Analytics (/analytics/revenue)
+- [x] Notification Preferences (/settings/notifications)
+- [x] Payment Link Builder (/payment-links/builder)
+- [x] API Rate Limit Dashboard (/platform/api-rate-limits)
+- [x] CBDC Wallet Management (/cbdc/wallets)
+- [x] Subscription Billing Engine (/billing/subscriptions)
+- [x] Platform Audit Log Viewer (/platform/audit-log)
+- [x] Domain Health Monitor (/platform/health)
+- [x] Saga Metrics Dashboard (/platform/saga-metrics)
+- [x] Compliance Scorecard (/platform/compliance)
+- [x] Protocol Validator (/platform/protocol-validator)
+- [x] Beneficiary Registry (/platform/beneficiary-registry)
+- [x] Cost Centre Manager (/platform/cost-centres)
+- [x] Fraud Rule Engine UI (/fraud-rule-engine)
+- [x] Developer Settings with environment switcher (/settings/developer)
+- [x] wave223_extensions.ts server router (17 sub-routers: auditLogs, fxRates, revenueAnalytics, paymentLinks, subscriptions, cbdc, posTerminals, dfspTopology, bulkTransfer, ndcLimits, settlementBanks, complianceChecks, apiRateLimits, notificationPrefs, kycDocuments, merchantVerification, sagaInstances)
+- [x] Schema migration 0079: 9 new tables (dfsp_onboarding_sessions, pisp_onboarding_sessions, psp_onboarding_sessions, pos_operator_onboarding_sessions, regulator_onboarding_sessions, settlement_bank_onboarding_sessions, compliance_check_results, nexthub_regulators, audit_logs)
+- [x] Analytics & Monetisation sidebar section (5 items)
+- [x] Onboarding Hub sidebar section (7 items)
+- [x] Platform Ops sidebar section expanded (9 items including KYC, Merchant Verification, API Rate Limits)
+- [x] NextHub SRBE sidebar expanded (DFSP Topology, Bulk Transfer, NDC/Limits, Settlement Banks)
+- [x] SSE saga streaming endpoint (/api/saga-stream/:sagaId)
+- [x] LiveSagaVisualizer component with auto-reconnect and per-step duration tracking

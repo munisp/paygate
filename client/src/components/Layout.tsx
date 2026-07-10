@@ -391,6 +391,10 @@ const navGroups: NavGroup[] = [
       { icon: Layers, label: "Bulk Transfers", path: "/nexthub/bulk-transfers", badge: "NextHub" },
       { icon: ShieldCheck, label: "PISP Consents", path: "/nexthub/pisp", badge: "NextHub" },
       { icon: Users, label: "Participants", path: "/nexthub/participants", badge: "W220", status: "live" as const, tooltip: "DFSP participant lifecycle, position limits, net debit cap" },
+      { icon: Network, label: "DFSP Topology", path: "/nexthub/topology", badge: "W223", status: "live" as const, tooltip: "Visual DFSP network topology map" },
+      { icon: Layers, label: "Bulk Transfer", path: "/nexthub/bulk-transfer", badge: "W223", status: "live" as const, tooltip: "Multi-row bulk transfer wizard with CSV upload" },
+      { icon: TrendingUp, label: "NDC / Limits", path: "/nexthub/ndc-limits", badge: "W223", status: "live" as const, tooltip: "Edit net debit caps and position limits per participant" },
+      { icon: Building2, label: "Settlement Banks", path: "/nexthub/settlement-banks", badge: "W223", status: "live" as const, tooltip: "Manage settlement bank accounts and RTGS/NIP config" },
     ],
   },
   {
@@ -418,6 +422,9 @@ const platformOpsItems: NavItem[] = [
   { icon: Code2, label: "Protocol Validator", path: "/platform/protocol-validator", badge: "W221" },
   { icon: Users, label: "Beneficiary Registry", path: "/platform/beneficiary-registry", badge: "W221" },
   { icon: DollarSign, label: "Cost Centres", path: "/platform/cost-centres", badge: "W221" },
+  { icon: Shield, label: "API Rate Limits", path: "/platform/api-rate-limits", badge: "W223" },
+  { icon: FileText, label: "KYC Documents", path: "/compliance/kyc-documents", badge: "W223" },
+  { icon: CheckCircle2, label: "Merchant Verification", path: "/compliance/merchant-verification", badge: "W223" },
 ];
 
 const devItems: NavItem[] = [
@@ -435,6 +442,24 @@ const devItems: NavItem[] = [
   { icon: Code2, label: "Developer Settings", path: "/settings/developer", badge: "W221" },
   { icon: Settings, label: "Settings", path: "/settings" },
   { icon: BookOpen, label: "Help Guide", path: "/docs/merchant-guide" },
+  { icon: Bell, label: "Notifications", path: "/settings/notifications", badge: "W223" },
+  { icon: Monitor, label: "POS Terminals", path: "/settings/pos-terminals", badge: "W223" },
+];
+const analyticsItems: NavItem[] = [
+  { icon: TrendingUp, label: "Revenue Analytics", path: "/analytics/revenue", badge: "W223" },
+  { icon: Globe, label: "FX Rates", path: "/fx/rates", badge: "W223" },
+  { icon: Link2, label: "Payment Link Builder", path: "/payment-links/builder", badge: "W223" },
+  { icon: CreditCard, label: "Subscriptions", path: "/billing/subscriptions", badge: "W223" },
+  { icon: Coins, label: "CBDC Wallets", path: "/cbdc/wallets", badge: "W223" },
+];
+const onboardingHubItems: NavItem[] = [
+  { icon: Building2, label: "Onboarding Hub", path: "/onboarding", badge: "W223" },
+  { icon: Network, label: "DFSP Onboarding", path: "/onboarding/dfsp", badge: "W223" },
+  { icon: Zap, label: "PISP Onboarding", path: "/onboarding/pisp", badge: "W223" },
+  { icon: CreditCard, label: "PSP Onboarding", path: "/onboarding/psp", badge: "W223" },
+  { icon: Monitor, label: "POS Operator", path: "/onboarding/pos-operator", badge: "W223" },
+  { icon: Shield, label: "Regulator", path: "/onboarding/regulator", badge: "W223" },
+  { icon: Landmark, label: "Settlement Bank", path: "/onboarding/settlement-bank", badge: "W223" },
 ];
 
 const ONBOARDING_STEPS = [
@@ -786,8 +811,81 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </div>
         )}
+              {/* Analytics & Monetisation section */}
+        {!collapsed && (
+          <button
+            onClick={() => toggleGroup("__analytics__")}
+            className="sidebar-item w-full justify-between text-sidebar-foreground/50 hover:text-sidebar-foreground text-xs uppercase tracking-wider font-semibold mt-2"
+          >
+            <span className="flex items-center gap-2"><TrendingUp className="w-3.5 h-3.5" />Analytics & Monetisation</span>
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedGroups.has("__analytics__") ? "rotate-180" : ""}`} />
+          </button>
+        )}
+        {(collapsed || expandedGroups.has("__analytics__")) && (
+          <div className={!collapsed ? "ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2" : ""}>
+            {analyticsItems.map((item) => {
+              const isActive = location === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-sm">{item.label}</span>
+                      {item.badge && (
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-green-500/20 text-green-400 border-0">
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+        {/* Onboarding Hub section */}
+        {!collapsed && (
+          <button
+            onClick={() => toggleGroup("__onboarding_hub__")}
+            className="sidebar-item w-full justify-between text-sidebar-foreground/50 hover:text-sidebar-foreground text-xs uppercase tracking-wider font-semibold mt-2"
+          >
+            <span className="flex items-center gap-2"><Rocket className="w-3.5 h-3.5" />Onboarding Hub</span>
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedGroups.has("__onboarding_hub__") ? "rotate-180" : ""}`} />
+          </button>
+        )}
+        {(collapsed || expandedGroups.has("__onboarding_hub__")) && (
+          <div className={!collapsed ? "ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2" : ""}>
+            {onboardingHubItems.map((item) => {
+              const isActive = location === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-sm">{item.label}</span>
+                      {item.badge && (
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-orange-500/20 text-orange-400 border-0">
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
-
       {/* Onboarding Progress Tracker */}
       {!collapsed && !onboardingComplete && (
         <div className="px-4 py-3 border-t border-sidebar-border">

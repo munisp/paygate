@@ -462,6 +462,20 @@ const ComplianceScorecard = lz(() => import("./pages/platform/ComplianceScorecar
 const ProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"));
 const BeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
 const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
+const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
+const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
+const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
+const NDCPositionLimitEditor = lz(() => import("./pages/nexthub/NDCPositionLimitEditor"));
+const SettlementBankManagement = lz(() => import("./pages/nexthub/SettlementBankManagement"));
+const DFSPTopologyMap = lz(() => import("./pages/nexthub/DFSPTopologyMap"));
+const BulkTransferWizard = lz(() => import("./pages/nexthub/BulkTransferWizard"));
+const FXRateManagement = lz(() => import("./pages/fx/FXRateManagement"));
+const RevenueAnalytics = lz(() => import("./pages/analytics/RevenueAnalytics"));
+const NotificationPreferences = lz(() => import("./pages/settings/NotificationPreferences"));
+const PaymentLinkBuilder = lz(() => import("./pages/PaymentLinkBuilder"));
+const APIRateLimitDashboard = lz(() => import("./pages/platform/APIRateLimitDashboard"));
+const CBDCWalletManagement = lz(() => import("./pages/cbdc/CBDCWalletManagement"));
+const SubscriptionBilling = lz(() => import("./pages/billing/SubscriptionBilling"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -952,6 +966,30 @@ function Router() {
         <Route path="/platform/protocol-validator" component={ProtocolValidator} />
         <Route path="/platform/beneficiary-registry" component={BeneficiaryRegistry} />
         <Route path="/platform/cost-centres" component={CostCentreManager} />
+        {/* Wave 223 — Onboarding Hub */}
+        <Route path="/onboarding" component={OnboardingHub} />
+        <Route path="/onboarding/dfsp" component={DFSPOnboarding} />
+        <Route path="/onboarding/pisp" component={PISPOnboarding} />
+        <Route path="/onboarding/psp" component={PSPOnboarding} />
+        <Route path="/onboarding/pos-operator" component={POSOperatorOnboarding} />
+        <Route path="/onboarding/regulator" component={RegulatorOnboarding} />
+        <Route path="/onboarding/settlement-bank" component={SettlementBankOnboarding} />
+        {/* Wave 223 — POS Terminal Management */}
+        <Route path="/settings/pos-terminals" component={POSTerminalManagement} />
+        <Route path="/compliance/kyc-documents" component={KYCDocumentUpload} />
+        <Route path="/compliance/merchant-verification" component={MerchantVerification} />
+        <Route path="/nexthub/ndc-limits" component={NDCPositionLimitEditor} />
+        <Route path="/nexthub/settlement-banks" component={SettlementBankManagement} />
+        <Route path="/nexthub/topology" component={DFSPTopologyMap} />
+        <Route path="/nexthub/bulk-transfer" component={BulkTransferWizard} />
+        <Route path="/fx/rates" component={FXRateManagement} />
+        <Route path="/analytics/revenue" component={RevenueAnalytics} />
+        <Route path="/settings/notifications" component={NotificationPreferences} />
+        <Route path="/payment-links/builder" component={PaymentLinkBuilder} />
+        <Route path="/platform/api-rate-limits" component={APIRateLimitDashboard} />
+        <Route path="/cbdc/wallets" component={CBDCWalletManagement} />
+        <Route path="/billing/subscriptions" component={SubscriptionBilling} />
+        <Route path="/platform/audit-log" component={PlatformAuditLogViewer} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

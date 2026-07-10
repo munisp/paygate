@@ -5549,3 +5549,177 @@ export const costCentres = pgTable("cost_centres", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// ── Wave 223: Onboarding & Production-Readiness Tables ───────────────────────
+
+// Settlement Banks registry
+export const settlementBanks = pgTable("settlement_banks", {
+  id: text("id").primaryKey(),
+  bankCode: text("bank_code").notNull().unique(),
+  bankName: text("bank_name").notNull(),
+  nipCode: text("nip_code"),
+  swiftCode: text("swift_code"),
+  cbnLicenseNumber: text("cbn_license_number"),
+  settlementAccountNumber: text("settlement_account_number"),
+  settlementAccountName: text("settlement_account_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  status: text("status").notNull().default("active"),
+  isRtgsEnabled: boolean("is_rtgs_enabled").notNull().default(false),
+  isNipEnabled: boolean("is_nip_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Nexthub Regulators (CBN, SEC, NDIC observers)
+export const nexthubRegulators = pgTable("nexthub_regulators", {
+  id: text("id").primaryKey(),
+  regulatorCode: text("regulator_code").notNull().unique(),
+  regulatorName: text("regulator_name").notNull(),
+  jurisdiction: text("jurisdiction").notNull().default("NG"),
+  regulatoryType: text("regulatory_type").notNull().default("central_bank"),
+  contactEmail: text("contact_email"),
+  reportingFrequency: text("reporting_frequency").notNull().default("daily"),
+  dataAccessLevel: text("data_access_level").notNull().default("aggregate"),
+  apiEndpoint: text("api_endpoint"),
+  webhookUrl: text("webhook_url"),
+  status: text("status").notNull().default("active"),
+  onboardedAt: timestamp("onboarded_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// DFSP Onboarding Sessions (wizard state)
+export const dfspOnboardingSessions = pgTable("dfsp_onboarding_sessions", {
+  id: text("id").primaryKey(),
+  dfspId: text("dfsp_id"),
+  institutionName: text("institution_name").notNull(),
+  institutionType: text("institution_type").notNull(),
+  cbnLicenseNumber: text("cbn_license_number"),
+  cbnLicenseDocUrl: text("cbn_license_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone"),
+  technicalContactEmail: text("technical_contact_email"),
+  fspiopEndpoint: text("fspop_endpoint"),
+  tlsCertUrl: text("tls_cert_url"),
+  jwksUrl: text("jwks_url"),
+  settlementAccountNumber: text("settlement_account_number"),
+  settlementBankCode: text("settlement_bank_code"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(6),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// PISP Onboarding Sessions
+export const pispOnboardingSessions = pgTable("pisp_onboarding_sessions", {
+  id: text("id").primaryKey(),
+  pispId: text("pisp_id"),
+  companyName: text("company_name").notNull(),
+  cbnLicenseNumber: text("cbn_license_number"),
+  cbnLicenseDocUrl: text("cbn_license_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  redirectUrls: text("redirect_urls"),
+  webhookUrl: text("webhook_url"),
+  consentScopeRequested: text("consent_scope_requested"),
+  businessDescription: text("business_description"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(5),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// PSP / Acquirer Onboarding Sessions
+export const pspOnboardingSessions = pgTable("psp_onboarding_sessions", {
+  id: text("id").primaryKey(),
+  pspId: text("psp_id"),
+  companyName: text("company_name").notNull(),
+  pspType: text("psp_type").notNull().default("acquirer"),
+  cbnLicenseNumber: text("cbn_license_number"),
+  pcidssLevel: text("pcidss_level"),
+  pcidssDocUrl: text("pcidss_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  settlementBankCode: text("settlement_bank_code"),
+  merchantCategoryCodesAllowed: text("merchant_category_codes_allowed"),
+  maxTransactionAmount: doublePrecision("max_transaction_amount"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(5),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// POS Operator Onboarding Sessions
+export const posOperatorOnboardingSessions = pgTable("pos_operator_onboarding_sessions", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id"),
+  operatorName: text("operator_name").notNull(),
+  ptspCode: text("ptsp_code"),
+  terminalCount: integer("terminal_count").notNull().default(1),
+  deploymentLocations: text("deployment_locations"),
+  nibssApprovalDocUrl: text("nibss_approval_doc_url"),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone"),
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(4),
+  status: text("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Compliance Check Results (for nightly automation job)
+export const complianceCheckResults = pgTable("compliance_check_results", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  checkType: text("check_type").notNull(),
+  checkName: text("check_name").notNull(),
+  score: integer("score").notNull().default(0),
+  maxScore: integer("max_score").notNull().default(100),
+  status: text("status").notNull().default("pending"),
+  findings: text("findings"),
+  recommendations: text("recommendations"),
+  evaluatedAt: timestamp("evaluated_at").defaultNow(),
+  nextEvaluationAt: timestamp("next_evaluation_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Audit Logs
+export const auditLogs = pgTable("audit_logs", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id"),
+  userId: text("user_id"),
+  action: text("action").notNull(),
+  resource: text("resource").notNull(),
+  resourceId: text("resource_id"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  requestBody: text("request_body"),
+  responseStatus: integer("response_status"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const apiRateLimitRules = pgTable("api_rate_limit_rules", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  limitPerMinute: integer("limit_per_minute").notNull().default(60),
+  limitPerHour: integer("limit_per_hour").notNull().default(1000),
+  limitPerDay: integer("limit_per_day").notNull().default(10000),
+  burstLimit: integer("burst_limit").notNull().default(10),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

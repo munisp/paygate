@@ -212,6 +212,9 @@ import { wave218Router } from './routers/wave218_enhancements';
 import { nexthubParticipantsRouter } from './routers/nexthubParticipants';
 // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
 import { wave221Router } from './routers/wave221_developer';
+// Wave 223 — Comprehensive Stakeholder Onboarding
+import { wave223Router } from './routers/wave223_onboarding';
+import { wave223ExtRouter } from './routers/wave223_extensions';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9409,6 +9412,9 @@ export const appRouter = router({
   nexthubParticipants: nexthubParticipantsRouter,
   // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
   wave221: wave221Router,
+  // Wave 223 — Comprehensive Stakeholder Onboarding (DFSP, PISP, PSP, POS, Regulator, Settlement Bank)
+  wave223: wave223Router,
+  wave223Ext: wave223ExtRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
