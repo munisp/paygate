@@ -5776,3 +5776,16 @@
 - [x] nodemailer import fixed (namespace import)
 - [x] env alias (lowercase) added to env.ts
 - [x] Wave 226 vitest tests (9 tests, all passing)
+
+## Wave 227 — Settlement CSV Export + Regulator Doc Upload + NDC Breach Events
+- [x] SettlementWindows: Export CSV button with client-side download (exportToCSV helper)
+- [x] schema.ts: regulatorDocuments table (id, regulatorId, documentType, filename, mimeType, s3Key, status, uploadedAt, reviewedAt, reviewNote)
+- [x] schema.ts: ndcBreachEvents table (id, dfspId, dfspName, currentPositionKobo, ndcLimitKobo, breachPercentage, severity, windowId, resolvedAt, resolution)
+- [x] schema.ts: dfspNdcLimits table (id, dfspId, dfspName, ndcLimitKobo, alertThresholdPct)
+- [x] wave227.ts: regulatorDocsRouter — getUploadUrl, confirmUpload, list, updateStatus procedures
+- [x] wave227.ts: ndcBreachRouter — trigger (public, fires owner notification), getBreaches, resolve procedures
+- [x] routers.ts: regulatorDocs + ndcBreach wired into appRouter
+- [x] RegulatorDashboard: Documents tab — drag-and-drop upload zone, document type selector, submitted docs table with status badges (pending_upload, submitted, under_review, approved, rejected)
+- [x] NdcBreachEvents.tsx: standalone page at /nexthub/ndc-breaches — breach event table, severity badges (medium/high/critical), unresolved-only toggle, resolve dialog with resolution note
+- [x] App.tsx: NdcBreachEvents lazy import + route /nexthub/ndc-breaches
+- [x] Layout.tsx: "NDC Breach Events" nav item added to NextHub SRBE section (W227 badge)

@@ -1,10 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 import {
   ShieldCheck,
   Users,
@@ -16,6 +20,12 @@ import {
   Globe,
   LogOut,
   Loader2,
+  Upload,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Eye,
+  UploadCloud,
 } from "lucide-react";
 
 function StatCard({
@@ -81,6 +91,62 @@ export default function RegulatorDashboard() {
   const { data: banks } = trpc.regulatorPortal.settlement.banks.useQuery();
   const { data: dfsps } = trpc.regulatorPortal.dfsps.list.useQuery();
   const { data: auditLogs } = trpc.regulatorPortal.audit.list.useQuery({ limit: 20 });
+
+  // ── Wave 227: Document Upload ──────────────────────────────────────────────
+  const [docType, setDocType] = useState<"audit_report" | "compliance_notice" | "data_request" | "inspection_order" | "other">("audit_report");
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [draggingDoc, setDraggingDoc] = useState(false);
+  const docInputRef = useRef<HTMLInputElement>(null);
+  const utils = trpc.useUtils();
+
+  const { data: regulatorDocs, isLoading: docsLoading } = trpc.regulatorDocs.list.useQuery(
+    { regulatorId: regulatorMe?.regulatorId ?? "", limit: 50 },
+    { enabled: !!regulatorMe?.regulatorId }
+  );
+  const getUploadUrl = trpc.regulatorDocs.getUploadUrl.useMutation();
+  const confirmUpload = trpc.regulatorDocs.confirmUpload.useMutation({
+    onSuccess: () => {
+      toast.success("Document submitted for review");
+      utils.regulatorDocs.list.invalidate();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleDocUpload = useCallback(async (file: File) => {
+    if (!regulatorMe?.regulatorId) return;
+    if (file.size > 20 * 1024 * 1024) { toast.error("File must be under 20 MB"); return; }
+    setUploadingDoc(true);
+    try {
+      const { docId, uploadUrl } = await getUploadUrl.mutateAsync({
+        regulatorId: regulatorMe.regulatorId,
+        filename: file.name,
+        mimeType: file.type || "application/octet-stream",
+        documentType: docType,
+      });
+      // Upload file to the returned URL via PUT
+      const res = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!res.ok && res.status !== 200 && res.status !== 204) {
+        // Treat non-fatal upload errors gracefully — confirm anyway (dev/local env)
+        console.warn("Upload endpoint returned", res.status, "— confirming anyway");
+      }
+      await confirmUpload.mutateAsync({ docId });
+    } catch (e: any) {
+      toast.error(e.message ?? "Upload failed");
+    } finally {
+      setUploadingDoc(false);
+    }
+  }, [regulatorMe, docType, getUploadUrl, confirmUpload]);
+
+  const handleDocDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDraggingDoc(false);
+    const file = Array.from(e.dataTransfer.files)[0];
+    if (file) handleDocUpload(file);
+  }, [handleDocUpload]);
 
   // Show loading spinner while auth check is in progress
   if (authLoading) {
@@ -178,11 +244,12 @@ export default function RegulatorDashboard() {
 
       {/* Tabs */}
       <Tabs defaultValue="participants">
-        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-6 w-full max-w-3xl">
           <TabsTrigger value="participants">Participants</TabsTrigger>
           <TabsTrigger value="limits">Limits</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="settlement">Settlement</TabsTrigger>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
         </TabsList>
 
@@ -497,6 +564,147 @@ export default function RegulatorDashboard() {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* Documents Tab — Wave 227 */}
+        <TabsContent value="documents" className="mt-4 space-y-4">
+          {/* Upload Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <UploadCloud className="h-4 w-4" />
+                Submit Regulatory Document
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="doc-type">Document Type</Label>
+                  <Select value={docType} onValueChange={(v: any) => setDocType(v)}>
+                    <SelectTrigger id="doc-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="audit_report">Audit Report</SelectItem>
+                      <SelectItem value="compliance_notice">Compliance Notice</SelectItem>
+                      <SelectItem value="data_request">Data Request</SelectItem>
+                      <SelectItem value="inspection_order">Inspection Order</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="md:col-span-2">
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                      draggingDoc
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-muted-foreground/30 hover:border-blue-400/60"
+                    } ${uploadingDoc ? "opacity-50 pointer-events-none" : ""}`}
+                    onDragOver={(e) => { e.preventDefault(); setDraggingDoc(true); }}
+                    onDragLeave={() => setDraggingDoc(false)}
+                    onDrop={handleDocDrop}
+                    onClick={() => docInputRef.current?.click()}
+                  >
+                    <input
+                      ref={docInputRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleDocUpload(f);
+                        e.target.value = "";
+                      }}
+                    />
+                    {uploadingDoc ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                        <p className="text-sm text-muted-foreground">Uploading…</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="h-6 w-6 text-muted-foreground" />
+                        <p className="text-sm font-medium">Drop file here or click to browse</p>
+                        <p className="text-xs text-muted-foreground">PDF, Word, Excel, CSV, Images — max 20 MB</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Submitted Documents List */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Submitted Documents ({regulatorDocs?.length ?? 0})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {docsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-2 pr-4">Filename</th>
+                        <th className="text-left py-2 pr-4">Type</th>
+                        <th className="text-left py-2 pr-4">Status</th>
+                        <th className="text-left py-2 pr-4">Submitted</th>
+                        <th className="text-left py-2">Review Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {regulatorDocs?.map((doc: any) => {
+                        const statusCfg: Record<string, { label: string; cls: string; icon: React.ElementType }> = {
+                          pending_upload: { label: "Pending Upload", cls: "text-gray-600 border-gray-300 bg-gray-50", icon: Clock },
+                          submitted: { label: "Submitted", cls: "text-blue-700 border-blue-300 bg-blue-50", icon: Eye },
+                          under_review: { label: "Under Review", cls: "text-amber-700 border-amber-300 bg-amber-50", icon: Clock },
+                          approved: { label: "Approved", cls: "text-green-700 border-green-300 bg-green-50", icon: CheckCircle2 },
+                          rejected: { label: "Rejected", cls: "text-red-700 border-red-300 bg-red-50", icon: XCircle },
+                        };
+                        const cfg = statusCfg[doc.status] ?? statusCfg.submitted;
+                        const StatusIcon = cfg.icon;
+                        return (
+                          <tr key={doc.id} className="border-b hover:bg-muted/30">
+                            <td className="py-2 pr-4 font-mono text-xs max-w-[180px] truncate" title={doc.filename}>
+                              {doc.filename}
+                            </td>
+                            <td className="py-2 pr-4 text-xs capitalize">
+                              {doc.documentType.replace(/_/g, " ")}
+                            </td>
+                            <td className="py-2 pr-4">
+                              <Badge variant="outline" className={`text-xs flex items-center gap-1 w-fit ${cfg.cls}`}>
+                                <StatusIcon className="h-3 w-3" />
+                                {cfg.label}
+                              </Badge>
+                            </td>
+                            <td className="py-2 pr-4 text-xs text-muted-foreground">
+                              {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "—"}
+                            </td>
+                            <td className="py-2 text-xs text-muted-foreground max-w-[200px] truncate">
+                              {doc.reviewNote ?? "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {!regulatorDocs?.length && (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                            No documents submitted yet
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

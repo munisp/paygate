@@ -470,6 +470,7 @@ const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"
 const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
 const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
 const NDCPositionLimitEditor = lz(() => import("./pages/nexthub/NDCPositionLimitEditor"));
+const NdcBreachEvents = lz(() => import("./pages/nexthub/NdcBreachEvents"));
 const SettlementBankManagement = lz(() => import("./pages/nexthub/SettlementBankManagement"));
 const DFSPTopologyMap = lz(() => import("./pages/nexthub/DFSPTopologyMap"));
 const BulkTransferWizard = lz(() => import("./pages/nexthub/BulkTransferWizard"));
@@ -1002,6 +1003,7 @@ function Router() {
         <Route path="/compliance/kyc-documents" component={KYCDocumentUpload} />
         <Route path="/compliance/merchant-verification" component={MerchantVerification} />
         <Route path="/nexthub/ndc-limits" component={NDCPositionLimitEditor} />
+        <Route path="/nexthub/ndc-breaches" component={NdcBreachEvents} />
         <Route path="/nexthub/settlement-banks" component={SettlementBankManagement} />
         <Route path="/nexthub/topology" component={DFSPTopologyMap} />
         <Route path="/nexthub/bulk-transfer" component={BulkTransferWizard} />

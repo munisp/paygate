@@ -395,6 +395,7 @@ const navGroups: NavGroup[] = [
       { icon: Layers, label: "Bulk Transfer", path: "/nexthub/bulk-transfer", badge: "W223", status: "live" as const, tooltip: "Multi-row bulk transfer wizard with CSV upload" },
       { icon: TrendingUp, label: "NDC / Limits", path: "/nexthub/ndc-limits", badge: "W223", status: "live" as const, tooltip: "Edit net debit caps and position limits per participant" },
       { icon: Building2, label: "Settlement Banks", path: "/nexthub/settlement-banks", badge: "W223", status: "live" as const, tooltip: "Manage settlement bank accounts and RTGS/NIP config" },
+      { icon: AlertTriangle, label: "NDC Breach Events", path: "/nexthub/ndc-breaches", badge: "W227", status: "live" as const, tooltip: "NDC breach event log with severity triage and resolve actions" },
     ],
   },
   {
