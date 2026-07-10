@@ -5540,3 +5540,52 @@
 - [x] UI: /domains/cbdc portal page (CBDC.tsx)
 - [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (Wave 218)
 - [ ] Kafka: paygate.cbdc.* topics (Wave 218)
+
+## Wave 218: Unified Dashboard, Enhanced Domain Pages, Sidebar UX, 20 Enhancements
+
+### Part 1: Unified Domain Dashboard
+- [x] UI: DomainOverview.tsx — unified cross-domain metrics dashboard (/domains/overview)
+- [x] TS: wave218Router — domainHealth, crossDomainSearch, domainAnalytics, domainFeeLedger sub-routers
+- [x] App.tsx: register /domains/overview route
+- [x] Layout.tsx: add Overview entry at top of Domain Expansion section
+
+### Part 2: Enhanced Domain Pages (filtering, sorting, CSV export)
+- [x] UI: Remittance.tsx — status/currency/date filters, sortable table, CSV export via DomainTableToolbar
+- [x] UI: Healthcare.tsx — status/claim-type/date filters, sortable table, CSV export
+- [x] UI: Insurance.tsx — status/policy-type/date filters, sortable table, CSV export
+- [x] UI: SupplyChainFinance.tsx — status/date filters, sortable table, CSV export
+- [x] UI: G2PDisbursements.tsx — program-type/status/date filters, sortable table, CSV export
+- [x] UI: EnergyVend.tsx — DISCO/status/date filters, sortable table, CSV export
+- [x] UI: CBDC.tsx — rail/status/date filters, sortable table, CSV export
+- [x] Shared: DomainTableToolbar.tsx, SortableTableHeader.tsx, useDomainTable.ts hook
+
+### Part 3: Sidebar UX Enhancements
+- [x] Layout.tsx: active status indicators (green/amber/red dots) on domain nav items
+- [x] Layout.tsx: hover tooltips on all Domain Expansion nav items
+- [x] Layout.tsx: wave-coloured badges (teal W2xx, indigo NextHub)
+- [x] Layout.tsx: /domains/overview overview link at top of Domain Expansion section
+
+### Part 4: 20 Platform Enhancements (wave218_enhancements.ts)
+- [x] Enhancement 1: Domain health heartbeat (wave218.domainHealth.getAll)
+- [x] Enhancement 2: Cross-domain unified search (wave218.crossDomainSearch.search)
+- [x] Enhancement 3: Domain SLA breach tracker (wave218.domainSLA.getBreaches)
+- [x] Enhancement 4: Domain audit log (wave218.domainAudit.list)
+- [x] Enhancement 5: Domain API key management (wave218.domainApiKeys.create/list/revoke)
+- [x] Enhancement 6: Domain throughput analytics (wave218.domainAnalytics.getThroughput)
+- [x] Enhancement 7: Domain fee ledger (wave218.domainFeeLedger.getSummary)
+- [x] Enhancement 8: Retry queue (wave218.domainRetry.list/retryNow)
+- [x] Enhancement 9: Cross-domain reconciliation (wave218.crossDomainRecon.generateReport)
+- [x] Enhancement 10: Compliance flag propagation (wave218.complianceFlags.flagEntity)
+- [x] Enhancement 11: APISIX route health (wave218.apisixHealth.getRouteHealth)
+- [x] Enhancement 12: Bulk status update (wave218.bulkStatusUpdate.update)
+- [x] Enhancement 13: Domain notification prefs (wave218.domainNotifPrefs.get/upsert)
+- [x] Enhancement 14: Domain cost centre tagging (wave218.costCentre.list/upsert)
+- [x] Enhancement 15: Status dot indicators (Layout.tsx renderNavItem)
+- [x] Enhancement 16: Hover tooltips (Layout.tsx Tooltip)
+- [x] Enhancement 17: Wave-coloured badges (Layout.tsx badge renderer)
+- [x] Enhancement 18: DomainTableToolbar shared component
+- [x] Enhancement 19: SortableTableHeader shared component
+- [x] Enhancement 20: Domain Overview Dashboard (/domains/overview)
+
+### Part 5: Architecture Documents
+- [x] Doc: Parts XVI–XIX in paygate-nexthub-design-v2.md — NextHub-PayGate integration, APISIX API key management, monetisation model, Wave 219 roadmap

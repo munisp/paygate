@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Package, Plus, TrendingUp, DollarSign, Clock, CheckCircle } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -27,7 +31,18 @@ export default function SupplyChainFinance() {
   });
   const [discountForm, setDiscountForm] = useState({ invoiceId: "", discountRate: "", paymentDate: "" });
 
-  const { data: invoices, refetch } = trpc.scf.listInvoices.useQuery({ page, pageSize: 20 });
+  const { data: invoices, refetch } = trpc.scf.listInvoices.useQuery({ page: 1, pageSize: 200 });
+  const allInvoices = invoices?.invoices ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(allInvoices, ["id", "invoice_number", "buyer_id", "supplier_id", "status"], "created_at");
+  const CSV_COLS = [
+    { key: "id", label: "ID" }, { key: "invoice_number", label: "Invoice #" },
+    { key: "buyer_id", label: "Buyer" }, { key: "supplier_id", label: "Supplier" },
+    { key: "invoice_amount", label: "Amount" }, { key: "currency", label: "Currency" },
+    { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
+  ];
   const { data: stats } = trpc.scf.getSCFStats.useQuery();
   const submitMut = trpc.scf.submitInvoice.useMutation({
     onSuccess: (d) => { toast.success(`Invoice tokenized: ${d.tokenId}`); setShowInvoiceDialog(false); refetch(); },

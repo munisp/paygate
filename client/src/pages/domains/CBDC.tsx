@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Coins, Plus, ArrowRightLeft, Wallet, TrendingUp, Shield } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -39,7 +43,18 @@ export default function CBDC() {
     ownerType: "INDIVIDUAL", currency: "eNGN",
   });
 
-  const { data: transfers, refetch } = trpc.cbdc.listTransfers.useQuery({ rail: railFilter, page, pageSize: 20 });
+  const { data: transfers, refetch } = trpc.cbdc.listTransfers.useQuery({ page: 1, pageSize: 200 });
+  const allTransfers = transfers?.transfers ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(allTransfers, ["id", "from_account_id", "to_account_id", "rail", "status"], "created_at");
+  const CSV_COLS = [
+    { key: "id", label: "ID" }, { key: "from_account_id", label: "From" },
+    { key: "to_account_id", label: "To" }, { key: "rail", label: "Rail" },
+    { key: "amount", label: "Amount" }, { key: "currency", label: "Currency" },
+    { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
+  ];
   const { data: accounts } = trpc.cbdc.listAccounts.useQuery({ rail: railFilter });
   const { data: stats } = trpc.cbdc.getCBDCStats.useQuery();
   const transferMut = trpc.cbdc.initiateTransfer.useMutation({

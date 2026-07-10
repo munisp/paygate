@@ -9,6 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ArrowRightLeft, Globe, Shield, TrendingUp, Plus, AlertTriangle } from "lucide-react";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 
 const STATUS_COLORS: Record<string, string> = {
   INITIATED: "bg-blue-100 text-blue-800",
@@ -34,7 +38,27 @@ export default function Remittance() {
   });
 
   const { data: corridors } = trpc.remittance.listCorridors.useQuery();
-  const { data: transfers, refetch } = trpc.remittance.listTransfers.useQuery({ page, pageSize: 20 });
+  const { data: transfers, refetch } = trpc.remittance.listTransfers.useQuery({ page: 1, pageSize: 200 });
+
+  const allTransfers = transfers?.transfers ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(
+    allTransfers,
+    ["id", "sender_fsp", "receiver_name", "send_currency", "status"],
+    "created_at"
+  );
+
+  const CSV_COLUMNS = [
+    { key: "id", label: "ID" },
+    { key: "sender_fsp", label: "Sender FSP" },
+    { key: "receiver_name", label: "Receiver" },
+    { key: "send_amount", label: "Amount" },
+    { key: "send_currency", label: "Currency" },
+    { key: "status", label: "Status" },
+    { key: "created_at", label: "Created At" },
+  ];
   const initiateMut = trpc.remittance.initiateTransfer.useMutation({
     onSuccess: () => { toast.success("Remittance transfer initiated"); setShowTransferDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -170,45 +194,64 @@ export default function Remittance() {
       {/* Transfers Table */}
       <Card>
         <CardHeader><CardTitle>Transfer History</CardTitle></CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="text-left py-2 pr-4">ID</th>
-                  <th className="text-left py-2 pr-4">Sender FSP</th>
-                  <th className="text-left py-2 pr-4">Receiver</th>
-                  <th className="text-right py-2 pr-4">Amount</th>
-                  <th className="text-left py-2 pr-4">Status</th>
-                  <th className="text-left py-2">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transfers?.transfers?.length === 0 && (
-                  <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No transfers yet</td></tr>
-                )}
-                {transfers?.transfers?.map((t: Record<string, unknown>) => (
-                  <tr key={t.id as string} className="border-b hover:bg-muted/30">
-                    <td className="py-2 pr-4 font-mono text-xs">{(t.id as string).slice(0, 16)}...</td>
-                    <td className="py-2 pr-4">{t.sender_fsp as string}</td>
-                    <td className="py-2 pr-4">{t.receiver_name as string}</td>
-                    <td className="py-2 pr-4 text-right font-medium">{(t.send_amount as number)?.toLocaleString()} {t.send_currency as string}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[t.status as string] || "bg-gray-100 text-gray-800"}`}>
-                        {t.status as string}
-                      </span>
-                    </td>
-                    <td className="py-2 text-muted-foreground text-xs">{new Date(t.created_at as string).toLocaleDateString()}</td>
-                  </tr>
+        <CardContent className="space-y-4">
+          <DomainTableToolbar
+            filters={filters}
+            setFilter={setFilter}
+            statusOptions={[
+              { value: "INITIATED", label: "Initiated" },
+              { value: "PROCESSING", label: "Processing" },
+              { value: "SETTLED", label: "Settled" },
+              { value: "FAILED", label: "Failed" },
+              { value: "REVERSED", label: "Reversed" },
+            ]}
+            extraFilters={[
+              { key: "send_currency", placeholder: "Currency", options: [
+                { value: "NGN", label: "NGN" }, { value: "USD", label: "USD" },
+                { value: "GBP", label: "GBP" }, { value: "EUR", label: "EUR" },
+              ]},
+            ]}
+            onExportCSV={() => exportCSV(CSV_COLUMNS)}
+            totalFiltered={filtered.length}
+            totalAll={allTransfers.length}
+          />
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHeader label="ID" sortKey="id" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Sender FSP" sortKey="sender_fsp" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Receiver" sortKey="receiver_name" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Amount" sortKey="send_amount" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Status" sortKey="status" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Date" sortKey="created_at" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginated.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No transfers found</TableCell></TableRow>
+                ) : paginated.map((t: any) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-mono text-xs">{String(t.id).slice(0, 16)}…</TableCell>
+                    <TableCell className="text-xs">{t.sender_fsp}</TableCell>
+                    <TableCell className="text-xs">{t.receiver_name}</TableCell>
+                    <TableCell className="text-xs font-medium">{Number(t.send_amount).toLocaleString()} {t.send_currency}</TableCell>
+                    <TableCell><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[t.status] || "bg-gray-100 text-gray-800"}`}>{t.status}</span></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{new Date(t.created_at).toLocaleDateString()}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-          <div className="flex justify-between items-center mt-4">
-            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-            <span className="text-sm text-muted-foreground">Page {page}</span>
-            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)}>Next</Button>
-          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-muted-foreground">Page {tPage} of {totalPages}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={tPage === 1} onClick={() => setTPage(tPage - 1)}>Previous</Button>
+                <Button variant="outline" size="sm" disabled={tPage === totalPages} onClick={() => setTPage(tPage + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

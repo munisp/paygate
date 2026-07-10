@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Zap, Plus, CheckCircle, XCircle, Clock, RefreshCw } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -32,7 +36,18 @@ export default function EnergyVend() {
     customerPhone: "", customerFsp: "", customerAccount: "",
   });
 
-  const { data: transactions, refetch } = trpc.energy.listVendTransactions.useQuery({ disco: discoFilter, page, pageSize: 20 });
+  const { data: transactions, refetch } = trpc.energy.listVendTransactions.useQuery({ page: 1, pageSize: 200 });
+  const allTransactions = transactions?.transactions ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(allTransactions, ["id", "meter_number", "customer_name", "disco", "status"], "created_at");
+  const CSV_COLS = [
+    { key: "id", label: "ID" }, { key: "meter_number", label: "Meter #" },
+    { key: "customer_name", label: "Customer" }, { key: "disco", label: "DISCO" },
+    { key: "amount", label: "Amount" }, { key: "units_kwh", label: "kWh" },
+    { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
+  ];
   const { data: stats } = trpc.energy.getVendStats.useQuery();
   const vendMut = trpc.energy.initiateVend.useMutation({
     onSuccess: (d) => {

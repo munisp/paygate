@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Heart, FileText, CheckCircle, Clock, XCircle, Plus, Activity } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -32,9 +36,18 @@ export default function Healthcare() {
   });
   const [eligForm, setEligForm] = useState({ policyNumber: "", beneficiaryId: "" });
 
-  const { data: claims, refetch } = trpc.healthcare.listClaims.useQuery({
-    status: statusFilter, page, pageSize: 20,
-  });
+  const { data: claims, refetch } = trpc.healthcare.listClaims.useQuery({ page: 1, pageSize: 200 });
+  const allClaims = claims?.claims ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(allClaims, ["id", "claim_ref", "provider_id", "status"], "created_at");
+  const CSV_COLS = [
+    { key: "id", label: "ID" }, { key: "claim_ref", label: "Claim Ref" },
+    { key: "provider_id", label: "Provider" }, { key: "claim_type", label: "Type" },
+    { key: "claim_amount", label: "Amount" }, { key: "status", label: "Status" },
+    { key: "created_at", label: "Date" },
+  ];
   const { data: stats } = trpc.healthcare.getClaimStats.useQuery();
   const submitMut = trpc.healthcare.submitClaim.useMutation({
     onSuccess: (d) => { toast.success(`Claim submitted: ${d.nhiaClaimRef}`); setShowClaimDialog(false); refetch(); },
@@ -146,60 +159,66 @@ export default function Healthcare() {
         </CardContent></Card>
       </div>
 
-      {/* Filter */}
-      <div className="flex gap-2 flex-wrap">
-        {[undefined, "SUBMITTED", "UNDER_REVIEW", "APPROVED", "REJECTED", "PAID"].map(s => (
-          <Button key={s ?? "all"} variant={statusFilter === s ? "default" : "outline"} size="sm"
-            onClick={() => { setStatusFilter(s); setPage(1); }}>
-            {s ?? "All"}
-          </Button>
-        ))}
-      </div>
-
-      {/* Claims Table */}
+      {/* Claims Table with filtering/sorting/export */}
       <Card>
         <CardHeader><CardTitle>Claims</CardTitle></CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="text-left py-2 pr-4">Claim ID</th>
-                  <th className="text-left py-2 pr-4">Beneficiary</th>
-                  <th className="text-left py-2 pr-4">Provider</th>
-                  <th className="text-left py-2 pr-4">Type</th>
-                  <th className="text-right py-2 pr-4">Amount</th>
-                  <th className="text-left py-2 pr-4">Status</th>
-                  <th className="text-left py-2">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claims?.claims?.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No claims yet</td></tr>
-                )}
-                {claims?.claims?.map((c: Record<string, unknown>) => (
-                  <tr key={c.id as string} className="border-b hover:bg-muted/30">
-                    <td className="py-2 pr-4 font-mono text-xs">{(c.id as string).slice(0, 14)}...</td>
-                    <td className="py-2 pr-4">{c.beneficiary_name as string}</td>
-                    <td className="py-2 pr-4">{c.provider_name as string}</td>
-                    <td className="py-2 pr-4"><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{c.claim_type as string}</span></td>
-                    <td className="py-2 pr-4 text-right font-medium">₦{(c.claim_amount as number)?.toLocaleString()}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[c.status as string] || "bg-gray-100 text-gray-800"}`}>
-                        {c.status as string}
-                      </span>
-                    </td>
-                    <td className="py-2 text-muted-foreground text-xs">{new Date(c.submitted_at as string).toLocaleDateString()}</td>
-                  </tr>
+        <CardContent className="space-y-4">
+          <DomainTableToolbar
+            filters={filters}
+            setFilter={setFilter}
+            statusOptions={[
+              { value: "SUBMITTED", label: "Submitted" },
+              { value: "UNDER_REVIEW", label: "Under Review" },
+              { value: "APPROVED", label: "Approved" },
+              { value: "REJECTED", label: "Rejected" },
+              { value: "PAID", label: "Paid" },
+            ]}
+            extraFilters={[
+              { key: "claim_type", placeholder: "Claim Type", options: CLAIM_TYPES.map(t => ({ value: t, label: t })) },
+            ]}
+            onExportCSV={() => exportCSV(CSV_COLS)}
+            totalFiltered={filtered.length}
+            totalAll={allClaims.length}
+          />
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHeader label="Claim ID" sortKey="id" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Beneficiary" sortKey="beneficiary_name" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Provider" sortKey="provider_name" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Type" sortKey="claim_type" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Amount" sortKey="claim_amount" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Status" sortKey="status" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                  <SortableTableHeader label="Date" sortKey="submitted_at" currentSortKey={String(sortKey)} sortDir={sortDir} onSort={k => toggleSort(k as any)} />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginated.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No claims found</TableCell></TableRow>
+                ) : paginated.map((c: any) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-mono text-xs">{String(c.id).slice(0, 14)}…</TableCell>
+                    <TableCell className="text-xs">{c.beneficiary_name}</TableCell>
+                    <TableCell className="text-xs">{c.provider_name}</TableCell>
+                    <TableCell><span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{c.claim_type}</span></TableCell>
+                    <TableCell className="text-xs font-medium">₦{Number(c.claim_amount).toLocaleString()}</TableCell>
+                    <TableCell><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[c.status] || "bg-gray-100 text-gray-800"}`}>{c.status}</span></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{new Date(c.submitted_at ?? c.created_at).toLocaleDateString()}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-          <div className="flex justify-between items-center mt-4">
-            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-            <span className="text-sm text-muted-foreground">Page {page} of {Math.ceil((claims?.total ?? 0) / 20)}</span>
-            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)}>Next</Button>
-          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-muted-foreground">Page {tPage} of {totalPages}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={tPage === 1} onClick={() => setTPage(tPage - 1)}>Previous</Button>
+                <Button variant="outline" size="sm" disabled={tPage === totalPages} onClick={() => setTPage(tPage + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

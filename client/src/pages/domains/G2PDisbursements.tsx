@@ -8,6 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, Plus, CheckCircle, AlertTriangle, Clock, Upload } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -32,7 +36,18 @@ export default function G2PDisbursements() {
     scheduledAt: "",
   });
 
-  const { data: batches, refetch } = trpc.g2p.listBatches.useQuery({ status: statusFilter, page, pageSize: 20 });
+  const { data: batches, refetch } = trpc.g2p.listBatches.useQuery({ page: 1, pageSize: 200 });
+  const allBatches = batches?.batches ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(allBatches, ["id", "batch_ref", "program_type", "status"], "created_at");
+  const CSV_COLS = [
+    { key: "id", label: "ID" }, { key: "batch_ref", label: "Batch Ref" },
+    { key: "program_type", label: "Program" }, { key: "total_beneficiaries", label: "Beneficiaries" },
+    { key: "total_amount", label: "Amount" }, { key: "currency", label: "Currency" },
+    { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
+  ];
   const { data: stats } = trpc.g2p.getBatchStats.useQuery();
   const createMut = trpc.g2p.createBatch.useMutation({
     onSuccess: (d) => { toast.success(`Batch created: ${d.id}`); setShowBatchDialog(false); refetch(); },

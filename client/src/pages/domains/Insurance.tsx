@@ -7,6 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { DomainTableToolbar } from "@/components/DomainTableToolbar";
+import { SortableTableHeader } from "@/components/SortableTableHeader";
+import { useDomainTable } from "@/hooks/useDomainTable";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Shield, Plus, TrendingDown, AlertTriangle, CheckCircle, DollarSign } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -32,7 +36,18 @@ export default function Insurance() {
     startDate: "", endDate: "", gracePeriodDays: "30",
   });
 
-  const { data: policies, refetch } = trpc.insurance.listPolicies.useQuery({ status: statusFilter, page, pageSize: 20 });
+  const { data: policies, refetch } = trpc.insurance.listPolicies.useQuery({ page: 1, pageSize: 200 });
+  const allPolicies = policies?.policies ?? [];
+  const {
+    filters, setFilter, sortKey, sortDir, toggleSort,
+    filtered, paginated, page: tPage, setPage: setTPage, totalPages, exportCSV,
+  } = useDomainTable(allPolicies, ["id", "policy_number", "holder_name", "status"], "created_at");
+  const CSV_COLS = [
+    { key: "id", label: "ID" }, { key: "policy_number", label: "Policy #" },
+    { key: "holder_name", label: "Holder" }, { key: "policy_type", label: "Type" },
+    { key: "premium_amount", label: "Premium" }, { key: "status", label: "Status" },
+    { key: "created_at", label: "Date" },
+  ];
   const { data: stats } = trpc.insurance.getPolicyStats.useQuery();
   const createMut = trpc.insurance.createPolicy.useMutation({
     onSuccess: (d) => { toast.success(`Policy created: ${d.policyNumber}`); setShowCreateDialog(false); refetch(); },

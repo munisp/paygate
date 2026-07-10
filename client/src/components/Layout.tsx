@@ -33,10 +33,11 @@ import { Download, WifiOff, Moon, Sun, BellRing, BellOff } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ─── Grouped Navigation ──────────────────────────────────────────────────────
-type NavItem = { icon: React.ElementType; label: string; path: string; badge?: string };
-type NavGroup = { title: string; icon: React.ElementType; items: NavItem[] };
+type NavItem = { icon: React.ElementType; label: string; path: string; badge?: string; status?: "live" | "beta" | "degraded" | "new"; tooltip?: string };
+type NavGroup = { title: string; icon: React.ElementType; items: NavItem[]; collapsible?: boolean };
 
 const navGroups: NavGroup[] = [
   {
@@ -394,14 +395,16 @@ const navGroups: NavGroup[] = [
   {
     title: "Domain Expansion",
     icon: Globe,
+    collapsible: true,
     items: [
-      { icon: Send, label: "Remittance Corridors", path: "/domains/remittance", badge: "W211" },
-      { icon: Briefcase, label: "Healthcare Claims", path: "/domains/healthcare", badge: "W212" },
-      { icon: Umbrella, label: "Insurance Hub", path: "/domains/insurance", badge: "W213" },
-      { icon: FileText, label: "Supply Chain Finance", path: "/domains/scf", badge: "W214" },
-      { icon: Users, label: "G2P Disbursements", path: "/domains/g2p", badge: "W215" },
-      { icon: Zap, label: "Energy VEND", path: "/domains/energy", badge: "W216" },
-      { icon: Coins, label: "CBDC Rails", path: "/domains/cbdc", badge: "W217" },
+      { icon: LayoutDashboard, label: "Domain Overview", path: "/domains/overview", badge: "New", status: "live", tooltip: "Unified metrics dashboard for all 7 domain verticals" },
+      { icon: Send, label: "Remittance Corridors", path: "/domains/remittance", badge: "W211", status: "live", tooltip: "Multi-hop FX corridors with FATF Travel Rule enforcement" },
+      { icon: Briefcase, label: "Healthcare Claims", path: "/domains/healthcare", badge: "W212", status: "live", tooltip: "NHIA-integrated claims adjudication and payment disbursement" },
+      { icon: Umbrella, label: "Insurance Hub", path: "/domains/insurance", badge: "W213", status: "live", tooltip: "Premium collection, lapse detection, and claims lifecycle" },
+      { icon: FileText, label: "Supply Chain Finance", path: "/domains/scf", badge: "W214", status: "live", tooltip: "Dynamic discounting, invoice tokenisation, 3-way settlement" },
+      { icon: Users, label: "G2P Disbursements", path: "/domains/g2p", badge: "W215", status: "live", tooltip: "Bulk government-to-person disbursements — NASIMS, CCT, N-Power" },
+      { icon: Zap, label: "Energy VEND", path: "/domains/energy", badge: "W216", status: "live", tooltip: "DISCO electricity vending with NEPA STS token generation" },
+      { icon: Coins, label: "CBDC Rails", path: "/domains/cbdc", badge: "W217", status: "beta", tooltip: "eNaira, ECB TIPS, FedNow, DCEP — TigerBeetle CBDC ledger" },
     ],
   },
 ];
@@ -564,14 +567,24 @@ export default function Layout({ children }: LayoutProps) {
   const renderNavItem = (item: NavItem) => {
     const isActive = location === item.path || (location === "/" && item.path === "/dashboard");
     const isReconItem = item.path === "/reconciliation-alerts";
-    return (
+    const statusDotClass = item.status === "live" ? "bg-emerald-400"
+      : item.status === "beta" ? "bg-amber-400"
+      : item.status === "degraded" ? "bg-red-400"
+      : item.status === "new" ? "bg-blue-400"
+      : null;
+    const linkContent = (
       <Link
         key={item.path}
         href={item.path}
-        className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+        className={`sidebar-item relative ${isActive ? "active" : "text-sidebar-foreground/70"}`}
         onClick={() => setMobileOpen(false)}
       >
-        <item.icon className="w-4 h-4 flex-shrink-0" />
+        <span className="relative flex-shrink-0">
+          <item.icon className="w-4 h-4" />
+          {statusDotClass && (
+            <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${statusDotClass} ring-1 ring-sidebar`} />
+          )}
+        </span>
         {!collapsed && (
           <>
             <span className="flex-1 text-sm">{item.label}</span>
@@ -592,6 +605,8 @@ export default function Layout({ children }: LayoutProps) {
                 item.badge === "Live" ? "bg-emerald-500/20 text-emerald-400 border-0"
                 : item.badge === "AI" ? "bg-violet-500/20 text-violet-400 border-0"
                 : item.badge === "Admin" ? "bg-amber-500/20 text-amber-400 border-0"
+                : item.badge === "NextHub" ? "bg-indigo-500/20 text-indigo-400 border-0"
+                : item.badge?.startsWith("W2") ? "bg-teal-500/20 text-teal-400 border-0"
                 : "bg-blue-500/20 text-blue-400 border-0"
               }`}>
                 {item.badge}
@@ -604,6 +619,23 @@ export default function Layout({ children }: LayoutProps) {
         )}
       </Link>
     );
+    if (item.tooltip && collapsed) {
+      return (
+        <Tooltip key={item.path} delayDuration={300}>
+          <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+          <TooltipContent side="right" className="max-w-[200px] text-xs">{item.label}{item.tooltip ? ` — ${item.tooltip}` : ""}</TooltipContent>
+        </Tooltip>
+      );
+    }
+    if (item.tooltip && !collapsed) {
+      return (
+        <Tooltip key={item.path} delayDuration={500}>
+          <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+          <TooltipContent side="right" className="max-w-[220px] text-xs">{item.tooltip}</TooltipContent>
+        </Tooltip>
+      );
+    }
+    return linkContent;
   };
 
   const SidebarContent = () => (
