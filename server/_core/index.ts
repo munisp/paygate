@@ -38,6 +38,8 @@ import { getWave31SecurityReport } from "../security31";
 import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
+import { sagaStreamHandler } from "../sagaStream";
+import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -1941,6 +1943,26 @@ async function startServer() {
   startSIPProcessor(); // Gold SIP auto-debit: runs daily at 08:00 UTC
 
   // ─── SSE: Fraud Alert Stream ───────────────────────────────────────────────
+  // ─── Mobile Money Webhook Endpoints ────────────────────────────────────────
+  // Receives callbacks from MTN MoMo, Airtel, M-Pesa, OPay, PalmPay, Wave, Orange.
+  for (const momoProvider of ["mtn", "airtel", "mpesa", "opay", "palmpay", "wave", "orange"]) {
+    app.post(`/api/webhooks/momo/${momoProvider}`, express.json({ limit: "256kb" }), async (req: any, res: any) => {
+      try {
+        const body = req.body as Record<string, unknown>;
+        const externalRef = String(body.externalId ?? body.financialTransactionId ?? body.transactionId ?? body.txnRef ?? "");
+        const rawStatus = String(body.status ?? body.Status ?? body.transaction_status ?? "");
+        const normalised = rawStatus.toUpperCase();
+        const status = ["SUCCESSFUL","SUCCESS","COMPLETED"].includes(normalised) ? "SUCCESSFUL" : ["FAILED","FAILURE","DECLINED"].includes(normalised) ? "FAILED" : "PENDING";
+        if (externalRef) {
+          try { const { getDb } = await import("../db"); const db = await getDb(); if (db) { const { momoTransactions } = await import("../../drizzle/schema"); const { eq } = await import("drizzle-orm"); await db.update(momoTransactions).set({ status, financialTxnId: String(body.financialTransactionId ?? ""), completedAt: status === "SUCCESSFUL" ? new Date() : null, updatedAt: new Date() }).where(eq(momoTransactions.externalRef, externalRef)); } } catch (dbErr: any) { console.error(`[MoMo/${momoProvider}] DB update failed:`, dbErr.message); }
+        }
+        try { const { publishFluvioEvent } = await import("../fluvioClient"); await publishFluvioEvent(`paygate.momo.${momoProvider}.events`, { eventType: status === "SUCCESSFUL" ? "payment_completed" : "payment_pending", provider: momoProvider, externalRef, status, timestamp: new Date().toISOString() }); } catch (e: any) { console.warn(`[MoMo/${momoProvider}] Fluvio publish failed:`, e.message); }
+        console.log(`[MoMo/${momoProvider}] Webhook: ref=${externalRef} status=${status}`);
+        res.status(200).json({ received: true });
+      } catch (err: any) { console.error(`[MoMo/${momoProvider}] Webhook error:`, err.message); res.status(500).json({ error: "Internal server error" }); }
+    });
+  }
+
   const fraudAlertClients = new Map<string, Set<any>>();
   (app as any)._fraudAlertBroadcast = (merchantId: string, alert: unknown) => {
     const clients = fraudAlertClients.get(merchantId);
@@ -1979,6 +2001,73 @@ async function startServer() {
       });
     } catch (e) {
       res.status(500).json({ error: "Fraud SSE setup failed" });
+    }
+  });
+
+  // ─── SSE: Terminal Live Event Stream ─────────────────────────────────────────
+  // Proxies Fluvio HTTP consumer to the browser as SSE.
+  // Filters events by merchantId so each merchant only sees their own terminals.
+  // URL: GET /api/events/terminal/:merchantId
+  const terminalClients = new Map<string, Set<any>>();
+
+  app.get("/api/events/terminal/:merchantId", async (req: any, res: any) => {
+    try {
+      const { merchantId } = req.params;
+      const fluvioEndpoint = process.env.FLUVIO_ENDPOINT;
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      // Register client
+      if (!terminalClients.has(merchantId)) terminalClients.set(merchantId, new Set());
+      terminalClients.get(merchantId)!.add(res);
+      res.write(`data: ${JSON.stringify({ type: "connected", merchantId })}\n\n`);
+
+      // Poll Fluvio HTTP proxy and fan-out to SSE clients
+      let active = true;
+      const poll = async () => {
+        while (active) {
+          try {
+            if (fluvioEndpoint) {
+              const r = await fetch(
+                `${fluvioEndpoint}/consume/paygate.terminal.events?partition=0&max_records=20`,
+                { signal: AbortSignal.timeout(2000) }
+              );
+              if (r.ok) {
+                const events: any[] = await r.json();
+                for (const evt of events) {
+                  if (evt.merchant_id === merchantId) {
+                    const clients = terminalClients.get(merchantId);
+                    if (clients) {
+                      for (const client of clients) {
+                        client.write(`data: ${JSON.stringify(evt)}\n\n`);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } catch { /* ignore poll errors */ }
+          await new Promise(r => setTimeout(r, 500));
+        }
+      };
+      poll();
+
+      // Heartbeat to keep connection alive
+      const hb = setInterval(() => {
+        if (!res.writableEnded) res.write(`: heartbeat\n\n`);
+      }, 15000);
+
+      req.on("close", () => {
+        active = false;
+        clearInterval(hb);
+        terminalClients.get(merchantId)?.delete(res);
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Terminal SSE setup failed" });
     }
   });
 
@@ -2334,6 +2423,13 @@ async function startServer() {
       return res.status(500).json({ ok: false, error: err.message, taskUid });
     }
   });
+
+  // ─── Saga SSE Stream ─────────────────────────────────────────────────────────
+  // GET /api/saga-stream/:sagaId — real-time saga step updates via Server-Sent Events
+  app.get("/api/saga-stream/:sagaId", sagaStreamHandler);
+
+  // POST /api/scheduled/compliance-scorecard — nightly compliance evaluation Heartbeat job
+  app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(

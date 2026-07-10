@@ -519,6 +519,48 @@
       "when": 1779038905682,
       "tag": "0073_steep_karen_page",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1783688712774,
+      "tag": "0074_closed_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1783689137438,
+      "tag": "0075_fast_spirit",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1783693281536,
+      "tag": "0076_daffy_carlie_cooper",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1783695678826,
+      "tag": "0077_peaceful_adam_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1783704038088,
+      "tag": "0078_clean_warbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1783707526174,
+      "tag": "0079_romantic_molten_man",
+      "breakpoints": true
     }
   ]
 }

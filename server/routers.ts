@@ -193,6 +193,28 @@ import { wave164Router } from './routers/wave164';
 import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
+import { nexthubSettlementRouter } from './routers/nexthubSettlement';
+import { nipBanksRouter } from './routers/nipBanks';
+import { nexthubReconciliationRouter } from './routers/nexthubReconciliation';
+import { nexthubBillingRouter } from './routers/nexthubBilling';
+import { nexthubDisputesRouter } from './routers/nexthubDisputes';
+import { nexthubSecurityRouter } from './routers/nexthubSecurity';
+import { nexthubDfspsRouter } from './routers/nexthubDfsps';
+import { nexthubOraclesRouter } from './routers/nexthubOracles';
+import { nexthubFXRouter } from './routers/nexthubFX';
+import { nexthubBulkTransfersRouter } from './routers/nexthubBulkTransfers';
+import { nexthubPISPRouter } from './routers/nexthubPISP';
+// Wave 211-217 — Domain Expansion
+import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRouter, energyRouter, cbdcRouter } from './routers/wave211_217';
+// Wave 218 — Platform Enhancements
+import { wave218Router } from './routers/wave218_enhancements';
+// Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
+import { nexthubParticipantsRouter } from './routers/nexthubParticipants';
+// Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
+import { wave221Router } from './routers/wave221_developer';
+// Wave 223 — Comprehensive Stakeholder Onboarding
+import { wave223Router } from './routers/wave223_onboarding';
+import { wave223ExtRouter } from './routers/wave223_extensions';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -2062,6 +2084,26 @@ const paymentLinksRouter = router({
       const rows = txs.map((t: any) => [t.id, new Date(t.createdAt).toISOString(), t.amount, t.currency ?? "NGN", t.status, t.customerEmail ?? "", t.reference ?? ""]);
       const csv = [headers, ...rows].map(r => r.map((v: any) => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       return { csv, count: txs.length, filename: `payment-link-${input.id}-transactions.csv` };
+    }),
+  /**
+   * Public procedure — returns minimal payment link info for the hosted payment page.
+   * No authentication required. Only returns active links.
+   */
+  getPublic: publicProcedure
+    .input(z.object({ linkId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const link = await getPaymentLinkById(input.linkId);
+      if (!link || !link.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "Payment link not found or inactive" });
+      // Return only public-safe fields — never expose merchantId internals
+      return {
+        id: link.id,
+        title: link.title,
+        description: link.description ?? null,
+        amountMinor: link.amount ? Math.round(link.amount * 100) : null,
+        currency: link.currency ?? "NGN",
+        merchantName: null, // populated from merchant record if needed
+        expiresAt: null,
+      };
     }),
 });
 
@@ -9336,6 +9378,43 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
+
+  // NextHub SRBE — Settlement, Reconciliation, Billing Engine
+  nexthubSettlement: nexthubSettlementRouter,
+  nexthubReconciliation: nexthubReconciliationRouter,
+  nexthubBilling: nexthubBillingRouter,
+  nexthubDisputes: nexthubDisputesRouter,
+  nexthubSecurity: nexthubSecurityRouter,
+  nexthubDfsps: nexthubDfspsRouter,
+  nipBanks: nipBanksRouter,
+  // Wave 210 — Mojaloop Feature Parity (Oracles, FX, Bulk Transfers, PISP)
+  nexthubOracles: nexthubOraclesRouter,
+  nexthubFX: nexthubFXRouter,
+  nexthubBulkTransfers: nexthubBulkTransfersRouter,
+  nexthubPISP: nexthubPISPRouter,
+  // Wave 211 — Remittance Corridor Engine
+  remittance: remittanceRouter,
+  // Wave 212 — Healthcare Claims Hub
+  healthcare: healthcareRouter,
+  // Wave 213 — Insurance Premium & Claims
+  insurance: insuranceRouter,
+  // Wave 214 — Supply Chain Finance
+  scf: scfRouter,
+  // Wave 215 — G2P Disbursements
+  g2p: g2pRouter,
+  // Wave 216 — Energy / VEND
+  energy: energyRouter,
+  // Wave 217 — CBDC Rail Connector
+  cbdc: cbdcRouter,
+  // Wave 218 — Platform Enhancements (14 sub-routers)
+  wave218: wave218Router,
+  // Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
+  nexthubParticipants: nexthubParticipantsRouter,
+  // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
+  wave221: wave221Router,
+  // Wave 223 — Comprehensive Stakeholder Onboarding (DFSP, PISP, PSP, POS, Regulator, Settlement Bank)
+  wave223: wave223Router,
+  wave223Ext: wave223ExtRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
