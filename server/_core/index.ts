@@ -2557,7 +2557,24 @@ async function startServer() {
 
   // ─── Background Workers ─────────────────────────────────────────────────────
   const { startUSDCBalanceMonitor, stopUSDCBalanceMonitor } = await import("../usdcBalanceMonitor");
-  startUSDCBalanceMonitor();
+    startUSDCBalanceMonitor();
+
+  // ─── NextHub Integration: Start Kafka + Fluvio consumers ──────────────────
+  // Consumes: nexthub.ndc.breach.v1, nexthub.fx.rates.v1,
+  //           nexthub.settlement.closed.v1, nexthub.participant.status.v1
+  try {
+    const { startNexhubKafkaConsumers } = await import("../nexthub/nexthubKafkaConsumer");
+    await startNexhubKafkaConsumers();
+  } catch (e: any) {
+    logger.warn("nexthub_kafka_consumers_failed", { error: e?.message });
+  }
+  // Consumes: ndc-breach-alerts, fx-rate-ticks, settlement-updates, transfer-state-changes
+  try {
+    const { startNexhubFluvioConsumers } = await import("../nexthub/nexthubFluvioConsumer");
+    await startNexhubFluvioConsumers();
+  } catch (e: any) {
+    logger.warn("nexthub_fluvio_consumers_failed", { error: e?.message });
+  }
 
   // ─── Graceful Shutdown (SIGTERM / SIGINT) ──────────────────────────────────
   let isShuttingDown = false;
