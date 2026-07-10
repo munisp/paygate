@@ -431,6 +431,7 @@ const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
 // NextHub SRBE
+const HostedPaymentLazy = lz(() => import("./pages/HostedPayment"));
 const NHSettlementWindows = lz(() => import("./pages/nexthub/SettlementWindows"));
 const NHReconciliationExceptions = lz(() => import("./pages/nexthub/ReconciliationExceptions"));
 const NHBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
@@ -890,6 +891,7 @@ function Router() {
         <Route path="/ussd/menu-builder" component={UssdMenuBuilder} />
         <Route path="/partner/onboarding" component={PartnerOnboardingPage} />
         <Route path="/order/:id" component={PublicOrderPageLazy} />
+        <Route path="/pay/:linkId" component={HostedPaymentLazy} />
         <Route path="/tenant/corridors" component={TenantCorridorsPage} />
         <Route path="/tenant/plan-limits" component={PlanLimitsPage} />
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />

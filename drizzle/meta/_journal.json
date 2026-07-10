@@ -519,6 +519,20 @@
       "when": 1779038905682,
       "tag": "0073_steep_karen_page",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1783688712774,
+      "tag": "0074_closed_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1783689137438,
+      "tag": "0075_fast_spirit",
+      "breakpoints": true
     }
   ]
 }

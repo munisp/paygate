@@ -194,6 +194,7 @@ import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
 import { nexthubSettlementRouter } from './routers/nexthubSettlement';
+import { nipBanksRouter } from './routers/nipBanks';
 import { nexthubReconciliationRouter } from './routers/nexthubReconciliation';
 import { nexthubBillingRouter } from './routers/nexthubBilling';
 import { nexthubDisputesRouter } from './routers/nexthubDisputes';
@@ -2068,6 +2069,26 @@ const paymentLinksRouter = router({
       const rows = txs.map((t: any) => [t.id, new Date(t.createdAt).toISOString(), t.amount, t.currency ?? "NGN", t.status, t.customerEmail ?? "", t.reference ?? ""]);
       const csv = [headers, ...rows].map(r => r.map((v: any) => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       return { csv, count: txs.length, filename: `payment-link-${input.id}-transactions.csv` };
+    }),
+  /**
+   * Public procedure — returns minimal payment link info for the hosted payment page.
+   * No authentication required. Only returns active links.
+   */
+  getPublic: publicProcedure
+    .input(z.object({ linkId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const link = await getPaymentLinkById(input.linkId);
+      if (!link || !link.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "Payment link not found or inactive" });
+      // Return only public-safe fields — never expose merchantId internals
+      return {
+        id: link.id,
+        title: link.title,
+        description: link.description ?? null,
+        amountMinor: link.amount ? Math.round(link.amount * 100) : null,
+        currency: link.currency ?? "NGN",
+        merchantName: null, // populated from merchant record if needed
+        expiresAt: null,
+      };
     }),
 });
 
@@ -9350,6 +9371,7 @@ export const appRouter = router({
   nexthubDisputes: nexthubDisputesRouter,
   nexthubSecurity: nexthubSecurityRouter,
   nexthubDfsps: nexthubDfspsRouter,
+  nipBanks: nipBanksRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

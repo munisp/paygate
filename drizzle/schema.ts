@@ -4986,3 +4986,47 @@ export const amlRules = pgTable("aml_rules", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type AmlRule = typeof amlRules.$inferSelect;
+
+// ─── NIP Name Enquiry Cache ────────────────────────────────────────────────────
+export const nipNameEnquiryCache = pgTable("nip_name_enquiry_cache", {
+  id: serial("id").primaryKey(),
+  bankNipCode: text("bank_nip_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  bankVerificationNumber: text("bank_verification_number"),
+  kycLevel: text("kyc_level"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("nip_name_enquiry_cache_key_idx").on(t.bankNipCode, t.accountNumber),
+  index("nip_name_enquiry_cache_expires_idx").on(t.expiresAt),
+]);
+export type NipNameEnquiryCache = typeof nipNameEnquiryCache.$inferSelect;
+
+// ─── NIP Virtual Accounts ─────────────────────────────────────────────────────
+export const nipVirtualAccounts = pgTable("nip_virtual_accounts", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  paymentLinkId: text("payment_link_id"),
+  checkoutSessionId: text("checkout_session_id"),
+  bankNipCode: text("bank_nip_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  amountExpected: integer("amount_expected"),
+  currency: text("currency").notNull().default("NGN"),
+  reference: text("reference").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  paidAt: timestamp("paid_at"),
+  paidAmount: integer("paid_amount"),
+  nibssReference: text("nibss_reference"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("nip_va_merchant_idx").on(t.merchantId),
+  index("nip_va_reference_idx").on(t.reference),
+  index("nip_va_status_idx").on(t.status),
+  index("nip_va_expires_idx").on(t.expiresAt),
+]);
+export type NipVirtualAccount = typeof nipVirtualAccounts.$inferSelect;

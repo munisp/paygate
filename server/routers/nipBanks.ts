@@ -11,7 +11,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { db } from "../db";
 import {
-  nibssBanks,
+  nipBanks as nibssBanks,
   nipVirtualAccounts,
   nipNameEnquiryCache,
 } from "../../drizzle/schema";
@@ -80,7 +80,7 @@ export const nipBanksRouter = router({
       let query = database.select().from(nibssBanks).$dynamic();
 
       const conditions = [];
-      if (input.activeOnly) conditions.push(eq(nibssBanks.isActive, true));
+      if (input.activeOnly) conditions.push(eq(nibssBanks.isActive, 1));
       if (input.category !== "all") conditions.push(eq(nibssBanks.category, input.category));
       if (input.search) {
         conditions.push(
@@ -201,10 +201,10 @@ export const nipBanksRouter = router({
    * Generate a NIP virtual account for a payment session.
    * The customer pays into this account and NIBSS notifies PayGate via webhook.
    */
-  generateVirtualAccount: protectedProcedure
+  generateVirtualAccount: publicProcedure
     .input(
       z.object({
-        merchantId: z.string(),
+        merchantId: z.string().optional(), // optional — resolved from paymentLinkId if not provided
         reference: z.string(),
         bankNipCode: z.string(),
         accountName: z.string(),
@@ -217,6 +217,18 @@ export const nipBanksRouter = router({
     .mutation(async ({ input }) => {
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // Resolve merchantId from paymentLinkId if not provided directly
+      let resolvedMerchantId = input.merchantId;
+      if (!resolvedMerchantId && input.paymentLinkId) {
+        const { getPaymentLinkById } = await import('../db');
+        const link = await getPaymentLinkById(input.paymentLinkId);
+        if (!link) throw new TRPCError({ code: "NOT_FOUND", message: "Payment link not found" });
+        resolvedMerchantId = link.merchantId;
+      }
+      if (!resolvedMerchantId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "merchantId or paymentLinkId is required" });
+      }
 
       // Get bank name
       const bank = await database
@@ -268,7 +280,7 @@ export const nipBanksRouter = router({
 
       // Persist to DB
       await database.insert(nipVirtualAccounts).values({
-        merchantId: input.merchantId,
+        merchantId: resolvedMerchantId,
         paymentLinkId: input.paymentLinkId ?? null,
         checkoutSessionId: input.checkoutSessionId ?? null,
         bankNipCode: input.bankNipCode,
