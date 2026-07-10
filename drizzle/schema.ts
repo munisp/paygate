@@ -5501,6 +5501,9 @@ export const sagaInstances = pgTable("saga_instances", {
   durationMs: integer("duration_ms"),
   errorMessage: text("error_message"),
   metadata: jsonb("metadata").default({}),
+  // Wave 225 — Temporal wiring
+  workflowId: text("workflow_id"),
+  runId: text("run_id"),
 });
 
 // ── Wave 221: Nexthub Beneficiary Registry ────────────────────────────────────
@@ -5722,4 +5725,24 @@ export const apiRateLimitRules = pgTable("api_rate_limit_rules", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ── Wave 225: Regulator Magic-Link Auth ───────────────────────────────────────
+export const regulatorMagicTokens = pgTable("regulator_magic_tokens", {
+  id: text("id").primaryKey(),
+  regulatorId: text("regulator_id").notNull(),
+  email: text("email").notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const regulatorSessions = pgTable("regulator_sessions", {
+  id: text("id").primaryKey(),
+  regulatorId: text("regulator_id").notNull(),
+  email: text("email").notNull(),
+  sessionToken: text("session_token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });

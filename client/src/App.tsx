@@ -463,6 +463,8 @@ const ProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"))
 const BeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
 const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
 const RegulatorDashboard = lazy(() => import('./pages/regulator/RegulatorDashboard'));
+const RegulatorLogin = lazy(() => import('./pages/regulator/RegulatorLogin'));
+const RegulatorVerify = lazy(() => import('./pages/regulator/RegulatorVerify'));
 const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
 const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
 const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
@@ -520,6 +522,23 @@ function Router() {
           <Route path="/admin/settlement-sla"><AdminGuard><AdminSettlementSLA /></AdminGuard></Route>
           <Route path="/admin/dispute-lifecycle"><AdminGuard><AdminDisputeLifecycle /></AdminGuard></Route>
           <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
+        </Switch>
+      </Suspense>
+    );
+  }
+
+  const isRegulatorPage =
+    location === "/regulator" ||
+    location === "/regulator/login" ||
+    location === "/regulator/verify";
+
+  if (isRegulatorPage) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/regulator/login" component={RegulatorLogin} />
+          <Route path="/regulator/verify" component={RegulatorVerify} />
+          <Route path="/regulator" component={RegulatorDashboard} />
         </Switch>
       </Suspense>
     );

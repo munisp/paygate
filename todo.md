@@ -5743,3 +5743,20 @@
 - [x] RegulatorDashboard: settlement reports, participant limits, compliance scorecards, audit log
 - [x] wave224_regulator.ts router: settlement summary, participant limits, compliance checks, audit log
 - [x] Regulator Portal nav section added to sidebar
+
+## Wave 225 — Regulator Magic-Link Auth + Temporal Saga Wiring
+- [x] Schema tables: regulator_magic_tokens, regulator_sessions (migration 0080)
+- [x] Schema columns: saga_instances.workflow_id, saga_instances.run_id (migration 0080)
+- [x] wave225_regulator_auth.ts router: requestMagicLink, verifyMagicLink, me, logout procedures
+- [x] regulatorAuthRouter wired into routers.ts as regulatorAuth
+- [x] RegulatorLogin page (/regulator/login) — email form, dev-mode magic link display
+- [x] RegulatorVerify page (/regulator/verify) — token verification, redirect to /regulator on success
+- [x] RegulatorDashboard auth guard — redirects to /regulator/login if no valid session
+- [x] RegulatorDashboard logout button — calls regulatorAuth.logout, redirects to /regulator/login
+- [x] RegulatorDashboard regulator name/jurisdiction display in header
+- [x] App.tsx routes: /regulator/login → RegulatorLogin, /regulator/verify → RegulatorVerify
+- [x] App.tsx route: /regulator → RegulatorDashboard (standalone, outside Layout)
+- [x] wave225_saga.ts router: updateSagaStep, getTemporalStatus, syncFromTemporal procedures
+- [x] sagaWiringRouter wired into routers.ts as sagaWiring
+- [x] Temporal HTTP API integration in sagaWiringRouter (falls back gracefully if unavailable)
+- [x] 19 vitest tests (server/wave225.test.ts) — all passing

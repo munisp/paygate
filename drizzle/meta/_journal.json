@@ -561,6 +561,13 @@
       "when": 1783707526174,
       "tag": "0079_romantic_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1783712848733,
+      "tag": "0080_wealthy_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

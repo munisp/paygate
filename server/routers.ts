@@ -215,6 +215,8 @@ import { wave221Router } from './routers/wave221_developer';
 // Wave 223 — Comprehensive Stakeholder Onboarding
 import { wave223Router } from './routers/wave223_onboarding';
 import { regulatorPortalRouter } from './routers/wave224_regulator';
+import { regulatorAuthRouter } from './routers/wave225_regulator_auth';
+import { sagaWiringRouter } from './routers/wave225_saga';
 import { wave223ExtRouter } from './routers/wave223_extensions';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -9417,6 +9419,8 @@ export const appRouter = router({
   wave223: wave223Router,
   wave223Ext: wave223ExtRouter,
   regulatorPortal: regulatorPortalRouter,
+  regulatorAuth: regulatorAuthRouter,
+  sagaWiring: sagaWiringRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
