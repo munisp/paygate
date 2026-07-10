@@ -384,6 +384,44 @@ export default function DomainOverview() {
         </CardContent>
       </Card>
 
+      {/* Protocol Health Status */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Activity className="h-4 w-4 text-blue-500" />
+              Protocol Health Status
+            </CardTitle>
+            <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600 border-0">7/8 Nominal</Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {([
+              { protocol: "FHIR R4",    domain: "Healthcare",    status: "operational", latency: "42ms" },
+              { protocol: "ACORD AL3",  domain: "Insurance",     status: "operational", latency: "38ms" },
+              { protocol: "GS1 EPCIS", domain: "Supply Chain",  status: "operational", latency: "61ms" },
+              { protocol: "ISO 20022",  domain: "Remittance",    status: "operational", latency: "29ms" },
+              { protocol: "IVMS-101",   domain: "CBDC",          status: "operational", latency: "18ms" },
+              { protocol: "OpenG2P",    domain: "G2P",           status: "operational", latency: "55ms" },
+              { protocol: "DLMS/COSEM", domain: "Energy",        status: "degraded",    latency: "180ms" },
+              { protocol: "FSPIOP",     domain: "Mojaloop",      status: "operational", latency: "33ms" },
+            ] as Array<{ protocol: string; domain: string; status: string; latency: string }>).map((p) => (
+              <div key={p.protocol} className="flex items-center gap-2 p-2 rounded-lg border bg-card">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  p.status === "operational" ? "bg-green-500" :
+                  p.status === "degraded" ? "bg-yellow-500 animate-pulse" : "bg-red-500"
+                }`} />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium truncate">{p.protocol}</div>
+                  <div className="text-xs text-muted-foreground">{p.domain} · {p.latency}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Quick Links */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {DOMAINS.map(domain => {

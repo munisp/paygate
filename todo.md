@@ -5640,16 +5640,16 @@
 - [x] UI: DomainProtocolBanner added to all 7 domain pages
 - [x] UI: FHIRResourceViewer.tsx — interactive FHIR R4 resource explorer on Healthcare page
 - [x] UI: ACORDSchemaExplorer.tsx — interactive ACORD message explorer on Insurance page
-- [ ] UI: Protocol health status on Domain Overview dashboard (Wave 220)
+- [x] UI: Protocol health status on Domain Overview dashboard (Wave 220)
 
 ### Participant Limits (deferred to Wave 220)
-- [ ] Go: participants/limits.go — position limits, net debit cap, liquidity management (Wave 220)
-- [ ] TS: nexthubParticipants router — getLimits, setLimits, getPositions procedures (Wave 220)
-- [ ] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants) (Wave 220)
+- [x] Go: participants/limits.go — position limits, net debit cap, liquidity management (Wave 220)
+- [x] TS: nexthubParticipants router — getLimits, setLimits, getPositions procedures (Wave 220)
+- [x] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants) (Wave 220)
 
 ### CBDC Atomic Swap (deferred to Wave 220)
-- [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money) (Wave 220)
-- [ ] TS: cbdcRouter.atomicSwap procedure (Wave 220)
+- [x] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money) (Wave 220)
+- [x] TS: cbdcRouter.atomicSwap procedure (Wave 220)
 
 ## Wave 221 — Developer Portal, Saga Visualization & Platform Ops
 
