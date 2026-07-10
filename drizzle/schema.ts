@@ -5746,3 +5746,4 @@ export const regulatorSessions = pgTable("regulator_sessions", {
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
