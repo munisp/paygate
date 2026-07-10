@@ -1,6 +1,9 @@
+import { useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ShieldCheck,
@@ -11,6 +14,8 @@ import {
   FileText,
   Activity,
   Globe,
+  LogOut,
+  Loader2,
 } from "lucide-react";
 
 function StatCard({
@@ -52,6 +57,22 @@ function StatCard({
 }
 
 export default function RegulatorDashboard() {
+  const [, navigate] = useLocation();
+
+  // Auth guard — verify regulator session on mount
+  const { data: regulatorMe, isLoading: authLoading } =
+    trpc.regulatorAuth.me.useQuery();
+
+  const logout = trpc.regulatorAuth.logout.useMutation({
+    onSuccess: () => navigate("/regulator/login"),
+  });
+
+  useEffect(() => {
+    if (!authLoading && !regulatorMe) {
+      navigate("/regulator/login");
+    }
+  }, [authLoading, regulatorMe, navigate]);
+
   const { data: participantSummary } = trpc.regulatorPortal.participants.summary.useQuery();
   const { data: participants } = trpc.regulatorPortal.participants.list.useQuery();
   const { data: limits } = trpc.regulatorPortal.limits.list.useQuery();
@@ -60,6 +81,17 @@ export default function RegulatorDashboard() {
   const { data: banks } = trpc.regulatorPortal.settlement.banks.useQuery();
   const { data: dfsps } = trpc.regulatorPortal.dfsps.list.useQuery();
   const { data: auditLogs } = trpc.regulatorPortal.audit.list.useQuery({ limit: 20 });
+
+  // Show loading spinner while auth check is in progress
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  if (!regulatorMe) return null;
 
   const totalParticipants = participants?.length ?? 0;
   const activeParticipants = participantSummary?.find((s) => s.status === "ACTIVE")?.count ?? 0;
@@ -86,10 +118,30 @@ export default function RegulatorDashboard() {
             Read-only view of NextHub participant activity, limits, and compliance
           </p>
         </div>
-        <Badge variant="outline" className="text-blue-600 border-blue-300 bg-blue-50">
-          <Activity className="h-3 w-3 mr-1" />
-          Live Read-Only
-        </Badge>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-sm font-medium">{regulatorMe.regulatorName}</p>
+            <p className="text-xs text-muted-foreground">{regulatorMe.jurisdiction}</p>
+          </div>
+          <Badge variant="outline" className="text-blue-600 border-blue-300 bg-blue-50">
+            <Activity className="h-3 w-3 mr-1" />
+            Live Read-Only
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => logout.mutate()}
+            disabled={logout.isPending}
+            className="gap-1.5"
+          >
+            {logout.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LogOut className="h-3.5 w-3.5" />
+            )}
+            Logout
+          </Button>
+        </div>
       </div>
 
       {/* Stats Row */}
