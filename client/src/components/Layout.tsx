@@ -885,6 +885,36 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </div>
         )}
+        {/* Regulator Portal section */}
+        {!collapsed && (
+          <button
+            onClick={() => toggleGroup("__regulator__")}
+            className="sidebar-item w-full justify-between text-sidebar-foreground/50 hover:text-sidebar-foreground text-xs uppercase tracking-wider font-semibold mt-2"
+          >
+            <span className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5" />Regulator Portal</span>
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedGroups.has("__regulator__") ? "rotate-180" : ""}`} />
+          </button>
+        )}
+        {(collapsed || expandedGroups.has("__regulator__")) && (
+          <div className={!collapsed ? "ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2" : ""}>
+            {regulatorItems.map((item) => {
+              const isActive = location === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
+                  {!collapsed && (
+                    <span className="flex-1 text-sm">{item.label}</span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
       {/* Onboarding Progress Tracker */}
       {!collapsed && !onboardingComplete && (
@@ -1203,3 +1233,7 @@ export default function Layout({ children }: LayoutProps) {
     </div>
   );
 }
+const regulatorItems = [
+  { label: "Regulatory Dashboard", path: "/regulator", icon: ShieldCheck },
+];
+

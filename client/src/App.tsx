@@ -462,6 +462,7 @@ const ComplianceScorecard = lz(() => import("./pages/platform/ComplianceScorecar
 const ProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"));
 const BeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
 const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
+const RegulatorDashboard = lazy(() => import('./pages/regulator/RegulatorDashboard'));
 const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
 const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
 const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
