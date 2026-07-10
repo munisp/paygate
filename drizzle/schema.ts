@@ -5373,3 +5373,52 @@ export const cbdcTransfers = pgTable("cbdc_transfers", {
   index("cbdc_tx_rail_idx").on(t.rail),
   index("cbdc_tx_status_idx").on(t.status),
 ]);
+
+// ── Wave 220: Participant Limits, Positions, Liquidity Windows ─────────────
+export const nexthubParticipants = pgTable("nexthub_participants", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  dfspId: text("dfsp_id").notNull().unique(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("PENDING"),
+  schemeType: text("scheme_type").notNull().default("FSPIOP"),
+  endpointUrl: text("endpoint_url").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const nexthubParticipantLimits = pgTable("nexthub_participant_limits", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  participantId: text("participant_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  netDebitCap: bigint("net_debit_cap", { mode: "number" }).notNull(),
+  liquidityCover: bigint("liquidity_cover", { mode: "number" }).notNull().default(0),
+  positionLimit: bigint("position_limit", { mode: "number" }),
+  alertThreshold: doublePrecision("alert_threshold").notNull().default(0.8),
+  suspendOnBreach: boolean("suspend_on_breach").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
+export const nexthubParticipantPositions = pgTable("nexthub_participant_positions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  participantId: text("participant_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  currentValue: bigint("current_value", { mode: "number" }).notNull().default(0),
+  reservedValue: bigint("reserved_value", { mode: "number" }).notNull().default(0),
+  availableValue: bigint("available_value", { mode: "number" }).notNull().default(0),
+  ndcUtilisation: doublePrecision("ndc_utilisation").notNull().default(0),
+  positionStatus: text("position_status").notNull().default("OK"),
+  lastTransferId: text("last_transfer_id"),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+});
+
+export const nexthubLiquidityWindows = pgTable("nexthub_liquidity_windows", {
+  windowId: text("window_id").primaryKey(),
+  participantId: text("participant_id").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  openedAt: timestamp("opened_at").defaultNow(),
+  closesAt: timestamp("closes_at").notNull(),
+  status: text("status").notNull().default("OPEN"),
+});

@@ -390,6 +390,7 @@ const navGroups: NavGroup[] = [
       { icon: TrendingUp, label: "FX Dashboard", path: "/nexthub/fx", badge: "NextHub" },
       { icon: Layers, label: "Bulk Transfers", path: "/nexthub/bulk-transfers", badge: "NextHub" },
       { icon: ShieldCheck, label: "PISP Consents", path: "/nexthub/pisp", badge: "NextHub" },
+      { icon: Users, label: "Participants", path: "/nexthub/participants", badge: "W220", status: "live" as const, tooltip: "DFSP participant lifecycle, position limits, net debit cap" },
     ],
   },
   {

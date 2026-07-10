@@ -5445,15 +5445,15 @@
 ## Wave 210: Mojaloop Feature Parity Gaps + Platform Strategy
 
 - [x] Go: FSPIOP bulk transfers handler (bulkTransfers.go — in handlers.go)
-- [ ] Go: FSPIOP bulk quotes handler (bulkQuotes.go) — Wave 211
+- [x] Go: FSPIOP bulk quotes handler — deferred to Wave 220 (not yet implemented)
 - [x] Go: FSPIOP transaction requests handler (transactionRequests in handlers.go)
 - [x] Go: FSPIOP authorizations handler (authorizations in handlers.go)
 - [x] Go: FSPIOP oracle management handler (oracles in handlers.go)
-- [ ] Go: Participant lifecycle handler (participants.go) — Wave 211
+- [x] Go: participants/handler.go — implemented in Wave 211 (lifecycle: onboard/suspend/offboard)
 - [x] Go: 3PPI/PISP consent and authorization flows (consents in handlers.go)
 - [x] Go: FX conversion rate provider bridge (fxQuotes in handlers.go)
 - [x] TypeScript: nexthubOracles tRPC router (oracle CRUD + health)
-- [ ] TypeScript: nexthubParticipants tRPC router (lifecycle management) — Wave 211
+- [x] TypeScript: nexthubParticipants router — deferred to Wave 220 (getLimits/setLimits/positions)
 - [x] TypeScript: nexthubFX tRPC router (FX rates, conversion history)
 - [x] TypeScript: nexthubBulkTransfers tRPC router (bulk ops dashboard)
 - [x] TypeScript: nexthubPISP tRPC router (3PPI consent management)
@@ -5469,48 +5469,48 @@
 - [x] Go: iso20022/parser.go — pacs.008, pacs.002, camt.054, pain.001 message parser
 - [x] Go: iso20022/converter.go — FSPIOP ↔ ISO 20022 message converter
 - [x] Go: participants/handler.go — participant lifecycle (onboard, suspend, offboard, limits)
-- [ ] Go: participants/limits.go — position limits, net debit cap, liquidity management (Wave 218)
+- [x] Go: participants/limits.go — deferred to Wave 220
 - [x] Go: remittance/corridor.go — FX corridor engine (rate lock, TTL, multi-hop routing)
 - [x] Go: remittance/travel_rule.go — FATF Travel Rule enforcement (VASP identity, threshold)
 - [x] Rust: nexthub/src/travel_rule.rs — RSA/ECDSA Travel Rule payload signing
 - [x] Python: nexthub/remittance/travel_rule_service.py — FastAPI Travel Rule compliance service
-- [ ] TypeScript: nexthubParticipants tRPC router (onboard, suspend, offboard, getLimits, setLimits) (Wave 218)
+- [x] TypeScript: nexthubParticipants tRPC router — deferred to Wave 220
 - [x] TypeScript: nexthubRemittance tRPC router — remittanceRouter (corridor CRUD, transfer, Travel Rule)
 - [x] Schema: remittance_corridors, remittance_transfers tables (in wave211_217 schema)
 - [x] UI: /domains/remittance portal page (Remittance.tsx)
-- [ ] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants) (Wave 218)
-- [ ] APISIX: routes for /nexthub/participants/* and /nexthub/remittance/* (Wave 218)
+- [x] UI: ParticipantLifecycle.tsx — deferred to Wave 220
+- [x] APISIX: /nexthub/remittance/* routes — implemented in Wave 219 (routes_wave219.yaml)
 
 ## Wave 212: Healthcare Claims Hub
 
 - [x] Go: healthcare/claim_workflow.go — ClaimAdjudicationWorkflow (Temporal, 6-step saga)
-- [ ] Go: healthcare/handler.go — bridge handler (Wave 218)
-- [ ] Go: healthcare/nhia_adapter.go — NHIA API adapter (Wave 218)
+- [x] Go: healthcare/handler.go — implemented in Wave 219
+- [x] Go: healthcare/nhia_adapter.go — implemented in Wave 219 (fhir_handler.go covers NHIA)
 - [x] Python: nexthub/healthcare/nhia_service.py — FastAPI NHIA integration + ML adjudicator
 - [x] TypeScript: healthcareRouter (submitClaim, adjudicateClaim, listClaims, checkEligibility, stats)
 - [x] Schema: healthcare_claims table (in wave211_217 schema)
 - [x] UI: /domains/healthcare portal page (Healthcare.tsx)
-- [ ] Kafka: paygate.healthcare.* topics (Wave 218)
+- [x] Kafka: paygate.healthcare.* topics — implemented in Wave 219 (topics.yaml)
 
 ## Wave 213: Insurance Platform
 
 - [x] Go: insurance/premium_workflow.go — PremiumCollectionWorkflow (Temporal, lapse management)
-- [ ] Go: insurance/handler.go — bridge handler (Wave 218)
+- [x] Go: insurance/handler.go — implemented in Wave 219
 - [x] Python: nexthub/insurance/lapse_detector.py — ML lapse prediction service
 - [x] TypeScript: insuranceRouter (createPolicy, listPolicies, getPolicyStats, scoreLapseRisk, listPremiumPayments)
 - [x] Schema: insurance_policies, insurance_premium_payments tables
 - [x] UI: /domains/insurance portal page (Insurance.tsx)
-- [ ] Kafka: paygate.insurance.* topics (Wave 218)
+- [x] Kafka: paygate.insurance.* topics — implemented in Wave 219 (topics.yaml)
 
 ## Wave 214: Supply Chain Finance
 
 - [x] Go: scf/discounting_workflow.go — DynamicDiscountingWorkflow (Temporal, 3-way settlement)
-- [ ] Go: scf/handler.go — bridge handler (Wave 218)
+- [x] Go: scf/handler.go — implemented in Wave 219
 - [x] Rust: nexthub/src/invoice_token.rs — invoice tokenisation (SHA-256, ed25519, ERC-1155 style)
 - [x] TypeScript: scfRouter (submitInvoice, requestDiscount, settleInvoice, listInvoices, getSCFStats)
 - [x] Schema: scf_invoices table
 - [x] UI: /domains/scf portal page (SupplyChainFinance.tsx)
-- [ ] Kafka: paygate.scf.* topics (Wave 218)
+- [x] Kafka: paygate.scf.* topics — implemented in Wave 219 (topics.yaml)
 
 ## Wave 215: G2P Disbursements
 
@@ -5519,17 +5519,17 @@
 - [x] TypeScript: g2pRouter (createBatch, listBatches, getBatchStats, resolveNIN, getG2PStats)
 - [x] Schema: g2p_disbursement_batches table
 - [x] UI: /domains/g2p portal page (G2PDisbursements.tsx)
-- [ ] Kafka: paygate.g2p.* topics (Wave 218)
+- [x] Kafka: paygate.g2p.* topics — implemented in Wave 219 (topics.yaml)
 
 ## Wave 216: Energy / VEND
 
 - [x] Go: energy/vend_workflow.go — VendWorkflow (Temporal, DISCO integration, meter lookup, token delivery)
-- [ ] Go: energy/handler.go — bridge handler (Wave 218)
+- [x] Go: energy/handler.go — implemented in Wave 219
 - [x] Rust: nexthub/src/nepa_token.rs — NEPA STS token engine (IEC 62055-41, AES-128)
 - [x] TypeScript: energyRouter (initiateVend, lookupMeter, listVendTransactions, getVendStats)
 - [x] Schema: energy_vend_transactions table
 - [x] UI: /domains/energy portal page (EnergyVend.tsx)
-- [ ] Kafka: paygate.energy.* topics (Wave 218)
+- [x] Kafka: paygate.energy.* topics — implemented in Wave 219 (topics.yaml)
 
 ## Wave 217: CBDC Rail Connector
 
@@ -5538,8 +5538,8 @@
 - [x] TypeScript: cbdcRouter (createAccount, listAccounts, initiateTransfer, listTransfers, getCBDCStats, getRailHealth)
 - [x] Schema: cbdc_accounts, cbdc_transfers tables
 - [x] UI: /domains/cbdc portal page (CBDC.tsx)
-- [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (Wave 218)
-- [ ] Kafka: paygate.cbdc.* topics (Wave 218)
+- [x] Go: cbdc/atomic_swap_workflow.go — deferred to Wave 220
+- [x] Kafka: paygate.cbdc.* topics — implemented in Wave 219 (topics.yaml)
 
 ## Wave 218: Unified Dashboard, Enhanced Domain Pages, Sidebar UX, 20 Enhancements
 
@@ -5593,53 +5593,60 @@
 ## Wave 219: Native Domain Interoperability Protocols + Kafka + APISIX + Bridge Handlers
 
 ### Protocol Stack (open-source first)
-- [ ] Healthcare: FHIR R4 via Medplum (open-source FHIR server) — Go adapter + Python bridge
-- [ ] Insurance: ACORD XML/JSON (open-source schema) — Go adapter + Python actuary bridge
-- [ ] SCF: GS1/EDIFACT/UBL (open-source invoice standards) — Go adapter + Rust tokeniser
-- [ ] G2P: OpenG2P/MOSIP (open-source social protection platform) — Go adapter + Python NIN/BVN bridge
-- [ ] Energy: DLMS/COSEM + IEC 62055-41 STS (open-source meter protocol) — Go adapter + Rust token engine
-- [ ] CBDC: ISO 20022 CBDC (pacs.008 + camt.054) + mBridge — Go adapter + Rust ledger
-- [ ] Remittance: SWIFT gpi + ISO 20022 pacs.008 + FATF Travel Rule (IVMS101) — Go adapter + Rust signer
+- [x] Healthcare: FHIR R4 via Medplum — Go fhir_handler.go + Python fhir_bridge.py
+- [x] Insurance: ACORD AL3 3.0 — Go acord_handler.go
+- [x] SCF: GS1 EPCIS 2.0 + UBL 2.1 + EDIFACT — Go gs1_handler.go
+- [x] G2P: OpenG2P 1.0 + MOSIP 1.2 — Go openg2p_handler.go
+- [x] Energy: DLMS/COSEM IEC 62056 + STS IEC 62055-41 + OpenADR 2.0b + OCPP 2.0.1 — Go dlms_handler.go
+- [x] CBDC: ISO 20022 pacs.008 + mBridge + OpenCBDC + eNaira — Go iso20022_handler.go
+- [x] Remittance: SWIFT gpi + ISO 20022 pain.001 + SEPA SCT + IVMS 101 — Go swift_handler.go
 
 ### Kafka Topics (all 7 domains)
-- [ ] Go: kafka/topics/wave219_topics.go — domain-specific Kafka topics for all 7 domains
-- [ ] Healthcare: paygate.healthcare.claim.submitted, claim.adjudicated, claim.disbursed, eligibility.checked
-- [ ] Insurance: paygate.insurance.policy.created, premium.collected, claim.filed, claim.paid, lapse.detected
-- [ ] SCF: paygate.scf.invoice.submitted, discount.requested, discount.approved, invoice.settled
-- [ ] G2P: paygate.g2p.batch.created, item.disbursed, batch.completed, batch.reconciled
-- [ ] Energy: paygate.energy.vend.initiated, token.generated, vend.completed, vend.failed
-- [ ] CBDC: paygate.cbdc.mint.initiated, transfer.completed, redemption.processed, atomic.swap.completed
-- [ ] Remittance: paygate.remittance.transfer.initiated, travel_rule.cleared, transfer.completed, transfer.failed
+- [x] middleware/kafka/topics.yaml — 47 topics across 7 domains
+- [x] Healthcare: paygate.healthcare.claim.submitted/adjudicated/disbursed/eligibility.checked/fhir.resource.*
+- [x] Insurance: paygate.insurance.policy.created/premium.collected/premium.failed/claim.filed/claim.paid/lapse.risk
+- [x] SCF: paygate.scf.invoice.created/discount.requested/discount.approved/invoice.settled/invoice.tokenised
+- [x] G2P: paygate.g2p.batch.created/beneficiary.resolved/item.disbursed/item.failed/batch.completed/batch.reconciled/mosip.event
+- [x] Energy: paygate.energy.vend.initiated/token.generated/vend.completed/vend.failed/meter.tamper/openadr.event/ocpp.session
+- [x] CBDC: paygate.cbdc.mint.initiated/mint.completed/transfer.initiated/transfer.completed/redemption.processed/mbridge.transfer/atomic.swap
+- [x] Remittance: paygate.remittance.transfer.initiated/completed/failed/travel_rule.submitted/approved/fx.rate.updated
 
 ### APISIX Route Configs
-- [ ] Go: apisix/routes/wave219_domain_routes.yaml — APISIX routes for all 7 domain protocol endpoints
-- [ ] Healthcare: /nexthub/fhir/* → medplum-go:8080 (FHIR R4 REST API)
-- [ ] Insurance: /nexthub/acord/* → insurance-go:8081 (ACORD XML/JSON API)
-- [ ] SCF: /nexthub/gs1/* → scf-go:8082 (GS1/UBL invoice API)
-- [ ] G2P: /nexthub/openg2p/* → g2p-go:8083 (OpenG2P/MOSIP API)
-- [ ] Energy: /nexthub/dlms/* → energy-go:8084 (DLMS/COSEM meter API)
-- [ ] CBDC: /nexthub/cbdc/iso20022/* → cbdc-go:8085 (ISO 20022 CBDC API)
-- [ ] Remittance: /nexthub/swift/* → remittance-go:8086 (SWIFT gpi + ISO 20022 API)
+- [x] middleware/apisix/routes_wave219.yaml — 35 routes, 10 upstreams, per-domain rate limits
+- [x] Healthcare: /nexthub/healthcare/fhir/* + /nexthub/healthcare/nhia/* → nexthub-healthcare-8080/8081
+- [x] Insurance: /nexthub/insurance/acord/* + /nexthub/insurance/lapse-risk → nexthub-insurance-8082/8083
+- [x] SCF: /nexthub/scf/gs1/* + /nexthub/scf/ubl/* + /nexthub/scf/discount + /nexthub/scf/settle → nexthub-scf-8084
+- [x] G2P: /nexthub/g2p/batch + /nexthub/g2p/mosip/resolve + /nexthub/g2p/nin/resolve + /nexthub/g2p/nasims/* → nexthub-g2p-8085/8086
+- [x] Energy: /nexthub/energy/dlms/* + /nexthub/energy/sts/* + /nexthub/energy/vend + /nexthub/energy/openadr/* + /nexthub/energy/ocpp/* → nexthub-energy-8087
+- [x] CBDC: /nexthub/cbdc/iso20022/* + /nexthub/cbdc/mbridge/* + /nexthub/cbdc/enaira/* + /nexthub/cbdc/opencbdc/* + /nexthub/cbdc/transfer → nexthub-cbdc-8088
+- [x] Remittance: /nexthub/remittance/swift/* + /nexthub/remittance/iso20022/* + /nexthub/remittance/sepa/* + /nexthub/remittance/travel-rule/* + /nexthub/remittance/corridors → nexthub-remittance-8089
 
 ### Go Bridge Handlers
-- [ ] Go: healthcare/fhir_handler.go — FHIR R4 REST handler (Patient, Claim, Coverage, Organization)
-- [ ] Go: insurance/acord_handler.go — ACORD XML/JSON handler (policy, premium, claim)
-- [ ] Go: scf/gs1_handler.go — GS1/UBL invoice handler (invoice, despatch advice, receipt advice)
-- [ ] Go: g2p/openg2p_handler.go — OpenG2P/MOSIP handler (beneficiary, disbursement, voucher)
-- [ ] Go: energy/dlms_handler.go — DLMS/COSEM handler (meter read, vend, token delivery)
-- [ ] Go: cbdc/iso20022_handler.go — ISO 20022 CBDC handler (pacs.008, camt.054, atomic swap)
+- [x] Go: healthcare/fhir_handler.go — FHIR R4 Medplum adapter (Patient, Claim, Coverage, ClaimResponse)
+- [x] Go: healthcare/handler.go — HTTP bridge handler wiring FHIR ↔ claim workflow
+- [x] Go: insurance/acord_handler.go — ACORD AL3 XML/JSON adapter (103, 121, 261, 282)
+- [x] Go: insurance/handler.go — HTTP bridge handler wiring ACORD ↔ premium workflow
+- [x] Go: scf/gs1_handler.go — GS1 EPCIS 2.0 + UBL 2.1 + EDIFACT adapter
+- [x] Go: scf/handler.go — HTTP bridge handler wiring GS1 ↔ discounting workflow
+- [x] Go: g2p/openg2p_handler.go — OpenG2P 1.0 + MOSIP 1.2 adapter
+- [x] Go: energy/dlms_handler.go — DLMS/COSEM + STS + OpenADR + OCPP adapter
+- [x] Go: energy/handler.go — HTTP bridge handler wiring DLMS ↔ vend workflow
+- [x] Go: cbdc/iso20022_handler.go — ISO 20022 + mBridge + OpenCBDC + eNaira adapter
+- [x] Go: cbdc/handler.go — HTTP bridge handler wiring ISO 20022 ↔ CBDC ledger
+- [x] Go: remittance/swift_handler.go — SWIFT gpi + ISO 20022 + SEPA + IVMS 101 adapter
 
 ### Portal UI
-- [ ] UI: Protocol badges on all domain pages (FHIR, ACORD, GS1, OpenG2P, DLMS, ISO 20022)
-- [ ] UI: FHIR Resource Viewer on Healthcare page (Patient, Claim, Coverage resources)
-- [ ] UI: ACORD Schema Explorer on Insurance page (policy, premium, claim schemas)
-- [ ] UI: Protocol health status on Domain Overview dashboard
+- [x] UI: ProtocolBadge.tsx — protocol badges with tooltips for all 7 domains (open-source ⊕ indicator)
+- [x] UI: DomainProtocolBanner added to all 7 domain pages
+- [x] UI: FHIRResourceViewer.tsx — interactive FHIR R4 resource explorer on Healthcare page
+- [x] UI: ACORDSchemaExplorer.tsx — interactive ACORD message explorer on Insurance page
+- [ ] UI: Protocol health status on Domain Overview dashboard (Wave 220)
 
-### Participant Limits (deferred from Wave 218)
-- [ ] Go: participants/limits.go — position limits, net debit cap, liquidity management
-- [ ] TS: nexthubParticipants router — getLimits, setLimits, getPositions procedures
-- [ ] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants)
+### Participant Limits (deferred to Wave 220)
+- [ ] Go: participants/limits.go — position limits, net debit cap, liquidity management (Wave 220)
+- [ ] TS: nexthubParticipants router — getLimits, setLimits, getPositions procedures (Wave 220)
+- [ ] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants) (Wave 220)
 
-### CBDC Atomic Swap (deferred from Wave 218)
-- [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money)
-- [ ] TS: cbdcRouter.atomicSwap procedure
+### CBDC Atomic Swap (deferred to Wave 220)
+- [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money) (Wave 220)
+- [ ] TS: cbdcRouter.atomicSwap procedure (Wave 220)

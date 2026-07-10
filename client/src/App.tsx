@@ -443,6 +443,7 @@ const NHOracleManagement = lz(() => import("./pages/nexthub/OracleManagement"));
 const NHFXDashboard = lz(() => import("./pages/nexthub/FXDashboard"));
 const NHBulkTransfers = lz(() => import("./pages/nexthub/BulkTransfers"));
 const NHPISPConsents = lz(() => import("./pages/nexthub/PISPConsents"));
+const NHParticipants = lz(() => import("./pages/nexthub/ParticipantLifecycle"));
 // Wave 211-217 — Domain Expansion
 const DomainOverview = lz(() => import("./pages/domains/DomainOverview"));
 const DomainRemittance = lz(() => import("./pages/domains/Remittance"));
@@ -923,6 +924,7 @@ function Router() {
         <Route path="/nexthub/fx" component={NHFXDashboard} />
         <Route path="/nexthub/bulk-transfers" component={NHBulkTransfers} />
         <Route path="/nexthub/pisp" component={NHPISPConsents} />
+        <Route path="/nexthub/participants" component={NHParticipants} />
         {/* Wave 211-217 Domain Expansion Routes */}
         <Route path="/domains/overview" component={DomainOverview} />
         <Route path="/domains/remittance" component={DomainRemittance} />

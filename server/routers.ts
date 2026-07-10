@@ -208,6 +208,8 @@ import { nexthubPISPRouter } from './routers/nexthubPISP';
 import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRouter, energyRouter, cbdcRouter } from './routers/wave211_217';
 // Wave 218 — Platform Enhancements
 import { wave218Router } from './routers/wave218_enhancements';
+// Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
+import { nexthubParticipantsRouter } from './routers/nexthubParticipants';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9401,6 +9403,8 @@ export const appRouter = router({
   cbdc: cbdcRouter,
   // Wave 218 — Platform Enhancements (14 sub-routers)
   wave218: wave218Router,
+  // Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
+  nexthubParticipants: nexthubParticipantsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

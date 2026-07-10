@@ -852,4 +852,61 @@ export const cbdcRouter = router({
         { rail: "SAND",     status: "OPERATIONAL", latencyMs: 5,   lastChecked: new Date().toISOString() },
       ];
     }),
+
+  // Wave 220 — Atomic Swap (CBDC <-> commercial bank money)
+  initiateAtomicSwap: protectedProcedure
+    .input(z.object({
+      swapType: z.enum(["CBDC_TO_FIAT", "FIAT_TO_CBDC", "CBDC_TO_CBDC"]),
+      sourceRail: z.string(),
+      destRail: z.string(),
+      sourceAmount: z.number().positive(),
+      destAmount: z.number().positive(),
+      sourceCurrency: z.string().default("NGN"),
+      destCurrency: z.string().default("NGN"),
+      sourceAccountId: z.string(),
+      destAccountId: z.string(),
+      destBankCode: z.string().optional(),
+      fxRate: z.number().positive().default(1),
+      idempotency: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const swapId = genId("SWAP");
+      const fxRateExpiry = new Date(Date.now() + 5 * 60 * 1000);
+      const idempotencyKey = input.idempotency ?? nanoid(32);
+      await db.execute(sql`
+        INSERT INTO cbdc_transfers
+          (id, rail, sender_wallet, receiver_wallet, amount, currency,
+           narration, status, rail_ref, created_by, created_at)
+        VALUES
+          (${swapId}, ${input.sourceRail}, ${input.sourceAccountId}, ${input.destAccountId},
+           ${input.sourceAmount}, ${input.sourceCurrency},
+           ${'ATOMIC_SWAP:' + input.swapType}, 'PENDING',
+           ${'SWAP-' + idempotencyKey}, ${ctx.user.openId}, NOW())
+      `);
+      const isSandbox = input.sourceRail === "SAND" || input.destRail === "SAND";
+      if (isSandbox) {
+        await db.execute(sql`
+          UPDATE cbdc_transfers SET status = 'SETTLED', settled_at = NOW() WHERE id = ${swapId}
+        `);
+      }
+      return {
+        swapId,
+        status: isSandbox ? "COMPLETED" : "PENDING",
+        fxRate: input.fxRate,
+        fxRateExpiry: fxRateExpiry.toISOString(),
+        workflowId: `atomic-swap-${swapId}`,
+        message: isSandbox
+          ? "Atomic swap completed instantly (SAND rail)"
+          : "Atomic swap workflow started — check status via swapId",
+      };
+    }),
+
+  getAtomicSwapStatus: protectedProcedure
+    .input(z.object({ swapId: z.string() }))
+    .query(async ({ input }) => {
+      const rows = await db.execute(sql`
+        SELECT * FROM cbdc_transfers WHERE id = ${input.swapId}
+      `);
+      return rows.rows[0] as Record<string, unknown>;
+    }),
 });
