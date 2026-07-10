@@ -5760,3 +5760,19 @@
 - [x] sagaWiringRouter wired into routers.ts as sagaWiring
 - [x] Temporal HTTP API integration in sagaWiringRouter (falls back gracefully if unavailable)
 - [x] 19 vitest tests (server/wave225.test.ts) — all passing
+
+## Wave 226 — Admin Regulator Access Management
+- [x] Admin Regulator Management page (client/src/pages/admin/RegulatorManagement.tsx)
+- [x] Wave 226 admin regulators router (server/routers/wave226_admin_regulators.ts)
+- [x] List regulators with session/token status (hasActiveSession, hasPendingToken)
+- [x] Send magic-link email procedure (adminRegulators.sendMagicLink)
+- [x] Revoke all sessions + invalidate tokens procedure (adminRegulators.revokeAccess)
+- [x] Magic-link audit log procedure (adminRegulators.getMagicLinkAudit)
+- [x] Summary stats procedure (adminRegulators.getStats)
+- [x] Wired adminRegulatorsRouter into routers.ts
+- [x] Route /admin/regulator-management added to App.tsx (AdminGuard protected)
+- [x] "Regulator Access" nav item added to Layout.tsx onboarding section (W226 badge)
+- [x] Layout.tsx platformOpsItems malformed structure fixed
+- [x] nodemailer import fixed (namespace import)
+- [x] env alias (lowercase) added to env.ts
+- [x] Wave 226 vitest tests (9 tests, all passing)

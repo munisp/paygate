@@ -425,8 +425,6 @@ const platformOpsItems: NavItem[] = [
   { icon: Shield, label: "API Rate Limits", path: "/platform/api-rate-limits", badge: "W223" },
   { icon: FileText, label: "KYC Documents", path: "/compliance/kyc-documents", badge: "W223" },
   { icon: CheckCircle2, label: "Merchant Verification", path: "/compliance/merchant-verification", badge: "W223" },
-    ],
-  },
 ];
 
 const devItems: NavItem[] = [
@@ -462,6 +460,7 @@ const onboardingHubItems: NavItem[] = [
   { icon: Monitor, label: "POS Operator", path: "/onboarding/pos-operator", badge: "W223" },
   { icon: Shield, label: "Regulator", path: "/onboarding/regulator", badge: "W223" },
   { icon: Landmark, label: "Settlement Bank", path: "/onboarding/settlement-bank", badge: "W223" },
+  { icon: Key, label: "Regulator Access", path: "/admin/regulator-management", badge: "W226" },
 ];
 
 const ONBOARDING_STEPS = [
