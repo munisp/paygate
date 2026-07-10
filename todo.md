@@ -5441,3 +5441,25 @@
 - [x] Rust: TigerBeetle gRPC server entry point (main.rs) with tonic server
 - [x] Rust: settlement.proto definition for gRPC service
 - [x] Rust: accounts.rs — TigerBeetle account ID derivation from DFSP NIP code
+
+## Wave 210: Mojaloop Feature Parity Gaps + Platform Strategy
+
+- [x] Go: FSPIOP bulk transfers handler (bulkTransfers.go — in handlers.go)
+- [ ] Go: FSPIOP bulk quotes handler (bulkQuotes.go) — Wave 211
+- [x] Go: FSPIOP transaction requests handler (transactionRequests in handlers.go)
+- [x] Go: FSPIOP authorizations handler (authorizations in handlers.go)
+- [x] Go: FSPIOP oracle management handler (oracles in handlers.go)
+- [ ] Go: Participant lifecycle handler (participants.go) — Wave 211
+- [x] Go: 3PPI/PISP consent and authorization flows (consents in handlers.go)
+- [x] Go: FX conversion rate provider bridge (fxQuotes in handlers.go)
+- [x] TypeScript: nexthubOracles tRPC router (oracle CRUD + health)
+- [ ] TypeScript: nexthubParticipants tRPC router (lifecycle management) — Wave 211
+- [x] TypeScript: nexthubFX tRPC router (FX rates, conversion history)
+- [x] TypeScript: nexthubBulkTransfers tRPC router (bulk ops dashboard)
+- [x] TypeScript: nexthubPISP tRPC router (3PPI consent management)
+- [x] UI: OracleManagement.tsx portal page
+- [x] UI: BulkTransfers.tsx portal page
+- [x] UI: FXDashboard.tsx portal page (NextHub version at /nexthub/fx)
+- [x] UI: PISPConsents.tsx portal page
+- [x] Design doc: Parts XII–XV — Parity gap, drop-in guide, monetisation, domain expansion
+- [x] GitHub: PR for feature/wave210-mojaloop-parity

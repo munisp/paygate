@@ -385,6 +385,10 @@ const navGroups: NavGroup[] = [
       { icon: ShieldAlert, label: "Disputes", path: "/nexthub/disputes", badge: "NextHub" },
       { icon: Network, label: "Security Dashboard", path: "/nexthub/security", badge: "NextHub" },
       { icon: Building2, label: "DFSP Management", path: "/nexthub/dfsps", badge: "NextHub" },
+      { icon: Globe, label: "Oracle Registry", path: "/nexthub/oracles", badge: "NextHub" },
+      { icon: TrendingUp, label: "FX Dashboard", path: "/nexthub/fx", badge: "NextHub" },
+      { icon: Layers, label: "Bulk Transfers", path: "/nexthub/bulk-transfers", badge: "NextHub" },
+      { icon: ShieldCheck, label: "PISP Consents", path: "/nexthub/pisp", badge: "NextHub" },
     ],
   },
 ];

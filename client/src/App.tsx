@@ -438,6 +438,11 @@ const NHBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
 const NHDisputesHub = lz(() => import("./pages/nexthub/DisputesHub"));
 const NHSecurityDashboard = lz(() => import("./pages/nexthub/SecurityDashboard"));
 const NHDFSPManagement = lz(() => import("./pages/nexthub/DFSPManagement"));
+// Wave 210 — Mojaloop Feature Parity
+const NHOracleManagement = lz(() => import("./pages/nexthub/OracleManagement"));
+const NHFXDashboard = lz(() => import("./pages/nexthub/FXDashboard"));
+const NHBulkTransfers = lz(() => import("./pages/nexthub/BulkTransfers"));
+const NHPISPConsents = lz(() => import("./pages/nexthub/PISPConsents"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -904,6 +909,11 @@ function Router() {
         <Route path="/nexthub/disputes" component={NHDisputesHub} />
         <Route path="/nexthub/security" component={NHSecurityDashboard} />
         <Route path="/nexthub/dfsps" component={NHDFSPManagement} />
+        {/* Wave 210 — Mojaloop Feature Parity */}
+        <Route path="/nexthub/oracles" component={NHOracleManagement} />
+        <Route path="/nexthub/fx" component={NHFXDashboard} />
+        <Route path="/nexthub/bulk-transfers" component={NHBulkTransfers} />
+        <Route path="/nexthub/pisp" component={NHPISPConsents} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

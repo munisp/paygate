@@ -200,6 +200,10 @@ import { nexthubBillingRouter } from './routers/nexthubBilling';
 import { nexthubDisputesRouter } from './routers/nexthubDisputes';
 import { nexthubSecurityRouter } from './routers/nexthubSecurity';
 import { nexthubDfspsRouter } from './routers/nexthubDfsps';
+import { nexthubOraclesRouter } from './routers/nexthubOracles';
+import { nexthubFXRouter } from './routers/nexthubFX';
+import { nexthubBulkTransfersRouter } from './routers/nexthubBulkTransfers';
+import { nexthubPISPRouter } from './routers/nexthubPISP';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9372,6 +9376,11 @@ export const appRouter = router({
   nexthubSecurity: nexthubSecurityRouter,
   nexthubDfsps: nexthubDfspsRouter,
   nipBanks: nipBanksRouter,
+  // Wave 210 — Mojaloop Feature Parity (Oracles, FX, Bulk Transfers, PISP)
+  nexthubOracles: nexthubOraclesRouter,
+  nexthubFX: nexthubFXRouter,
+  nexthubBulkTransfers: nexthubBulkTransfersRouter,
+  nexthubPISP: nexthubPISPRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

@@ -5030,3 +5030,130 @@ export const nipVirtualAccounts = pgTable("nip_virtual_accounts", {
   index("nip_va_expires_idx").on(t.expiresAt),
 ]);
 export type NipVirtualAccount = typeof nipVirtualAccounts.$inferSelect;
+
+// ============================================================
+// VELOCITY LIMIT CONFIGS — Wave 210
+// ============================================================
+export const velocityLimitConfigs = pgTable("velocity_limit_configs", {
+  id: serial("id").primaryKey(),
+  merchantId: varchar("merchant_id", { length: 64 }),
+  channel: varchar("channel", { length: 32 }).notNull().default("all"),
+  limitType: varchar("limit_type", { length: 16 }).notNull().default("count"), // "count" | "amount"
+  maxValue: integer("max_value").notNull(),
+  windowSeconds: integer("window_seconds").notNull().default(3600),
+  isActive: integer("is_active").notNull().default(1),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("vlc_merchant_channel_idx").on(t.merchantId, t.channel),
+  index("vlc_active_idx").on(t.isActive),
+]);
+export type VelocityLimitConfig = typeof velocityLimitConfigs.$inferSelect;
+
+export const velocityBreaches = pgTable("velocity_breaches", {
+  id: serial("id").primaryKey(),
+  limitConfigId: integer("limit_config_id").notNull(),
+  merchantId: varchar("merchant_id", { length: 64 }).notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(),
+  amountKobo: integer("amount_kobo").notNull().default(0),
+  userId: integer("user_id").notNull().default(0),
+  details: text("details"),
+  breachedAt: timestamp("breached_at").defaultNow(),
+}, (t) => [
+  index("vb_merchant_idx").on(t.merchantId),
+  index("vb_breached_at_idx").on(t.breachedAt),
+]);
+export type VelocityBreach = typeof velocityBreaches.$inferSelect;
+
+// ============================================================
+// NEXTHUB BULK TRANSFERS — Wave 210
+// ============================================================
+export const nexthubBulkTransfers = pgTable("nexthub_bulk_transfers", {
+  id: serial("id").primaryKey(),
+  bulkTransferId: varchar("bulk_transfer_id", { length: 64 }).notNull().unique(),
+  bulkQuoteId: varchar("bulk_quote_id", { length: 64 }),
+  payerFsp: varchar("payer_fsp", { length: 64 }).notNull(),
+  payeeFsp: varchar("payee_fsp", { length: 64 }).notNull(),
+  state: varchar("state", { length: 32 }).notNull().default("RECEIVED"),
+  totalTransfers: integer("total_transfers").notNull().default(0),
+  completedTransfers: integer("completed_transfers").notNull().default(0),
+  failedTransfers: integer("failed_transfers").notNull().default(0),
+  expiration: timestamp("expiration"),
+  completedAt: timestamp("completed_at"),
+  errorCode: varchar("error_code", { length: 8 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("nbt_state_idx").on(t.state),
+  index("nbt_payer_idx").on(t.payerFsp),
+  index("nbt_created_idx").on(t.createdAt),
+]);
+export type NexhubBulkTransfer = typeof nexthubBulkTransfers.$inferSelect;
+
+// ============================================================
+// NEXTHUB ORACLES — Wave 210
+// ============================================================
+export const nexthubOracles = pgTable("nexthub_oracles", {
+  id: serial("id").primaryKey(),
+  oracleId: varchar("oracle_id", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 128 }).notNull(),
+  partyIdType: varchar("party_id_type", { length: 32 }).notNull(), // MSISDN, IBAN, BVN, EMAIL, ALIAS
+  currency: varchar("currency", { length: 8 }),
+  endpoint: varchar("endpoint", { length: 512 }).notNull(),
+  isDefault: integer("is_default").notNull().default(0),
+  isActive: integer("is_active").notNull().default(1),
+  healthStatus: varchar("health_status", { length: 16 }).notNull().default("UNKNOWN"),
+  lastHealthCheck: timestamp("last_health_check"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("no_party_id_type_idx").on(t.partyIdType),
+  index("no_active_idx").on(t.isActive),
+]);
+export type NexhubOracle = typeof nexthubOracles.$inferSelect;
+
+// ============================================================
+// NEXTHUB FX RATES — Wave 210
+// ============================================================
+export const nexthubFxRates = pgTable("nexthub_fx_rates", {
+  id: serial("id").primaryKey(),
+  sourceCurrency: varchar("source_currency", { length: 8 }).notNull(),
+  targetCurrency: varchar("target_currency", { length: 8 }).notNull(),
+  rate: varchar("rate", { length: 32 }).notNull(), // stored as string to avoid float precision issues
+  provider: varchar("provider", { length: 64 }).notNull().default("nexthub-fx"),
+  validFrom: timestamp("valid_from").notNull(),
+  validTo: timestamp("valid_to").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("nfr_pair_idx").on(t.sourceCurrency, t.targetCurrency),
+  index("nfr_valid_idx").on(t.validFrom, t.validTo),
+]);
+export type NexhubFxRate = typeof nexthubFxRates.$inferSelect;
+
+// ============================================================
+// NEXTHUB PISP CONSENTS — Wave 210
+// ============================================================
+export const nexthubPispConsents = pgTable("nexthub_pisp_consents", {
+  id: serial("id").primaryKey(),
+  consentId: varchar("consent_id", { length: 64 }).notNull().unique(),
+  consentRequestId: varchar("consent_request_id", { length: 64 }),
+  consumerId: varchar("consumer_id", { length: 64 }).notNull().default(""),
+  pispId: varchar("pisp_id", { length: 64 }).notNull(),
+  dfspId: varchar("dfsp_id", { length: 64 }).notNull(),
+  // 'state' is the canonical FSPIOP term; 'status' is kept as alias
+  state: varchar("state", { length: 32 }).notNull().default("REQUESTED"), // REQUESTED, GRANTED, ACTIVE, REVOKED, EXPIRED
+  scopes: text("scopes").notNull().default("[]"), // JSON array of scope strings
+  authChannels: text("auth_channels").default("[]"), // WEB, OTP
+  credential: text("credential"), // FIDO2 credential JSON
+  expiresAt: timestamp("expires_at"),
+  revokedAt: timestamp("revoked_at"),
+  revokeReason: varchar("revoke_reason", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("npc_consumer_idx").on(t.consumerId),
+  index("npc_pisp_idx").on(t.pispId),
+  index("npc_state_idx").on(t.state),
+]);
+export type NexhubPispConsent = typeof nexthubPispConsents.$inferSelect;
