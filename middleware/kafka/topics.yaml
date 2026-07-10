@@ -1,0 +1,327 @@
+# PayGate NextHub — Kafka Topic Definitions (Wave 219)
+# All topics use:
+#   - Avro schema registry (Confluent Schema Registry compatible)
+#   - Compaction: delete (event log, not compacted)
+#   - Replication factor: 3 (production), 1 (dev)
+#   - Retention: 7 days default, 90 days for audit/compliance topics
+#
+# Topic naming convention:
+#   paygate.<domain>.<entity>.<event>
+#   e.g., paygate.healthcare.claim.submitted
+
+---
+# ─── Healthcare (Wave 212 / FHIR R4) ─────────────────────────────────────────
+topics:
+  - name: paygate.healthcare.claim.submitted
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000  # 7 days
+    schema: healthcare_claim_submitted_v1
+    description: "FHIR R4 Claim resource submitted for adjudication"
+
+  - name: paygate.healthcare.claim.adjudicated
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: healthcare_claim_adjudicated_v1
+    description: "Claim adjudication result (approved/denied/partial)"
+
+  - name: paygate.healthcare.claim.disbursed
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: healthcare_claim_disbursed_v1
+    description: "TigerBeetle disbursement to provider confirmed"
+
+  - name: paygate.healthcare.eligibility.checked
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: healthcare_eligibility_v1
+    description: "NHIA/HMO eligibility check result"
+
+  - name: paygate.healthcare.fhir.resource.created
+    partitions: 6
+    replication: 3
+    retention_ms: 2592000000  # 30 days
+    schema: fhir_resource_event_v1
+    description: "FHIR R4 resource created/updated in Medplum"
+
+  - name: paygate.healthcare.fhir.resource.updated
+    partitions: 6
+    replication: 3
+    retention_ms: 2592000000
+    schema: fhir_resource_event_v1
+    description: "FHIR R4 resource update event"
+
+# ─── Insurance (Wave 213 / ACORD) ────────────────────────────────────────────
+  - name: paygate.insurance.policy.created
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000  # 90 days
+    schema: insurance_policy_v1
+    description: "New insurance policy created (ACORD AL3/XML)"
+
+  - name: paygate.insurance.premium.collected
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: insurance_premium_v1
+    description: "Premium payment collected via TigerBeetle"
+
+  - name: paygate.insurance.premium.failed
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: insurance_premium_failed_v1
+    description: "Premium collection failed — lapse risk triggered"
+
+  - name: paygate.insurance.claim.filed
+    partitions: 12
+    replication: 3
+    retention_ms: 7776000000
+    schema: insurance_claim_v1
+    description: "Insurance claim filed (ACORD FNOL)"
+
+  - name: paygate.insurance.claim.paid
+    partitions: 12
+    replication: 3
+    retention_ms: 7776000000
+    schema: insurance_claim_paid_v1
+    description: "Claim payout disbursed via TigerBeetle"
+
+  - name: paygate.insurance.lapse.risk
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: insurance_lapse_risk_v1
+    description: "ML lapse risk score exceeds threshold"
+
+# ─── Supply Chain Finance (Wave 214 / GS1 + UBL) ─────────────────────────────
+  - name: paygate.scf.invoice.created
+    partitions: 12
+    replication: 3
+    retention_ms: 7776000000
+    schema: scf_invoice_v1
+    description: "Invoice created (GS1 EPCIS / UBL 2.1)"
+
+  - name: paygate.scf.discount.requested
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: scf_discount_request_v1
+    description: "Dynamic discount requested by supplier"
+
+  - name: paygate.scf.discount.approved
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: scf_discount_approved_v1
+    description: "Discount approved by buyer"
+
+  - name: paygate.scf.invoice.settled
+    partitions: 12
+    replication: 3
+    retention_ms: 7776000000
+    schema: scf_invoice_settled_v1
+    description: "Invoice settled via TigerBeetle 3-way settlement"
+
+  - name: paygate.scf.invoice.tokenised
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: scf_invoice_token_v1
+    description: "Invoice tokenised (Rust ed25519 + SHA-256)"
+
+# ─── G2P Disbursements (Wave 215 / OpenG2P + MOSIP) ──────────────────────────
+  - name: paygate.g2p.batch.created
+    partitions: 12
+    replication: 3
+    retention_ms: 7776000000
+    schema: g2p_batch_v1
+    description: "G2P disbursement batch created (NASIMS/CCT/N-Power)"
+
+  - name: paygate.g2p.beneficiary.resolved
+    partitions: 24
+    replication: 3
+    retention_ms: 604800000
+    schema: g2p_beneficiary_v1
+    description: "NIN/BVN resolved to DFSP account via ALS"
+
+  - name: paygate.g2p.item.disbursed
+    partitions: 24
+    replication: 3
+    retention_ms: 7776000000
+    schema: g2p_item_disbursed_v1
+    description: "Individual beneficiary payment disbursed"
+
+  - name: paygate.g2p.item.failed
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: g2p_item_failed_v1
+    description: "Individual disbursement failed (invalid account, limit exceeded)"
+
+  - name: paygate.g2p.batch.completed
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: g2p_batch_completed_v1
+    description: "Batch fully processed (all items disbursed or failed)"
+
+  - name: paygate.g2p.batch.reconciled
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: g2p_batch_reconciled_v1
+    description: "Batch reconciliation report generated"
+
+  - name: paygate.g2p.mosip.event
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: mosip_event_v1
+    description: "MOSIP identity verification event"
+
+# ─── Energy / VEND (Wave 216 / DLMS-COSEM + STS) ─────────────────────────────
+  - name: paygate.energy.vend.initiated
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: energy_vend_initiated_v1
+    description: "Electricity vend initiated (DLMS meter lookup)"
+
+  - name: paygate.energy.token.generated
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: energy_token_generated_v1
+    description: "STS token generated (IEC 62055-41 AES-128)"
+
+  - name: paygate.energy.vend.completed
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: energy_vend_completed_v1
+    description: "Vend completed — token delivered to customer"
+
+  - name: paygate.energy.vend.failed
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: energy_vend_failed_v1
+    description: "Vend failed (DISCO unavailable, invalid meter, payment failure)"
+
+  - name: paygate.energy.meter.tamper
+    partitions: 6
+    replication: 3
+    retention_ms: 2592000000  # 30 days
+    schema: energy_tamper_event_v1
+    description: "DLMS/COSEM tamper detection event"
+
+  - name: paygate.energy.openadr.event
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: openadr_event_v1
+    description: "OpenADR 2.0b demand response event"
+
+  - name: paygate.energy.ocpp.session
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: ocpp_session_v1
+    description: "OCPP 2.0.1 EV charging session event"
+
+# ─── CBDC (Wave 217 / ISO 20022 + mBridge) ───────────────────────────────────
+  - name: paygate.cbdc.mint.initiated
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: cbdc_mint_v1
+    description: "CBDC mint initiated by central bank authority"
+
+  - name: paygate.cbdc.mint.completed
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: cbdc_mint_completed_v1
+    description: "CBDC mint confirmed in TigerBeetle ledger"
+
+  - name: paygate.cbdc.transfer.initiated
+    partitions: 24
+    replication: 3
+    retention_ms: 604800000
+    schema: cbdc_transfer_v1
+    description: "CBDC transfer initiated (ISO 20022 pacs.008)"
+
+  - name: paygate.cbdc.transfer.completed
+    partitions: 24
+    replication: 3
+    retention_ms: 604800000
+    schema: cbdc_transfer_completed_v1
+    description: "CBDC transfer settled (pacs.002 ACSC)"
+
+  - name: paygate.cbdc.redemption.processed
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: cbdc_redemption_v1
+    description: "CBDC redeemed for commercial bank money"
+
+  - name: paygate.cbdc.mbridge.transfer
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: mbridge_transfer_v1
+    description: "Cross-border CBDC transfer via mBridge"
+
+  - name: paygate.cbdc.atomic.swap
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: cbdc_atomic_swap_v1
+    description: "CBDC ↔ commercial bank money atomic swap"
+
+# ─── Remittance (Wave 211 / SWIFT gpi + ISO 20022) ───────────────────────────
+  - name: paygate.remittance.transfer.initiated
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: remittance_transfer_v1
+    description: "Remittance transfer initiated (SWIFT gpi / FSPIOP)"
+
+  - name: paygate.remittance.transfer.completed
+    partitions: 12
+    replication: 3
+    retention_ms: 604800000
+    schema: remittance_transfer_completed_v1
+    description: "Remittance transfer completed (ACCC)"
+
+  - name: paygate.remittance.transfer.failed
+    partitions: 6
+    replication: 3
+    retention_ms: 604800000
+    schema: remittance_transfer_failed_v1
+    description: "Remittance transfer failed or returned (pacs.004)"
+
+  - name: paygate.remittance.travel_rule.submitted
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: travel_rule_v1
+    description: "FATF Travel Rule IVMS 101 payload submitted"
+
+  - name: paygate.remittance.travel_rule.approved
+    partitions: 6
+    replication: 3
+    retention_ms: 7776000000
+    schema: travel_rule_approved_v1
+    description: "Travel Rule payload verified and approved"
+
+  - name: paygate.remittance.fx.rate.updated
+    partitions: 6
+    replication: 3
+    retention_ms: 3600000  # 1 hour
+    schema: fx_rate_v1
+    description: "FX rate updated for a corridor"
