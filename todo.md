@@ -5430,3 +5430,14 @@
 - [x] TypeScript: nipBanks tRPC router (list, nameEnquiry, generateVirtualAccount, getTransferStatus)
 - [x] Hosted payment page: searchable bank dropdown, name enquiry, virtual account display
 - [x] Mojaloop Transfers UI: /mojaloop/transfers page with party lookup and transfer initiation
+
+## Wave 209: Temporal Workflow Wiring + TigerBeetle gRPC Server
+
+- [ ] Python: Temporal ReconciliationWorkflow — full activity implementations (FetchHubRecords, FetchRailRecords, ComputeBreaks, WriteReport)
+- [ ] Python: Temporal MonthlyBillingWorkflow — full activity implementations (AggregateFees, GeneratePDF, UploadS3, NotifyDFSP, PostTigerBeetleInvoice)
+- [ ] Python: Temporal AML STR workflow — SuspiciousTransactionReportWorkflow
+- [ ] Python: Temporal worker entrypoint (worker.py) with all workflow/activity registrations
+- [ ] TypeScript: tRPC procedures to trigger Temporal workflows (triggerReconciliation, triggerMonthlyBilling, getWorkflowStatus)
+- [ ] Rust: TigerBeetle gRPC server entry point (main.rs) with tonic server
+- [ ] Rust: settlement.proto definition for gRPC service
+- [ ] Rust: accounts.rs — TigerBeetle account ID derivation from DFSP NIP code
