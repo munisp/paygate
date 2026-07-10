@@ -7,7 +7,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { RefreshCw, Plus, ChevronRight, TrendingUp, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
+import { RefreshCw, Plus, ChevronRight, TrendingUp, Clock, CheckCircle2, AlertTriangle, Download } from "lucide-react";
+
+function exportToCSV(rows: any[], filename: string) {
+  if (!rows || rows.length === 0) { return; }
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => JSON.stringify(r[h] ?? "")).join(",")),
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 const STATUS_COLORS: Record<string, string> = {
   OPEN: "bg-emerald-100 text-emerald-800 border-emerald-200",
@@ -67,6 +81,21 @@ export default function SettlementWindows() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { refetch(); refetchStats(); }}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => {
+            const rows = (data?.windows ?? []).map(w => ({
+              id: w.id,
+              type: w.windowType,
+              status: w.status,
+              openedAt: w.openedAt ? new Date(w.openedAt).toISOString() : "",
+              closedAt: w.closedAt ? new Date(w.closedAt).toISOString() : "",
+              totalDebit: w.totalDebitKobo ?? 0,
+              totalCredit: w.totalCreditKobo ?? 0,
+              participantCount: w.participantCount ?? 0,
+            }));
+            exportToCSV(rows, `settlement-windows-${new Date().toISOString().slice(0,10)}.csv`);
+          }} disabled={!data?.windows?.length}>
+            <Download className="w-4 h-4 mr-2" /> Export CSV
           </Button>
           <Dialog>
             <DialogTrigger asChild>

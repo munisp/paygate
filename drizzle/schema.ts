@@ -5747,3 +5747,40 @@ export const regulatorSessions = pgTable("regulator_sessions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ── Wave 227: Regulator Doc Upload + NDC Breach Events ───────────────────────
+export const regulatorDocuments = pgTable("regulator_documents", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  regulatorId: text("regulator_id").notNull(),
+  documentType: text("document_type").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  s3Key: text("s3_key").notNull(),
+  status: text("status").notNull().default("pending_upload"),
+  uploadedAt: timestamp("uploaded_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNote: text("review_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ndcBreachEvents = pgTable("ndc_breach_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull(),
+  dfspName: text("dfsp_name").notNull(),
+  currentPositionKobo: integer("current_position_kobo").notNull(),
+  ndcLimitKobo: integer("ndc_limit_kobo").notNull(),
+  breachPercentage: real("breach_percentage").notNull(),
+  severity: text("severity"),
+  windowId: text("window_id"),
+  resolvedAt: timestamp("resolved_at"),
+  resolution: text("resolution"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const dfspNdcLimits = pgTable("dfsp_ndc_limits", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull().unique(),
+  dfspName: text("dfsp_name").notNull(),
+  ndcLimitKobo: integer("ndc_limit_kobo").notNull().default(0),
+  alertThresholdPct: real("alert_threshold_pct").notNull().default(80),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

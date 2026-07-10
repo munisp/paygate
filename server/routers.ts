@@ -219,6 +219,8 @@ import { regulatorAuthRouter } from './routers/wave225_regulator_auth';
 import { sagaWiringRouter } from './routers/wave225_saga';
 // Wave 226 — Admin Regulator Management
 import { adminRegulatorsRouter } from './routers/wave226_admin_regulators';
+// Wave 227 — Regulator Doc Upload + NDC Breach Auto-Notify
+import { regulatorDocsRouter, ndcBreachRouter } from './routers/wave227';
 import { wave223ExtRouter } from './routers/wave223_extensions';
 
 import {
@@ -9426,6 +9428,9 @@ export const appRouter = router({
   sagaWiring: sagaWiringRouter,
   // Wave 226 — Admin Regulator Management
   adminRegulators: adminRegulatorsRouter,
+  // Wave 227 — Regulator Doc Upload + NDC Breach Auto-Notify
+  regulatorDocs: regulatorDocsRouter,
+  ndcBreach: ndcBreachRouter,
 
 });
 export type AppRouter = typeof appRouter;
