@@ -4768,3 +4768,265 @@ export const userLocalePreferences = pgTable("user_locale_preferences", {
 ]);
 export type UserLocalePreference = typeof userLocalePreferences.$inferSelect;
 export type InsertUserLocalePreference = typeof userLocalePreferences.$inferInsert;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NEXTHUB SRBE — Settlement, Reconciliation, and Billing Engine
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const settlementWindows = pgTable("settlement_windows", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  windowType: text("window_type").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  currency: text("currency").notNull().default("NGN"),
+  openedAt: timestamp("opened_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+  settledAt: timestamp("settled_at"),
+  totalTransfers: integer("total_transfers").notNull().default(0),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
+  settlementReportUrl: text("settlement_report_url"),
+  railReference: text("rail_reference"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type SettlementWindow = typeof settlementWindows.$inferSelect;
+export type InsertSettlementWindow = typeof settlementWindows.$inferInsert;
+
+export const settlementNetPositions = pgTable("settlement_net_positions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  windowId: text("window_id").notNull().references(() => settlementWindows.id),
+  dfspId: text("dfsp_id").notNull(),
+  dfspName: text("dfsp_name").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  netPositionKobo: bigint("net_position_kobo", { mode: "number" }).notNull().default(0),
+  totalDebitsKobo: bigint("total_debits_kobo", { mode: "number" }).notNull().default(0),
+  totalCreditsKobo: bigint("total_credits_kobo", { mode: "number" }).notNull().default(0),
+  transferCount: integer("transfer_count").notNull().default(0),
+  tigerBeetleAccountId: text("tigerbeetle_account_id"),
+  settlementInstruction: text("settlement_instruction"),
+  settledAt: timestamp("settled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type SettlementNetPosition = typeof settlementNetPositions.$inferSelect;
+
+export const nexthubDfsps = pgTable("nexthub_dfsps", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull().unique(),
+  dfspName: text("dfsp_name").notNull(),
+  dfspType: text("dfsp_type").notNull().default("bank"),
+  country: text("country").notNull().default("NG"),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("ACTIVE"),
+  tigerBeetlePositionAccountId: text("tigerbeetle_position_account_id"),
+  tigerBeetleLiquidityAccountId: text("tigerbeetle_liquidity_account_id"),
+  liquidityLimitKobo: bigint("liquidity_limit_kobo", { mode: "number" }).notNull().default(0),
+  callbackUrl: text("callback_url"),
+  clientCertificateThumbprint: text("client_certificate_thumbprint"),
+  certificateExpiresAt: timestamp("certificate_expires_at"),
+  onboardedAt: timestamp("onboarded_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type NexthubDfsp = typeof nexthubDfsps.$inferSelect;
+export type InsertNexthubDfsp = typeof nexthubDfsps.$inferInsert;
+
+export const feePostings = pgTable("fee_postings", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transferId: text("transfer_id").notNull(),
+  windowId: text("window_id"),
+  dfspId: text("dfsp_id").notNull(),
+  feeType: text("fee_type").notNull(),
+  feeCategory: text("fee_category").notNull().default("DEBIT"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  tigerBeetleTransferId: text("tigerbeetle_transfer_id"),
+  billedAt: timestamp("billed_at"),
+  invoiceId: text("invoice_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type FeePosting = typeof feePostings.$inferSelect;
+
+export const dfspFeeTiers = pgTable("dfsp_fee_tiers", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull(),
+  feeType: text("fee_type").notNull(),
+  tierModel: text("tier_model").notNull().default("flat"),
+  flatRateBps: integer("flat_rate_bps"),
+  minFeeKobo: integer("min_fee_kobo"),
+  maxFeeKobo: integer("max_fee_kobo"),
+  tierBands: text("tier_bands"),
+  volumeDiscountBands: text("volume_discount_bands"),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  effectiveTo: timestamp("effective_to"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type DfspFeeTier = typeof dfspFeeTiers.$inferSelect;
+
+export const nexthubInvoices = pgTable("nexthub_invoices", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dfspId: text("dfsp_id").notNull(),
+  dfspName: text("dfsp_name").notNull(),
+  billingPeriodStart: timestamp("billing_period_start").notNull(),
+  billingPeriodEnd: timestamp("billing_period_end").notNull(),
+  totalSchemeFeesKobo: bigint("total_scheme_fees_kobo", { mode: "number" }).notNull().default(0),
+  totalInterchangeKobo: bigint("total_interchange_kobo", { mode: "number" }).notNull().default(0),
+  totalFxMarkupKobo: bigint("total_fx_markup_kobo", { mode: "number" }).notNull().default(0),
+  totalPenaltiesKobo: bigint("total_penalties_kobo", { mode: "number" }).notNull().default(0),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("DRAFT"),
+  pdfUrl: text("pdf_url"),
+  tigerBeetleInvoiceTransferId: text("tigerbeetle_invoice_transfer_id"),
+  issuedAt: timestamp("issued_at"),
+  dueAt: timestamp("due_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type NexthubInvoice = typeof nexthubInvoices.$inferSelect;
+
+export const reconciliationExceptions = pgTable("reconciliation_exceptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  windowId: text("window_id").notNull(),
+  transferId: text("transfer_id"),
+  dfspId: text("dfsp_id"),
+  breakType: text("break_type").notNull(),
+  severity: text("severity").notNull().default("MEDIUM"),
+  status: text("status").notNull().default("OPEN"),
+  hubAmountKobo: bigint("hub_amount_kobo", { mode: "number" }),
+  railAmountKobo: bigint("rail_amount_kobo", { mode: "number" }),
+  discrepancyAmountKobo: bigint("discrepancy_amount_kobo", { mode: "number" }),
+  currency: text("currency").notNull().default("NGN"),
+  description: text("description"),
+  resolutionNotes: text("resolution_notes"),
+  autoResolveSlaMinutes: integer("auto_resolve_sla_minutes"),
+  resolvedAt: timestamp("resolved_at"),
+  escalatedAt: timestamp("escalated_at"),
+  assignedTo: text("assigned_to"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type ReconciliationException = typeof reconciliationExceptions.$inferSelect;
+
+export const transferDisputes = pgTable("transfer_disputes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  transferId: text("transfer_id").notNull(),
+  initiatedByDfspId: text("initiated_by_dfsp_id").notNull(),
+  respondingDfspId: text("responding_dfsp_id"),
+  disputeType: text("dispute_type").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  reason: text("reason").notNull(),
+  evidence: text("evidence"),
+  resolution: text("resolution"),
+  resolutionNotes: text("resolution_notes"),
+  penaltyAmountKobo: bigint("penalty_amount_kobo", { mode: "number" }).default(0),
+  reversalTransferId: text("reversal_transfer_id"),
+  tigerBeetlePenaltyTransferId: text("tigerbeetle_penalty_transfer_id"),
+  slaDeadline: timestamp("sla_deadline"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type TransferDispute = typeof transferDisputes.$inferSelect;
+
+export const nexthubTransfers = pgTable("nexthub_transfers", {
+  id: text("id").primaryKey(),
+  payerFspId: text("payer_fsp_id").notNull(),
+  payeeFspId: text("payee_fsp_id").notNull(),
+  payerPartyId: text("payer_party_id").notNull(),
+  payeePartyId: text("payee_party_id").notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  state: text("state").notNull().default("RECEIVED"),
+  ilpPacket: text("ilp_packet"),
+  condition: text("condition"),
+  fulfilment: text("fulfilment"),
+  fraudScore: real("fraud_score"),
+  schemeFeeKobo: bigint("scheme_fee_kobo", { mode: "number" }).default(0),
+  interchangeFeeKobo: bigint("interchange_fee_kobo", { mode: "number" }).default(0),
+  fxRate: real("fx_rate"),
+  tigerBeetleTransferId: text("tigerbeetle_transfer_id"),
+  tigerBeetleFeeId: text("tigerbeetle_fee_id"),
+  windowId: text("window_id"),
+  expirationTime: timestamp("expiration_time"),
+  errorCode: text("error_code"),
+  errorDescription: text("error_description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type NexthubTransfer = typeof nexthubTransfers.$inferSelect;
+
+export const nexthubSecurityEvents = pgTable("nexthub_security_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  eventType: text("event_type").notNull(),
+  severity: text("severity").notNull().default("MEDIUM"),
+  dfspId: text("dfsp_id"),
+  sourceIp: text("source_ip"),
+  description: text("description").notNull(),
+  metadata: text("metadata"),
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  acknowledgedBy: text("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type NexthubSecurityEvent = typeof nexthubSecurityEvents.$inferSelect;
+
+export const amlRules = pgTable("aml_rules", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ruleName: text("rule_name").notNull().unique(),
+  ruleCategory: text("rule_category").notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  parameters: text("parameters").notNull(),
+  action: text("action").notNull().default("FLAG"),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  effectiveTo: timestamp("effective_to"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type AmlRule = typeof amlRules.$inferSelect;
+
+// ─── NIP Name Enquiry Cache ────────────────────────────────────────────────────
+export const nipNameEnquiryCache = pgTable("nip_name_enquiry_cache", {
+  id: serial("id").primaryKey(),
+  bankNipCode: text("bank_nip_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  bankVerificationNumber: text("bank_verification_number"),
+  kycLevel: text("kyc_level"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("nip_name_enquiry_cache_key_idx").on(t.bankNipCode, t.accountNumber),
+  index("nip_name_enquiry_cache_expires_idx").on(t.expiresAt),
+]);
+export type NipNameEnquiryCache = typeof nipNameEnquiryCache.$inferSelect;
+
+// ─── NIP Virtual Accounts ─────────────────────────────────────────────────────
+export const nipVirtualAccounts = pgTable("nip_virtual_accounts", {
+  id: serial("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  paymentLinkId: text("payment_link_id"),
+  checkoutSessionId: text("checkout_session_id"),
+  bankNipCode: text("bank_nip_code").notNull(),
+  bankName: text("bank_name").notNull(),
+  accountNumber: text("account_number").notNull(),
+  accountName: text("account_name").notNull(),
+  amountExpected: integer("amount_expected"),
+  currency: text("currency").notNull().default("NGN"),
+  reference: text("reference").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  paidAt: timestamp("paid_at"),
+  paidAmount: integer("paid_amount"),
+  nibssReference: text("nibss_reference"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("nip_va_merchant_idx").on(t.merchantId),
+  index("nip_va_reference_idx").on(t.reference),
+  index("nip_va_status_idx").on(t.status),
+  index("nip_va_expires_idx").on(t.expiresAt),
+]);
+export type NipVirtualAccount = typeof nipVirtualAccounts.$inferSelect;
