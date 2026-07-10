@@ -453,6 +453,15 @@ const DomainSCF = lz(() => import("./pages/domains/SupplyChainFinance"));
 const DomainG2P = lz(() => import("./pages/domains/G2PDisbursements"));
 const DomainEnergy = lz(() => import("./pages/domains/EnergyVend"));
 const DomainCBDC = lz(() => import("./pages/domains/CBDC"));
+// Wave 221
+const DomainSagas = lz(() => import("./pages/domains/DomainSagas"));
+const DeveloperSettings = lz(() => import("./pages/settings/DeveloperSettings"));
+const DomainHealthMonitor = lz(() => import("./pages/platform/DomainHealthMonitor"));
+const SagaMetricsDashboard = lz(() => import("./pages/platform/SagaMetricsDashboard"));
+const ComplianceScorecard = lz(() => import("./pages/platform/ComplianceScorecard"));
+const ProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"));
+const BeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
+const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -934,6 +943,15 @@ function Router() {
         <Route path="/domains/g2p" component={DomainG2P} />
         <Route path="/domains/energy" component={DomainEnergy} />
         <Route path="/domains/cbdc" component={DomainCBDC} />
+        {/* Wave 221 */}
+        <Route path="/domains/sagas" component={DomainSagas} />
+        <Route path="/settings/developer" component={DeveloperSettings} />
+        <Route path="/platform/health" component={DomainHealthMonitor} />
+        <Route path="/platform/saga-metrics" component={SagaMetricsDashboard} />
+        <Route path="/platform/compliance" component={ComplianceScorecard} />
+        <Route path="/platform/protocol-validator" component={ProtocolValidator} />
+        <Route path="/platform/beneficiary-registry" component={BeneficiaryRegistry} />
+        <Route path="/platform/cost-centres" component={CostCentreManager} />
           <Route component={Dashboard} />
     </Switch>
       </Suspense>

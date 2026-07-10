@@ -5650,3 +5650,21 @@
 ### CBDC Atomic Swap (deferred to Wave 220)
 - [ ] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money) (Wave 220)
 - [ ] TS: cbdcRouter.atomicSwap procedure (Wave 220)
+
+## Wave 221 — Developer Portal, Saga Visualization & Platform Ops
+
+- [x] Developer Settings page (/settings/developer) — API key management (generate/revoke/delete), webhook CRUD with signing secrets, delivery log monitoring with retry
+- [x] Enhanced ParticipantLifecycle page — visual onboarding progress tracker (7 steps), interactive Position vs NDC Cap chart, NDC Utilisation bar chart, real-time 10s refresh, alert table
+- [x] SagaVisualizer component — graphically tracks 5-step FHIR payment orchestration and 6-step CBDC atomic swap workflow in real-time with animated step transitions
+- [x] DomainSagas page (/domains/sagas) — embeds SagaVisualizer, allows launching simulated sagas
+- [x] DomainHealthMonitor page (/platform/health) — real-time domain health grid with latency, error rate, throughput, uptime metrics
+- [x] SagaMetricsDashboard page (/platform/saga-metrics) — saga metrics by type and status with p50/p95/p99 latency, recent saga log
+- [x] ComplianceScorecard page (/platform/compliance) — AML/KYC/PCI-DSS/ISO27001/NDPR/FATF scorecard with per-check status
+- [x] ProtocolValidator page (/platform/protocol-validator) — validate FHIR R4, ACORD AL3, GS1 EPCIS, ISO 20022, IVMS-101, FSPIOP payloads
+- [x] BeneficiaryRegistry page (/platform/beneficiary-registry) — create/verify/delete beneficiary records with search
+- [x] CostCentreManager page (/platform/cost-centres) — budget vs spend tracking per cost centre
+- [x] wave221_developer.ts server router — 11 sub-routers: apiKeys, webhooks, deliveryLogs, sagas, domainHealth, costCentres, beneficiaryRegistry, compliance, protocolValidator, domainQuotas
+- [x] Schema tables: developer_api_keys, developer_webhooks, developer_webhook_deliveries, saga_instances, domain_health_snapshots, cost_centres, nexthub_beneficiary_registry, nexthub_domain_quotas
+- [x] Platform Ops sidebar section in Layout.tsx — Domain Health, Saga Metrics, Compliance Score, Protocol Validator, Beneficiary Registry, Cost Centres
+- [x] Developer Settings nav item added to Developer sidebar section
+- [x] Saga Visualizer nav item added to Domain Expansion sidebar section

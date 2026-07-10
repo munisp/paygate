@@ -5422,3 +5422,130 @@ export const nexthubLiquidityWindows = pgTable("nexthub_liquidity_windows", {
   closesAt: timestamp("closes_at").notNull(),
   status: text("status").notNull().default("OPEN"),
 });
+
+// ── Wave 221: Developer API Keys ─────────────────────────────────────────────
+export const developerApiKeys = pgTable("developer_api_keys", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyHash: text("key_hash").notNull(),
+  environment: text("environment").notNull().default("test"),
+  scopes: text("scopes").notNull().default("[]"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ── Wave 221: Developer Webhooks ──────────────────────────────────────────────
+export const developerWebhooks = pgTable("developer_webhooks", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  url: text("url").notNull(),
+  description: text("description"),
+  events: text("events").notNull().default("[]"),
+  signingSecret: text("signing_secret").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  retryPolicy: text("retry_policy").notNull().default("exponential"),
+  maxRetries: integer("max_retries").notNull().default(3),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ── Wave 221: Developer Webhook Deliveries ────────────────────────────────────
+export const developerWebhookDeliveries = pgTable("developer_webhook_deliveries", {
+  id: text("id").primaryKey(),
+  webhookId: text("webhook_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  eventType: text("event_type").notNull(),
+  eventId: text("event_id"),
+  payload: text("payload").notNull(),
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  durationMs: integer("duration_ms"),
+  attempt: integer("attempt").notNull().default(1),
+  status: text("status").notNull().default("pending"),
+  nextRetryAt: timestamp("next_retry_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ── Wave 221: Domain Health Snapshots ─────────────────────────────────────────
+export const domainHealthSnapshots = pgTable("domain_health_snapshots", {
+  id: text("id").primaryKey(),
+  domain: text("domain").notNull(),
+  tps: doublePrecision("tps").notNull().default(0),
+  errorRate: doublePrecision("error_rate").notNull().default(0),
+  p50LatencyMs: integer("p50_latency_ms").notNull().default(0),
+  p95LatencyMs: integer("p95_latency_ms").notNull().default(0),
+  p99LatencyMs: integer("p99_latency_ms").notNull().default(0),
+  uptime: doublePrecision("uptime").notNull().default(100),
+  activeConnections: integer("active_connections").notNull().default(0),
+  queueDepth: integer("queue_depth").notNull().default(0),
+  status: text("status").notNull().default("healthy"),
+  snapshotAt: timestamp("snapshot_at").defaultNow(),
+});
+
+// ── Wave 221: Saga Instances ──────────────────────────────────────────────────
+export const sagaInstances = pgTable("saga_instances", {
+  id: text("id").primaryKey(),
+  sagaType: text("saga_type").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  status: text("status").notNull().default("running"),
+  currentStep: integer("current_step").notNull().default(0),
+  totalSteps: integer("total_steps").notNull().default(5),
+  steps: jsonb("steps").notNull().default([]),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  durationMs: integer("duration_ms"),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata").default({}),
+});
+
+// ── Wave 221: Nexthub Beneficiary Registry ────────────────────────────────────
+export const nexthubBeneficiaryRegistry = pgTable("nexthub_beneficiary_registry", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  fullName: text("full_name").notNull(),
+  nin: text("nin"),
+  bvn: text("bvn"),
+  phone: text("phone"),
+  email: text("email"),
+  bankAccount: text("bank_account"),
+  bankCode: text("bank_code"),
+  domains: text("domains").notNull().default("[]"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ── Wave 221: Domain Quotas ───────────────────────────────────────────────────
+export const nexthubDomainQuotas = pgTable("nexthub_domain_quotas", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  domain: text("domain").notNull(),
+  dailyLimit: integer("daily_limit").notNull().default(10000),
+  monthlyLimit: integer("monthly_limit").notNull().default(250000),
+  currentDaily: integer("current_daily").notNull().default(0),
+  currentMonthly: integer("current_monthly").notNull().default(0),
+  rateLimitRpm: integer("rate_limit_rpm").notNull().default(120),
+  status: text("status").notNull().default("active"),
+  resetAt: timestamp("reset_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ── Wave 221: Cost Centres ────────────────────────────────────────────────────
+export const costCentres = pgTable("cost_centres", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  domain: text("domain"),
+  budgetAmount: doublePrecision("budget_amount"),
+  spentAmount: doublePrecision("spent_amount").notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

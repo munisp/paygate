@@ -406,8 +406,18 @@ const navGroups: NavGroup[] = [
       { icon: Users, label: "G2P Disbursements", path: "/domains/g2p", badge: "W215", status: "live", tooltip: "Bulk government-to-person disbursements — NASIMS, CCT, N-Power" },
       { icon: Zap, label: "Energy VEND", path: "/domains/energy", badge: "W216", status: "live", tooltip: "DISCO electricity vending with NEPA STS token generation" },
       { icon: Coins, label: "CBDC Rails", path: "/domains/cbdc", badge: "W217", status: "beta", tooltip: "eNaira, ECB TIPS, FedNow, DCEP — TigerBeetle CBDC ledger" },
+      { icon: Zap, label: "Saga Visualizer", path: "/domains/sagas", badge: "W221", status: "live", tooltip: "Real-time FHIR payment orchestration and CBDC atomic swap workflow tracker" },
     ],
   },
+];
+
+const platformOpsItems: NavItem[] = [
+  { icon: Activity, label: "Domain Health", path: "/platform/health", badge: "W221" },
+  { icon: BarChart3, label: "Saga Metrics", path: "/platform/saga-metrics", badge: "W221" },
+  { icon: Shield, label: "Compliance Score", path: "/platform/compliance", badge: "W221" },
+  { icon: Code2, label: "Protocol Validator", path: "/platform/protocol-validator", badge: "W221" },
+  { icon: Users, label: "Beneficiary Registry", path: "/platform/beneficiary-registry", badge: "W221" },
+  { icon: DollarSign, label: "Cost Centres", path: "/platform/cost-centres", badge: "W221" },
 ];
 
 const devItems: NavItem[] = [
@@ -422,6 +432,7 @@ const devItems: NavItem[] = [
   { icon: BookMarked, label: "API Docs Portal", path: "/api-docs" },
   { icon: Shield, label: "Role Sync", path: "/role-sync" },
   { icon: Building2, label: "NIP Banks", path: "/nip-banks", badge: "CBN" },
+  { icon: Code2, label: "Developer Settings", path: "/settings/developer", badge: "W221" },
   { icon: Settings, label: "Settings", path: "/settings" },
   { icon: BookOpen, label: "Help Guide", path: "/docs/merchant-guide" },
 ];
@@ -727,6 +738,44 @@ export default function Layout({ children }: LayoutProps) {
                       <span className="flex-1 text-sm">{item.label}</span>
                       {item.badge && (
                         <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-blue-500/20 text-blue-400 border-0">
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+        {/* Platform Operations section */}
+        {!collapsed && (
+          <button
+            className="sidebar-section-header w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider hover:text-sidebar-foreground/70 transition-colors"
+            onClick={() => toggleGroup("__platform_ops__")}
+          >
+            <Activity className="w-3 h-3" />
+            <span className="flex-1 text-left">Platform Ops</span>
+            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${expandedGroups.has("__platform_ops__") ? "rotate-180" : ""}`} />
+          </button>
+        )}
+        {(collapsed || expandedGroups.has("__platform_ops__")) && (
+          <div className={!collapsed ? "ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2" : ""}>
+            {platformOpsItems.map((item) => {
+              const isActive = location === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-sm">{item.label}</span>
+                      {item.badge && (
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-purple-500/20 text-purple-400 border-0">
                           {item.badge}
                         </Badge>
                       )}

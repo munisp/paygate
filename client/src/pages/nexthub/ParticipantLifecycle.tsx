@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,23 +8,160 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Shield, Activity, AlertTriangle, CheckCircle, XCircle, Plus, Settings, RefreshCw, Wallet } from "lucide-react";
+import {
+  Users, Shield, Activity, AlertTriangle, CheckCircle2, XCircle, Plus, Settings,
+  RefreshCw, Wallet, TrendingUp, BarChart3, Clock, CheckCircle, Circle
+} from "lucide-react";
 
+// ── Onboarding Step Tracker ───────────────────────────────────────────────────
+const ONBOARDING_STEPS = [
+  { id: 1, label: "Registration", description: "DFSP registered in scheme directory", icon: "📝" },
+  { id: 2, label: "KYB Verification", description: "Know-Your-Business documents verified", icon: "🔍" },
+  { id: 3, label: "Technical Setup", description: "Endpoint URLs and certificates configured", icon: "⚙️" },
+  { id: 4, label: "Settlement Account", description: "Nostro/vostro account linked to TigerBeetle", icon: "🏦" },
+  { id: 5, label: "NDC Configuration", description: "Net Debit Cap and position limits set", icon: "📊" },
+  { id: 6, label: "Sandbox Testing", description: "End-to-end test transfers completed", icon: "🧪" },
+  { id: 7, label: "Go-Live Approval", description: "Scheme operator approval granted", icon: "✅" },
+];
+
+type OnboardingStatus = "not_started" | "in_progress" | "completed" | "blocked";
+
+function OnboardingTracker({ completedSteps = 0, blockedStep }: { completedSteps: number; blockedStep?: number }) {
+  return (
+    <div className="space-y-2">
+      {ONBOARDING_STEPS.map((step, idx) => {
+        const stepNum = idx + 1;
+        const status: OnboardingStatus =
+          stepNum <= completedSteps ? "completed" :
+          stepNum === blockedStep ? "blocked" :
+          stepNum === completedSteps + 1 ? "in_progress" : "not_started";
+
+        const cfg = {
+          completed: { bg: "bg-green-500", border: "border-green-500", text: "text-green-600 dark:text-green-400", icon: <CheckCircle2 className="h-4 w-4 text-white" /> },
+          in_progress: { bg: "bg-blue-500 animate-pulse", border: "border-blue-500", text: "text-blue-600 dark:text-blue-400", icon: <Clock className="h-4 w-4 text-white" /> },
+          blocked: { bg: "bg-destructive", border: "border-destructive", text: "text-destructive", icon: <XCircle className="h-4 w-4 text-white" /> },
+          not_started: { bg: "bg-muted", border: "border-muted", text: "text-muted-foreground", icon: <Circle className="h-4 w-4 text-muted-foreground" /> },
+        }[status];
+
+        return (
+          <div key={step.id} className="flex items-start gap-3">
+            <div className="flex flex-col items-center">
+              <div className={`w-8 h-8 rounded-full ${cfg.bg} border-2 ${cfg.border} flex items-center justify-center shrink-0 transition-all duration-500`}>
+                {status === "completed" ? cfg.icon : status === "in_progress" ? cfg.icon : status === "blocked" ? cfg.icon : <span className="text-xs font-bold text-muted-foreground">{stepNum}</span>}
+              </div>
+              {idx < ONBOARDING_STEPS.length - 1 && (
+                <div className={`w-0.5 h-6 mt-1 ${stepNum < completedSteps ? "bg-green-500" : "bg-border"} transition-colors duration-500`} />
+              )}
+            </div>
+            <div className={`flex-1 pb-2 ${status === "not_started" ? "opacity-50" : ""} transition-opacity duration-300`}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{step.label}</span>
+                <span className="text-base">{step.icon}</span>
+                {status === "in_progress" && <Badge variant="outline" className="text-xs text-blue-600 border-blue-500">In Progress</Badge>}
+                {status === "blocked" && <Badge variant="destructive" className="text-xs">Blocked</Badge>}
+              </div>
+              <p className="text-xs text-muted-foreground">{step.description}</p>
+            </div>
+          </div>
+        );
+      })}
+      <div className="mt-2">
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+          <span>Onboarding Progress</span>
+          <span>{completedSteps}/{ONBOARDING_STEPS.length} steps</span>
+        </div>
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all duration-700"
+            style={{ width: `${(completedSteps / ONBOARDING_STEPS.length) * 100}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Position Limit Chart (bar chart using CSS) ────────────────────────────────
+function PositionLimitChart({ participants }: { participants: Array<{ name: string; netDebitCap: string | null; currentPosition: string | null }> }) {
+  const items = (participants ?? []).slice(0, 8).map((p) => {
+    const cap = parseFloat(p.netDebitCap ?? "1000000");
+    const pos = parseFloat(p.currentPosition ?? "0");
+    const pct = cap > 0 ? Math.min((pos / cap) * 100, 100) : 0;
+    return { name: p.name, cap, pos, pct };
+  });
+
+  if (items.length === 0) {
+    return <div className="text-center py-8 text-muted-foreground text-sm">No participants to display</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item, i) => (
+        <div key={i}>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="font-medium truncate max-w-[140px]">{item.name}</span>
+            <span className="text-muted-foreground">
+              {item.pos.toLocaleString()} / {item.cap.toLocaleString()}
+            </span>
+          </div>
+          <div className="h-4 bg-muted rounded-full overflow-hidden relative">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${item.pct > 90 ? "bg-red-500" : item.pct > 70 ? "bg-yellow-500" : "bg-blue-500"}`}
+              style={{ width: `${item.pct}%` }}
+            />
+            <span className="absolute right-2 top-0 h-full flex items-center text-xs font-bold text-white mix-blend-difference">
+              {item.pct.toFixed(0)}%
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── NDC Utilisation Chart ─────────────────────────────────────────────────────
+function NDCChart({ participants }: { participants: Array<{ name: string; ndcStatus: string | null; netDebitCap: string | null; currentPosition: string | null }> }) {
+  const items = (participants ?? []).slice(0, 8);
+  if (items.length === 0) return <div className="text-center py-8 text-muted-foreground text-sm">No data</div>;
+
+  const maxVal = Math.max(...items.map((p) => parseFloat(p.netDebitCap ?? "0")), 1);
+
+  return (
+    <div className="flex items-end gap-2 h-40 pt-4">
+      {items.map((p, i) => {
+        const cap = parseFloat(p.netDebitCap ?? "0");
+        const pos = parseFloat(p.currentPosition ?? "0");
+        const capPct = (cap / maxVal) * 100;
+        const posPct = (pos / maxVal) * 100;
+        const status = p.ndcStatus ?? "OK";
+        const barColor = status === "BREACHED" ? "bg-red-500" : status === "ALERT" ? "bg-yellow-500" : "bg-blue-500";
+
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1 group">
+            <div className="w-full relative flex flex-col justify-end" style={{ height: "120px" }}>
+              {/* Cap bar (ghost) */}
+              <div className="absolute bottom-0 left-0 right-0 bg-muted rounded-t-sm" style={{ height: `${capPct}%` }} />
+              {/* Position bar */}
+              <div className={`relative z-10 ${barColor} rounded-t-sm transition-all duration-700`} style={{ height: `${posPct}%` }} />
+            </div>
+            <span className="text-xs text-muted-foreground truncate w-full text-center" title={p.name}>
+              {p.name.split(" ")[0]}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Status colors ─────────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
   ACTIVE: "bg-green-500/10 text-green-400 border-green-500/20",
   SUSPENDED: "bg-red-500/10 text-red-400 border-red-500/20",
   PENDING: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
   OFFBOARDED: "bg-gray-500/10 text-gray-400 border-gray-500/20",
-};
-
-const NDC_STATUS_COLORS: Record<string, string> = {
-  OK: "text-green-400",
-  ALERT: "text-yellow-400",
-  BREACHED: "text-red-400",
-  SUSPENDED: "text-red-500",
 };
 
 function NDCBar({ utilisation, status }: { utilisation: number; status: string }) {
@@ -35,13 +172,14 @@ function NDCBar({ utilisation, status }: { utilisation: number; status: string }
       <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className={`text-xs font-mono w-12 text-right ${NDC_STATUS_COLORS[status] ?? "text-muted-foreground"}`}>
+      <span className={`text-xs font-mono w-12 text-right ${status === "BREACHED" ? "text-red-400" : status === "ALERT" ? "text-yellow-400" : "text-green-400"}`}>
         {pct.toFixed(1)}%
       </span>
     </div>
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ParticipantLifecycle() {
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -49,128 +187,116 @@ export default function ParticipantLifecycle() {
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [limitsOpen, setLimitsOpen] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
+  const [selectedForTracker, setSelectedForTracker] = useState<string | null>(null);
 
-  // Onboard form state
   const [onboardForm, setOnboardForm] = useState({
     name: "", dfspId: "", currency: "NGN", schemeType: "FSPIOP", endpointUrl: "",
   });
-
-  // Limits form state
   const [limitsForm, setLimitsForm] = useState({
     netDebitCap: "", liquidityCover: "", alertThreshold: "0.8", suspendOnBreach: true,
   });
 
-  const { data: statsData } = trpc.nexthubParticipants.getParticipantStats.useQuery();
-  const { data: participantsData, refetch: refetchParticipants } = trpc.nexthubParticipants.listParticipants.useQuery({
-    status: statusFilter !== "ALL" ? (statusFilter as any) : undefined,
-    currency: currency !== "ALL" ? currency : undefined,
-    limit: 100,
-    offset: 0,
+  const { data: participants, refetch } = trpc.nexthubParticipants.list.useQuery({ currency, status: statusFilter === "ALL" ? undefined : statusFilter });
+  const { data: positions } = trpc.nexthubParticipants.getPositions.useQuery({ currency }, { refetchInterval: 10000 });
+  const { data: limits } = trpc.nexthubParticipants.getLimits.useQuery({ currency });
+
+  const onboard = trpc.nexthubParticipants.onboard.useMutation({
+    onSuccess: () => { refetch(); setOnboardOpen(false); toast({ title: "Participant onboarded" }); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
-  const { data: positionsData, refetch: refetchPositions } = trpc.nexthubParticipants.getPositions.useQuery({
-    currency,
-    status: "ALL",
+  const setLimits = trpc.nexthubParticipants.setLimits.useMutation({
+    onSuccess: () => { refetch(); setLimitsOpen(false); toast({ title: "Limits updated" }); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const suspend = trpc.nexthubParticipants.suspend.useMutation({
+    onSuccess: () => { refetch(); toast({ title: "Participant suspended" }); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const activate = trpc.nexthubParticipants.activate.useMutation({
+    onSuccess: () => { refetch(); toast({ title: "Participant activated" }); },
+    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const onboardMutation = trpc.nexthubParticipants.onboardParticipant.useMutation({
-    onSuccess: (data) => {
-      toast({ title: "Participant onboarded", description: `ID: ${data.participantId}` });
-      setOnboardOpen(false);
-      refetchParticipants();
-    },
-    onError: (err) => toast({ title: "Onboard failed", description: err.message, variant: "destructive" }),
+  // Merge positions into participants for charts
+  const participantsWithPositions = (participants ?? []).map((p) => {
+    const pos = (positions ?? []).find((x) => x.dfspId === p.dfspId);
+    const lim = (limits ?? []).find((x) => x.dfspId === p.dfspId);
+    return {
+      ...p,
+      currentPosition: pos?.currentPosition ?? "0",
+      netDebitCap: lim?.netDebitCap ?? "1000000",
+      ndcStatus: pos?.ndcStatus ?? "OK",
+    };
   });
 
-  const suspendMutation = trpc.nexthubParticipants.suspendParticipant.useMutation({
-    onSuccess: () => { toast({ title: "Participant suspended" }); refetchParticipants(); refetchPositions(); },
-  });
+  const selectedTrackerParticipant = participantsWithPositions.find((p) => p.dfspId === selectedForTracker);
+  const trackerCompletedSteps = selectedTrackerParticipant
+    ? selectedTrackerParticipant.status === "ACTIVE" ? 7
+    : selectedTrackerParticipant.status === "PENDING" ? 3
+    : selectedTrackerParticipant.status === "SUSPENDED" ? 6
+    : 0
+    : 0;
 
-  const reactivateMutation = trpc.nexthubParticipants.reactivateParticipant.useMutation({
-    onSuccess: () => { toast({ title: "Participant reactivated" }); refetchParticipants(); refetchPositions(); },
-  });
-
-  const setLimitsMutation = trpc.nexthubParticipants.setLimits.useMutation({
-    onSuccess: () => {
-      toast({ title: "Limits updated" });
-      setLimitsOpen(false);
-    },
-    onError: (err) => toast({ title: "Limits update failed", description: err.message, variant: "destructive" }),
-  });
-
-  const stats = statsData?.participants as any;
-  const positions = (positionsData?.positions ?? []) as any[];
-  const participants = (participantsData?.participants ?? []) as any[];
+  const stats = {
+    total: (participants ?? []).length,
+    active: (participants ?? []).filter((p) => p.status === "ACTIVE").length,
+    suspended: (participants ?? []).filter((p) => p.status === "SUSPENDED").length,
+    pending: (participants ?? []).filter((p) => p.status === "PENDING").length,
+  };
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users className="w-6 h-6 text-indigo-400" />
-            Participant Lifecycle
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            DFSP onboarding, position limits, net debit cap enforcement, and liquidity management
-          </p>
+          <h1 className="text-2xl font-bold">Participant Lifecycle</h1>
+          <p className="text-muted-foreground text-sm">Manage DFSP onboarding, position limits, and net debit caps</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { refetchParticipants(); refetchPositions(); }}>
-            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
           </Button>
           <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
-                <Plus className="w-4 h-4 mr-1" /> Onboard DFSP
-              </Button>
+              <Button size="sm"><Plus className="h-4 w-4 mr-2" /> Onboard DFSP</Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Onboard New DFSP Participant</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-2">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <Label>Institution Name</Label>
-                    <Input placeholder="e.g. GTBank" value={onboardForm.name}
-                      onChange={e => setOnboardForm(f => ({ ...f, name: e.target.value }))} />
+              <DialogHeader><DialogTitle>Onboard New Participant</DialogTitle></DialogHeader>
+              <div className="space-y-4 py-2">
+                {[
+                  { label: "Institution Name", key: "name", placeholder: "e.g. First Bank Nigeria" },
+                  { label: "DFSP ID", key: "dfspId", placeholder: "e.g. firstbank-ng" },
+                  { label: "Endpoint URL", key: "endpointUrl", placeholder: "https://api.firstbank.ng/fspiop" },
+                ].map(({ label, key, placeholder }) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label>{label}</Label>
+                    <Input placeholder={placeholder} value={(onboardForm as any)[key]} onChange={(e) => setOnboardForm((p) => ({ ...p, [key]: e.target.value }))} />
                   </div>
-                  <div className="space-y-1">
-                    <Label>DFSP ID</Label>
-                    <Input placeholder="e.g. GTBANK" value={onboardForm.dfspId}
-                      onChange={e => setOnboardForm(f => ({ ...f, dfspId: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
+                ))}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
                     <Label>Currency</Label>
-                    <Select value={onboardForm.currency} onValueChange={v => setOnboardForm(f => ({ ...f, currency: v }))}>
+                    <Select value={onboardForm.currency} onValueChange={(v) => setOnboardForm((p) => ({ ...p, currency: v }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {["NGN", "USD", "GHS", "KES", "ZAR"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        {["NGN", "GHS", "KES", "ZAR", "USD"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <Label>Scheme Type</Label>
-                    <Select value={onboardForm.schemeType} onValueChange={v => setOnboardForm(f => ({ ...f, schemeType: v }))}>
+                    <Select value={onboardForm.schemeType} onValueChange={(v) => setOnboardForm((p) => ({ ...p, schemeType: v }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="FSPIOP">FSPIOP</SelectItem>
-                        <SelectItem value="ISO20022">ISO 20022</SelectItem>
-                        <SelectItem value="BOTH">Both</SelectItem>
+                        {["FSPIOP", "ISO20022", "CBDC"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <Label>FSPIOP Endpoint URL</Label>
-                  <Input placeholder="https://dfsp.example.com/fspiop/v2.0" value={onboardForm.endpointUrl}
-                    onChange={e => setOnboardForm(f => ({ ...f, endpointUrl: e.target.value }))} />
-                </div>
-                <Button className="w-full" onClick={() => onboardMutation.mutate(onboardForm as any)}
-                  disabled={onboardMutation.isPending}>
-                  {onboardMutation.isPending ? "Onboarding..." : "Onboard Participant"}
+              </div>
+              <div className="flex justify-end gap-2 mt-2">
+                <Button variant="outline" onClick={() => setOnboardOpen(false)}>Cancel</Button>
+                <Button onClick={() => onboard.mutate(onboardForm)} disabled={!onboardForm.name || !onboardForm.dfspId || onboard.isPending}>
+                  {onboard.isPending ? "Onboarding…" : "Onboard"}
                 </Button>
               </div>
             </DialogContent>
@@ -178,249 +304,231 @@ export default function ParticipantLifecycle() {
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: "Active DFSPs", value: stats?.active_count ?? "—", icon: CheckCircle, color: "text-green-400" },
-          { label: "Suspended", value: stats?.suspended_count ?? "—", icon: XCircle, color: "text-red-400" },
-          { label: "Pending", value: stats?.pending_count ?? "—", icon: AlertTriangle, color: "text-yellow-400" },
-          { label: "NDC Configured", value: stats?.limits_configured ?? "—", icon: Shield, color: "text-indigo-400" },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <Card key={label} className="bg-card/50">
-            <CardContent className="pt-4 pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">{label}</p>
-                  <p className="text-2xl font-bold mt-1">{value}</p>
-                </div>
-                <Icon className={`w-8 h-8 ${color} opacity-60`} />
+          { label: "Total DFSPs", value: stats.total, icon: <Users className="h-5 w-5 text-blue-500" />, color: "text-blue-600" },
+          { label: "Active", value: stats.active, icon: <CheckCircle2 className="h-5 w-5 text-green-500" />, color: "text-green-600" },
+          { label: "Suspended", value: stats.suspended, icon: <XCircle className="h-5 w-5 text-destructive" />, color: "text-destructive" },
+          { label: "Pending", value: stats.pending, icon: <Clock className="h-5 w-5 text-yellow-500" />, color: "text-yellow-600" },
+        ].map(({ label, value, icon, color }) => (
+          <Card key={label}>
+            <CardContent className="pt-4 flex items-center gap-3">
+              {icon}
+              <div>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className={`text-2xl font-bold ${color}`}>{value}</p>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Main Tabs */}
       <Tabs defaultValue="participants">
         <TabsList>
-          <TabsTrigger value="participants">Participants</TabsTrigger>
-          <TabsTrigger value="positions">NDC Positions</TabsTrigger>
-          <TabsTrigger value="liquidity">Liquidity Windows</TabsTrigger>
+          <TabsTrigger value="participants"><Users className="h-4 w-4 mr-2" /> Participants</TabsTrigger>
+          <TabsTrigger value="positions"><BarChart3 className="h-4 w-4 mr-2" /> Position Limits</TabsTrigger>
+          <TabsTrigger value="onboarding"><CheckCircle className="h-4 w-4 mr-2" /> Onboarding Tracker</TabsTrigger>
         </TabsList>
 
         {/* Participants Tab */}
-        <TabsContent value="participants" className="space-y-4">
-          <div className="flex gap-3 items-center">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                {["ALL", "ACTIVE", "SUSPENDED", "PENDING", "OFFBOARDED"].map(s => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <TabsContent value="participants" className="mt-4 space-y-4">
+          <div className="flex gap-2 flex-wrap">
             <Select value={currency} onValueChange={setCurrency}>
-              <SelectTrigger className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["NGN", "USD", "GHS", "KES"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
+              <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+              <SelectContent>{["NGN", "GHS", "KES", "ZAR", "USD"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
+            {["ALL", "ACTIVE", "SUSPENDED", "PENDING", "OFFBOARDED"].map((s) => (
+              <Button key={s} variant={statusFilter === s ? "default" : "outline"} size="sm" onClick={() => setStatusFilter(s)}>{s}</Button>
+            ))}
           </div>
 
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>DFSP ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Currency</TableHead>
-                    <TableHead>Scheme</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Joined</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {participants.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        No participants found
-                      </TableCell>
-                    </TableRow>
-                  ) : participants.map((p: any) => (
+          <div className="rounded-md border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>DFSP</TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Scheme</TableHead>
+                  <TableHead>NDC Utilisation</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(participantsWithPositions ?? []).length === 0 && (
+                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No participants found</TableCell></TableRow>
+                )}
+                {(participantsWithPositions ?? []).map((p) => {
+                  const cap = parseFloat(p.netDebitCap ?? "1000000");
+                  const pos = parseFloat(p.currentPosition ?? "0");
+                  const utilisation = cap > 0 ? pos / cap : 0;
+                  return (
                     <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs">{p.dfsp_id}</TableCell>
                       <TableCell className="font-medium">{p.name}</TableCell>
-                      <TableCell>{p.currency}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{p.dfspId}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-xs">{p.scheme_type}</Badge>
+                        <Badge variant="outline" className={`text-xs ${STATUS_COLORS[p.status] ?? ""}`}>{p.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">{p.schemeType}</TableCell>
+                      <TableCell className="min-w-[140px]">
+                        <NDCBar utilisation={utilisation} status={p.ndcStatus ?? "OK"} />
                       </TableCell>
                       <TableCell>
-                        <Badge className={`text-xs border ${STATUS_COLORS[p.status] ?? ""}`}>
-                          {p.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {p.created_at ? new Date(p.created_at).toLocaleDateString() : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="sm"
-                            onClick={() => { setSelectedParticipant(p.id); setLimitsOpen(true); }}>
-                            <Settings className="w-3 h-3" />
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setSelectedParticipant(p.dfspId); setLimitsOpen(true); }}>
+                            <Settings className="h-3 w-3 mr-1" /> Limits
                           </Button>
                           {p.status === "ACTIVE" ? (
-                            <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300"
-                              onClick={() => suspendMutation.mutate({ participantId: p.id, reason: "Manual suspension" })}>
-                              <XCircle className="w-3 h-3" />
-                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => suspend.mutate({ dfspId: p.dfspId })}>Suspend</Button>
                           ) : p.status === "SUSPENDED" ? (
-                            <Button variant="ghost" size="sm" className="text-green-400 hover:text-green-300"
-                              onClick={() => reactivateMutation.mutate({ participantId: p.id })}>
-                              <CheckCircle className="w-3 h-3" />
-                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-green-600" onClick={() => activate.mutate({ dfspId: p.dfspId })}>Activate</Button>
                           ) : null}
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
 
-        {/* NDC Positions Tab */}
-        <TabsContent value="positions" className="space-y-4">
-          <div className="flex gap-2 items-center">
-            <Select value={currency} onValueChange={setCurrency}>
-              <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["NGN", "USD", "GHS", "KES"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {positionsData?.summary && (
-                <>
-                  {positionsData.summary.breached} breached · {positionsData.summary.alert} alert · {positionsData.summary.ok} OK
-                </>
-              )}
-            </p>
+        {/* Position Limits Tab */}
+        <TabsContent value="positions" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-blue-500" /> Position vs NDC Cap
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">Current position as percentage of net debit cap — updates every 10s</p>
+              </CardHeader>
+              <CardContent>
+                <PositionLimitChart participants={participantsWithPositions} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-purple-500" /> NDC Utilisation by DFSP
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">Grey = cap ceiling, coloured = current position</p>
+              </CardHeader>
+              <CardContent>
+                <NDCChart participants={participantsWithPositions} />
+              </CardContent>
+            </Card>
           </div>
 
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>DFSP</TableHead>
-                    <TableHead>Current Position</TableHead>
-                    <TableHead>Reserved</TableHead>
-                    <TableHead>NDC Cap</TableHead>
-                    <TableHead className="w-48">NDC Utilisation</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {positions.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                        No position data — configure NDC limits first
-                      </TableCell>
-                    </TableRow>
-                  ) : positions.map((pos: any) => (
-                    <TableRow key={pos.participant_id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-sm">{pos.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{pos.dfsp_id}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {Number(pos.current_value).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm text-yellow-400">
-                        {Number(pos.reserved_value).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {Number(pos.net_debit_cap).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <NDCBar utilisation={Number(pos.ndc_utilisation)} status={pos.position_status} />
-                      </TableCell>
-                      <TableCell>
-                        <span className={`text-xs font-semibold ${NDC_STATUS_COLORS[pos.position_status] ?? ""}`}>
-                          {pos.position_status}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Liquidity Windows Tab */}
-        <TabsContent value="liquidity">
-          <Card>
-            <CardHeader>
+          {/* Alert table */}
+          <Card className="mt-4">
+            <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-indigo-400" />
-                Active Liquidity Windows
+                <AlertTriangle className="h-4 w-4 text-yellow-500" /> NDC Alerts
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Select a participant from the Participants tab and click the settings icon to manage their liquidity windows.
-              </p>
+              <div className="space-y-2">
+                {participantsWithPositions.filter((p) => p.ndcStatus === "ALERT" || p.ndcStatus === "BREACHED").length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No NDC alerts — all participants within limits</p>
+                ) : (
+                  participantsWithPositions.filter((p) => p.ndcStatus === "ALERT" || p.ndcStatus === "BREACHED").map((p) => (
+                    <div key={p.id} className={`flex items-center justify-between p-3 rounded-lg border ${p.ndcStatus === "BREACHED" ? "border-destructive/30 bg-destructive/5" : "border-yellow-500/30 bg-yellow-500/5"}`}>
+                      <div>
+                        <span className="font-medium text-sm">{p.name}</span>
+                        <p className="text-xs text-muted-foreground">{p.dfspId}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-32">
+                          <NDCBar utilisation={parseFloat(p.currentPosition ?? "0") / parseFloat(p.netDebitCap ?? "1")} status={p.ndcStatus ?? "OK"} />
+                        </div>
+                        <Badge variant={p.ndcStatus === "BREACHED" ? "destructive" : "outline"} className="text-xs">{p.ndcStatus}</Badge>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Onboarding Tracker Tab */}
+        <TabsContent value="onboarding" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Select Participant</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {(participants ?? []).length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">No participants found</p>
+                  )}
+                  {(participants ?? []).map((p) => (
+                    <button
+                      key={p.id}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedForTracker === p.dfspId ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
+                      onClick={() => setSelectedForTracker(p.dfspId)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">{p.name}</span>
+                        <Badge variant="outline" className={`text-xs ${STATUS_COLORS[p.status] ?? ""}`}>{p.status}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{p.dfspId}</p>
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {selectedForTracker
+                      ? `Onboarding Progress — ${(participants ?? []).find((p) => p.dfspId === selectedForTracker)?.name ?? selectedForTracker}`
+                      : "Select a participant to view onboarding progress"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {selectedForTracker ? (
+                    <OnboardingTracker completedSteps={trackerCompletedSteps} />
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Users className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                      <p className="text-sm">Select a participant from the list to view their onboarding progress</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
       </Tabs>
 
-      {/* Set Limits Dialog */}
+      {/* Limits Dialog */}
       <Dialog open={limitsOpen} onOpenChange={setLimitsOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Set Position Limits — {selectedParticipant}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <Label>Net Debit Cap (minor units)</Label>
-                <Input type="number" placeholder="e.g. 50000000" value={limitsForm.netDebitCap}
-                  onChange={e => setLimitsForm(f => ({ ...f, netDebitCap: e.target.value }))} />
+          <DialogHeader><DialogTitle>Configure Limits — {selectedParticipant}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            {[
+              { label: "Net Debit Cap (NDC)", key: "netDebitCap", placeholder: "e.g. 5000000" },
+              { label: "Liquidity Cover", key: "liquidityCover", placeholder: "e.g. 1000000" },
+              { label: "Alert Threshold (0–1)", key: "alertThreshold", placeholder: "e.g. 0.8" },
+            ].map(({ label, key, placeholder }) => (
+              <div key={key} className="space-y-1.5">
+                <Label>{label}</Label>
+                <Input placeholder={placeholder} value={(limitsForm as any)[key]} onChange={(e) => setLimitsForm((p) => ({ ...p, [key]: e.target.value }))} />
               </div>
-              <div className="space-y-1">
-                <Label>Liquidity Cover (minor units)</Label>
-                <Input type="number" placeholder="e.g. 10000000" value={limitsForm.liquidityCover}
-                  onChange={e => setLimitsForm(f => ({ ...f, liquidityCover: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label>Alert Threshold (0.0 – 1.0)</Label>
-              <Input type="number" step="0.05" min="0" max="1" value={limitsForm.alertThreshold}
-                onChange={e => setLimitsForm(f => ({ ...f, alertThreshold: e.target.value }))} />
-              <p className="text-xs text-muted-foreground">Alert fires when NDC utilisation exceeds this fraction</p>
-            </div>
-            <Button className="w-full" onClick={() => {
-              if (!selectedParticipant) return;
-              setLimitsMutation.mutate({
-                participantId: selectedParticipant,
-                currency,
-                netDebitCap: Number(limitsForm.netDebitCap),
-                liquidityCover: Number(limitsForm.liquidityCover),
-                alertThreshold: Number(limitsForm.alertThreshold),
-                suspendOnBreach: limitsForm.suspendOnBreach,
-              });
-            }} disabled={setLimitsMutation.isPending}>
-              {setLimitsMutation.isPending ? "Saving..." : "Save Limits"}
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setLimitsOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => setLimits.mutate({ dfspId: selectedParticipant!, currency, ...limitsForm, netDebitCap: parseFloat(limitsForm.netDebitCap), liquidityCover: parseFloat(limitsForm.liquidityCover), alertThreshold: parseFloat(limitsForm.alertThreshold) })}
+              disabled={!limitsForm.netDebitCap || setLimits.isPending}
+            >
+              {setLimits.isPending ? "Saving…" : "Save Limits"}
             </Button>
           </div>
         </DialogContent>

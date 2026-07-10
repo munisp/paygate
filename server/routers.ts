@@ -210,6 +210,8 @@ import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRout
 import { wave218Router } from './routers/wave218_enhancements';
 // Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
 import { nexthubParticipantsRouter } from './routers/nexthubParticipants';
+// Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
+import { wave221Router } from './routers/wave221_developer';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9405,6 +9407,8 @@ export const appRouter = router({
   wave218: wave218Router,
   // Wave 220 — Participant Lifecycle, Limits, Positions, Liquidity
   nexthubParticipants: nexthubParticipantsRouter,
+  // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
+  wave221: wave221Router,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
