@@ -214,6 +214,7 @@ import { nexthubParticipantsRouter } from './routers/nexthubParticipants';
 import { wave221Router } from './routers/wave221_developer';
 // Wave 223 — Comprehensive Stakeholder Onboarding
 import { wave223Router } from './routers/wave223_onboarding';
+import { regulatorPortalRouter } from './routers/wave224_regulator';
 import { wave223ExtRouter } from './routers/wave223_extensions';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
@@ -9415,6 +9416,7 @@ export const appRouter = router({
   // Wave 223 — Comprehensive Stakeholder Onboarding (DFSP, PISP, PSP, POS, Regulator, Settlement Bank)
   wave223: wave223Router,
   wave223Ext: wave223ExtRouter,
+  regulatorPortal: regulatorPortalRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
