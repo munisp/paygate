@@ -336,3 +336,6 @@ export const ENV = {
   // DeepFace sidecar
   deepfaceSidecarUrl: process.env.DEEPFACE_SIDECAR_URL ?? 'http://localhost:8001',
 };
+
+// Lowercase alias for convenience — use `env` in new code
+export const env = ENV;

@@ -217,6 +217,8 @@ import { wave223Router } from './routers/wave223_onboarding';
 import { regulatorPortalRouter } from './routers/wave224_regulator';
 import { regulatorAuthRouter } from './routers/wave225_regulator_auth';
 import { sagaWiringRouter } from './routers/wave225_saga';
+// Wave 226 — Admin Regulator Management
+import { adminRegulatorsRouter } from './routers/wave226_admin_regulators';
 import { wave223ExtRouter } from './routers/wave223_extensions';
 
 import {
@@ -9422,6 +9424,8 @@ export const appRouter = router({
   regulatorPortal: regulatorPortalRouter,
   regulatorAuth: regulatorAuthRouter,
   sagaWiring: sagaWiringRouter,
+  // Wave 226 — Admin Regulator Management
+  adminRegulators: adminRegulatorsRouter,
 
 });
 export type AppRouter = typeof appRouter;

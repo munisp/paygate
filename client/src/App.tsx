@@ -465,6 +465,7 @@ const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"))
 const RegulatorDashboard = lazy(() => import('./pages/regulator/RegulatorDashboard'));
 const RegulatorLogin = lazy(() => import('./pages/regulator/RegulatorLogin'));
 const RegulatorVerify = lazy(() => import('./pages/regulator/RegulatorVerify'));
+const RegulatorManagement = lz(() => import('./pages/admin/RegulatorManagement'));
 const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
 const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
 const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
@@ -711,6 +712,7 @@ function Router() {
           <Route path="/admin/tenant-billing"><AdminGuard><AdminTenantBilling /></AdminGuard></Route>
           <Route path="/admin/sla-monitor"><AdminGuard><AdminSlaMonitorPage /></AdminGuard></Route>
           <Route path="/admin/tenant-revenue"><AdminGuard><AdminTenantRevenuePage /></AdminGuard></Route>
+          <Route path="/admin/regulator-management"><AdminGuard><RegulatorManagement /></AdminGuard></Route>
           <Route path="/sdk" component={WhiteLabelSDKPage} />
           <Route path="/partner/onboard" component={PartnerOnboard} />
           <Route path="/admin/tenant"><AdminGuard><TenantAdminDashboard /></AdminGuard></Route>
