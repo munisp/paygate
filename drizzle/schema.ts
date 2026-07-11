@@ -1964,7 +1964,6 @@ export const usdcPayouts = pgTable("usdc_payouts", {
   network: text("network", { enum: ["mainnet", "devnet"] }).notNull().default("mainnet"),
   initiatedAt: timestamp("initiated_at").defaultNow().notNull(),
   settledAt: timestamp("settled_at"),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
