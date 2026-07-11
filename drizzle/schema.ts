@@ -2082,6 +2082,9 @@ export const kybVerifications = pgTable("kyb_verifications", {
   lastKnownCountry: text("last_known_country"),
   geoVelocityFlagged: boolean("geo_velocity_flagged").default(false),
   geoVelocityNote: text("geo_velocity_note"),
+  // Temporal workflow traceability (Fix 4 — Wave 227)
+  temporalWorkflowId: text("temporal_workflow_id"),       // set on KYB submission
+  temporalRunId: text("temporal_run_id"),                 // set on KYB submission
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

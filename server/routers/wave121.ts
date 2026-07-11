@@ -15,6 +15,7 @@ import { desc, eq, and, gte, lte, like, sql } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { publishAuditEvent } from "../kafkaClient";
+import { startKybVerification } from "../temporalClient";
 import { getDb } from "../db";
 import {
   tenantFeeOverrides,
@@ -377,8 +378,9 @@ export const kybMgmtRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
+      const verificationId = crypto.randomUUID();
       const [row] = await db.insert(kybVerifications).values({
-        verificationId: crypto.randomUUID(),
+        verificationId,
         merchantId: ctx.user.tenantId ?? "",
         businessName: input.businessName,
         rcNumber: input.rcNumber,
@@ -389,7 +391,23 @@ export const kybMgmtRouter = router({
         initiatedBy: ctx.user.openId,
         startedAt: new Date(),
       }).returning();
-      return row;
+
+      // ── Fix 4: Start Temporal KYB workflow and persist workflowId + runId ────────
+      const wfHandle = await startKybVerification(
+        ctx.user.tenantId ?? verificationId,
+        [input.rcNumber ?? "", input.taxId ?? ""].filter(Boolean),
+      ).catch(() => null);
+      if (wfHandle?.workflowId) {
+        await db.update(kybVerifications)
+          .set({
+            temporalWorkflowId: wfHandle.workflowId,
+            temporalRunId: wfHandle.runId ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(kybVerifications.verificationId, verificationId));
+      }
+
+      return { ...row, temporalWorkflowId: wfHandle?.workflowId ?? null };
     }),
 
   updateStatus: protectedProcedure

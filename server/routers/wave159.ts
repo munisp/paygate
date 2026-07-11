@@ -15,6 +15,8 @@ import { getDb } from "../db";
 import { livenessSessions } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte, count, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
+import { notifyMerchant } from "../pushClient";
 
 // ─── Ensemble scoring weights ─────────────────────────────────────────────────
 const DEFAULT_WEIGHTS = { rust: 0.3, go: 0.3, python: 0.4 };
@@ -250,6 +252,40 @@ export const wave159Router = router({
         durationMs:      input.durationMs ?? null,
       });
 
+      // ── Kafka: liveness.completed event (Fix 3) ─────────────────────────────
+      publishEvent(
+        KAFKA_TOPICS.KYC,
+        {
+          type: "liveness.completed",
+          sessionId: id,
+          merchantId: input.merchantId,
+          submissionId: input.submissionId ?? null,
+          decision,
+          ensembleScore,
+          scoreBreakdown: {
+            rust:   input.rustSignalScore ?? null,
+            go:     input.goGatewayScore  ?? null,
+            python: input.pythonMlScore   ?? null,
+          },
+          mode: input.mode,
+          durationMs: input.durationMs ?? null,
+          timestamp: new Date().toISOString(),
+        },
+        input.merchantId,
+        { "x-event-type": "liveness.completed" },
+      ).catch(() => {});
+      // ── Push notification: liveness result to merchant (Fix 3) ────────────────
+      if (decision === "spoof") {
+        notifyMerchant({
+          merchantId: input.merchantId,
+          notification: {
+            title: "Liveness Check Failed",
+            body: "A liveness verification attempt was flagged. Please contact support if this was unexpected.",
+          },
+          type: "liveness_failed",
+          data: { sessionId: id, decision, ensembleScore },
+        }).catch(() => {});
+      }
       return { id, decision, ensembleScore };
     }),
 });

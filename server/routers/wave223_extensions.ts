@@ -22,6 +22,9 @@ import {
 } from "../../drizzle/schema";
 import { storagePut } from "../storage";
 import { notifyOwner } from "../_core/notification";
+import { dispatchWebhookEvent, buildWebhookPayload } from "../webhookEvents";
+import { notifyMerchant } from "../pushClient";
+import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
 
 // ─── 1. Audit Logs ─────────────────────────────────────────────────────────
 const auditLogsRouter = router({
@@ -448,7 +451,42 @@ const merchantVerificationRouter = router({
       const [row] = await db.update(kybVerifications)
         .set({ status: "approved", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
+      // ── In-app notification (existing) ────────────────────────────────────
       await notifyOwner({ title: "Merchant KYB Approved", content: `KYB ${input.id} approved by ${input.reviewerId}.` });
+      // ── Kafka: kyb.approved event (Fix 2) ─────────────────────────────────
+      publishEvent(
+        KAFKA_TOPICS.KYC,
+        {
+          type: "kyb.approved",
+          verificationId: input.id,
+          merchantId: row?.merchantId ?? "",
+          reviewerId: input.reviewerId,
+          notes: input.notes ?? null,
+          timestamp: new Date().toISOString(),
+        },
+        row?.merchantId ?? input.id,
+        { "x-event-type": "kyb.approved" },
+      ).catch(() => {});
+      // ── Webhook: kyb.approved (Fix 2) ─────────────────────────────────────
+      if (row?.merchantId) {
+        dispatchWebhookEvent(
+          buildWebhookPayload("kyc.approved", {
+            tenantId: "",
+            merchantId: row.merchantId,
+            data: { verificationId: input.id, reviewerId: input.reviewerId, notes: input.notes ?? null },
+          }),
+        ).catch(() => {});
+        // ── Push notification: kyb.approved (Fix 2) ─────────────────────────
+        notifyMerchant({
+          merchantId: row.merchantId,
+          notification: {
+            title: "KYB Approved",
+            body: "Your business verification has been approved. You now have full access.",
+          },
+          type: "kyc_approved",
+          data: { verificationId: input.id },
+        }).catch(() => {});
+      }
       return row;
     }),
   reject: protectedProcedure
@@ -459,7 +497,42 @@ const merchantVerificationRouter = router({
       const [row] = await db.update(kybVerifications)
         .set({ status: "rejected", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
+      // ── In-app notification (existing) ────────────────────────────────────
       await notifyOwner({ title: "Merchant KYB Rejected", content: `KYB ${input.id} rejected. Reason: ${input.reason}` });
+      // ── Kafka: kyb.rejected event (Fix 2) ─────────────────────────────────
+      publishEvent(
+        KAFKA_TOPICS.KYC,
+        {
+          type: "kyb.rejected",
+          verificationId: input.id,
+          merchantId: row?.merchantId ?? "",
+          reviewerId: input.reviewerId,
+          reason: input.reason,
+          timestamp: new Date().toISOString(),
+        },
+        row?.merchantId ?? input.id,
+        { "x-event-type": "kyb.rejected" },
+      ).catch(() => {});
+      // ── Webhook: kyb.rejected (Fix 2) ─────────────────────────────────────
+      if (row?.merchantId) {
+        dispatchWebhookEvent(
+          buildWebhookPayload("kyc.rejected", {
+            tenantId: "",
+            merchantId: row.merchantId,
+            data: { verificationId: input.id, reviewerId: input.reviewerId, reason: input.reason },
+          }),
+        ).catch(() => {});
+        // ── Push notification: kyb.rejected (Fix 2) ─────────────────────────
+        notifyMerchant({
+          merchantId: row.merchantId,
+          notification: {
+            title: "KYB Not Approved",
+            body: `Your business verification was not approved. Reason: ${input.reason}`,
+          },
+          type: "kyc_rejected",
+          data: { verificationId: input.id, reason: input.reason },
+        }).catch(() => {});
+      }
       return row;
     }),
 });

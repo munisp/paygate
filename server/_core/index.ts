@@ -40,6 +40,7 @@ import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
 import { sagaStreamHandler } from "../sagaStream";
 import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
+import { scumlExpiryJobHandler } from "../jobs/scumlExpiryJob";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -2431,6 +2432,13 @@ async function startServer() {
 
   // POST /api/scheduled/compliance-scorecard — nightly compliance evaluation Heartbeat job
   app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
+
+  // POST /api/scheduled/scuml-expiry-check — nightly SCUML registration expiry check (Fix 5)
+  // Schedule: 0 30 6 * * * (daily at 06:30 UTC)
+  app.post("/api/scheduled/scuml-expiry-check", scumlExpiryJobHandler);
+  app.get("/api/scheduled/scuml-expiry-check/status", (_req: any, res: any) => {
+    res.json({ job: "scuml-expiry-check", schedule: "0 30 6 * * *", description: "Checks all SCUML registrations expiring within 30 days or already lapsed." });
+  });
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
