@@ -335,6 +335,9 @@ export const ENV = {
   pixApiKey: process.env.PIX_API_KEY ?? '',
   // DeepFace sidecar
   deepfaceSidecarUrl: process.env.DEEPFACE_SIDECAR_URL ?? 'http://localhost:8001',
+  // ─── Kafka / Fluvio streaming ──────────────────────────────────────────────────
+  kafkaBootstrapServers: process.env.KAFKA_BOOTSTRAP_SERVERS ?? 'localhost:9092',
+  fluvioEndpoint: process.env.FLUVIO_ENDPOINT ?? 'localhost:9003',
 };
 
 // Lowercase alias for convenience — use `env` in new code

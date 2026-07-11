@@ -283,7 +283,7 @@ export const wave159Router = router({
             body: "A liveness verification attempt was flagged. Please contact support if this was unexpected.",
           },
           type: "liveness_failed",
-          data: { sessionId: id, decision, ensembleScore },
+          data: { sessionId: id, decision, ensembleScore: String(ensembleScore) },
         }).catch(() => {});
       }
       return { id, decision, ensembleScore };

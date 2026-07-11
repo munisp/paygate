@@ -100,31 +100,17 @@ export async function scumlExpiryJobHandler(req: Request, res: Response) {
 
       // ── Owner notification ─────────────────────────────────────────────────
       try {
-        await notifyOwner({
-          tenantId: record.merchantId,
-          type: isLapsed ? "scuml_expired" : isCritical ? "scuml_expiry_critical" : "scuml_expiry_warning",
-          title: isLapsed
+        await notifyOwner({ title: isLapsed
             ? "SCUML Registration Lapsed — Action Required"
             : isCritical
               ? `SCUML Registration Expires in ${daysUntilExpiry} Day${daysUntilExpiry === 1 ? "" : "s"} — Urgent`
-              : `SCUML Registration Expiring in ${daysUntilExpiry} Days`,
-          message: isLapsed
-            ? `Your SCUML registration (ref: ${record.scumlRef ?? "N/A"}) for ${record.entityName} has lapsed. ` +
+              : `SCUML Registration Expiring in ${daysUntilExpiry} Days`, content: isLapsed
+            ? `Your SCUML registration (ref: ${record.scumlRef ?? "N/A" }) for ${record.entityName} has lapsed. ` +
               `You must renew immediately to remain compliant with CBN AML/CFT regulations. ` +
               `Failure to renew may result in suspension of payment processing.`
             : `Your SCUML registration (ref: ${record.scumlRef ?? "N/A"}) for ${record.entityName} expires on ` +
               `${record.expiresAt?.toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" })}. ` +
-              `Please initiate renewal to avoid disruption to your payment services.`,
-          metadata: {
-            scumlCheckId: record.id,
-            scumlRef: record.scumlRef,
-            entityName: record.entityName,
-            rcNumber: record.rcNumber,
-            expiresAt: record.expiresAt?.toISOString(),
-            daysUntilExpiry,
-            checkType: record.checkType,
-          },
-        });
+              `Please initiate renewal to avoid disruption to your payment services.` });
         notified++;
       } catch (err) {
         logger.warn("scuml_expiry_job", {

@@ -29,7 +29,7 @@ const dfspOnboardingRouter = router({
       contactPhone: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const id = uid("dfsp_onb");
       await db.insert(dfspOnboardingSessions).values({
         id,
@@ -47,10 +47,10 @@ const dfspOnboardingRouter = router({
     .input(z.object({
       sessionId: z.string(),
       step: z.number().min(1).max(6),
-      data: z.record(z.any()),
+      data: z.record(z.string(), z.any()),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(dfspOnboardingSessions)
         .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
         .where(eq(dfspOnboardingSessions.id, input.sessionId));
@@ -60,7 +60,7 @@ const dfspOnboardingRouter = router({
   submit: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(dfspOnboardingSessions)
         .where(eq(dfspOnboardingSessions.id, input.sessionId)).limit(1);
       if (!session) throw new Error("Session not found");
@@ -77,7 +77,7 @@ const dfspOnboardingRouter = router({
   getSession: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(dfspOnboardingSessions)
         .where(eq(dfspOnboardingSessions.id, input.sessionId)).limit(1);
       return session ?? null;
@@ -86,7 +86,7 @@ const dfspOnboardingRouter = router({
   listSessions: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const conditions = input.status
         ? [eq(dfspOnboardingSessions.status, input.status)]
         : [];
@@ -99,7 +99,7 @@ const dfspOnboardingRouter = router({
   approve: protectedProcedure
     .input(z.object({ sessionId: z.string(), dfspId: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(dfspOnboardingSessions)
         .set({ status: "approved", approvedAt: new Date(), dfspId: input.dfspId, updatedAt: new Date() })
         .where(eq(dfspOnboardingSessions.id, input.sessionId));
@@ -109,7 +109,7 @@ const dfspOnboardingRouter = router({
   reject: protectedProcedure
     .input(z.object({ sessionId: z.string(), reason: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(dfspOnboardingSessions)
         .set({ status: "rejected", rejectedAt: new Date(), rejectionReason: input.reason, updatedAt: new Date() })
         .where(eq(dfspOnboardingSessions.id, input.sessionId));
@@ -126,7 +126,7 @@ const pispOnboardingRouter = router({
       businessDescription: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const id = uid("pisp_onb");
       await db.insert(pispOnboardingSessions).values({
         id,
@@ -143,10 +143,10 @@ const pispOnboardingRouter = router({
     .input(z.object({
       sessionId: z.string(),
       step: z.number().min(1).max(5),
-      data: z.record(z.any()),
+      data: z.record(z.string(), z.any()),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(pispOnboardingSessions)
         .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
         .where(eq(pispOnboardingSessions.id, input.sessionId));
@@ -156,7 +156,7 @@ const pispOnboardingRouter = router({
   submit: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(pispOnboardingSessions)
         .where(eq(pispOnboardingSessions.id, input.sessionId)).limit(1);
       if (!session) throw new Error("Session not found");
@@ -173,7 +173,7 @@ const pispOnboardingRouter = router({
   getSession: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(pispOnboardingSessions)
         .where(eq(pispOnboardingSessions.id, input.sessionId)).limit(1);
       return session ?? null;
@@ -182,7 +182,7 @@ const pispOnboardingRouter = router({
   listSessions: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const conditions = input.status
         ? [eq(pispOnboardingSessions.status, input.status)]
         : [];
@@ -202,7 +202,7 @@ const pspOnboardingRouter = router({
       contactEmail: z.string().email(),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const id = uid("psp_onb");
       await db.insert(pspOnboardingSessions).values({
         id,
@@ -219,10 +219,10 @@ const pspOnboardingRouter = router({
     .input(z.object({
       sessionId: z.string(),
       step: z.number().min(1).max(5),
-      data: z.record(z.any()),
+      data: z.record(z.string(), z.any()),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(pspOnboardingSessions)
         .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
         .where(eq(pspOnboardingSessions.id, input.sessionId));
@@ -232,7 +232,7 @@ const pspOnboardingRouter = router({
   submit: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(pspOnboardingSessions)
         .where(eq(pspOnboardingSessions.id, input.sessionId)).limit(1);
       if (!session) throw new Error("Session not found");
@@ -249,7 +249,7 @@ const pspOnboardingRouter = router({
   getSession: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(pspOnboardingSessions)
         .where(eq(pspOnboardingSessions.id, input.sessionId)).limit(1);
       return session ?? null;
@@ -258,7 +258,7 @@ const pspOnboardingRouter = router({
   listSessions: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const conditions = input.status
         ? [eq(pspOnboardingSessions.status, input.status)]
         : [];
@@ -279,11 +279,11 @@ const posOperatorOnboardingRouter = router({
       terminalCount: z.number().min(1).default(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const id = uid("pos_onb");
       await db.insert(posOperatorOnboardingSessions).values({
         id,
-        merchantId: ctx.user.merchantId ?? null,
+        merchantId: ctx.user.tenantId ?? null,
         operatorName: input.operatorName,
         contactEmail: input.contactEmail,
         contactPhone: input.contactPhone ?? null,
@@ -298,10 +298,10 @@ const posOperatorOnboardingRouter = router({
     .input(z.object({
       sessionId: z.string(),
       step: z.number().min(1).max(4),
-      data: z.record(z.any()),
+      data: z.record(z.string(), z.any()),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(posOperatorOnboardingSessions)
         .set({ ...input.data, currentStep: input.step, updatedAt: new Date() })
         .where(eq(posOperatorOnboardingSessions.id, input.sessionId));
@@ -311,7 +311,7 @@ const posOperatorOnboardingRouter = router({
   submit: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(posOperatorOnboardingSessions)
         .where(eq(posOperatorOnboardingSessions.id, input.sessionId)).limit(1);
       if (!session) throw new Error("Session not found");
@@ -328,7 +328,7 @@ const posOperatorOnboardingRouter = router({
   getSession: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const [session] = await db.select().from(posOperatorOnboardingSessions)
         .where(eq(posOperatorOnboardingSessions.id, input.sessionId)).limit(1);
       return session ?? null;
@@ -337,7 +337,7 @@ const posOperatorOnboardingRouter = router({
   listSessions: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const conditions = input.status
         ? [eq(posOperatorOnboardingSessions.status, input.status)]
         : [];
@@ -351,7 +351,7 @@ const posOperatorOnboardingRouter = router({
 // ── Settlement Bank Management ────────────────────────────────────────────────
 const settlementBankRouter = router({
   list: protectedProcedure.query(async () => {
-    const db = getDb();
+    const db = (await getDb())!;
     return db.select().from(settlementBanks).orderBy(desc(settlementBanks.createdAt)).limit(100);
   }),
 
@@ -370,7 +370,7 @@ const settlementBankRouter = router({
       isNipEnabled: z.boolean().default(true),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       const id = uid("sbank");
       await db.insert(settlementBanks).values({ id, ...input, status: "active" });
       return { id };
@@ -379,10 +379,10 @@ const settlementBankRouter = router({
   update: protectedProcedure
     .input(z.object({
       id: z.string(),
-      data: z.record(z.any()),
+      data: z.record(z.string(), z.any()),
     }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(settlementBanks)
         .set({ ...input.data, updatedAt: new Date() })
         .where(eq(settlementBanks.id, input.id));
@@ -392,7 +392,7 @@ const settlementBankRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = (await getDb())!;
       await db.update(settlementBanks)
         .set({ status: "inactive", updatedAt: new Date() })
         .where(eq(settlementBanks.id, input.id));

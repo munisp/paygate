@@ -376,8 +376,6 @@ const navGroups: NavGroup[] = [
       { icon: Brain, label: "GNN Thresholds", path: "/admin/gnn-threshold", badge: "Admin" },
     ],
   },
-    ],
-  },
   {
     title: "Domain Expansion",
     icon: Globe,

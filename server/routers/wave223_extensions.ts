@@ -470,11 +470,7 @@ const merchantVerificationRouter = router({
       // ── Webhook: kyb.approved (Fix 2) ─────────────────────────────────────
       if (row?.merchantId) {
         dispatchWebhookEvent(
-          buildWebhookPayload("kyc.approved", {
-            tenantId: "",
-            merchantId: row.merchantId,
-            data: { verificationId: input.id, reviewerId: input.reviewerId, notes: input.notes ?? null },
-          }),
+          buildWebhookPayload("kyc.approved", row.merchantId, "", { verificationId: input.id, reviewerId: input.reviewerId, notes: input.notes ?? null }),
         ).catch(() => {});
         // ── Push notification: kyb.approved (Fix 2) ─────────────────────────
         notifyMerchant({
@@ -516,11 +512,7 @@ const merchantVerificationRouter = router({
       // ── Webhook: kyb.rejected (Fix 2) ─────────────────────────────────────
       if (row?.merchantId) {
         dispatchWebhookEvent(
-          buildWebhookPayload("kyc.rejected", {
-            tenantId: "",
-            merchantId: row.merchantId,
-            data: { verificationId: input.id, reviewerId: input.reviewerId, reason: input.reason },
-          }),
+          buildWebhookPayload("kyc.rejected", row.merchantId, "", { verificationId: input.id, reviewerId: input.reviewerId, reason: input.reason }),
         ).catch(() => {});
         // ── Push notification: kyb.rejected (Fix 2) ─────────────────────────
         notifyMerchant({
