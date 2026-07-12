@@ -147,17 +147,20 @@ export const regulatoryReportsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const merchantId = await resolveMerchantId(ctx.user!.openId);
-      const [sub] = await (await getDbInstance()).update(schema.regulatoryReportSubmissions)
+      const db = await getDbInstance();
+      const [sub] = await db.update(schema.regulatoryReportSubmissions)
         .set({ status: 'acknowledged', acknowledgedAt: new Date(), regulatorRef: input.regulatorRef })
         .where(and(
           eq(schema.regulatoryReportSubmissions.id, input.submissionId),
           eq(schema.regulatoryReportSubmissions.merchantId, merchantId),
         ))
         .returning();
+      // Update parent report concurrently (fire-and-forget style — non-blocking to caller)
       if (sub) {
-        await (await getDbInstance()).update(schema.regulatoryReports)
+        db.update(schema.regulatoryReports)
           .set({ status: 'acknowledged', acknowledgedAt: new Date() })
-          .where(eq(schema.regulatoryReports.id, sub.reportId));
+          .where(eq(schema.regulatoryReports.id, sub.reportId))
+          .catch(() => {}); // best-effort; submission is already acknowledged
       }
       return { success: true };
     }),

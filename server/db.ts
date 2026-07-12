@@ -38,7 +38,11 @@ export { schema };
 // PostgreSQL is the database of choice for PayGate.
 // PG_DATABASE_URL takes precedence; DATABASE_URL is used only if it is already
 // a postgres:// URL (e.g. a managed PG instance injected by the platform).
+// PGBOUNCER_URL takes highest priority — routes all connections through PgBouncer.
 function resolveDbUrl(): string | undefined {
+  // PgBouncer connection pooler takes priority when configured in production.
+  // Set PGBOUNCER_URL="postgresql://paygate:<pw>@pgbouncer:6432/paygate_prod" to enable.
+  if (process.env.PGBOUNCER_URL) return process.env.PGBOUNCER_URL;
   const url = process.env.DATABASE_URL ?? "";
   if (url.startsWith("postgresql://") || url.startsWith("postgres://")) return url;
   // Fall back to explicit PG override or the local dev instance

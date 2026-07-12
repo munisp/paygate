@@ -86,30 +86,34 @@ export const chargebackLifecycleRouter = router({
         .where(and(eq(schema.chargebacks.id, input.chargebackId), eq(schema.chargebacks.merchantId, merchantId)))
         .limit(1);
       if (!chargeback) throw new Error('Chargeback not found');
-      const [evidence] = await (await getDbInstance()).insert(schema.chargebackEvidencePackages).values({
-        chargebackId: input.chargebackId,
-        merchantId,
-        evidenceType: input.evidenceType,
-        fileName: input.fileName,
-        fileKey: input.fileKey,
-        fileUrl: input.fileUrl,
-        mimeType: input.mimeType,
-        fileSizeBytes: input.fileSizeBytes,
-        uploadedBy: ctx.user!.openId,
-      }).returning();
-      await (await getDbInstance()).update(schema.chargebacks)
-        .set({ evidenceSubmitted: true, updatedAt: new Date() })
-        .where(eq(schema.chargebacks.id, input.chargebackId));
-      await (await getDbInstance()).insert(schema.chargebackTimeline).values({
-        chargebackId: input.chargebackId,
-        merchantId,
-        event: 'evidence_submitted',
-        previousState: chargeback.status,
-        newState: chargeback.status,
-        actorId: ctx.user!.openId,
-        actorType: 'user',
-        notes: `Evidence submitted: ${input.evidenceType} (${input.fileName})`,
-      });
+      const db = await getDbInstance();
+      // Insert evidence, update chargeback flag, and append timeline entry concurrently
+      const [[evidence]] = await Promise.all([
+        db.insert(schema.chargebackEvidencePackages).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          evidenceType: input.evidenceType,
+          fileName: input.fileName,
+          fileKey: input.fileKey,
+          fileUrl: input.fileUrl,
+          mimeType: input.mimeType,
+          fileSizeBytes: input.fileSizeBytes,
+          uploadedBy: ctx.user!.openId,
+        }).returning(),
+        db.update(schema.chargebacks)
+          .set({ evidenceSubmitted: true, updatedAt: new Date() })
+          .where(eq(schema.chargebacks.id, input.chargebackId)),
+        db.insert(schema.chargebackTimeline).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          event: 'evidence_submitted',
+          previousState: chargeback.status,
+          newState: chargeback.status,
+          actorId: ctx.user!.openId,
+          actorType: 'user',
+          notes: `Evidence submitted: ${input.evidenceType} (${input.fileName})`,
+        }),
+      ]);
       return evidence;
     }),
 
@@ -126,19 +130,23 @@ export const chargebackLifecycleRouter = router({
         .where(and(eq(schema.chargebacks.id, input.chargebackId), eq(schema.chargebacks.merchantId, merchantId)))
         .limit(1);
       if (!chargeback) throw new Error('Chargeback not found');
-      await (await getDbInstance()).update(schema.chargebacks)
-        .set({ status: input.newStatus, updatedAt: new Date() })
-        .where(eq(schema.chargebacks.id, input.chargebackId));
-      await (await getDbInstance()).insert(schema.chargebackTimeline).values({
-        chargebackId: input.chargebackId,
-        merchantId,
-        event: 'escalated',
-        previousState: chargeback.status,
-        newState: input.newStatus,
-        actorId: ctx.user!.openId,
-        actorType: 'user',
-        notes: input.reason,
-      });
+      const db2 = await getDbInstance();
+      // Update status and append timeline entry concurrently
+      await Promise.all([
+        db2.update(schema.chargebacks)
+          .set({ status: input.newStatus, updatedAt: new Date() })
+          .where(eq(schema.chargebacks.id, input.chargebackId)),
+        db2.insert(schema.chargebackTimeline).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          event: 'escalated',
+          previousState: chargeback.status,
+          newState: input.newStatus,
+          actorId: ctx.user!.openId,
+          actorType: 'user',
+          notes: input.reason,
+        }),
+      ]);
       return { success: true, newStatus: input.newStatus };
     }),
 

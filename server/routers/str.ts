@@ -121,25 +121,27 @@ export const strRouter = router({
     const merchantId = await resolveMerchantId(ctx.user!.openId);
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [statusRows, submittedThisMonth] = await Promise.all([
-      (await getDbInstance()).select({ status: schema.strRecords.submissionStatus, total: count() })
+    const db = await getDbInstance();
+    const [statusRows, submittedThisMonth, breachedRows] = await Promise.all([
+      db.select({ status: schema.strRecords.submissionStatus, total: count() })
         .from(schema.strRecords)
         .where(eq(schema.strRecords.merchantId, merchantId))
         .groupBy(schema.strRecords.submissionStatus),
-      (await getDbInstance()).select({ total: count() }).from(schema.strRecords)
+      db.select({ total: count() }).from(schema.strRecords)
         .where(and(
           eq(schema.strRecords.merchantId, merchantId),
           eq(schema.strRecords.submissionStatus, 'submitted'),
           gte(schema.strRecords.submittedAt, startOfMonth),
         )),
+      db.select({ total: count() }).from(schema.strRecords)
+        .where(and(
+          eq(schema.strRecords.merchantId, merchantId),
+          eq(schema.strRecords.deadlineBreached, true),
+        )),
     ]);
     const s: Record<string, number> = {};
     for (const r of statusRows) s[r.status] = r.total;
-    const breached = await (await getDbInstance()).select({ total: count() }).from(schema.strRecords)
-      .where(and(
-        eq(schema.strRecords.merchantId, merchantId),
-        eq(schema.strRecords.deadlineBreached, true),
-      ));
+    const breached = breachedRows;
     return {
       pending: s['pending'] ?? 0,
       submitted: s['submitted'] ?? 0,

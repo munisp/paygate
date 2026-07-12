@@ -560,6 +560,9 @@ export const kycSubmissions = pgTable("kyc_submissions", {
   index("kyc_bvn_status_idx").on(t.bvnVerificationStatus),
   index("kyc_face_match_idx").on(t.faceMatchVerified),
   index("kyc_duplicate_idx").on(t.duplicateFlag),
+  // Composite indexes for merchant+status filtering and time-range queries
+  index("kyc_merchant_status_idx").on(t.merchantId, t.status),
+  index("kyc_merchant_time_idx").on(t.merchantId, t.createdAt),
 ]);
 export type KycSubmission = typeof kycSubmissions.$inferSelect;
 export type InsertKycSubmission = typeof kycSubmissions.$inferInsert;
@@ -5294,6 +5297,10 @@ export const velocityBreaches = pgTable("velocity_breaches", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("velocity_breaches_merchant_idx").on(t.merchantId),
+  // Composite index for time-window aggregation queries (e.g. COUNT by merchant + time range)
+  index("velocity_breaches_merchant_time_idx").on(t.merchantId, t.breachedAt),
+  // Index for action-type filtering
+  index("velocity_breaches_action_idx").on(t.action),
 ]);
 
 // ─── Terminals (dedicated POS terminal management table) ──────────────────────
@@ -5416,6 +5423,11 @@ export const strRecords = pgTable("str_records", {
   index("str_merchant_idx").on(t.merchantId),
   index("str_status_idx").on(t.submissionStatus),
   index("str_deadline_idx").on(t.deadlineAt),
+  // Composite indexes for time-window COUNT queries and status filtering per merchant
+  index("str_merchant_filed_idx").on(t.merchantId, t.filedAt),
+  index("str_merchant_status_idx").on(t.merchantId, t.submissionStatus),
+  // Partial-style: breach monitoring queries filter by deadlineBreached
+  index("str_breach_flag_idx").on(t.deadlineBreached),
 ]);
 export type StrRecord = typeof strRecords.$inferSelect;
 
@@ -5502,6 +5514,8 @@ export const chargebackEvidencePackages = pgTable("chargeback_evidence_packages"
 }, (t) => [
   index("cep_chargeback_idx").on(t.chargebackId),
   index("cep_merchant_idx").on(t.merchantId),
+  // Composite index for ordered evidence fetches (chargebackId + uploadedAt DESC)
+  index("cep_chargeback_time_idx").on(t.chargebackId, t.uploadedAt),
 ]);
 export type ChargebackEvidencePackage = typeof chargebackEvidencePackages.$inferSelect;
 
@@ -5523,6 +5537,8 @@ export const chargebackTimeline = pgTable("chargeback_timeline", {
 }, (t) => [
   index("ct_chargeback_idx").on(t.chargebackId),
   index("ct_merchant_idx").on(t.merchantId),
+  // Composite index for ordered timeline fetches (chargebackId + occurredAt DESC)
+  index("ct_chargeback_time_idx").on(t.chargebackId, t.occurredAt),
 ]);
 export type ChargebackTimelineEvent = typeof chargebackTimeline.$inferSelect;
 
