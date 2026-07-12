@@ -9,6 +9,8 @@ import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { ENV } from "../_core/env";
 
+const sourceInput = z.object({ forceMock: z.boolean().optional() }).optional();
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 async function fetchPaygate<T>(path: string, fallback: T): Promise<T> {
@@ -133,23 +135,28 @@ const MOCK_REDIS = {
 
 export const proxyRouter = router({
   // Gateway
-  gatewayHealth: publicProcedure.query(() =>
+  gatewayHealth: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_GATEWAY_HEALTH) :
     fetchPaygate("/api/trpc/middlewareDashboard.apisix.health", MOCK_GATEWAY_HEALTH)
   ),
-  gatewayRoutes: publicProcedure.query(() =>
+  gatewayRoutes: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_ROUTES) :
     fetchPaygate("/api/trpc/middlewareDashboard.apisix.listRoutes", MOCK_ROUTES)
   ),
-  gatewayConsumers: publicProcedure.query(() =>
+  gatewayConsumers: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_CONSUMERS) :
     fetchPaygate("/api/trpc/middlewareDashboard.apisix.listConsumers", MOCK_CONSUMERS)
   ),
-  gatewayMetrics: publicProcedure.query(() =>
+  gatewayMetrics: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_METRICS) :
     fetchPaygate("/api/trpc/middlewareDashboard.apisix.metrics", MOCK_METRICS)
   ),
 
   // Temporal workflows
   workflows: publicProcedure
-    .input(z.object({ status: z.string().optional() }).optional())
+    .input(z.object({ status: z.string().optional(), forceMock: z.boolean().optional() }).optional())
     .query(({ input }) =>
+      input?.forceMock ? Promise.resolve(MOCK_WORKFLOWS) :
       fetchPaygate(
         `/api/trpc/middlewareDashboard.temporal.listWorkflows${input?.status ? `?status=${input.status}` : ""}`,
         MOCK_WORKFLOWS
@@ -157,22 +164,26 @@ export const proxyRouter = router({
     ),
 
   // PgBouncer pool
-  pool: publicProcedure.query(() =>
+  pool: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_POOL) :
     fetchPaygate("/api/trpc/middlewareDashboard.pgbouncer.stats", MOCK_POOL)
   ),
 
   // Kafka
-  kafka: publicProcedure.query(() =>
+  kafka: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_KAFKA) :
     fetchPaygate("/api/trpc/middlewareDashboard.kafka.stats", MOCK_KAFKA)
   ),
 
   // Redis
-  redis: publicProcedure.query(() =>
+  redis: publicProcedure.input(sourceInput).query(({ input }) =>
+    input?.forceMock ? Promise.resolve(MOCK_REDIS) :
     fetchPaygate("/api/trpc/middlewareDashboard.redis.stats", MOCK_REDIS)
   ),
 
   // Backend connectivity check
-  ping: publicProcedure.query(async () => {
+  ping: publicProcedure.input(sourceInput).query(async ({ input }) => {
+    if (input?.forceMock) return { connected: false, url: null };
     try {
       const url = `${ENV.paygateApiUrl.replace(/\/$/, "")}/api/trpc/system.ping`;
       const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
@@ -181,5 +192,34 @@ export const proxyRouter = router({
       return { connected: false, url: ENV.paygateApiUrl };
     }
   }),
-});
 
+  // Topic detail: 24h historical throughput + config
+  topicHistory: publicProcedure
+    .input(z.object({ topicName: z.string(), forceMock: z.boolean().optional() }))
+    .query(({ input }) => {
+      // Generate deterministic-ish history seeded by topic name length
+      const seed = input.topicName.length;
+      const history = Array.from({ length: 24 }, (_, i) => {
+        const peakHour = i > 8 && i < 18;
+        return {
+          time: `${String(i).padStart(2, "0")}:00`,
+          msgPerSec: Math.round(100 + seed * 10 + (peakHour ? 300 : 0) + (i % 3) * 40),
+          lag: i > 16 && seed % 2 === 0 ? Math.round((i - 16) * 3) : 0,
+          errorRate: parseFloat(((i % 5 === 0 ? 0.3 : 0.05) + seed * 0.01).toFixed(2)),
+        };
+      });
+      const topicConfigs: Record<string, {
+        partitions: number; replication: number; retentionHours: number;
+        compressionType: string; cleanupPolicy: string; minInsyncReplicas: number;
+      }> = {
+        "payment.events":  { partitions: 12, replication: 3, retentionHours: 168,  compressionType: "lz4",    cleanupPolicy: "delete",  minInsyncReplicas: 2 },
+        "kyc.submissions": { partitions: 6,  replication: 3, retentionHours: 720,  compressionType: "gzip",   cleanupPolicy: "delete",  minInsyncReplicas: 2 },
+        "audit.log":       { partitions: 24, replication: 3, retentionHours: 8760, compressionType: "snappy", cleanupPolicy: "compact", minInsyncReplicas: 2 },
+      };
+      const config = topicConfigs[input.topicName] ?? {
+        partitions: 6, replication: 2, retentionHours: 72,
+        compressionType: "none", cleanupPolicy: "delete", minInsyncReplicas: 1,
+      };
+      return { topicName: input.topicName, history, config };
+    }),
+});

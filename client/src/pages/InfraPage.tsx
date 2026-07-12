@@ -1,16 +1,185 @@
-// Obsidian Operations — Kafka / Redis Infrastructure Panel
-import { useEffect } from "react";
-import { Radio, MessageSquare, Zap, HardDrive, TrendingUp, Users, Clock } from "lucide-react";
+// Obsidian Operations — Kafka / Redis Infrastructure Panel v2
+// Color-coded alerts + topic detail modal
+import { useEffect, useState } from "react";
+import { Radio, MessageSquare, Zap, HardDrive, TrendingUp, Users, Clock, AlertTriangle, AlertCircle, CheckCircle2, ExternalLink, X } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import MetricCard from "@/components/MetricCard";
 import { useKafka, useRedis } from "@/hooks/usePaygateData";
 import { useRefresh } from "@/contexts/RefreshContext";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar, Line } from "recharts";
 import { trpc } from "@/lib/trpc";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+
+// ─── Alert threshold helpers ──────────────────────────────────────────────────
+
+type Severity = "ok" | "warn" | "critical";
+
+function lagSeverity(lag: number): Severity {
+  if (lag === 0) return "ok";
+  if (lag <= 10) return "warn";
+  return "critical";
+}
+
+function memSeverity(pct: number): Severity {
+  if (pct < 70) return "ok";
+  if (pct < 85) return "warn";
+  return "critical";
+}
+
+const SEVERITY_STYLES: Record<Severity, { text: string; bg: string; border: string; icon: React.ElementType }> = {
+  ok:       { text: "text-emerald-400", bg: "bg-emerald-400/10", border: "border-emerald-400/20", icon: CheckCircle2 },
+  warn:     { text: "text-amber-400",   bg: "bg-amber-400/10",   border: "border-amber-400/20",   icon: AlertTriangle },
+  critical: { text: "text-red-400",     bg: "bg-red-400/10",     border: "border-red-400/20",     icon: AlertCircle },
+};
+
+function SeverityBadge({ severity, label }: { severity: Severity; label: string }) {
+  const s = SEVERITY_STYLES[severity];
+  const Icon = s.icon;
+  return (
+    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold border", s.text, s.bg, s.border)}>
+      <Icon size={9} />
+      {label}
+    </span>
+  );
+}
+
+function LagCell({ lag }: { lag: number }) {
+  const sev = lagSeverity(lag);
+  const s = SEVERITY_STYLES[sev];
+  return (
+    <span className={cn("inline-flex items-center gap-1 font-mono font-semibold", s.text)}>
+      {sev !== "ok" && <s.icon size={10} />}
+      {lag}
+    </span>
+  );
+}
+
+function MemBar({ usedMb, maxMb }: { usedMb: number; maxMb: number }) {
+  const pct = Math.round((usedMb / maxMb) * 100);
+  const sev = memSeverity(pct);
+  const s = SEVERITY_STYLES[sev];
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground font-mono">Memory</span>
+        <SeverityBadge severity={sev} label={`${pct}%`} />
+      </div>
+      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: sev === "ok" ? "oklch(0.72 0.18 200)" : sev === "warn" ? "oklch(0.78 0.16 75)" : "oklch(0.65 0.22 25)" }}
+        />
+      </div>
+      <div className="text-[10px] text-muted-foreground font-mono text-right">{usedMb} / {maxMb} MB</div>
+    </div>
+  );
+}
+
+// ─── Topic Detail Modal ───────────────────────────────────────────────────────
+
+type TopicRow = { name: string; partitions: number; replication: number; msgPerSec: number; consumerLag: number; retentionHours: number };
+
+function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | null; onClose: () => void; forceMock: boolean }) {
+  const { data, isLoading } = trpc.paygate.topicHistory.useQuery(
+    { topicName: topic?.name ?? "", forceMock },
+    { enabled: !!topic }
+  );
+
+  if (!topic) return null;
+
+  const retentionLabel = topic.retentionHours >= 8760 ? "1 year" : topic.retentionHours >= 720 ? "30 days" : `${topic.retentionHours}h`;
+  const lagSev = lagSeverity(topic.consumerLag);
+
+  return (
+    <Dialog open={!!topic} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="max-w-3xl bg-card border-border" style={{ background: "linear-gradient(135deg, oklch(0.17 0.010 265) 0%, oklch(0.15 0.009 265) 100%)" }}>
+        <DialogHeader>
+          <DialogTitle className="font-mono text-primary flex items-center gap-2">
+            <MessageSquare size={14} />
+            {topic.name}
+            <span className="text-muted-foreground text-xs font-normal ml-1">· Topic Detail</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* Config grid */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          {[
+            { label: "Partitions", value: String(topic.partitions) },
+            { label: "Replication", value: `${topic.replication}x` },
+            { label: "Retention", value: retentionLabel },
+            { label: "Throughput", value: `${topic.msgPerSec.toLocaleString()} msg/s` },
+            { label: "Consumer Lag", value: String(topic.consumerLag), severity: lagSev },
+            { label: "Compression", value: data?.config.compressionType ?? "—" },
+            { label: "Cleanup Policy", value: data?.config.cleanupPolicy ?? "—" },
+            { label: "Min ISR", value: String(data?.config.minInsyncReplicas ?? "—") },
+          ].map(({ label, value, severity }) => (
+            <div
+              key={label}
+              className="rounded-lg p-3 border border-border"
+              style={{ background: "oklch(0.14 0.008 265)" }}
+            >
+              <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">{label}</div>
+              {severity ? (
+                <SeverityBadge severity={severity} label={value} />
+              ) : (
+                <div className="text-sm font-mono font-semibold text-foreground">{value}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* 24h throughput chart */}
+        <div>
+          <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
+            <TrendingUp size={11} className="text-primary" />
+            24H THROUGHPUT TREND
+          </div>
+          {isLoading ? (
+            <div className="h-40 flex items-center justify-center text-xs text-muted-foreground font-mono">Loading history…</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <ComposedChart data={data?.history ?? []} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="msgGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="oklch(0.72 0.18 200)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="oklch(0.72 0.18 200)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.012 265)" />
+                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                <YAxis yAxisId="left" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                <Tooltip
+                  contentStyle={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)", borderRadius: 6, fontSize: 11 }}
+                  formatter={(val: number, name: string) => [
+                    name === "msgPerSec" ? `${val} msg/s` : name === "lag" ? `${val} msgs` : `${val}%`,
+                    name === "msgPerSec" ? "Throughput" : name === "lag" ? "Consumer Lag" : "Error Rate",
+                  ]}
+                />
+                <Area yAxisId="left" type="monotone" dataKey="msgPerSec" stroke="oklch(0.72 0.18 200)" fill="url(#msgGrad)" strokeWidth={2} name="msgPerSec" />
+                <Bar yAxisId="right" dataKey="lag" fill="oklch(0.78 0.16 75 / 0.6)" name="lag" />
+                <Line yAxisId="right" type="monotone" dataKey="errorRate" stroke="oklch(0.65 0.22 25)" strokeWidth={1.5} dot={false} name="errorRate" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+          <div className="flex items-center gap-4 mt-2 text-[10px] font-mono text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-primary inline-block" /> Throughput (msg/s)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-2 bg-amber-400/60 inline-block rounded-sm" /> Consumer Lag</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-red-400 inline-block" /> Error Rate (%)</span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function InfraPage() {
-  const { tick } = useRefresh();
+  const { tick, forceMock } = useRefresh();
   const utils = trpc.useUtils();
+  const [selectedTopic, setSelectedTopic] = useState<TopicRow | null>(null);
 
   // Re-fetch on refresh tick
   useEffect(() => {
@@ -21,10 +190,9 @@ export default function InfraPage() {
   const { data: kafkaRaw, isLoading: kafkaLoading } = useKafka();
   const { data: redisRaw, isLoading: redisLoading } = useRedis();
 
-  // Type-safe cast (proxy returns mock shape matching these types)
   const kafka = kafkaRaw as {
     brokers: { id: string; host: string; status: string; partitions: number; leaders: number }[];
-    topics: { name: string; partitions: number; replication: number; msgPerSec: number; consumerLag: number; retentionHours: number }[];
+    topics: TopicRow[];
     consumerGroups: { name: string; topics: string[]; lag: number; members: number; status: string }[];
   } | undefined;
 
@@ -36,13 +204,17 @@ export default function InfraPage() {
 
   const totalMsgPerSec = kafka?.topics.reduce((s, t) => s + t.msgPerSec, 0) ?? 0;
   const totalLag = kafka?.topics.reduce((s, t) => s + t.consumerLag, 0) ?? 0;
+  const totalGroupLag = kafka?.consumerGroups.reduce((s, g) => s + g.lag, 0) ?? 0;
   const redisPrimary = redis?.nodes.find(n => n.role === "primary");
-  const redisMemPct = redisPrimary
-    ? Math.round((redisPrimary.memUsedMb / redisPrimary.memMaxMb) * 100)
-    : 0;
+  const redisMemPct = redisPrimary ? Math.round((redisPrimary.memUsedMb / redisPrimary.memMaxMb) * 100) : 0;
+  const lagSev = lagSeverity(totalLag + totalGroupLag);
+  const memSev = memSeverity(redisMemPct);
 
   return (
     <div className="space-y-5">
+      {/* Topic detail modal */}
+      <TopicDetailModal topic={selectedTopic} onClose={() => setSelectedTopic(null)} forceMock={forceMock} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -54,6 +226,18 @@ export default function InfraPage() {
             Message broker topology · Consumer lag · Cache hit rate · Memory utilization
           </p>
         </div>
+        {/* Global alert summary */}
+        <div className="hidden md:flex items-center gap-2">
+          {lagSev !== "ok" && (
+            <SeverityBadge severity={lagSev} label={`LAG: ${totalLag + totalGroupLag} msgs`} />
+          )}
+          {memSev !== "ok" && (
+            <SeverityBadge severity={memSev} label={`MEM: ${redisMemPct}%`} />
+          )}
+          {lagSev === "ok" && memSev === "ok" && (
+            <SeverityBadge severity="ok" label="ALL NOMINAL" />
+          )}
+        </div>
       </div>
 
       {/* ── KAFKA SECTION ─────────────────────────────────────────────── */}
@@ -63,23 +247,30 @@ export default function InfraPage() {
           <span className="text-xs font-bold font-mono uppercase tracking-widest text-foreground">Kafka Broker Cluster</span>
         </div>
 
-        {/* Kafka key metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <MetricCard label="Brokers Online" value={kafka?.brokers.length ?? "—"} icon={HardDrive} accentColor="text-emerald-400" trendLabel="All healthy" trend="neutral" />
           <MetricCard label="Topics" value={kafka?.topics.length ?? "—"} icon={MessageSquare} accentColor="text-primary" trendLabel={`${kafka?.topics.reduce((s, t) => s + t.partitions, 0) ?? 0} total partitions`} trend="neutral" />
           <MetricCard label="Throughput" value={totalMsgPerSec} unit="msg/s" icon={Zap} accentColor="text-primary" trendLabel="Across all topics" trend="up" />
-          <MetricCard label="Consumer Lag" value={totalLag} icon={Clock} accentColor={totalLag > 0 ? "text-amber-400" : "text-emerald-400"} trendLabel={totalLag === 0 ? "All consumers current" : "Lag detected"} trend={totalLag > 0 ? "down" : "neutral"} />
+          <MetricCard
+            label="Consumer Lag"
+            value={totalLag + totalGroupLag}
+            icon={Clock}
+            accentColor={lagSev === "ok" ? "text-emerald-400" : lagSev === "warn" ? "text-amber-400" : "text-red-400"}
+            trendLabel={lagSev === "ok" ? "All consumers current" : lagSev === "warn" ? "Minor lag detected" : "Critical lag — investigate"}
+            trend={lagSev === "ok" ? "neutral" : "down"}
+          />
         </div>
 
-        {/* Asymmetric layout: topic table + broker list */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Topic Registry table — clickable rows */}
           <div className="lg:col-span-2">
             <div
               className="bg-card border border-border rounded-lg overflow-hidden"
               style={{ background: "linear-gradient(135deg, oklch(0.17 0.010 265) 0%, oklch(0.15 0.009 265) 100%)", boxShadow: "inset 0 0 0 1px oklch(0.72 0.18 200 / 0.06)" }}
             >
-              <div className="px-4 py-3 border-b border-border">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <span className="text-xs font-bold font-mono uppercase tracking-widest">Topic Registry</span>
+                <span className="text-[10px] text-muted-foreground font-mono">Click a row for details</span>
               </div>
               {kafkaLoading ? (
                 <div className="p-6 text-center text-xs text-muted-foreground font-mono">Loading topic data…</div>
@@ -93,18 +284,33 @@ export default function InfraPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {kafka?.topics.map((t, i) => (
-                      <tr key={t.name} className={i % 2 === 0 ? "bg-secondary/10" : ""}>
-                        <td className="px-4 py-2.5 font-mono text-primary">{t.name}</td>
-                        <td className="px-4 py-2.5 font-mono text-foreground">{t.partitions}</td>
-                        <td className="px-4 py-2.5 font-mono text-foreground">{t.replication}x</td>
-                        <td className="px-4 py-2.5 font-mono text-foreground">{t.msgPerSec.toLocaleString()}</td>
-                        <td className="px-4 py-2.5 font-mono">
-                          <span className={t.consumerLag > 0 ? "text-amber-400" : "text-emerald-400"}>{t.consumerLag}</span>
-                        </td>
-                        <td className="px-4 py-2.5 font-mono text-muted-foreground">{t.retentionHours >= 8760 ? "1y" : t.retentionHours >= 720 ? "30d" : `${t.retentionHours}h`}</td>
-                      </tr>
-                    ))}
+                    {kafka?.topics.map((t, i) => {
+                      const tLagSev = lagSeverity(t.consumerLag);
+                      return (
+                        <tr
+                          key={t.name}
+                          onClick={() => setSelectedTopic(t)}
+                          className={cn(
+                            "cursor-pointer transition-colors hover:bg-primary/5 group",
+                            i % 2 === 0 ? "bg-secondary/10" : ""
+                          )}
+                        >
+                          <td className="px-4 py-2.5 font-mono text-primary flex items-center gap-1.5">
+                            {t.name}
+                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-60 transition-opacity" />
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-foreground">{t.partitions}</td>
+                          <td className="px-4 py-2.5 font-mono text-foreground">{t.replication}x</td>
+                          <td className="px-4 py-2.5 font-mono text-foreground">{t.msgPerSec.toLocaleString()}</td>
+                          <td className="px-4 py-2.5">
+                            <LagCell lag={t.consumerLag} />
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-muted-foreground">
+                            {t.retentionHours >= 8760 ? "1y" : t.retentionHours >= 720 ? "30d" : `${t.retentionHours}h`}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -138,18 +344,33 @@ export default function InfraPage() {
               <h3 className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Users size={11} className="text-primary" /> Consumer Groups
               </h3>
-              <div className="space-y-2">
-                {kafka?.consumerGroups.map(g => (
-                  <div key={g.name} className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-xs font-mono text-foreground truncate">{g.name}</div>
-                      <div className="text-[10px] font-mono text-muted-foreground">{g.members} members · lag {g.lag}</div>
+              <div className="space-y-2.5">
+                {kafka?.consumerGroups.map(g => {
+                  const gLagSev = lagSeverity(g.lag);
+                  return (
+                    <div key={g.name} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-mono text-foreground truncate">{g.name}</div>
+                          <div className="text-[10px] font-mono text-muted-foreground">{g.members} members</div>
+                        </div>
+                        <SeverityBadge severity={gLagSev} label={`lag ${g.lag}`} />
+                      </div>
+                      {/* Lag progress bar */}
+                      {g.lag > 0 && (
+                        <div className="h-1 bg-secondary rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${Math.min(100, (g.lag / 50) * 100)}%`,
+                              background: gLagSev === "warn" ? "oklch(0.78 0.16 75)" : "oklch(0.65 0.22 25)",
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <span className={`text-[10px] font-mono shrink-0 ${g.lag > 0 ? "text-amber-400" : "text-emerald-400"}`}>
-                      {g.status}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -163,15 +384,20 @@ export default function InfraPage() {
           <span className="text-xs font-bold font-mono uppercase tracking-widest text-foreground">Redis Cache Cluster</span>
         </div>
 
-        {/* Redis key metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <MetricCard label="Hit Rate" value={`${redis?.stats.hitRate ?? "—"}%`} icon={TrendingUp} accentColor="text-emerald-400" trendLabel="Cache effectiveness" trend="up" />
           <MetricCard label="Ops / sec" value={redisPrimary?.opsPerSec.toLocaleString() ?? "—"} icon={Zap} accentColor="text-primary" trendLabel="Primary node" trend="neutral" />
-          <MetricCard label="Memory Used" value={`${redisMemPct}%`} icon={HardDrive} accentColor={redisMemPct > 80 ? "text-amber-400" : "text-emerald-400"} trendLabel={`${redisPrimary?.memUsedMb ?? 0} / ${redisPrimary?.memMaxMb ?? 0} MB`} trend="neutral" />
+          <MetricCard
+            label="Memory Used"
+            value={`${redisMemPct}%`}
+            icon={HardDrive}
+            accentColor={memSev === "ok" ? "text-emerald-400" : memSev === "warn" ? "text-amber-400" : "text-red-400"}
+            trendLabel={`${redisPrimary?.memUsedMb ?? 0} / ${redisPrimary?.memMaxMb ?? 0} MB`}
+            trend={memSev === "ok" ? "neutral" : "down"}
+          />
           <MetricCard label="Connections" value={redis?.nodes.reduce((s, n) => s + n.connectedClients, 0) ?? "—"} icon={Users} accentColor="text-primary" trendLabel="All nodes" trend="neutral" />
         </div>
 
-        {/* Asymmetric layout: keyspace chart + node list */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
             <div
@@ -207,7 +433,7 @@ export default function InfraPage() {
             </div>
           </div>
 
-          {/* Redis node status rail */}
+          {/* Redis node status rail with enhanced memory bars */}
           <div className="space-y-3">
             {redis?.nodes.map(node => (
               <div
@@ -229,7 +455,6 @@ export default function InfraPage() {
                 </div>
                 <div className="space-y-1.5">
                   {[
-                    { label: "Memory", value: `${node.memUsedMb} / ${node.memMaxMb} MB` },
                     { label: "Clients", value: String(node.connectedClients) },
                     { label: "Ops/s", value: node.opsPerSec > 0 ? node.opsPerSec.toLocaleString() : "—" },
                   ].map(({ label, value }) => (
@@ -238,20 +463,8 @@ export default function InfraPage() {
                       <span className="text-[10px] font-mono text-foreground">{value}</span>
                     </div>
                   ))}
-                  {/* Memory bar */}
-                  <div className="mt-2">
-                    <div className="h-1 bg-secondary rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${Math.round((node.memUsedMb / node.memMaxMb) * 100)}%`,
-                          background: node.memUsedMb / node.memMaxMb > 0.8
-                            ? "oklch(0.78 0.16 75)"
-                            : "oklch(0.72 0.18 200)",
-                        }}
-                      />
-                    </div>
-                  </div>
+                  {/* Enhanced memory bar with severity */}
+                  <MemBar usedMb={node.memUsedMb} maxMb={node.memMaxMb} />
                 </div>
               </div>
             ))}
@@ -264,13 +477,13 @@ export default function InfraPage() {
               >
                 <h3 className="text-xs font-bold font-mono uppercase tracking-widest mb-3">Eviction Telemetry</h3>
                 {[
-                  { label: "Evicted Keys", value: redis.stats.evictedKeys.toLocaleString(), warn: redis.stats.evictedKeys > 0 },
-                  { label: "Expired Keys", value: redis.stats.expiredKeys.toLocaleString(), warn: false },
-                  { label: "Uptime", value: `${Math.floor(redis.stats.uptimeSeconds / 86400)}d`, warn: false },
-                ].map(({ label, value, warn }) => (
-                  <div key={label} className="flex items-center justify-between mb-1.5">
+                  { label: "Evicted Keys", value: redis.stats.evictedKeys.toLocaleString(), severity: redis.stats.evictedKeys > 0 ? "warn" as Severity : "ok" as Severity },
+                  { label: "Expired Keys", value: redis.stats.expiredKeys.toLocaleString(), severity: "ok" as Severity },
+                  { label: "Uptime", value: `${Math.floor(redis.stats.uptimeSeconds / 86400)}d`, severity: "ok" as Severity },
+                ].map(({ label, value, severity }) => (
+                  <div key={label} className="flex items-center justify-between mb-2">
                     <span className="text-[11px] text-muted-foreground font-mono">{label}</span>
-                    <span className={`text-xs font-mono font-bold ${warn ? "text-amber-400" : "text-foreground"}`}>{value}</span>
+                    <SeverityBadge severity={severity} label={value} />
                   </div>
                 ))}
               </div>

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { mockRoutes, mockWorkflows } from "@/lib/mockData";
 import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
 import { trpc } from "@/lib/trpc";
+import { FlaskConical, Wifi } from "lucide-react";
 
 const NAV_ITEMS = [
   { path: "/", label: "Overview", icon: LayoutDashboard },
@@ -80,8 +81,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showIntervalMenu, setShowIntervalMenu] = useState(false);
-  const { interval, setInterval, secondsUntilRefresh, triggerRefresh } = useRefresh();
-  const pingQuery = trpc.paygate.ping.useQuery(undefined, { refetchInterval: 30_000 });
+  const { interval, setInterval, secondsUntilRefresh, triggerRefresh, forceMock, setForceMock } = useRefresh();
+  const pingQuery = trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
   const connected = pingQuery.data?.connected ?? false;
 
   // Compute global health from mock data (will be replaced by live data in pages)
@@ -293,6 +294,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               />
               {connected ? "LIVE" : "MOCK"}
             </div>
+
+            {/* Mock/Live toggle */}
+            <button
+              onClick={() => setForceMock(!forceMock)}
+              title={forceMock ? "Currently forcing MOCK data — click to try LIVE" : "Currently using LIVE data (with mock fallback) — click to force MOCK"}
+              className={cn(
+                "hidden md:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
+                forceMock
+                  ? "text-amber-400 border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/20"
+                  : "text-primary border-primary/20 bg-primary/5 hover:bg-primary/10"
+              )}
+            >
+              {forceMock ? <FlaskConical size={10} /> : <Wifi size={10} />}
+              {forceMock ? "MOCK" : "LIVE"}
+            </button>
 
             {/* Countdown */}
             {interval > 0 && (

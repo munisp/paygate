@@ -3,44 +3,58 @@
  * Each hook calls the backend proxy (trpc.paygate.*) which forwards to the
  * configured PAYGATE_API_URL and falls back to rich mock data when the
  * backend is unreachable.
+ *
+ * All hooks read `forceMock` from RefreshContext so the top-bar MOCK/LIVE
+ * toggle immediately switches the data source across every page.
  */
 import { trpc } from "@/lib/trpc";
+import { useRefresh } from "@/contexts/RefreshContext";
 
 export function useGatewayHealth() {
-  return trpc.paygate.gatewayHealth.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.gatewayHealth.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function useGatewayRoutes() {
-  return trpc.paygate.gatewayRoutes.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.gatewayRoutes.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function useGatewayConsumers() {
-  return trpc.paygate.gatewayConsumers.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.gatewayConsumers.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function useGatewayMetrics() {
-  return trpc.paygate.gatewayMetrics.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.gatewayMetrics.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function useWorkflows(status?: string) {
+  const { forceMock } = useRefresh();
   return trpc.paygate.workflows.useQuery(
-    status ? { status } : undefined,
+    { status, forceMock },
     { refetchInterval: false }
   );
 }
 
 export function usePool() {
-  return trpc.paygate.pool.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.pool.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function useKafka() {
-  return trpc.paygate.kafka.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.kafka.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function useRedis() {
-  return trpc.paygate.redis.useQuery(undefined, { refetchInterval: false });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.redis.useQuery({ forceMock }, { refetchInterval: false });
 }
 
 export function usePaygatePing() {
-  return trpc.paygate.ping.useQuery(undefined, { refetchInterval: 30_000 });
+  const { forceMock } = useRefresh();
+  return trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
 }
+
