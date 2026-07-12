@@ -45,3 +45,30 @@ export const alertThresholds = mysqlTable("alert_thresholds", {
 
 export type AlertThresholds = typeof alertThresholds.$inferSelect;
 export type InsertAlertThresholds = typeof alertThresholds.$inferInsert;
+
+/**
+ * Breach event log — one row per threshold crossing detected by checkBreaches.
+ * Supports the /alerts history page with sorting, filtering, and acknowledgement.
+ */
+export const breachEvents = mysqlTable("breach_events", {
+  id: int("id").autoincrement().primaryKey(),
+  /** "kafka_lag" | "redis_memory" */
+  metric: varchar("metric", { length: 64 }).notNull(),
+  /** "warn" | "critical" */
+  severity: mysqlEnum("severity", ["warn", "critical"]).notNull(),
+  /** Human-readable description, e.g. "audit-archiver lag=45 (critical >20)" */
+  message: text("message").notNull(),
+  /** Raw metric value at time of breach */
+  value: int("value").notNull(),
+  /** Threshold that was crossed */
+  threshold: int("threshold").notNull(),
+  /** Whether the operator has acknowledged this event */
+  acknowledged: int("acknowledged").notNull().default(0),
+  /** UTC epoch ms when the breach was detected */
+  detectedAt: timestamp("detectedAt").defaultNow().notNull(),
+  /** UTC epoch ms when it was acknowledged (null = unacknowledged) */
+  acknowledgedAt: timestamp("acknowledgedAt"),
+});
+
+export type BreachEvent = typeof breachEvents.$inferSelect;
+export type InsertBreachEvent = typeof breachEvents.$inferInsert;

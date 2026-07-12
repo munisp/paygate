@@ -8,6 +8,13 @@
       "when": 1783869252379,
       "tag": "0000_old_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1783870966219,
+      "tag": "0001_first_zodiak",
+      "breakpoints": true
     }
   ]
 }

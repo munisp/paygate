@@ -13,6 +13,7 @@ import OverviewPage from "./pages/OverviewPage";
 import InfraPage from "./pages/InfraPage";
 import SettingsPage from "./pages/SettingsPage";
 import { ThresholdsProvider } from "./contexts/ThresholdsContext";
+import AlertsPage from "./pages/AlertsPage";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
               <Route path="/pool" component={PoolPage} />
               <Route path="/infra" component={InfraPage} />
               <Route path="/settings" component={SettingsPage} />
+              <Route path="/alerts" component={AlertsPage} />
               <Route path="/404" component={NotFound} />
               <Route component={NotFound} />
             </Switch>

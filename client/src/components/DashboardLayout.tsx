@@ -16,7 +16,7 @@ import {
   Radio,
   ChevronDown,
 } from "lucide-react";
-import { Settings } from "lucide-react";
+import { Settings, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { mockRoutes, mockWorkflows } from "@/lib/mockData";
 import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { path: "/workflows", label: "Workflows", icon: GitBranch },
   { path: "/pool", label: "Connection Pool", icon: Database },
   { path: "/infra", label: "Kafka / Redis", icon: Activity },
+  { path: "/alerts", label: "Alerts", icon: Bell },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -87,12 +88,56 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { interval, setInterval, secondsUntilRefresh, triggerRefresh, forceMock, setForceMock } = useRefresh();
   const pingQuery = trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
   const connected = pingQuery.data?.connected ?? false;
+  const [, setLocation] = useLocation();
+  const acknowledgeBreachesMutation = trpc.paygate.acknowledgeBreaches.useMutation({
+    onSuccess: (result) => {
+      toast.success(`${result.acknowledged} breach${result.acknowledged !== 1 ? "es" : ""} acknowledged`);
+    },
+  });
+
   const checkBreachesMutation = trpc.paygate.checkBreaches.useMutation({
     onSuccess: (data) => {
-      if (data.notified && data.breaches.length > 0) {
-        toast.error("Threshold breach detected", {
-          description: `${data.breaches.filter((b: string) => b.startsWith("🚨")).length} critical alert(s) sent to owner`,
-          duration: 5000,
+      const criticalBreaches = data.breaches.filter((b: { severity: string }) => b.severity === "critical");
+      const warnBreaches = data.breaches.filter((b: { severity: string }) => b.severity === "warn");
+
+      if (criticalBreaches.length > 0) {
+        // Show one persistent interactive toast per critical breach
+        criticalBreaches.forEach((breach: { metric: string; message: string; value: number; threshold: number }) => {
+          const toastId = `breach-${breach.metric}-${Date.now()}`;
+          toast.error(
+            breach.metric === "kafka_lag" ? "Kafka Lag Critical" : "Redis Memory Critical",
+            {
+              id: toastId,
+              description: breach.message,
+              duration: Infinity,
+              action: {
+                label: "View Alerts",
+                onClick: () => setLocation("/alerts"),
+              },
+              cancel: {
+                label: "Dismiss",
+                onClick: () => toast.dismiss(toastId),
+              },
+            }
+          );
+        });
+      }
+
+      if (warnBreaches.length > 0) {
+        toast.warning(`${warnBreaches.length} warning threshold${warnBreaches.length > 1 ? "s" : ""} crossed`, {
+          description: warnBreaches.map((b: { message: string }) => b.message).join(" · "),
+          duration: 6000,
+          action: {
+            label: "View Alerts",
+            onClick: () => setLocation("/alerts"),
+          },
+        });
+      }
+
+      if (data.breaches.length === 0) {
+        toast.success("All systems nominal", {
+          description: "No threshold breaches detected",
+          duration: 2500,
         });
       }
     },

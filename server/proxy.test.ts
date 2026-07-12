@@ -129,15 +129,48 @@ describe("paygate proxy router", () => {
   });
 
   it("checkBreaches returns notified=false and empty breaches when mock data is within defaults", async () => {
-    // MOCK_KAFKA has lag=0 for all groups; MOCK_REDIS primary is 842/4096 (~20%) — both below defaults
+    // MOCK_KAFKA audit-archiver has lag=12 which exceeds lagWarn=5 → 1 warn breach expected
+    // MOCK_REDIS primary is 842/4096 (~20%) — below memWarnPct=70 → no Redis breach
     mockFetch.mockRejectedValue(new Error("ECONNREFUSED")); // force mock fallback
     const caller = appRouter.createCaller(createCtx());
     const result = await caller.paygate.checkBreaches({ forceMock: true });
     expect(result).toHaveProperty("notified");
     expect(result).toHaveProperty("breaches");
     expect(Array.isArray(result.breaches)).toBe(true);
-    // Mock data is healthy → no breach → notified=false
+    // Warn breach detected but not critical → notified=false (no owner push for warn-only)
     expect(result.notified).toBe(false);
-    expect(result.breaches.length).toBe(0);
+    // At least 1 warn breach for kafka_lag
+    expect(result.breaches.length).toBeGreaterThanOrEqual(1);
+    const kafkaBreach = result.breaches.find((b: { metric: string }) => b.metric === "kafka_lag");
+    expect(kafkaBreach).toBeDefined();
+    expect((kafkaBreach as any).severity).toBe("warn");
+  });
+
+  it("listBreaches returns events and total fields", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    // DB may not be available in test env — procedure should return empty gracefully
+    const result = await caller.paygate.listBreaches({});
+    expect(result).toHaveProperty("events");
+    expect(result).toHaveProperty("total");
+    expect(Array.isArray(result.events)).toBe(true);
+    expect(typeof result.total).toBe("number");
+  });
+
+  it("listBreaches respects severity filter input", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.listBreaches({ severity: "critical", limit: 10, offset: 0 });
+    expect(result).toHaveProperty("events");
+    // All returned events should be critical (or empty if DB is unavailable)
+    result.events.forEach(e => {
+      expect(e.severity).toBe("critical");
+    });
+  });
+
+  it("acknowledgeBreaches returns acknowledged count", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    // Pass a non-existent ID — should return 0 acknowledged (DB may be unavailable)
+    const result = await caller.paygate.acknowledgeBreaches({ ids: [999999] });
+    expect(result).toHaveProperty("acknowledged");
+    expect(typeof result.acknowledged).toBe("number");
   });
 });

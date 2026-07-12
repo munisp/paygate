@@ -9,8 +9,8 @@ import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { ENV } from "../_core/env";
 import { getDb } from "../db";
-import { alertThresholds } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { alertThresholds, breachEvents } from "../../drizzle/schema";
+import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
 import { notifyOwner } from "../_core/notification";
 
 const sourceInput = z.object({ forceMock: z.boolean().optional() }).optional();
@@ -413,14 +413,15 @@ export const proxyRouter = router({
     }),
 
   // Check current Kafka lag + Redis memory against saved thresholds and fire
-  // owner notifications for any critical breach. Safe to call on every refresh.
+  // owner notifications for any critical breach. Also persists breach events to DB.
   checkBreaches: publicProcedure
     .input(z.object({ forceMock: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const defaults = { lagWarn: 5, lagCritical: 20, memWarnPct: 70, memCriticalPct: 85 };
       let thresholds = defaults;
+      let db: Awaited<ReturnType<typeof getDb>> | null = null;
       try {
-        const db = await getDb();
+        db = await getDb();
         if (db) {
           const ownerOpenId = ctx.user?.openId ?? "anonymous";
           const rows = await db.select().from(alertThresholds).where(eq(alertThresholds.ownerOpenId, ownerOpenId)).limit(1);
@@ -439,16 +440,30 @@ export const proxyRouter = router({
         "/api/trpc/middlewareDashboard.redis.stats", MOCK_REDIS
       );
 
-      const breaches: string[] = [];
+      type BreachItem = { metric: string; severity: "warn" | "critical"; message: string; value: number; threshold: number };
+      const breachItems: BreachItem[] = [];
 
       // Consumer lag check
       const totalLag = (kafka.consumerGroups ?? []).reduce((s: number, g: { lag: number }) => s + g.lag, 0);
       if (totalLag > thresholds.lagCritical) {
-        breaches.push(`🚨 Consumer lag CRITICAL: ${totalLag} msgs (threshold: ${thresholds.lagCritical})`);
         const criticalGroups = (kafka.consumerGroups ?? [])
           .filter((g: { lag: number }) => g.lag > thresholds.lagCritical)
-          .map((g: { name: string; lag: number }) => `  • ${g.name}: ${g.lag} msgs`);
-        if (criticalGroups.length > 0) breaches.push(...criticalGroups);
+          .map((g: { name: string }) => g.name);
+        breachItems.push({
+          metric: "kafka_lag",
+          severity: "critical",
+          message: `Consumer lag CRITICAL: ${totalLag} msgs across [${criticalGroups.join(", ")}] (threshold: ${thresholds.lagCritical})`,
+          value: totalLag,
+          threshold: thresholds.lagCritical,
+        });
+      } else if (totalLag > thresholds.lagWarn) {
+        breachItems.push({
+          metric: "kafka_lag",
+          severity: "warn",
+          message: `Consumer lag WARNING: ${totalLag} msgs (threshold: ${thresholds.lagWarn})`,
+          value: totalLag,
+          threshold: thresholds.lagWarn,
+        });
       }
 
       // Redis memory check (primary node)
@@ -456,25 +471,123 @@ export const proxyRouter = router({
       if (primary) {
         const memPct = Math.round((primary.memUsedMb / primary.memMaxMb) * 100);
         if (memPct >= thresholds.memCriticalPct) {
-          breaches.push(`🚨 Redis memory CRITICAL: ${memPct}% used (threshold: ${thresholds.memCriticalPct}%)`);
-          breaches.push(`  • Primary node: ${primary.memUsedMb} / ${primary.memMaxMb} MB`);
+          breachItems.push({
+            metric: "redis_memory",
+            severity: "critical",
+            message: `Redis memory CRITICAL: ${memPct}% used (${primary.memUsedMb}/${primary.memMaxMb} MB, threshold: ${thresholds.memCriticalPct}%)`,
+            value: memPct,
+            threshold: thresholds.memCriticalPct,
+          });
+        } else if (memPct >= thresholds.memWarnPct) {
+          breachItems.push({
+            metric: "redis_memory",
+            severity: "warn",
+            message: `Redis memory WARNING: ${memPct}% used (threshold: ${thresholds.memWarnPct}%)`,
+            value: memPct,
+            threshold: thresholds.memWarnPct,
+          });
         }
       }
 
-      if (breaches.length === 0) {
-        return { notified: false, breaches: [] };
+      // Persist breach events to DB
+      if (db && breachItems.length > 0) {
+        try {
+          await db.insert(breachEvents).values(
+            breachItems.map(b => ({
+              metric: b.metric,
+              severity: b.severity,
+              message: b.message,
+              value: b.value,
+              threshold: b.threshold,
+            }))
+          );
+        } catch { /* non-fatal */ }
       }
 
-      const title = `PayGate Alert: ${breaches.filter(b => b.startsWith("🚨")).length} critical breach${breaches.filter(b => b.startsWith("🚨")).length > 1 ? "es" : ""} detected`;
-      const content = [
-        `Detected at ${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC`,
-        "",
-        ...breaches,
-        "",
-        `Mode: ${input.forceMock ? "MOCK" : "LIVE"}`,
-      ].join("\n");
+      const criticalItems = breachItems.filter(b => b.severity === "critical");
+      let notified = false;
+      if (criticalItems.length > 0) {
+        const title = `PayGate Alert: ${criticalItems.length} critical breach${criticalItems.length > 1 ? "es" : ""} detected`;
+        const content = [
+          `Detected at ${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC`,
+          "",
+          ...criticalItems.map(b => `🚨 ${b.message}`),
+          "",
+          `Mode: ${input.forceMock ? "MOCK" : "LIVE"}`,
+        ].join("\n");
+        notified = await notifyOwner({ title, content });
+      }
 
-      const notified = await notifyOwner({ title, content });
-      return { notified, breaches };
+      return { notified, breaches: breachItems };
+    }),
+
+  listBreaches: publicProcedure
+    .input(z.object({
+      metric: z.string().optional(),
+      severity: z.enum(["warn", "critical"]).optional(),
+      acknowledged: z.boolean().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      limit: z.number().min(1).max(200).default(50),
+      offset: z.number().min(0).default(0),
+      sortBy: z.enum(["detectedAt", "severity", "metric", "value"]).default("detectedAt"),
+      sortDir: z.enum(["asc", "desc"]).default("desc"),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { events: [], total: 0 };
+
+      const conditions = [];
+      if (input.metric) conditions.push(eq(breachEvents.metric, input.metric));
+      if (input.severity) conditions.push(eq(breachEvents.severity, input.severity));
+      if (input.acknowledged !== undefined) {
+        conditions.push(eq(breachEvents.acknowledged, input.acknowledged ? 1 : 0));
+      }
+      if (input.from) conditions.push(gte(breachEvents.detectedAt, new Date(input.from)));
+      if (input.to) conditions.push(lte(breachEvents.detectedAt, new Date(input.to)));
+
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const [rows, countRows] = await Promise.all([
+        db.select().from(breachEvents)
+          .where(where)
+          .orderBy(input.sortDir === "desc" ? desc(breachEvents.detectedAt) : breachEvents.detectedAt)
+          .limit(input.limit)
+          .offset(input.offset),
+        db.select().from(breachEvents).where(where),
+      ]);
+
+      return {
+        events: rows.map(r => ({
+          id: r.id,
+          metric: r.metric,
+          severity: r.severity,
+          message: r.message,
+          value: r.value,
+          threshold: r.threshold,
+          acknowledged: r.acknowledged === 1,
+          detectedAt: r.detectedAt.toISOString(),
+          acknowledgedAt: r.acknowledgedAt?.toISOString() ?? null,
+        })),
+        total: countRows.length,
+      };
+    }),
+
+  acknowledgeBreaches: publicProcedure
+    .input(z.object({
+      ids: z.array(z.number()).min(1).max(100),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { acknowledged: 0 };
+
+      await db.update(breachEvents)
+        .set({ acknowledged: 1, acknowledgedAt: new Date() })
+        .where(and(
+          inArray(breachEvents.id, input.ids),
+          eq(breachEvents.acknowledged, 0),
+        ));
+
+      return { acknowledged: input.ids.length };
     }),
 });

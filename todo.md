@@ -35,3 +35,7 @@
 - [x] Consumer lag sparkline on Overview page (last-hour aggregate trend)
 - [x] Partition rebalance indicator in ConsumerGroupDetailModal (highlight recently reassigned partitions)
 - [x] Push all code to GitHub (feature/paygate-monitor branch in munisp/paygate)
+- [x] Breach history log page at /alerts with sorting and filtering
+- [x] Interactive acknowledgeable toast alerts for critical breach notifications
+- [x] Heartbeat-driven periodic breach polling (every 5 minutes, task_uid: XDqDWZ8EvKQTADamprBPYP)
+- [x] Open GitHub pull request to merge feature/paygate-monitor into main
