@@ -488,6 +488,59 @@ export const proxyRouter = router({
           });
         }
       }
+      // ── Apply named alert rules (per-target overrides) ───────────────────
+      // For each enabled named rule, check the specific target and emit a
+      // breach if the value exceeds the rule's threshold. Named rules take
+      // precedence: if a group/node already has a global breach item for the
+      // same metric, we replace it with the named-rule result.
+      let namedRules: Array<{ id: number; name: string; metric: string; target: string; severity: string; threshold: number; enabled: number }> = [];
+      if (db) {
+        try {
+          namedRules = await db.select().from(namedAlertRules).where(eq(namedAlertRules.enabled, 1));
+        } catch { /* non-fatal */ }
+      }
+
+      for (const rule of namedRules) {
+        if (rule.metric === "kafka_lag") {
+          const group = (kafka.consumerGroups ?? []).find((g: { name: string }) => g.name === rule.target);
+          if (!group) continue;
+          const lag: number = (group as { lag: number }).lag;
+          const sev = rule.severity as "warn" | "critical";
+          if (lag >= rule.threshold) {
+            // Remove any existing global breach for kafka_lag that mentions this group
+            const idx = breachItems.findIndex(b => b.metric === "kafka_lag" && b.message.includes(rule.target));
+            const item: BreachItem = {
+              metric: "kafka_lag",
+              severity: sev,
+              message: `[Rule: ${rule.name ?? rule.target}] Consumer group "${rule.target}" lag ${sev.toUpperCase()}: ${lag} msgs (rule threshold: ${rule.threshold})`,
+              value: lag,
+              threshold: rule.threshold,
+            };
+            if (idx >= 0) breachItems[idx] = item;
+            else breachItems.push(item);
+          }
+        } else if (rule.metric === "redis_memory") {
+          const node = (redis.nodes ?? []).find((n: { role: string; name?: string }) =>
+            n.role === rule.target || (n as { name?: string }).name === rule.target
+          );
+          if (!node) continue;
+          const typedNode = node as { memUsedMb: number; memMaxMb: number };
+          const memPct = Math.round((typedNode.memUsedMb / typedNode.memMaxMb) * 100);
+          const sev = rule.severity as "warn" | "critical";
+          if (memPct >= rule.threshold) {
+            const idx = breachItems.findIndex(b => b.metric === "redis_memory");
+            const item: BreachItem = {
+              metric: "redis_memory",
+              severity: sev,
+              message: `[Rule: ${rule.name ?? rule.target}] Redis node "${rule.target}" memory ${sev.toUpperCase()}: ${memPct}% (rule threshold: ${rule.threshold}%)`,
+              value: memPct,
+              threshold: rule.threshold,
+            };
+            if (idx >= 0) breachItems[idx] = item;
+            else breachItems.push(item);
+          }
+        }
+      }
 
       // Persist breach events to DB
       if (db && breachItems.length > 0) {
@@ -674,5 +727,85 @@ export const proxyRouter = router({
         .set({ enabled: input.enabled ? 1 : 0 })
         .where(eq(namedAlertRules.id, input.id));
       return { ok: true };
+    }),
+
+  // ── Acknowledge all matching unacknowledged breaches ──────────────────────
+  acknowledgeAll: publicProcedure
+    .input(z.object({
+      metric: z.string().optional(),
+      severity: z.enum(["warn", "critical", "all"]).optional(),
+      searchText: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { acknowledged: 0 };
+      try {
+        // Build conditions: always restrict to unacknowledged
+        const conditions = [eq(breachEvents.acknowledged, 0)];
+        if (input.metric && input.metric !== "all") {
+          conditions.push(eq(breachEvents.metric, input.metric));
+        }
+        if (input.severity && input.severity !== "all") {
+          conditions.push(eq(breachEvents.severity, input.severity));
+        }
+        // Fetch matching IDs first (MySQL doesn't support UPDATE with LIMIT easily)
+        const rows = await db.select({ id: breachEvents.id })
+          .from(breachEvents)
+          .where(and(...conditions));
+        if (rows.length === 0) return { acknowledged: 0 };
+        const ids = rows.map(r => r.id);
+        await db.update(breachEvents)
+          .set({ acknowledged: 1, acknowledgedAt: new Date() })
+          .where(inArray(breachEvents.id, ids));
+        return { acknowledged: ids.length };
+      } catch {
+        return { acknowledged: 0 };
+      }
+    }),
+
+  // ── List ALL matching breaches (no pagination) for CSV full-export ────────
+  listAllBreaches: publicProcedure
+    .input(z.object({
+      metric: z.string().optional(),
+      severity: z.enum(["warn", "critical", "all"]).optional(),
+      acknowledged: z.enum(["all", "yes", "no"]).optional(),
+      searchText: z.string().optional(),
+      dateFrom: z.date().optional(),
+      dateTo: z.date().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { events: [] };
+      try {
+        const conditions = [];
+        if (input.metric && input.metric !== "all") {
+          conditions.push(eq(breachEvents.metric, input.metric));
+        }
+        if (input.severity && input.severity !== "all") {
+          conditions.push(eq(breachEvents.severity, input.severity));
+        }
+        if (input.acknowledged === "yes") {
+          conditions.push(eq(breachEvents.acknowledged, 1));
+        } else if (input.acknowledged === "no") {
+          conditions.push(eq(breachEvents.acknowledged, 0));
+        }
+        if (input.dateFrom) {
+          conditions.push(gte(breachEvents.detectedAt, input.dateFrom));
+        }
+        if (input.dateTo) {
+          conditions.push(lte(breachEvents.detectedAt, input.dateTo));
+        }
+        const rows = await db.select().from(breachEvents)
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(desc(breachEvents.detectedAt))
+          .limit(10000); // safety cap
+        // Client-side text filter if needed
+        const events = input.searchText
+          ? rows.filter(r => r.message.toLowerCase().includes(input.searchText!.toLowerCase()))
+          : rows;
+        return { events };
+      } catch {
+        return { events: [] };
+      }
     }),
 });

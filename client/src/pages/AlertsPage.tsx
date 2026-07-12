@@ -38,6 +38,7 @@ import {
   X,
   Download,
 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 
@@ -119,6 +120,37 @@ export default function AlertsPage() {
     },
   });
 
+  const acknowledgeAllMutation = trpc.paygate.acknowledgeAll.useMutation({
+    onSuccess: (result) => {
+      if (result.acknowledged === 0) {
+        toast.info("No unacknowledged events matched the current filters");
+      } else {
+        toast.success(`${result.acknowledged} event${result.acknowledged !== 1 ? "s" : ""} acknowledged`, {
+          description: "All matching unacknowledged events cleared",
+          duration: 4000,
+        });
+      }
+      setSelectedIds(new Set());
+      refetch();
+    },
+    onError: () => {
+      toast.error("Failed to acknowledge all events");
+    },
+  });
+
+  const [isExportingAll, setIsExportingAll] = useState(false);
+  const allBreachesQuery = trpc.paygate.listAllBreaches.useQuery(
+    {
+      metric: filterMetric !== "all" ? filterMetric : undefined,
+      severity: filterSeverity !== "all" ? (filterSeverity as "warn" | "critical") : undefined,
+      acknowledged: filterAcknowledged !== "all" ? (filterAcknowledged === "true" ? "yes" : "no") : "all",
+      searchText: searchText.trim() || undefined,
+      dateFrom: dateRange?.from,
+      dateTo: dateRange?.to,
+    },
+    { enabled: false } // only fetch on demand
+  );
+
   const events = data?.events ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -176,6 +208,34 @@ export default function AlertsPage() {
       toast.info("No events to export", { description: "Adjust filters to include events" });
       return;
     }
+    buildAndDownloadCsv(rows, `breach-history-page-${page + 1}`);
+  }
+
+  async function handleExportAll() {
+    setIsExportingAll(true);
+    try {
+      const result = await allBreachesQuery.refetch();
+      const rows = result.data?.events ?? [];
+      if (rows.length === 0) {
+        toast.info("No events to export", { description: "Adjust filters to include events" });
+        return;
+      }
+      // Normalize the DB row shape (acknowledged: number, Date) to match filteredEvents shape
+      const normalized = rows.map(r => ({
+        ...r,
+        acknowledged: Boolean(r.acknowledged),
+        detectedAt: r.detectedAt ? new Date(r.detectedAt as unknown as string | number).toISOString() : "",
+        acknowledgedAt: r.acknowledgedAt ? new Date(r.acknowledgedAt as unknown as string | number).toISOString() : null,
+      }));
+      buildAndDownloadCsv(normalized as typeof filteredEvents, `breach-history-all`);
+    } catch {
+      toast.error("Export failed", { description: "Could not fetch all events" });
+    } finally {
+      setIsExportingAll(false);
+    }
+  }
+
+  function buildAndDownloadCsv(rows: typeof filteredEvents, filename: string) {
     const headers = ["ID", "Detected At", "Metric", "Severity", "Value", "Threshold", "Message", "Acknowledged", "Acknowledged At"];
     const escape = (v: string | number | boolean | Date | null | undefined) => {
       if (v === null || v === undefined) return "";
@@ -200,7 +260,7 @@ export default function AlertsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `breach-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Exported ${rows.length} event${rows.length !== 1 ? "s" : ""}`, { description: "CSV file downloaded", duration: 3000 });
@@ -241,6 +301,22 @@ export default function AlertsPage() {
           <Button
             size="sm"
             variant="outline"
+            className="gap-1.5 text-xs font-mono border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+            onClick={() => acknowledgeAllMutation.mutate({
+              metric: filterMetric !== "all" ? filterMetric : undefined,
+              severity: filterSeverity !== "all" ? (filterSeverity as "warn" | "critical") : undefined,
+            })}
+            disabled={acknowledgeAllMutation.isPending || total === 0}
+            title="Acknowledge all unacknowledged events matching current filters"
+          >
+            {acknowledgeAllMutation.isPending
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <CheckCheck className="h-3.5 w-3.5" />}
+            ACK ALL
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             className="gap-1.5 text-xs font-mono"
             onClick={() => refetch()}
             disabled={isLoading}
@@ -258,6 +334,19 @@ export default function AlertsPage() {
           >
             <Download className="h-3.5 w-3.5" />
             EXPORT CSV
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-xs font-mono border-primary/40 text-primary hover:bg-primary/10"
+            onClick={handleExportAll}
+            disabled={isExportingAll || total === 0}
+            title="Export ALL matching events across all pages as CSV"
+          >
+            {isExportingAll
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Download className="h-3.5 w-3.5" />}
+            EXPORT ALL
           </Button>
         </div>
       </div>

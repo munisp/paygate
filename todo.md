@@ -42,3 +42,6 @@
 - [x] Live unacknowledged-count badge on Alerts sidebar nav item
 - [x] Named per-consumer-group alert rules in Settings page
 - [x] CSV export button on Alerts page
+- [x] Apply named alert rules in checkBreaches (override global thresholds per target)
+- [x] Bulk Acknowledge All button on Alerts page (clears all unacknowledged matching current filters)
+- [x] Full-export CSV: download all matching events across all pages

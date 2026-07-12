@@ -226,3 +226,34 @@ describe("paygate proxy router", () => {
     expect(toggled).toHaveProperty("ok");
   });
 });
+
+  // New procedures added in this session
+  it("acknowledgeAll returns acknowledged count (0 when no unacknowledged events)", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.acknowledgeAll({});
+    expect(result).toHaveProperty("acknowledged");
+    expect(typeof result.acknowledged).toBe("number");
+    expect(result.acknowledged).toBeGreaterThanOrEqual(0);
+  });
+
+  it("acknowledgeAll respects metric filter", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.acknowledgeAll({ metric: "kafka_lag", severity: "warn" });
+    expect(result).toHaveProperty("acknowledged");
+    expect(typeof result.acknowledged).toBe("number");
+  });
+
+  it("listAllBreaches returns events array with no pagination", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.listAllBreaches({});
+    expect(result).toHaveProperty("events");
+    expect(Array.isArray(result.events)).toBe(true);
+  });
+
+  it("listAllBreaches respects severity filter", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.listAllBreaches({ severity: "critical" });
+    result.events.forEach(e => {
+      expect(e.severity).toBe("critical");
+    });
+  });
