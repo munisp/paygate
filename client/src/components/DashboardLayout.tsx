@@ -16,6 +16,7 @@ import {
   Radio,
   ChevronDown,
 } from "lucide-react";
+import { Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { mockRoutes, mockWorkflows } from "@/lib/mockData";
 import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { path: "/workflows", label: "Workflows", icon: GitBranch },
   { path: "/pool", label: "Connection Pool", icon: Database },
   { path: "/infra", label: "Kafka / Redis", icon: Activity },
+  { path: "/settings", label: "Settings", icon: Settings },
 ];
 
 const INTERVAL_OPTIONS: { label: string; value: RefreshInterval }[] = [

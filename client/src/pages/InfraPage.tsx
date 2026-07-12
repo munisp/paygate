@@ -2,6 +2,7 @@
 // Color-coded alerts + topic detail modal + Redis node detail modal + date range picker
 import { useEffect, useState } from "react";
 import { Radio, MessageSquare, Zap, HardDrive, TrendingUp, Users, Clock, AlertTriangle, AlertCircle, CheckCircle2, ExternalLink, CalendarIcon } from "lucide-react";
+import { Server, ChevronDown, ChevronRight } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import MetricCard from "@/components/MetricCard";
 import { useKafka, useRedis } from "@/hooks/usePaygateData";
@@ -14,17 +15,19 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
+import { useThresholds } from "@/contexts/ThresholdsContext";
 
 // ─── Alert threshold helpers ──────────────────────────────────────────────────
 
 type Severity = "ok" | "warn" | "critical";
 
+// Module-level fallbacks used by sub-components that can't call hooks.
+// The main page overrides these with context-aware helpers from useThresholds().
 function lagSeverity(lag: number): Severity {
   if (lag === 0) return "ok";
-  if (lag <= 10) return "warn";
+  if (lag <= 5) return "warn";
   return "critical";
 }
-
 function memSeverity(pct: number): Severity {
   if (pct < 70) return "ok";
   if (pct < 85) return "warn";
@@ -49,8 +52,9 @@ function SeverityBadge({ severity, label }: { severity: Severity; label: string 
 }
 
 function LagCell({ lag }: { lag: number }) {
-  const sev = lagSeverity(lag);
-  const s = SEVERITY_STYLES[sev];
+  const { lagSeverity: ctxLagSev } = useThresholds();
+  const sev = ctxLagSev(lag);
+  const s = SEVERITY_STYLES[sev as Severity];
   return (
     <span className={cn("inline-flex items-center gap-1 font-mono font-semibold", s.text)}>
       {sev !== "ok" && <s.icon size={10} />}
@@ -61,7 +65,8 @@ function LagCell({ lag }: { lag: number }) {
 
 function MemBar({ usedMb, maxMb }: { usedMb: number; maxMb: number }) {
   const pct = Math.round((usedMb / maxMb) * 100);
-  const sev = memSeverity(pct);
+  const { memSeverity: ctxMemSev } = useThresholds();
+  const sev = ctxMemSev(pct);
   return (
     <div className="mt-2 space-y-1">
       <div className="flex items-center justify-between">
@@ -93,6 +98,7 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [calOpen, setCalOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<number>(24);
+  const { lagSeverity: ctxLagSev } = useThresholds();
 
   const fromDate = dateRange?.from ?? new Date(Date.now() - activePreset * 3600 * 1000);
   const toDate   = dateRange?.to   ?? new Date();
@@ -115,7 +121,7 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
   if (!topic) return null;
 
   const retentionLabel = topic.retentionHours >= 8760 ? "1 year" : topic.retentionHours >= 720 ? "30 days" : `${topic.retentionHours}h`;
-  const lagSev = lagSeverity(topic.consumerLag);
+  const lagSev = ctxLagSev(topic.consumerLag);
 
   const rangeLabel = dateRange?.from
     ? dateRange.to
@@ -250,15 +256,34 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
 type RedisNode = { id: string; role: string; host: string; status: string; memUsedMb: number; memMaxMb: number; connectedClients: number; opsPerSec: number };
 
 function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | null; onClose: () => void; forceMock: boolean }) {
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [calOpen, setCalOpen] = useState(false);
+  const [activePreset, setActivePreset] = useState<number>(24);
+  const { memSeverity: ctxMemSev } = useThresholds();
+
+  const fromDate = dateRange?.from ?? new Date(Date.now() - activePreset * 3600 * 1000);
+  const toDate   = dateRange?.to   ?? new Date();
+
   const { data, isLoading } = trpc.paygate.redisNodeHistory.useQuery(
-    { nodeId: node?.id ?? "", forceMock },
+    { nodeId: node?.id ?? "", forceMock, from: fromDate.toISOString(), to: toDate.toISOString() },
     { enabled: !!node }
   );
+
+  useEffect(() => {
+    setDateRange(undefined);
+    setActivePreset(24);
+  }, [node?.id]);
 
   if (!node) return null;
 
   const memPct = Math.round((node.memUsedMb / node.memMaxMb) * 100);
-  const memSev = memSeverity(memPct);
+  const memSev = ctxMemSev(memPct);
+
+  const rangeLabel = dateRange?.from
+    ? dateRange.to
+      ? `${format(dateRange.from, "MMM d")} – ${format(dateRange.to, "MMM d")}`
+      : format(dateRange.from, "MMM d")
+    : PRESET_RANGES.find(p => p.hours === activePreset)?.label ?? "24h";
 
   return (
     <Dialog open={!!node} onOpenChange={open => !open && onClose()}>
@@ -299,9 +324,54 @@ function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | 
         ) : (
           <div className="space-y-4">
             <div>
-              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
-                <HardDrive size={11} className="text-primary" />
-                24H MEMORY UTILIZATION
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-bold font-mono uppercase tracking-widest flex items-center gap-2">
+                  <HardDrive size={11} className="text-primary" />
+                  MEMORY UTILIZATION
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {PRESET_RANGES.map(p => (
+                    <button
+                      key={p.hours}
+                      onClick={() => { setActivePreset(p.hours); setDateRange(undefined); }}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-mono border transition-colors",
+                        !dateRange && activePreset === p.hours
+                          ? "text-primary border-primary/40 bg-primary/10"
+                          : "text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary"
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                  <Popover open={calOpen} onOpenChange={setCalOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border transition-colors",
+                          dateRange
+                            ? "text-primary border-primary/40 bg-primary/10"
+                            : "text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary"
+                        )}
+                      >
+                        <CalendarIcon size={9} />
+                        {rangeLabel}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end" style={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)" }}>
+                      <Calendar
+                        mode="range"
+                        selected={dateRange}
+                        onSelect={(range) => {
+                          setDateRange(range);
+                          if (range?.from && range?.to) setCalOpen(false);
+                        }}
+                        numberOfMonths={2}
+                        disabled={{ after: new Date() }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
               </div>
               <ResponsiveContainer width="100%" height={150}>
                 <AreaChart data={data?.memHistory ?? []} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -330,9 +400,11 @@ function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | 
             </div>
 
             <div>
-              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
-                <TrendingUp size={11} className="text-primary" />
-                24H CACHE HIT / MISS RATE
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-bold font-mono uppercase tracking-widest flex items-center gap-2">
+                  <TrendingUp size={11} className="text-primary" />
+                  CACHE HIT / MISS RATE
+                </div>
               </div>
               <ResponsiveContainer width="100%" height={150}>
                 <AreaChart data={data?.hitMissHistory ?? []} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -377,11 +449,180 @@ function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | 
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// ─── Consumer Group Detail Modal ─────────────────────────────────────────────
+
+function ConsumerGroupDetailModal({ groupName, onClose, forceMock }: { groupName: string | null; onClose: () => void; forceMock: boolean }) {
+  const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const { lagSeverity: ctxLagSev } = useThresholds();
+
+  const { data, isLoading } = trpc.paygate.consumerGroupDetail.useQuery(
+    { groupName: groupName ?? "", forceMock },
+    { enabled: !!groupName }
+  );
+
+  if (!groupName) return null;
+
+  const totalLag = data?.partitions.reduce((s, p) => s + p.lag, 0) ?? 0;
+  const lagSev = ctxLagSev(totalLag);
+
+  return (
+    <Dialog open={!!groupName} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="max-w-4xl bg-card border-border" style={{ background: "linear-gradient(135deg, oklch(0.17 0.010 265) 0%, oklch(0.15 0.009 265) 100%)" }}>
+        <DialogHeader>
+          <DialogTitle className="font-mono text-primary flex items-center gap-2">
+            <Users size={14} />
+            {groupName}
+            <span className="text-muted-foreground text-xs font-normal ml-1">· Consumer Group Detail</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="h-40 flex items-center justify-center text-xs text-muted-foreground font-mono">Loading group data…</div>
+        ) : data ? (
+          <div className="space-y-4">
+            {/* Summary row */}
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { label: "Topic",      value: data.topic },
+                { label: "State",      value: data.state },
+                { label: "Protocol",   value: data.protocol },
+                { label: "Total Lag",  value: String(totalLag), severity: lagSev },
+              ].map(({ label, value, severity }) => (
+                <div key={label} className="rounded-lg p-3 border border-border" style={{ background: "oklch(0.14 0.008 265)" }}>
+                  <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">{label}</div>
+                  {severity ? (
+                    <SeverityBadge severity={severity as Severity} label={value} />
+                  ) : (
+                    <div className="text-sm font-mono font-semibold text-foreground truncate">{value}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* 24h lag history chart */}
+            <div>
+              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Clock size={11} className="text-primary" />
+                24H LAG HISTORY
+              </div>
+              <ResponsiveContainer width="100%" height={130}>
+                <AreaChart data={data.lagHistory} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="cgLagGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="oklch(0.78 0.16 75)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="oklch(0.78 0.16 75)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.012 265)" />
+                  <XAxis dataKey="time" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                  <Tooltip
+                    contentStyle={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)", borderRadius: 6, fontSize: 11 }}
+                    formatter={(val: number) => [`${val} msgs`, "Consumer Lag"]}
+                  />
+                  <Area type="monotone" dataKey="lag" stroke="oklch(0.78 0.16 75)" fill="url(#cgLagGrad)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Member assignments */}
+            <div>
+              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-2 flex items-center gap-2">
+                <Server size={11} className="text-primary" />
+                MEMBER ASSIGNMENTS
+              </div>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                {data.members.map(m => (
+                  <div key={m.memberId} className="rounded-md border border-border overflow-hidden" style={{ background: "oklch(0.14 0.008 265)" }}>
+                    <button
+                      className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-primary/5 transition-colors"
+                      onClick={() => setExpandedMember(expandedMember === m.memberId ? null : m.memberId)}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {expandedMember === m.memberId ? <ChevronDown size={11} className="text-muted-foreground shrink-0" /> : <ChevronRight size={11} className="text-muted-foreground shrink-0" />}
+                        <span className="text-xs font-mono text-foreground truncate">{m.clientId}</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">{m.host}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className="text-[10px] font-mono text-muted-foreground">{m.assignedPartitions.length} partitions</span>
+                        <SeverityBadge severity={ctxLagSev(m.totalLag)} label={`lag ${m.totalLag}`} />
+                      </div>
+                    </button>
+                    {expandedMember === m.memberId && (
+                      <div className="px-3 pb-2 pt-0">
+                        <div className="text-[10px] text-muted-foreground font-mono mb-1.5">Assigned partitions: {m.assignedPartitions.join(", ")}</div>
+                        <div className="grid grid-cols-6 gap-1">
+                          {m.assignedPartitions.map(p => {
+                            const pData = data.partitions[p];
+                            const pSev = ctxLagSev(pData?.lag ?? 0);
+                            return (
+                              <div key={p} className={cn("rounded px-1.5 py-1 text-center text-[10px] font-mono border", SEVERITY_STYLES[pSev].bg, SEVERITY_STYLES[pSev].border, SEVERITY_STYLES[pSev].text)}>
+                                P{p}
+                                {pData && pData.lag > 0 && <div className="text-[9px] opacity-70">+{pData.lag}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Per-partition lag table */}
+            <div>
+              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-2 flex items-center gap-2">
+                <AlertTriangle size={11} className="text-primary" />
+                PER-PARTITION LAG BREAKDOWN
+              </div>
+              <div className="rounded-lg border border-border overflow-hidden max-h-48 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0" style={{ background: "oklch(0.14 0.008 265)" }}>
+                    <tr className="border-b border-border">
+                      {["Partition", "Topic", "Current Offset", "Log End", "Lag", "Member", "Host"].map(h => (
+                        <th key={h} className="px-3 py-2 text-left font-mono text-muted-foreground uppercase text-[10px] tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.partitions.map((p, i) => {
+                      const pSev = ctxLagSev(p.lag);
+                      return (
+                        <tr key={p.partition} className={cn("border-b border-border/50 last:border-0", i % 2 === 0 ? "bg-secondary/10" : "")}>
+                          <td className="px-3 py-1.5 font-mono text-foreground">{p.partition}</td>
+                          <td className="px-3 py-1.5 font-mono text-primary text-[10px]">{p.topic}</td>
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.currentOffset.toLocaleString()}</td>
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.logEndOffset.toLocaleString()}</td>
+                          <td className="px-3 py-1.5">
+                            <span className={cn("font-mono font-semibold text-xs flex items-center gap-1", SEVERITY_STYLES[pSev].text)}>
+                              {pSev !== "ok" && <AlertTriangle size={9} />}
+                              {p.lag}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.clientId}</td>
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.host}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function InfraPage() {
   const { tick, forceMock } = useRefresh();
+  const { lagSeverity: ctxLagSev, memSeverity: ctxMemSev } = useThresholds();
   const utils = trpc.useUtils();
   const [selectedTopic, setSelectedTopic] = useState<TopicRow | null>(null);
   const [selectedNode, setSelectedNode] = useState<RedisNode | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
   useEffect(() => {
     utils.paygate.kafka.invalidate();
@@ -408,13 +649,14 @@ export default function InfraPage() {
   const totalGroupLag = kafka?.consumerGroups.reduce((s, g) => s + g.lag, 0) ?? 0;
   const redisPrimary = redis?.nodes.find(n => n.role === "primary");
   const redisMemPct = redisPrimary ? Math.round((redisPrimary.memUsedMb / redisPrimary.memMaxMb) * 100) : 0;
-  const lagSev = lagSeverity(totalLag + totalGroupLag);
-  const memSev = memSeverity(redisMemPct);
+  const lagSev = ctxLagSev(totalLag + totalGroupLag);
+  const memSev = ctxMemSev(redisMemPct);
 
   return (
     <div className="space-y-5">
       <TopicDetailModal topic={selectedTopic} onClose={() => setSelectedTopic(null)} forceMock={forceMock} />
       <RedisNodeDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} forceMock={forceMock} />
+      <ConsumerGroupDetailModal groupName={selectedGroup} onClose={() => setSelectedGroup(null)} forceMock={forceMock} />
 
       <div className="flex items-center justify-between">
         <div>
@@ -536,10 +778,17 @@ export default function InfraPage() {
                 {kafka?.consumerGroups.map(g => {
                   const gLagSev = lagSeverity(g.lag);
                   return (
-                    <div key={g.name} className="space-y-1">
+                    <div
+                      key={g.name}
+                      className="space-y-1 cursor-pointer rounded-md p-1 -mx-1 hover:bg-primary/5 transition-colors group/cg"
+                      onClick={() => setSelectedGroup(g.name)}
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-xs font-mono text-foreground truncate">{g.name}</div>
+                          <div className="text-xs font-mono text-foreground truncate flex items-center gap-1">
+                            {g.name}
+                            <ExternalLink size={9} className="opacity-0 group-hover/cg:opacity-50 transition-opacity text-primary" />
+                          </div>
                           <div className="text-[10px] font-mono text-muted-foreground">{g.members} members</div>
                         </div>
                         <SeverityBadge severity={gLagSev} label={`lag ${g.lag}`} />

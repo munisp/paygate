@@ -8,6 +8,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { ENV } from "../_core/env";
+import { getDb } from "../db";
+import { alertThresholds } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
 
 const sourceInput = z.object({ forceMock: z.boolean().optional() }).optional();
 
@@ -240,29 +243,50 @@ export const proxyRouter = router({
 
   // Redis node detail: 24h memory utilization + hit/miss history + config
   redisNodeHistory: publicProcedure
-    .input(z.object({ nodeId: z.string(), forceMock: z.boolean().optional() }))
+    .input(z.object({
+      nodeId: z.string(),
+      forceMock: z.boolean().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
     .query(({ input }) => {
       const isPrimary = input.nodeId === "redis-primary";
       const baseUsedMb = isPrimary ? 842 : 840;
       const maxMb = 4096;
 
-      const memHistory = Array.from({ length: 24 }, (_, i) => {
-        const peakHour = i > 9 && i < 20;
+      const fromMs = input.from ? new Date(input.from).getTime() : Date.now() - 24 * 3600 * 1000;
+      const toMs   = input.to   ? new Date(input.to).getTime()   : Date.now();
+      const rangeHours = Math.max(1, Math.round((toMs - fromMs) / 3600000));
+      const points = rangeHours <= 72 ? rangeHours : Math.min(90, Math.ceil(rangeHours / 24));
+      const bucketMs = (toMs - fromMs) / points;
+
+      const memHistory = Array.from({ length: points }, (_, i) => {
+        const t = new Date(fromMs + i * bucketMs);
+        const h = t.getHours();
+        const peakHour = h > 9 && h < 20;
         const usedMb = Math.round(baseUsedMb + (peakHour ? 80 : 0) + (i % 4) * 15);
+        const label = rangeHours <= 72
+          ? `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(h).padStart(2, "0")}:00`
+          : `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`;
         return {
-          time: `${String(i).padStart(2, "0")}:00`,
+          time: label,
           usedMb,
           maxMb,
           pct: parseFloat(((usedMb / maxMb) * 100).toFixed(1)),
         };
       });
 
-      const hitMissHistory = Array.from({ length: 24 }, (_, i) => {
-        const peakHour = i > 9 && i < 20;
+      const hitMissHistory = Array.from({ length: points }, (_, i) => {
+        const t = new Date(fromMs + i * bucketMs);
+        const h = t.getHours();
+        const peakHour = h > 9 && h < 20;
         const hits   = Math.round(7000 + (peakHour ? 3000 : 0) + (i % 3) * 400);
         const misses = Math.round(300  + (peakHour ? 200  : 0) + (i % 5) * 30);
         const hitRate = parseFloat(((hits / (hits + misses)) * 100).toFixed(1));
-        return { time: `${String(i).padStart(2, "0")}:00`, hits, misses, hitRate };
+        const label = rangeHours <= 72
+          ? `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(h).padStart(2, "0")}:00`
+          : `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`;
+        return { time: label, hits, misses, hitRate };
       });
 
       const nodeConfigs: Record<string, {
@@ -276,5 +300,108 @@ export const proxyRouter = router({
       };
 
       return { nodeId: input.nodeId, memHistory, hitMissHistory, config };
+    }),
+
+  // Consumer group detail: per-partition lag + member assignments
+  consumerGroupDetail: publicProcedure
+    .input(z.object({ groupName: z.string(), forceMock: z.boolean().optional() }))
+    .query(({ input }) => {
+      const groupConfigs: Record<string, {
+        topic: string;
+        partitionCount: number;
+        memberCount: number;
+        protocol: string;
+        state: string;
+      }> = {
+        "payment-processor": { topic: "payment.events",  partitionCount: 12, memberCount: 4, protocol: "range",      state: "Stable" },
+        "kyc-worker":        { topic: "kyc.submissions", partitionCount: 6,  memberCount: 2, protocol: "roundrobin", state: "Stable" },
+        "audit-archiver":    { topic: "audit.log",       partitionCount: 24, memberCount: 1, protocol: "range",      state: "Stable" },
+      };
+      const cfg = groupConfigs[input.groupName] ?? { topic: "unknown", partitionCount: 6, memberCount: 1, protocol: "range", state: "Stable" };
+
+      // Per-partition lag (deterministic, seeded by group name length)
+      const seed = input.groupName.length;
+      const partitions = Array.from({ length: cfg.partitionCount }, (_, p) => {
+        const hasLag = (p + seed) % 7 === 0;
+        const lag = hasLag ? Math.round((p + 1) * seed * 0.8) : 0;
+        const memberId = p % cfg.memberCount;
+        return {
+          partition: p,
+          topic: cfg.topic,
+          currentOffset: Math.round(1_000_000 + p * 50_000 + seed * 1000),
+          logEndOffset: Math.round(1_000_000 + p * 50_000 + seed * 1000 + lag),
+          lag,
+          memberId: `member-${memberId}`,
+          clientId: `${input.groupName}-${memberId}`,
+          host: `10.0.${Math.floor(memberId / 2)}.${10 + memberId}`,
+        };
+      });
+
+      // Member summary
+      const members = Array.from({ length: cfg.memberCount }, (_, m) => {
+        const assignedPartitions = partitions.filter(p => p.memberId === `member-${m}`).map(p => p.partition);
+        const totalLag = assignedPartitions.reduce((s, p) => s + (partitions[p]?.lag ?? 0), 0);
+        return {
+          memberId: `member-${m}`,
+          clientId: `${input.groupName}-${m}`,
+          host: `10.0.${Math.floor(m / 2)}.${10 + m}`,
+          assignedPartitions,
+          totalLag,
+        };
+      });
+
+      // 24h lag history per group
+      const lagHistory = Array.from({ length: 24 }, (_, i) => {
+        const peakHour = i > 14 && i < 22;
+        const totalLag = partitions.reduce((s, p) => s + p.lag, 0);
+        return {
+          time: `${String(i).padStart(2, "0")}:00`,
+          lag: Math.round(totalLag * (peakHour ? 1.5 : 1) + (i % 3) * seed * 0.2),
+        };
+      });
+
+      return {
+        groupName: input.groupName,
+        topic: cfg.topic,
+        state: cfg.state,
+        protocol: cfg.protocol,
+        partitions,
+        members,
+        lagHistory,
+      };
+    }),
+
+  // Alert threshold settings — read
+  getThresholds: publicProcedure.query(async ({ ctx }) => {
+    const defaults = { lagWarn: 5, lagCritical: 20, memWarnPct: 70, memCriticalPct: 85 };
+    try {
+      const db = await getDb();
+      if (!db) return defaults;
+      const ownerOpenId = ctx.user?.openId ?? "anonymous";
+      const rows = await db.select().from(alertThresholds).where(eq(alertThresholds.ownerOpenId, ownerOpenId)).limit(1);
+      if (rows.length === 0) return defaults;
+      const { lagWarn, lagCritical, memWarnPct, memCriticalPct } = rows[0];
+      return { lagWarn, lagCritical, memWarnPct, memCriticalPct };
+    } catch {
+      return defaults;
+    }
+  }),
+
+  // Alert threshold settings — upsert
+  saveThresholds: publicProcedure
+    .input(z.object({
+      lagWarn: z.number().int().min(0).max(10000),
+      lagCritical: z.number().int().min(0).max(10000),
+      memWarnPct: z.number().int().min(0).max(100),
+      memCriticalPct: z.number().int().min(0).max(100),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const ownerOpenId = ctx.user?.openId ?? "anonymous";
+      await db.insert(alertThresholds)
+        .values({ ownerOpenId, ...input })
+        .onDuplicateKeyUpdate({ set: { ...input } });
+      return { success: true };
     }),
 });

@@ -11,6 +11,8 @@ import WorkflowsPage from "./pages/WorkflowsPage";
 import PoolPage from "./pages/PoolPage";
 import OverviewPage from "./pages/OverviewPage";
 import InfraPage from "./pages/InfraPage";
+import SettingsPage from "./pages/SettingsPage";
+import { ThresholdsProvider } from "./contexts/ThresholdsContext";
 
 function App() {
   return (
@@ -19,6 +21,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <RefreshProvider>
+          <ThresholdsProvider>
           <DashboardLayout>
             <Switch>
               <Route path="/" component={OverviewPage} />
@@ -26,10 +29,12 @@ function App() {
               <Route path="/workflows" component={WorkflowsPage} />
               <Route path="/pool" component={PoolPage} />
               <Route path="/infra" component={InfraPage} />
+              <Route path="/settings" component={SettingsPage} />
               <Route path="/404" component={NotFound} />
               <Route component={NotFound} />
             </Switch>
           </DashboardLayout>
+          </ThresholdsProvider>
           </RefreshProvider>
         </TooltipProvider>
       </ThemeProvider>

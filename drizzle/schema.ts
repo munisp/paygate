@@ -26,3 +26,22 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 // TODO: Add your tables here
+
+/**
+ * Persisted alert threshold settings (one row per owner, keyed by openId).
+ * Stores warning and critical thresholds for consumer lag (messages) and
+ * Redis memory utilization (percent). Defaults are applied in the router
+ * when no row exists yet.
+ */
+export const alertThresholds = mysqlTable("alert_thresholds", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerOpenId: varchar("ownerOpenId", { length: 64 }).notNull().unique(),
+  lagWarn: int("lagWarn").notNull().default(5),
+  lagCritical: int("lagCritical").notNull().default(20),
+  memWarnPct: int("memWarnPct").notNull().default(70),
+  memCriticalPct: int("memCriticalPct").notNull().default(85),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AlertThresholds = typeof alertThresholds.$inferSelect;
+export type InsertAlertThresholds = typeof alertThresholds.$inferInsert;

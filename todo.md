@@ -28,3 +28,6 @@
 - [x] Redis node detail modal with historical memory and cache hit/miss charts
 - [x] Date range picker in Kafka Topic Detail Modal (24h / 7d / 30d presets + custom calendar range)
 - [x] Toast notifications for manual refresh and MOCK/LIVE toggle
+- [x] Kafka consumer group detail modal with per-partition lag breakdown and member assignments
+- [x] Settings panel for configurable warning/critical thresholds (consumer lag + Redis memory)
+- [x] Date range picker in Redis Node Detail Modal (presets + custom calendar)
