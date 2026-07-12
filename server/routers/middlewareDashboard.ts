@@ -346,6 +346,57 @@ export const middlewareDashboardRouter = router({
         const live = await bridgeGet(`/v1/workflows/status/${input.workflowId}`);
         return live ?? { workflow_id: input.workflowId, status: "Running", source: "demo" };
       }),
+    /** List all active Temporal workflows for a merchant */
+    listWorkflows: protectedProcedure
+      .input(z.object({
+        merchantId: z.string().optional(),
+        limit: z.number().min(1).max(200).default(50),
+        status: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        const qs = new URLSearchParams();
+        if (input.merchantId) qs.set("merchant_id", input.merchantId);
+        if (input.status) qs.set("status", input.status);
+        qs.set("limit", String(input.limit));
+        const live = await bridgeGet(`/v1/temporal/workflows?${qs.toString()}`);
+        return live ?? { workflows: [], total: 0, source: "demo" };
+      }),
+    /** Force-terminate a stuck or runaway Temporal workflow (admin escape hatch) */
+    forceTerminate: protectedProcedure
+      .input(z.object({
+        workflowId: z.string(),
+        reason: z.string().min(1).max(500),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/terminate`, {
+          reason: input.reason,
+        });
+        if (!result) return { terminated: false, workflowId: input.workflowId, source: "demo" };
+        return { terminated: true, workflowId: input.workflowId, ...result };
+      }),
+    /** Signal a Temporal workflow (e.g., approve/reject a pending step) */
+    signal: protectedProcedure
+      .input(z.object({
+        workflowId: z.string(),
+        signalName: z.string(),
+        payload: z.record(z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/signal`, {
+          signal_name: input.signalName,
+          input: input.payload ?? {},
+        });
+        if (!result) return { signaled: false, workflowId: input.workflowId, source: "demo" };
+        return { signaled: true, workflowId: input.workflowId, ...result };
+      }),
+    /** Cancel a Temporal workflow gracefully */
+    cancel: protectedProcedure
+      .input(z.object({ workflowId: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/cancel`, {});
+        if (!result) return { cancelled: false, workflowId: input.workflowId, source: "demo" };
+        return { cancelled: true, workflowId: input.workflowId, ...result };
+      }),
   }),
 
   // ── TigerBeetle Ledger ───────────────────────────────────────────────────────

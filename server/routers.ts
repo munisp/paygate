@@ -1414,6 +1414,11 @@ const apiKeysRouter = router({
         resourceId: apiKey.id,
         metadata: { name: input.name, environment: input.environment },
       })).catch(() => {});
+      // Sync consumer to APISIX for gateway-level API key authentication (fire-and-forget)
+      import('./apisixClient').then(({ syncConsumer }) => syncConsumer(
+        `merchant_${merchant.id}_${apiKey.id}`,
+        { 'key-auth': { key: rawKey } },
+      )).catch(e => console.warn('[APISIX] syncConsumer failed:', e?.message));
       return { ...apiKey, rawKey };
     }),
 
