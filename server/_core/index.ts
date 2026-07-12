@@ -2795,3 +2795,4 @@ import("../slowQueryLogger").then(({ startSlowQueryLogger }) => {
 }).catch((err: unknown) => {
   console.warn("[slowQueryLogger] Failed to start:", err);
 });
+export * from "../apisixClient";

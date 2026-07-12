@@ -338,6 +338,10 @@ export const ENV = {
   // ─── Kafka / Fluvio streaming ──────────────────────────────────────────────────
   kafkaBootstrapServers: process.env.KAFKA_BOOTSTRAP_SERVERS ?? 'localhost:9092',
   fluvioEndpoint: process.env.FLUVIO_ENDPOINT ?? 'localhost:9003',
+  
+  // ─── APISIX Gateway ────────────────────────────────────────────────────────────
+  apisixAdminUrl: process.env.APISIX_ADMIN_URL ?? 'http://apisix:9180/apisix/admin',
+  apisixApiKey: process.env.APISIX_API_KEY ?? 'edd1c9f034335f136f87ad84b625c8f1',
 };
 
 // Lowercase alias for convenience — use `env` in new code

@@ -1,4 +1,15 @@
 import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
+import { chargebackLifecycleRouter } from './routers/chargebackLifecycle';
+import { insiderThreatRouter } from './routers/insiderThreat';
+import { interchangeRouter } from './routers/interchange';
+import { kycRouter } from './routers/kyc';
+import { mobileMoneyRouter } from './routers/mobileMoney';
+import { mojaloopRouter } from './routers/mojaloop';
+import { regulatoryReportsRouter } from './routers/regulatoryReports';
+import { schemeMembershipRouter } from './routers/schemeMembership';
+import { strRouter } from './routers/str';
+import { terminalRouter } from './routers/terminal';
+import { velocityLimitsRouter } from './routers/velocityLimits';
 import { publishTransactionEvent, publishPayoutEvent, publishFraudEvent, publishAuditEvent } from "./kafkaClient";
 import { ollamaRouter } from "./ollamaRouter";
 import { orphanedTablesRouter } from "./orphanedTablesCRUD";
@@ -4160,7 +4171,7 @@ const complianceKycRouter = router({
         limit: 10000,
         offset: 0,
       });
-      const rows = result.rows ?? result ?? [];
+      const rows = (result as any).rows ?? result ?? [];
       const header = [
         'submission_id', 'status', 'document_type', 'full_name',
         'date_of_birth', 'id_number', 'liveness_score', 'liveness_decision',
@@ -4181,7 +4192,7 @@ const complianceKycRouter = router({
       ].join(','));
       const csv = [header, ...csvRows].join('\n');
       const filename = `kyc-submissions-${new Date().toISOString().split('T')[0]}.csv`;
-      return { csv, count: rows.length, filename };
+      return { csv, count: (rows as any[]).length, filename };
     }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
@@ -6835,18 +6846,7 @@ const posRouter = router({
   /**
    * Bulk upsert products (import from CSV / sync from inventory system).
 
-// Added missing routers
-import { chargebackLifecycleRouter } from './routers/chargebackLifecycle';
-import { insiderThreatRouter } from './routers/insiderThreat';
-import { interchangeRouter } from './routers/interchange';
-import { kycRouter } from './routers/kyc';
-import { mobileMoneyRouter } from './routers/mobileMoney';
-import { mojaloopRouter } from './routers/mojaloop';
-import { regulatoryReportsRouter } from './routers/regulatoryReports';
-import { schemeMembershipRouter } from './routers/schemeMembership';
-import { strRouter } from './routers/str';
-import { terminalRouter } from './routers/terminal';
-import { velocityLimitsRouter } from './routers/velocityLimits';
+
    */
   "products.bulkUpsert": protectedProcedure
     .input(z.object({
