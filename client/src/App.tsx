@@ -75,6 +75,7 @@ const UPIGateway = lz(() => import("./pages/UPIGateway"));
 const PIXGateway = lz(() => import("./pages/PIXGateway"));
 const DeveloperPortal = lz(() => import("./pages/DeveloperPortal"));
 const WorkflowObservability = lz(() => import("./pages/WorkflowObservability"));
+const GatewayAndWorkflowMonitor = lz(() => import("./pages/GatewayAndWorkflowMonitor"));
 const KeycloakRoleSync = lz(() => import("./pages/KeycloakRoleSync"));
 const NIPBanks = lz(() => import("./pages/NIPBanks"));
 const Subscriptions = lz(() => import("./pages/Subscriptions"));
@@ -850,6 +851,7 @@ function Router() {
           <Route path="/consumer/loyalty-app" component={ConsumerLoyaltyApp} />
           <Route path="/webhook-live" component={WebhookLiveStream} />
           <Route path="/admin/middleware-dashboard"><AdminGuard><MiddlewareDashboard /></AdminGuard></Route>
+          <Route path="/admin/gateway-monitor"><AdminGuard><GatewayAndWorkflowMonitor /></AdminGuard></Route>
           <Route path="/staff-management" component={StaffManagementPage} />
           <Route path="/insurance-claims" component={InsuranceClaimsPage} />
           <Route path="/support-chat" component={SupportChatPage} />

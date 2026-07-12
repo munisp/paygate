@@ -110,3 +110,86 @@ export async function syncConsumer(username: string, plugins: Record<string, any
     return false;
   }
 }
+
+/**
+ * Deletes a consumer from APISIX (called when an API key is revoked)
+ */
+export async function deleteConsumer(username: string): Promise<boolean> {
+  if (!ENV.apisixAdminUrl) return false;
+  try {
+    const url = `${ENV.apisixAdminUrl}/consumers/${encodeURIComponent(username)}`;
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: { "X-API-KEY": ENV.apisixApiKey },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok && res.status !== 404) {
+      logger.error(`[APISIX] Failed to delete consumer ${username}: ${res.status}`);
+      return false;
+    }
+    logger.info(`[APISIX] Deleted consumer ${username}`);
+    return true;
+  } catch (err) {
+    logger.error(`[APISIX] Error deleting consumer ${username}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Lists all consumers from APISIX (used by monitoring dashboard)
+ */
+export async function listConsumers(): Promise<{ total: number; consumers: Array<{ username: string; plugins: Record<string, any>; create_time?: number; update_time?: number }> }> {
+  if (!ENV.apisixAdminUrl) return { total: 0, consumers: [] };
+  try {
+    const url = `${ENV.apisixAdminUrl}/consumers`;
+    const res = await fetch(url, {
+      headers: { "X-API-KEY": ENV.apisixApiKey },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return { total: 0, consumers: [] };
+    const data = await res.json() as any;
+    const consumers = (data?.list ?? data?.node?.nodes ?? []).map((n: any) => n.value ?? n);
+    return { total: consumers.length, consumers };
+  } catch {
+    return { total: 0, consumers: [] };
+  }
+}
+
+/**
+ * Lists all routes from APISIX (used by monitoring dashboard)
+ */
+export async function listRoutes(): Promise<{ total: number; routes: Array<{ id: string; uri: string; name?: string; status: number; plugins?: Record<string, any> }> }> {
+  if (!ENV.apisixAdminUrl) return { total: 0, routes: [] };
+  try {
+    const url = `${ENV.apisixAdminUrl}/routes`;
+    const res = await fetch(url, {
+      headers: { "X-API-KEY": ENV.apisixApiKey },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return { total: 0, routes: [] };
+    const data = await res.json() as any;
+    const routes = (data?.list ?? data?.node?.nodes ?? []).map((n: any) => n.value ?? n);
+    return { total: routes.length, routes };
+  } catch {
+    return { total: 0, routes: [] };
+  }
+}
+
+/**
+ * Gets APISIX health/status (used by monitoring dashboard)
+ */
+export async function getApisixHealth(): Promise<{ status: string; version?: string; uptime?: number; connections?: Record<string, number> }> {
+  if (!ENV.apisixAdminUrl) return { status: 'unconfigured' };
+  try {
+    // APISIX control API health endpoint
+    const controlUrl = ENV.apisixAdminUrl.replace(':9180', ':9090').replace('/apisix/admin', '');
+    const res = await fetch(`${controlUrl}/v1/healthcheck`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!res.ok) return { status: 'degraded' };
+    const data = await res.json() as any;
+    return { status: 'healthy', ...data };
+  } catch {
+    return { status: 'unreachable' };
+  }
+}

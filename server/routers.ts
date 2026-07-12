@@ -1439,6 +1439,9 @@ const apiKeysRouter = router({
         metadata: {},
       })).catch(() => {});
       publishAuditEvent({ action: 'api_key.revoked', userId: ctx.user!.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
+      // Remove consumer from APISIX gateway so the revoked key is immediately rejected at the edge
+      import('./apisixClient').then(({ deleteConsumer }) => deleteConsumer(`merchant_${merchant.id}_${input.id}`))
+        .catch(e => console.warn('[APISIX] deleteConsumer failed:', e?.message));
       return { success: true };
     }),
 });

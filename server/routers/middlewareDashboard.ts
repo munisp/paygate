@@ -665,24 +665,68 @@ export const middlewareDashboardRouter = router({
 
   // ── APISIX ───────────────────────────────────────────────────────────────────
   apisix: router({
+    /** Live routes from APISIX Admin API (falls back to static config) */
     routes: protectedProcedure.query(async () => {
-      // Return static config from YAML
+      const { listRoutes } = await import('../apisixClient');
+      const live = await listRoutes();
+      if (live.total > 0) return { ...live, source: "live" };
+      // Fallback static config
       return {
         routes: [
-          { id: "cips-transfer-submit", uri: "/v1/cips/transfer", methods: ["POST"], status: "active" },
-          { id: "upi-pay", uri: "/v1/upi/pay", methods: ["POST"], status: "active" },
-          { id: "pix-payment-initiate", uri: "/v1/pix/payment", methods: ["POST"], status: "active" },
-          { id: "mojaloop-transfer", uri: "/v1/mojaloop/transfer", methods: ["POST"], status: "active" },
-          { id: "middleware-health", uri: "/v1/middleware/health", methods: ["GET"], status: "active" },
-          { id: "middleware-kafka-topics", uri: "/v1/middleware/kafka/topics", methods: ["GET"], status: "active" },
-          { id: "middleware-opensearch-query", uri: "/v1/middleware/opensearch/query", methods: ["POST"], status: "active" },
-          { id: "middleware-tigerbeetle-accounts", uri: "/v1/middleware/tigerbeetle/accounts", methods: ["GET", "POST"], status: "active" },
-          { id: "middleware-lakehouse-query", uri: "/v1/middleware/lakehouse/query", methods: ["POST"], status: "active" },
+          { id: "cips-transfer-submit", uri: "/v1/cips/transfer", status: 1 },
+          { id: "upi-pay", uri: "/v1/upi/pay", status: 1 },
+          { id: "pix-payment-initiate", uri: "/v1/pix/payment", status: 1 },
+          { id: "mojaloop-transfer", uri: "/v1/mojaloop/transfer", status: 1 },
+          { id: "middleware-health", uri: "/v1/middleware/health", status: 1 },
+          { id: "middleware-kafka-topics", uri: "/v1/middleware/kafka/topics", status: 1 },
+          { id: "middleware-opensearch-query", uri: "/v1/middleware/opensearch/query", status: 1 },
+          { id: "middleware-tigerbeetle-accounts", uri: "/v1/middleware/tigerbeetle/accounts", status: 1 },
+          { id: "middleware-lakehouse-query", uri: "/v1/middleware/lakehouse/query", status: 1 },
         ],
         total: 9,
         source: "static-config",
       };
     }),
+    /** Live consumers (API keys) registered in APISIX */
+    consumers: protectedProcedure.query(async () => {
+      const { listConsumers } = await import('../apisixClient');
+      const live = await listConsumers();
+      return { ...live, source: live.total > 0 ? "live" : "empty" };
+    }),
+    /** APISIX gateway health */
+    health: protectedProcedure.query(async () => {
+      const { getApisixHealth } = await import('../apisixClient');
+      return getApisixHealth();
+    }),
+    /** Sync a route to APISIX (admin action) */
+    syncRoute: protectedProcedure
+      .input(z.object({
+        id: z.string(),
+        uri: z.string(),
+        name: z.string().optional(),
+        methods: z.array(z.string()).optional(),
+        upstreamId: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { syncRoute } = await import('../apisixClient');
+        const ok = await syncRoute({
+          id: input.id,
+          uri: input.uri,
+          name: input.name,
+          methods: input.methods,
+          upstream_id: input.upstreamId,
+          status: 1,
+        });
+        return { synced: ok, routeId: input.id };
+      }),
+    /** Delete a route from APISIX (admin action) */
+    deleteRoute: protectedProcedure
+      .input(z.object({ routeId: z.string() }))
+      .mutation(async ({ input }) => {
+        const { deleteRoute } = await import('../apisixClient');
+        const ok = await deleteRoute(input.routeId);
+        return { deleted: ok, routeId: input.routeId };
+      }),
   }),
 
   // ── Summary ──────────────────────────────────────────────────────────────────
