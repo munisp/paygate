@@ -1,17 +1,29 @@
 // Obsidian Operations — Overview (Ops Console)
 // Asymmetric layout: 2/3 primary data + 1/3 live status rail
-import { Activity, Server, GitBranch, Database, Zap, AlertTriangle, CheckCircle, Clock, Radio, TrendingUp } from "lucide-react";
+import { Activity, Server, GitBranch, Database, Zap, AlertTriangle, CheckCircle, Clock, Radio, TrendingUp, Layers } from "lucide-react";
 import MetricCard from "@/components/MetricCard";
 import StatusBadge from "@/components/StatusBadge";
 import { mockMetrics, mockRoutes, mockWorkflows, mockPgBouncerPools } from "@/lib/mockData";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from "recharts";
+import { trpc } from "@/lib/trpc";
+import { useRefresh } from "@/contexts/RefreshContext";
 
 export default function OverviewPage() {
+  const { forceMock } = useRefresh();
+  const kafkaQuery = trpc.paygate.kafka.useQuery({ forceMock });
+  const kafkaData = kafkaQuery.data;
+
   const healthyRoutes = mockRoutes.filter(r => r.status === "healthy").length;
   const degradedRoutes = mockRoutes.filter(r => r.status === "degraded").length;
   const runningWorkflows = mockWorkflows.filter(w => w.status === "running").length;
   const failedWorkflows = mockWorkflows.filter(w => w.status === "failed" || w.status === "timed_out").length;
   const totalPoolClients = mockPgBouncerPools.reduce((s, p) => s + p.clActive, 0);
+
+  // Consumer lag summary from live Kafka data
+  const consumerGroups = kafkaData?.consumerGroups ?? [];
+  const totalLag = consumerGroups.reduce((s, g) => s + g.lag, 0);
+  const lagSparkData = consumerGroups.map(g => ({ name: g.name.split("-")[0], lag: g.lag }));
+  const hasLag = totalLag > 0;
 
   const services = [
     { name: "APISIX Gateway", status: degradedRoutes > 0 ? "degraded" as const : "healthy" as const, detail: `${healthyRoutes}/${mockRoutes.length} routes nominal` },
@@ -55,6 +67,72 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Primary: request volume chart */}
         <div className="lg:col-span-2 space-y-4">
+          {/* Consumer lag sparkline */}
+          <div
+            className="bg-card border border-border rounded-lg p-4 card-enter"
+            style={{
+              animationDelay: "155ms",
+              background: "linear-gradient(135deg, oklch(0.17 0.010 265) 0%, oklch(0.15 0.009 265) 100%)",
+              boxShadow: hasLag
+                ? "inset 0 0 0 1px oklch(0.78 0.16 75 / 0.18), 0 0 10px oklch(0.78 0.16 75 / 0.06)"
+                : "inset 0 0 0 1px oklch(0.75 0.16 145 / 0.08)",
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-bold text-foreground font-mono uppercase tracking-widest flex items-center gap-2">
+                <Layers size={13} className={hasLag ? "text-amber-400" : "text-primary"} />
+                Consumer Lag · Current
+              </h2>
+              <div className="flex items-center gap-3">
+                {kafkaQuery.isLoading && (
+                  <span className="text-[10px] text-muted-foreground font-mono animate-pulse">loading…</span>
+                )}
+                <span className={`text-xs font-mono font-bold tabular-nums ${hasLag ? "text-amber-400" : "text-emerald-400"}`}>
+                  {totalLag.toLocaleString()} total msgs lag
+                </span>
+              </div>
+            </div>
+            {lagSparkData.length === 0 ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono py-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" />
+                No consumer groups found
+              </div>
+            ) : (
+              <div className="flex items-end gap-4">
+                <ResponsiveContainer width="100%" height={72}>
+                  <BarChart data={lagSparkData} margin={{ top: 4, right: 0, left: -28, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.012 265)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                    <YAxis tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                    <Tooltip
+                      contentStyle={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)", borderRadius: 6, fontSize: 11 }}
+                      labelStyle={{ color: "oklch(0.92 0.005 220)", fontFamily: "JetBrains Mono" }}
+                      formatter={(v: number) => [`${v} msgs`, "Lag"]}
+                    />
+                    <Bar dataKey="lag" radius={[3, 3, 0, 0]}>
+                      {lagSparkData.map((entry, i) => (
+                        <Cell
+                          key={i}
+                          fill={entry.lag > 20 ? "oklch(0.65 0.22 25)" : entry.lag > 5 ? "oklch(0.78 0.16 75)" : "oklch(0.72 0.18 200)"}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="shrink-0 space-y-1 min-w-[130px]">
+                  {consumerGroups.map(g => (
+                    <div key={g.name} className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-mono text-muted-foreground truncate max-w-[90px]">{g.name}</span>
+                      <span className={`text-[10px] font-mono font-bold tabular-nums ${g.lag > 20 ? "text-red-400" : g.lag > 5 ? "text-amber-400" : "text-emerald-400"}`}>
+                        {g.lag}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div
             className="bg-card border border-border rounded-lg p-4 card-enter"
             style={{

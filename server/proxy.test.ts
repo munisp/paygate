@@ -114,4 +114,30 @@ describe("paygate proxy router", () => {
     expect(result.lagWarn).toBe(5);
     expect(result.lagCritical).toBe(20);
   });
+
+  it("consumerGroupDetail partitions include recentlyReassigned flag", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.consumerGroupDetail({ groupName: "audit-archiver" });
+    expect(result.partitions.length).toBeGreaterThan(0);
+    // Every partition must have the recentlyReassigned boolean
+    result.partitions.forEach(p => {
+      expect(typeof (p as any).recentlyReassigned).toBe("boolean");
+    });
+    // At least some partitions should be flagged (deterministic seed guarantees this)
+    const flagged = result.partitions.filter(p => (p as any).recentlyReassigned);
+    expect(flagged.length).toBeGreaterThan(0);
+  });
+
+  it("checkBreaches returns notified=false and empty breaches when mock data is within defaults", async () => {
+    // MOCK_KAFKA has lag=0 for all groups; MOCK_REDIS primary is 842/4096 (~20%) — both below defaults
+    mockFetch.mockRejectedValue(new Error("ECONNREFUSED")); // force mock fallback
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.checkBreaches({ forceMock: true });
+    expect(result).toHaveProperty("notified");
+    expect(result).toHaveProperty("breaches");
+    expect(Array.isArray(result.breaches)).toBe(true);
+    // Mock data is healthy → no breach → notified=false
+    expect(result.notified).toBe(false);
+    expect(result.breaches.length).toBe(0);
+  });
 });

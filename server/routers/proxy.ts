@@ -11,6 +11,7 @@ import { ENV } from "../_core/env";
 import { getDb } from "../db";
 import { alertThresholds } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { notifyOwner } from "../_core/notification";
 
 const sourceInput = z.object({ forceMock: z.boolean().optional() }).optional();
 
@@ -321,6 +322,11 @@ export const proxyRouter = router({
 
       // Per-partition lag (deterministic, seeded by group name length)
       const seed = input.groupName.length;
+      // Simulate rebalance: partitions whose index is divisible by (seed+3) were
+      // recently reassigned. The divisor changes every 5-minute window so the
+      // indicator naturally "clears" over time in a demo environment.
+      const rebalanceWindow = Math.floor(Date.now() / (5 * 60 * 1000));
+      const rebalanceDivisor = ((seed + rebalanceWindow) % 5) + 3; // 3–7
       const partitions = Array.from({ length: cfg.partitionCount }, (_, p) => {
         const hasLag = (p + seed) % 7 === 0;
         const lag = hasLag ? Math.round((p + 1) * seed * 0.8) : 0;
@@ -334,6 +340,7 @@ export const proxyRouter = router({
           memberId: `member-${memberId}`,
           clientId: `${input.groupName}-${memberId}`,
           host: `10.0.${Math.floor(memberId / 2)}.${10 + memberId}`,
+          recentlyReassigned: p % rebalanceDivisor === 0,
         };
       });
 
@@ -391,7 +398,7 @@ export const proxyRouter = router({
   saveThresholds: publicProcedure
     .input(z.object({
       lagWarn: z.number().int().min(0).max(10000),
-      lagCritical: z.number().int().min(0).max(10000),
+      lagCritical: z.number().int().min(0).max(100000),
       memWarnPct: z.number().int().min(0).max(100),
       memCriticalPct: z.number().int().min(0).max(100),
     }))
@@ -403,5 +410,71 @@ export const proxyRouter = router({
         .values({ ownerOpenId, ...input })
         .onDuplicateKeyUpdate({ set: { ...input } });
       return { success: true };
+    }),
+
+  // Check current Kafka lag + Redis memory against saved thresholds and fire
+  // owner notifications for any critical breach. Safe to call on every refresh.
+  checkBreaches: publicProcedure
+    .input(z.object({ forceMock: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const defaults = { lagWarn: 5, lagCritical: 20, memWarnPct: 70, memCriticalPct: 85 };
+      let thresholds = defaults;
+      try {
+        const db = await getDb();
+        if (db) {
+          const ownerOpenId = ctx.user?.openId ?? "anonymous";
+          const rows = await db.select().from(alertThresholds).where(eq(alertThresholds.ownerOpenId, ownerOpenId)).limit(1);
+          if (rows.length > 0) {
+            const { lagWarn, lagCritical, memWarnPct, memCriticalPct } = rows[0];
+            thresholds = { lagWarn, lagCritical, memWarnPct, memCriticalPct };
+          }
+        }
+      } catch { /* use defaults */ }
+
+      // Fetch current Kafka and Redis data
+      const kafka = await fetchPaygate<typeof MOCK_KAFKA>(
+        "/api/trpc/middlewareDashboard.kafka.stats", MOCK_KAFKA
+      );
+      const redis = await fetchPaygate<typeof MOCK_REDIS>(
+        "/api/trpc/middlewareDashboard.redis.stats", MOCK_REDIS
+      );
+
+      const breaches: string[] = [];
+
+      // Consumer lag check
+      const totalLag = (kafka.consumerGroups ?? []).reduce((s: number, g: { lag: number }) => s + g.lag, 0);
+      if (totalLag > thresholds.lagCritical) {
+        breaches.push(`🚨 Consumer lag CRITICAL: ${totalLag} msgs (threshold: ${thresholds.lagCritical})`);
+        const criticalGroups = (kafka.consumerGroups ?? [])
+          .filter((g: { lag: number }) => g.lag > thresholds.lagCritical)
+          .map((g: { name: string; lag: number }) => `  • ${g.name}: ${g.lag} msgs`);
+        if (criticalGroups.length > 0) breaches.push(...criticalGroups);
+      }
+
+      // Redis memory check (primary node)
+      const primary = (redis.nodes ?? []).find((n: { role: string }) => n.role === "primary");
+      if (primary) {
+        const memPct = Math.round((primary.memUsedMb / primary.memMaxMb) * 100);
+        if (memPct >= thresholds.memCriticalPct) {
+          breaches.push(`🚨 Redis memory CRITICAL: ${memPct}% used (threshold: ${thresholds.memCriticalPct}%)`);
+          breaches.push(`  • Primary node: ${primary.memUsedMb} / ${primary.memMaxMb} MB`);
+        }
+      }
+
+      if (breaches.length === 0) {
+        return { notified: false, breaches: [] };
+      }
+
+      const title = `PayGate Alert: ${breaches.filter(b => b.startsWith("🚨")).length} critical breach${breaches.filter(b => b.startsWith("🚨")).length > 1 ? "es" : ""} detected`;
+      const content = [
+        `Detected at ${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC`,
+        "",
+        ...breaches,
+        "",
+        `Mode: ${input.forceMock ? "MOCK" : "LIVE"}`,
+      ].join("\n");
+
+      const notified = await notifyOwner({ title, content });
+      return { notified, breaches };
     }),
 });

@@ -2,7 +2,7 @@
 // Color-coded alerts + topic detail modal + Redis node detail modal + date range picker
 import { useEffect, useState } from "react";
 import { Radio, MessageSquare, Zap, HardDrive, TrendingUp, Users, Clock, AlertTriangle, AlertCircle, CheckCircle2, ExternalLink, CalendarIcon } from "lucide-react";
-import { Server, ChevronDown, ChevronRight } from "lucide-react";
+import { Server, ChevronDown, ChevronRight, RefreshCcw } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import MetricCard from "@/components/MetricCard";
 import { useKafka, useRedis } from "@/hooks/usePaygateData";
@@ -575,12 +575,18 @@ function ConsumerGroupDetailModal({ groupName, onClose, forceMock }: { groupName
               <div className="text-xs font-bold font-mono uppercase tracking-widest mb-2 flex items-center gap-2">
                 <AlertTriangle size={11} className="text-primary" />
                 PER-PARTITION LAG BREAKDOWN
+                {data.partitions.some(p => p.recentlyReassigned) && (
+                  <span className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold border text-yellow-400 bg-yellow-400/10 border-yellow-400/25">
+                    <RefreshCcw size={9} className="animate-spin-slow" />
+                    REBALANCE DETECTED
+                  </span>
+                )}
               </div>
               <div className="rounded-lg border border-border overflow-hidden max-h-48 overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead className="sticky top-0" style={{ background: "oklch(0.14 0.008 265)" }}>
                     <tr className="border-b border-border">
-                      {["Partition", "Topic", "Current Offset", "Log End", "Lag", "Member", "Host"].map(h => (
+                      {["Partition", "Topic", "Current Offset", "Log End", "Lag", "Member", "Host", ""].map(h => (
                         <th key={h} className="px-3 py-2 text-left font-mono text-muted-foreground uppercase text-[10px] tracking-wider whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -589,7 +595,12 @@ function ConsumerGroupDetailModal({ groupName, onClose, forceMock }: { groupName
                     {data.partitions.map((p, i) => {
                       const pSev = ctxLagSev(p.lag);
                       return (
-                        <tr key={p.partition} className={cn("border-b border-border/50 last:border-0", i % 2 === 0 ? "bg-secondary/10" : "")}>
+                        <tr key={p.partition} className={cn(
+                          "border-b border-border/50 last:border-0",
+                          p.recentlyReassigned
+                            ? "bg-yellow-400/5 border-l-2 border-l-yellow-400/50"
+                            : i % 2 === 0 ? "bg-secondary/10" : ""
+                        )}>
                           <td className="px-3 py-1.5 font-mono text-foreground">{p.partition}</td>
                           <td className="px-3 py-1.5 font-mono text-primary text-[10px]">{p.topic}</td>
                           <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.currentOffset.toLocaleString()}</td>
@@ -602,6 +613,14 @@ function ConsumerGroupDetailModal({ groupName, onClose, forceMock }: { groupName
                           </td>
                           <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.clientId}</td>
                           <td className="px-3 py-1.5 font-mono text-muted-foreground text-[10px]">{p.host}</td>
+                          <td className="px-3 py-1.5">
+                            {p.recentlyReassigned && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold text-yellow-400 bg-yellow-400/10 border border-yellow-400/25 whitespace-nowrap">
+                                <RefreshCcw size={8} />
+                                MOVED
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

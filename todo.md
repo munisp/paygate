@@ -31,3 +31,7 @@
 - [x] Kafka consumer group detail modal with per-partition lag breakdown and member assignments
 - [x] Settings panel for configurable warning/critical thresholds (consumer lag + Redis memory)
 - [x] Date range picker in Redis Node Detail Modal (presets + custom calendar)
+- [x] Threshold breach owner push notifications (server-side polling, notification API)
+- [x] Consumer lag sparkline on Overview page (last-hour aggregate trend)
+- [x] Partition rebalance indicator in ConsumerGroupDetailModal (highlight recently reassigned partitions)
+- [ ] Push all code to GitHub

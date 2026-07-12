@@ -87,6 +87,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { interval, setInterval, secondsUntilRefresh, triggerRefresh, forceMock, setForceMock } = useRefresh();
   const pingQuery = trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
   const connected = pingQuery.data?.connected ?? false;
+  const checkBreachesMutation = trpc.paygate.checkBreaches.useMutation({
+    onSuccess: (data) => {
+      if (data.notified && data.breaches.length > 0) {
+        toast.error("Threshold breach detected", {
+          description: `${data.breaches.filter((b: string) => b.startsWith("🚨")).length} critical alert(s) sent to owner`,
+          duration: 5000,
+        });
+      }
+    },
+  });
 
   // Compute global health from mock data (will be replaced by live data in pages)
   const degradedRoutes = mockRoutes.filter(r => r.status === "degraded" || r.status === "critical").length;
@@ -303,6 +313,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onClick={() => {
                 const next = !forceMock;
                 setForceMock(next);
+                checkBreachesMutation.mutate({ forceMock: next });
                 toast.success(next ? "Switched to MOCK mode" : "Switched to LIVE mode", {
                   description: next ? "All panels now use mock data" : "All panels now use live data (with mock fallback)",
                   duration: 2500,
@@ -363,6 +374,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <button
               onClick={() => {
                 triggerRefresh();
+                checkBreachesMutation.mutate({ forceMock });
                 toast.success("Data refreshed", {
                   description: "All panels updated",
                   duration: 2000,
