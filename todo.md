@@ -51,3 +51,4 @@
 - [ ] Update GitHub PR #17 description with full feature list
 - [x] Fix PSP Health page loading state — add placeholderData to pspStats query so page renders immediately
 - [ ] Update GitHub PR #17 description with full feature list
+- [x] Update GitHub PR #17 description with full feature list
