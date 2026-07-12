@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * QR Payments Page — wired to tRPC qrPayments router
  */

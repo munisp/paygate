@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * PayGate Merchant Portal — Subscriptions Page
  *

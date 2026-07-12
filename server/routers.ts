@@ -6834,6 +6834,19 @@ const posRouter = router({
 
   /**
    * Bulk upsert products (import from CSV / sync from inventory system).
+
+// Added missing routers
+import { chargebackLifecycleRouter } from './routers/chargebackLifecycle';
+import { insiderThreatRouter } from './routers/insiderThreat';
+import { interchangeRouter } from './routers/interchange';
+import { kycRouter } from './routers/kyc';
+import { mobileMoneyRouter } from './routers/mobileMoney';
+import { mojaloopRouter } from './routers/mojaloop';
+import { regulatoryReportsRouter } from './routers/regulatoryReports';
+import { schemeMembershipRouter } from './routers/schemeMembership';
+import { strRouter } from './routers/str';
+import { terminalRouter } from './routers/terminal';
+import { velocityLimitsRouter } from './routers/velocityLimits';
    */
   "products.bulkUpsert": protectedProcedure
     .input(z.object({
@@ -9124,6 +9137,18 @@ const tenantsRouter = router({
 });
 // tier6to8Router now imported at top
 export const appRouter = router({
+  // Added missing routers
+  chargebackLifecycle: chargebackLifecycleRouter,
+  insiderThreat: insiderThreatRouter,
+  interchange: interchangeRouter,
+  kyc: kycRouter,
+  mobileMoney: mobileMoneyRouter,
+  mojaloop: mojaloopRouter,
+  regulatoryReports: regulatoryReportsRouter,
+  schemeMembership: schemeMembershipRouter,
+  str: strRouter,
+  terminal: terminalRouter,
+  velocityLimits: velocityLimitsRouter,
   auth: authRouter,
   system: systemRouter,
   onboarding: onboardingRouter,
