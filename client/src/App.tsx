@@ -5,10 +5,12 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
+import { RefreshProvider } from "./contexts/RefreshContext";
 import GatewayPage from "./pages/GatewayPage";
 import WorkflowsPage from "./pages/WorkflowsPage";
 import PoolPage from "./pages/PoolPage";
 import OverviewPage from "./pages/OverviewPage";
+import InfraPage from "./pages/InfraPage";
 
 function App() {
   return (
@@ -16,16 +18,19 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
+          <RefreshProvider>
           <DashboardLayout>
             <Switch>
               <Route path="/" component={OverviewPage} />
               <Route path="/gateway" component={GatewayPage} />
               <Route path="/workflows" component={WorkflowsPage} />
               <Route path="/pool" component={PoolPage} />
+              <Route path="/infra" component={InfraPage} />
               <Route path="/404" component={NotFound} />
               <Route component={NotFound} />
             </Switch>
           </DashboardLayout>
+          </RefreshProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
