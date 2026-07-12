@@ -9,7 +9,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
 import { ENV } from "../_core/env";
 import { getDb } from "../db";
-import { alertThresholds, breachEvents } from "../../drizzle/schema";
+import { alertThresholds, breachEvents, namedAlertRules } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
 import { notifyOwner } from "../_core/notification";
 
@@ -589,5 +589,90 @@ export const proxyRouter = router({
         ));
 
       return { acknowledged: input.ids.length };
+    }),
+
+  // ── Unacknowledged breach count (for sidebar badge) ──────────────────────
+  unacknowledgedCount: publicProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return { count: 0 };
+      try {
+        const rows = await db.select({ id: breachEvents.id })
+          .from(breachEvents)
+          .where(eq(breachEvents.acknowledged, 0));
+        return { count: rows.length };
+      } catch {
+        return { count: 0 };
+      }
+    }),
+
+  // ── Named alert rules ─────────────────────────────────────────────────────
+  listAlertRules: publicProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return { rules: [] };
+      try {
+        const rules = await db.select().from(namedAlertRules).orderBy(namedAlertRules.createdAt);
+        return { rules };
+      } catch {
+        return { rules: [] };
+      }
+    }),
+
+  saveAlertRule: publicProcedure
+    .input(z.object({
+      id: z.number().optional(),
+      name: z.string().min(1).max(128),
+      metric: z.enum(["kafka_lag", "redis_memory"]),
+      target: z.string().min(1).max(128),
+      severity: z.enum(["warn", "critical"]),
+      threshold: z.number().int().min(1).max(100000),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+
+      if (input.id) {
+        await db.update(namedAlertRules)
+          .set({
+            name: input.name,
+            metric: input.metric,
+            target: input.target,
+            severity: input.severity,
+            threshold: input.threshold,
+          })
+          .where(eq(namedAlertRules.id, input.id));
+        return { ok: true, id: input.id };
+      } else {
+        const result = await db.insert(namedAlertRules).values({
+          name: input.name,
+          metric: input.metric,
+          target: input.target,
+          severity: input.severity,
+          threshold: input.threshold,
+          enabled: 1,
+        });
+        return { ok: true, id: (result as any).insertId ?? null };
+      }
+    }),
+
+  deleteAlertRule: publicProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      await db.delete(namedAlertRules).where(eq(namedAlertRules.id, input.id));
+      return { ok: true };
+    }),
+
+  toggleAlertRule: publicProcedure
+    .input(z.object({ id: z.number(), enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      await db.update(namedAlertRules)
+        .set({ enabled: input.enabled ? 1 : 0 })
+        .where(eq(namedAlertRules.id, input.id));
+      return { ok: true };
     }),
 });

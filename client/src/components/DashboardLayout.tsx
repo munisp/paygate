@@ -47,11 +47,13 @@ function NavItem({
   label,
   icon: Icon,
   collapsed,
+  badge,
 }: {
   path: string;
   label: string;
   icon: React.ElementType;
   collapsed: boolean;
+  badge?: number;
 }) {
   const [location] = useLocation();
   const active = location === path;
@@ -67,8 +69,18 @@ function NavItem({
       >
         <Icon size={18} className={cn("shrink-0", active && "text-primary")} />
         {!collapsed && (
-          <span className={cn("text-sm font-medium truncate", active && "text-primary")}>
+          <span className={cn("text-sm font-medium truncate flex-1", active && "text-primary")}>
             {label}
+          </span>
+        )}
+        {!collapsed && badge !== undefined && badge > 0 && (
+          <span className="ml-auto min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold font-mono px-1 shrink-0">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+        {collapsed && badge !== undefined && badge > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold px-0.5">
+            {badge > 9 ? "9+" : badge}
           </span>
         )}
         {collapsed && (
@@ -88,6 +100,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { interval, setInterval, secondsUntilRefresh, triggerRefresh, forceMock, setForceMock } = useRefresh();
   const pingQuery = trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
   const connected = pingQuery.data?.connected ?? false;
+  const unacknowledgedQuery = trpc.paygate.unacknowledgedCount.useQuery(undefined, {
+    refetchInterval: 30_000,
+  });
+  const unacknowledgedCount = unacknowledgedQuery.data?.count ?? 0;
   const [, setLocation] = useLocation();
   const acknowledgeBreachesMutation = trpc.paygate.acknowledgeBreaches.useMutation({
     onSuccess: (result) => {
@@ -207,7 +223,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map(item => (
-            <NavItem key={item.path} {...item} collapsed={collapsed} />
+            <NavItem
+              key={item.path}
+              {...item}
+              collapsed={collapsed}
+              badge={item.path === "/alerts" ? unacknowledgedCount : undefined}
+            />
           ))}
         </nav>
 

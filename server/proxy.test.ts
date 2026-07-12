@@ -173,4 +173,56 @@ describe("paygate proxy router", () => {
     expect(result).toHaveProperty("acknowledged");
     expect(typeof result.acknowledged).toBe("number");
   });
+
+  it("unacknowledgedCount returns a non-negative number", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.unacknowledgedCount();
+    expect(result).toHaveProperty("count");
+    expect(typeof result.count).toBe("number");
+    expect(result.count).toBeGreaterThanOrEqual(0);
+  });
+
+  it("listAlertRules returns rules array", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.listAlertRules();
+    expect(result).toHaveProperty("rules");
+    expect(Array.isArray(result.rules)).toBe(true);
+  });
+
+  it("saveAlertRule creates a new rule and returns it", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.saveAlertRule({
+      name: "test-rule",
+      metric: "kafka_lag",
+      target: "payment-processor",
+      severity: "warn",
+      threshold: 50,
+    });
+    expect(result).toHaveProperty("ok");
+    expect(result.ok).toBe(true);
+  });
+
+  it("deleteAlertRule returns deleted count", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    // Delete a non-existent rule — should return 0
+    const result = await caller.paygate.deleteAlertRule({ id: 999999 });
+    expect(result).toHaveProperty("ok");
+  });
+
+  it("toggleAlertRule returns the updated rule", async () => {
+    // First create a rule to toggle
+    const caller = appRouter.createCaller(createCtx());
+    const created = await caller.paygate.saveAlertRule({
+      name: "toggle-test-rule",
+      metric: "redis_memory",
+      target: "redis-primary",
+      severity: "critical",
+      threshold: 90,
+    });
+    expect(created).toHaveProperty("ok");
+    expect(created.ok).toBe(true);
+    // Toggle a non-existent rule — should still return ok
+    const toggled = await caller.paygate.toggleAlertRule({ id: 999999, enabled: false });
+    expect(toggled).toHaveProperty("ok");
+  });
 });

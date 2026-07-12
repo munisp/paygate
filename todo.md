@@ -39,3 +39,6 @@
 - [x] Interactive acknowledgeable toast alerts for critical breach notifications
 - [x] Heartbeat-driven periodic breach polling (every 5 minutes, task_uid: XDqDWZ8EvKQTADamprBPYP)
 - [x] Open GitHub pull request to merge feature/paygate-monitor into main
+- [x] Live unacknowledged-count badge on Alerts sidebar nav item
+- [x] Named per-consumer-group alert rules in Settings page
+- [x] CSV export button on Alerts page

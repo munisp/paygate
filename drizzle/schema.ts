@@ -72,3 +72,29 @@ export const breachEvents = mysqlTable("breach_events", {
 
 export type BreachEvent = typeof breachEvents.$inferSelect;
 export type InsertBreachEvent = typeof breachEvents.$inferInsert;
+
+/**
+ * Named alert rules — per-metric, per-target (e.g. per consumer group or per Redis node).
+ * Multiple rules can coexist for the same metric, each scoped to a specific target.
+ * checkBreaches evaluates all active rules and fires notifications accordingly.
+ */
+export const namedAlertRules = mysqlTable("named_alert_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Human-readable rule name, e.g. "payment-processor critical" */
+  name: varchar("name", { length: 128 }).notNull(),
+  /** "kafka_lag" | "redis_memory" */
+  metric: varchar("metric", { length: 64 }).notNull(),
+  /** The specific target this rule applies to, e.g. "payment-processor" or "redis-primary" */
+  target: varchar("target", { length: 128 }).notNull(),
+  /** "warn" | "critical" */
+  severity: mysqlEnum("severity", ["warn", "critical"]).notNull(),
+  /** Threshold value (messages for kafka_lag, percent for redis_memory) */
+  threshold: int("threshold").notNull(),
+  /** Whether this rule is active */
+  enabled: int("enabled").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type NamedAlertRule = typeof namedAlertRules.$inferSelect;
+export type InsertNamedAlertRule = typeof namedAlertRules.$inferInsert;

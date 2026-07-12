@@ -15,6 +15,13 @@
       "when": 1783870966219,
       "tag": "0001_first_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783881203725,
+      "tag": "0002_dear_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }

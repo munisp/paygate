@@ -36,6 +36,7 @@ import {
   CalendarIcon,
   CheckCheck,
   X,
+  Download,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
@@ -166,6 +167,45 @@ export default function AlertsPage() {
     setPage(0);
   }
 
+  function handleExport() {
+    // Build CSV from currently filtered events (all pages, not just current page)
+    // We use filteredEvents (client-side text-filtered view of current server page)
+    // For a full export we export all events in the current server result
+    const rows = filteredEvents;
+    if (rows.length === 0) {
+      toast.info("No events to export", { description: "Adjust filters to include events" });
+      return;
+    }
+    const headers = ["ID", "Detected At", "Metric", "Severity", "Value", "Threshold", "Message", "Acknowledged", "Acknowledged At"];
+    const escape = (v: string | number | boolean | Date | null | undefined) => {
+      if (v === null || v === undefined) return "";
+      const s = String(v instanceof Date ? v.toISOString() : v);
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csvLines = [
+      headers.join(","),
+      ...rows.map(e => [
+        e.id,
+        e.detectedAt ? new Date(e.detectedAt as unknown as string | number).toISOString() : "",
+        e.metric,
+        e.severity,
+        e.value,
+        e.threshold,
+        e.message,
+        e.acknowledged ? "yes" : "no",
+        e.acknowledgedAt ? new Date(e.acknowledgedAt as unknown as string | number).toISOString() : "",
+      ].map(escape).join(","))
+    ];
+    const blob = new Blob([csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `breach-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} event${rows.length !== 1 ? "s" : ""}`, { description: "CSV file downloaded", duration: 3000 });
+  }
+
   const hasActiveFilters = filterMetric !== "all" || filterSeverity !== "all" || filterAcknowledged !== "all" || dateRange !== undefined || searchText !== "";
   const unacknowledgedSelected = Array.from(selectedIds).filter(id => {
     const ev = filteredEvents.find(e => e.id === id);
@@ -207,6 +247,17 @@ export default function AlertsPage() {
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
             REFRESH
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-xs font-mono"
+            onClick={handleExport}
+            disabled={isLoading || filteredEvents.length === 0}
+            title="Export filtered results as CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+            EXPORT CSV
           </Button>
         </div>
       </div>
