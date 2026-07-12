@@ -727,6 +727,109 @@ export const middlewareDashboardRouter = router({
         const ok = await deleteRoute(input.routeId);
         return { deleted: ok, routeId: input.routeId };
       }),
+    /** Plugin usage analytics — counts how many routes use each plugin */
+    pluginStats: protectedProcedure.query(async () => {
+      const { listRoutes } = await import('../apisixClient');
+      const routeData = await listRoutes();
+      const pluginCounts: Record<string, number> = {};
+      for (const route of routeData.routes) {
+        if (route.plugins && typeof route.plugins === 'object') {
+          for (const pluginName of Object.keys(route.plugins)) {
+            pluginCounts[pluginName] = (pluginCounts[pluginName] ?? 0) + 1;
+          }
+        }
+      }
+      const plugins = Object.entries(pluginCounts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count);
+      if (plugins.length === 0) {
+        return {
+          plugins: [
+            { name: "key-auth", count: 9 },
+            { name: "rate-limiting", count: 9 },
+            { name: "cors", count: 7 },
+            { name: "opentelemetry", count: 5 },
+            { name: "ip-restriction", count: 3 },
+            { name: "request-id", count: 9 },
+          ],
+          source: "demo",
+        };
+      }
+      return { plugins, source: "live" };
+    }),
+    /** Gateway request metrics snapshot (from APISIX Prometheus endpoint via bridge) */
+    metrics: protectedProcedure.query(async () => {
+      const live = await bridgeGet("/v1/apisix/metrics");
+      if (live) return { ...live, source: "live" };
+      return {
+        source: "demo",
+        requestsPerSecond: parseFloat((Math.random() * 120 + 40).toFixed(1)),
+        p50LatencyMs: parseFloat((Math.random() * 8 + 4).toFixed(1)),
+        p95LatencyMs: parseFloat((Math.random() * 30 + 15).toFixed(1)),
+        p99LatencyMs: parseFloat((Math.random() * 80 + 40).toFixed(1)),
+        errorRate: parseFloat((Math.random() * 0.5).toFixed(2)),
+        totalRequests24h: Math.floor(Math.random() * 500_000 + 200_000),
+        activeConnections: Math.floor(Math.random() * 200 + 50),
+        upstreamLatencyMs: parseFloat((Math.random() * 12 + 3).toFixed(1)),
+        timestamp: Date.now(),
+      };
+    }),
+  }),
+
+  // ── PgBouncer Connection Pool ─────────────────────────────────────────────────
+  pgbouncer: router({
+    /** PgBouncer pool statistics — reads from the virtual pgbouncer SHOW POOLS table */
+    stats: protectedProcedure.query(async () => {
+      const pgBouncerUrl = process.env.PGBOUNCER_URL;
+      if (!pgBouncerUrl) {
+        return {
+          source: "demo",
+          configured: false,
+          pools: [
+            { database: "paygate_prod", user: "paygate", clActive: 12, clWaiting: 0, svActive: 12, svIdle: 13, svUsed: 0, maxWait: 0 },
+          ],
+          totalClActive: 12,
+          totalClWaiting: 0,
+          totalSvActive: 12,
+          totalSvIdle: 13,
+          poolMode: "transaction",
+          maxClientConn: 1000,
+          defaultPoolSize: 25,
+        };
+      }
+      try {
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: pgBouncerUrl, max: 1, connectionTimeoutMillis: 3000 });
+        const client = await pool.connect();
+        const [poolsRes] = await Promise.all([client.query('SHOW POOLS')]);
+        client.release();
+        await pool.end();
+        const pools = poolsRes.rows.map((r: any) => ({
+          database: r.database,
+          user: r.user,
+          clActive: parseInt(r.cl_active ?? 0),
+          clWaiting: parseInt(r.cl_waiting ?? 0),
+          svActive: parseInt(r.sv_active ?? 0),
+          svIdle: parseInt(r.sv_idle ?? 0),
+          svUsed: parseInt(r.sv_used ?? 0),
+          maxWait: parseInt(r.maxwait ?? 0),
+        }));
+        return {
+          source: "live",
+          configured: true,
+          pools,
+          totalClActive: pools.reduce((s: number, p: any) => s + p.clActive, 0),
+          totalClWaiting: pools.reduce((s: number, p: any) => s + p.clWaiting, 0),
+          totalSvActive: pools.reduce((s: number, p: any) => s + p.svActive, 0),
+          totalSvIdle: pools.reduce((s: number, p: any) => s + p.svIdle, 0),
+          poolMode: "transaction",
+          maxClientConn: 1000,
+          defaultPoolSize: 25,
+        };
+      } catch (err) {
+        return { source: "error", configured: true, error: String(err), pools: [], totalClActive: 0, totalClWaiting: 0, totalSvActive: 0, totalSvIdle: 0 };
+      }
+    }),
   }),
 
   // ── Summary ──────────────────────────────────────────────────────────────────
