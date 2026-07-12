@@ -1,0 +1,237 @@
+// Obsidian Operations — DashboardLayout v2
+// Fixed left sidebar + live operational top bar + scrollable main content
+import { useState, useEffect } from "react";
+import { Link, useLocation } from "wouter";
+import {
+  Activity,
+  Server,
+  GitBranch,
+  Database,
+  LayoutDashboard,
+  Menu,
+  X,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  Radio,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { mockRoutes, mockWorkflows } from "@/lib/mockData";
+
+const NAV_ITEMS = [
+  { path: "/", label: "Overview", icon: LayoutDashboard },
+  { path: "/gateway", label: "API Gateway", icon: Server },
+  { path: "/workflows", label: "Workflows", icon: GitBranch },
+  { path: "/pool", label: "Connection Pool", icon: Database },
+];
+
+function NavItem({ path, label, icon: Icon, collapsed }: { path: string; label: string; icon: React.ElementType; collapsed: boolean }) {
+  const [location] = useLocation();
+  const active = location === path;
+  return (
+    <Link href={path}>
+      <div
+        className={cn(
+          "flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 group relative",
+          active
+            ? "bg-primary/10 text-primary border-l-2 border-primary pl-[10px]"
+            : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+        )}
+      >
+        <Icon size={18} className={cn("shrink-0", active && "text-primary")} />
+        {!collapsed && (
+          <span className={cn("text-sm font-medium truncate", active && "text-primary")}>
+            {label}
+          </span>
+        )}
+        {collapsed && (
+          <div className="absolute left-full ml-2 px-2 py-1 bg-card border border-border rounded text-xs text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150">
+            {label}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+
+  // Auto-refresh tick every 30s
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleRefresh = () => {
+    setLastRefresh(new Date());
+    setTick(t => t + 1);
+    window.location.reload();
+  };
+
+  // Compute global health
+  const degradedRoutes = mockRoutes.filter(r => r.status === "degraded" || r.status === "critical").length;
+  const failedWorkflows = mockWorkflows.filter(w => w.status === "failed" || w.status === "timed_out").length;
+  const runningWorkflows = mockWorkflows.filter(w => w.status === "running").length;
+  const totalAlerts = degradedRoutes + failedWorkflows;
+  const globalStatus = totalAlerts > 0 ? "degraded" : "nominal";
+
+  const sidebarWidth = collapsed ? "w-16" : "w-56";
+
+  return (
+    <div className="flex h-screen bg-background overflow-hidden">
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed md:relative z-50 md:z-auto h-full flex flex-col border-r transition-all duration-200",
+          "bg-sidebar border-sidebar-border",
+          sidebarWidth,
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+        style={{ boxShadow: "inset -1px 0 0 oklch(0.72 0.18 200 / 0.08)" }}
+      >
+        {/* Logo */}
+        <div className={cn("flex items-center gap-2.5 px-3 py-4 border-b border-sidebar-border", collapsed && "justify-center px-0")}>
+          <div className="relative">
+            <img
+              src="/manus-storage/paygate-ops-logo_71c2030f.png"
+              alt="PayGate Ops"
+              className="w-8 h-8 shrink-0"
+            />
+            {/* Live indicator */}
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400">
+              <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-60" />
+            </span>
+          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-primary tracking-widest uppercase font-mono">PayGate</div>
+              <div className="text-[10px] text-muted-foreground tracking-wider uppercase">Ops Monitor</div>
+            </div>
+          )}
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+          {NAV_ITEMS.map((item) => (
+            <NavItem key={item.path} {...item} collapsed={collapsed} />
+          ))}
+        </nav>
+
+        {/* System status summary in sidebar */}
+        {!collapsed && (
+          <div className="px-3 py-3 border-t border-sidebar-border space-y-1.5">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-widest font-mono mb-2">System State</div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-mono">Gateway</span>
+              <span className={degradedRoutes > 0 ? "text-amber-400 font-mono" : "text-emerald-400 font-mono"}>
+                {degradedRoutes > 0 ? `${degradedRoutes} degraded` : "nominal"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-mono">Workflows</span>
+              <span className="text-primary font-mono">{runningWorkflows} running</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-mono">Incidents</span>
+              <span className={failedWorkflows > 0 ? "text-red-400 font-mono" : "text-emerald-400 font-mono"}>
+                {failedWorkflows > 0 ? `${failedWorkflows} open` : "none"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Collapse toggle */}
+        <div className="px-2 py-3 border-t border-sidebar-border">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors text-xs"
+          >
+            <Menu size={16} />
+            {!collapsed && <span>Collapse</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Operational top bar */}
+        <header
+          className="flex items-center justify-between px-4 md:px-6 py-0 border-b border-border shrink-0"
+          style={{
+            background: "linear-gradient(90deg, oklch(0.15 0.009 265) 0%, oklch(0.17 0.010 265) 100%)",
+            boxShadow: "0 1px 0 oklch(0.28 0.012 265), 0 0 0 1px oklch(0.72 0.18 200 / 0.04) inset",
+          }}
+        >
+          {/* Left: mobile menu + page identity */}
+          <div className="flex items-center gap-3 py-3">
+            <button
+              className="md:hidden text-muted-foreground hover:text-foreground"
+              onClick={() => setMobileOpen(!mobileOpen)}
+            >
+              {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+            <div className="flex items-center gap-2">
+              <Radio size={14} className="text-primary" />
+              <span className="text-sm font-bold text-foreground font-mono tracking-tight">PAYGATE OPS</span>
+              <span className="text-muted-foreground/40 hidden sm:inline">·</span>
+              <span className="text-xs text-muted-foreground hidden sm:inline">Gateway &amp; Workflow Monitor</span>
+            </div>
+          </div>
+
+          {/* Center: live status pills */}
+          <div className="hidden md:flex items-center gap-3">
+            <div className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium border",
+              globalStatus === "nominal"
+                ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20"
+                : "bg-amber-400/10 text-amber-400 border-amber-400/20"
+            )}>
+              {globalStatus === "nominal"
+                ? <><CheckCircle size={11} /> ALL SYSTEMS NOMINAL</>
+                : <><AlertTriangle size={11} /> {totalAlerts} ALERT{totalAlerts !== 1 ? "S" : ""} ACTIVE</>
+              }
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono bg-primary/10 text-primary border border-primary/20">
+              <Activity size={11} className="animate-pulse" />
+              {runningWorkflows} WORKFLOW{runningWorkflows !== 1 ? "S" : ""} LIVE
+            </div>
+          </div>
+
+          {/* Right: refresh cadence */}
+          <div className="flex items-center gap-3 py-3">
+            <span className="text-[11px] text-muted-foreground font-mono hidden lg:block">
+              T+{Math.floor((Date.now() - lastRefresh.getTime()) / 1000)}s
+            </span>
+            <span className="text-[11px] text-muted-foreground font-mono hidden sm:block">
+              {lastRefresh.toLocaleTimeString()}
+            </span>
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors border border-border/50 font-mono"
+            >
+              <RefreshCw size={12} />
+              <span className="hidden sm:inline">REFRESH</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}
