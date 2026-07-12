@@ -50,7 +50,7 @@ function RuleRow({
   onDelete: (id: number) => void;
   onToggle: (id: number, enabled: boolean) => void;
 }) {
-  const isEnabled = rule.enabled === 1;
+  const isEnabled = rule.enabled === true;
   const isCritical = rule.severity === "critical";
   return (
     <div className={cn(
@@ -242,7 +242,7 @@ function RuleForm({
     </div>
   );
 }
-type AlertRuleRow = { id: number; name: string; metric: string; target: string; severity: "warn" | "critical"; threshold: number; enabled: number; createdAt: Date; updatedAt: Date };
+type AlertRuleRow = { id: number; name: string; metric: string; target: string; severity: "warn" | "critical"; threshold: number; enabled: boolean; createdAt: Date; updatedAt: Date };
 
 function NamedAlertRulesSection() {
   const utils = trpc.useUtils();

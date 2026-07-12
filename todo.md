@@ -45,3 +45,9 @@
 - [x] Apply named alert rules in checkBreaches (override global thresholds per target)
 - [x] Bulk Acknowledge All button on Alerts page (clears all unacknowledged matching current filters)
 - [x] Full-export CSV: download all matching events across all pages
+- [x] PSP Health page (/psp) with per-PSP success rate, latency histogram, retry queue depth
+- [x] Wire PSP metrics into checkBreaches (psp_error_rate threshold)
+- [x] Add PSP nav item to DashboardLayout sidebar
+- [ ] Update GitHub PR #17 description with full feature list
+- [x] Fix PSP Health page loading state — add placeholderData to pspStats query so page renders immediately
+- [ ] Update GitHub PR #17 description with full feature list

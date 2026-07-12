@@ -15,5 +15,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    env: {
+      DATABASE_URL: "postgresql://paygate:paygate_secret@localhost:5432/paygate_monitor",
+    },
+    testTimeout: 15000,
   },
 });

@@ -138,7 +138,7 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: ^0.44.5
-        version: 0.44.7(mysql2@3.22.6(@types/node@24.7.0))
+        version: 0.44.7(mysql2@3.22.6(@types/node@24.7.0))(postgres@3.4.9)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.1)
@@ -157,15 +157,15 @@ importers:
       lucide-react:
         specifier: ^0.453.0
         version: 0.453.0(react@19.2.1)
-      mysql2:
-        specifier: ^3.15.0
-        version: 3.22.6(@types/node@24.7.0)
       nanoid:
         specifier: ^5.1.5
         version: 5.1.6
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       react:
         specifier: ^19.2.1
         version: 19.2.1
@@ -3573,6 +3573,10 @@ packages:
     resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   prettier@3.6.2:
     resolution: {integrity: sha512-I7AIg5boAr5R0FFtJ6rCfD+LFsWHp81dolrFD8S79U9tb8Az2nGrJncnMSnys+bpQJfRUzqs9hnA81OAA3hCuQ==}
     engines: {node: '>=14'}
@@ -6094,7 +6098,8 @@ snapshots:
       postcss: 8.5.6
       postcss-value-parser: 4.2.0
 
-  aws-ssl-profiles@1.1.2: {}
+  aws-ssl-profiles@1.1.2:
+    optional: true
 
   axios@1.12.2:
     dependencies:
@@ -6463,7 +6468,8 @@ snapshots:
 
   delayed-stream@1.0.0: {}
 
-  denque@2.1.0: {}
+  denque@2.1.0:
+    optional: true
 
   depd@2.0.0: {}
 
@@ -6497,9 +6503,10 @@ snapshots:
       esbuild: 0.25.10
       tsx: 4.23.0
 
-  drizzle-orm@0.44.7(mysql2@3.22.6(@types/node@24.7.0)):
+  drizzle-orm@0.44.7(mysql2@3.22.6(@types/node@24.7.0))(postgres@3.4.9):
     optionalDependencies:
       mysql2: 3.22.6(@types/node@24.7.0)
+      postgres: 3.4.9
 
   dunder-proto@1.0.1:
     dependencies:
@@ -6771,6 +6778,7 @@ snapshots:
   generate-function@2.3.1:
     dependencies:
       is-property: 1.0.2
+    optional: true
 
   gensync@1.0.0-beta.2: {}
 
@@ -6959,6 +6967,7 @@ snapshots:
   iconv-lite@0.7.3:
     dependencies:
       safer-buffer: 2.1.2
+    optional: true
 
   inherits@2.0.4: {}
 
@@ -6988,7 +6997,8 @@ snapshots:
 
   is-plain-obj@4.1.0: {}
 
-  is-property@1.0.2: {}
+  is-property@1.0.2:
+    optional: true
 
   is-what@4.1.16: {}
 
@@ -7077,7 +7087,8 @@ snapshots:
 
   lodash@4.17.21: {}
 
-  long@5.3.2: {}
+  long@5.3.2:
+    optional: true
 
   longest-streak@3.1.0: {}
 
@@ -7091,7 +7102,8 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lru.min@1.1.4: {}
+  lru.min@1.1.4:
+    optional: true
 
   lucide-react@0.453.0(react@19.2.1):
     dependencies:
@@ -7554,10 +7566,12 @@ snapshots:
       lru.min: 1.1.4
       named-placeholders: 1.1.6
       sql-escaper: 1.5.0
+    optional: true
 
   named-placeholders@1.1.6:
     dependencies:
       lru.min: 1.1.4
+    optional: true
 
   nanoid@3.3.11: {}
 
@@ -7655,6 +7669,8 @@ snapshots:
       nanoid: 3.3.11
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  postgres@3.4.9: {}
 
   prettier@3.6.2: {}
 
@@ -8006,7 +8022,8 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  sql-escaper@1.5.0: {}
+  sql-escaper@1.5.0:
+    optional: true
 
   stackback@0.0.2: {}
 

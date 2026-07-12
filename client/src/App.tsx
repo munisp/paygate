@@ -14,6 +14,7 @@ import InfraPage from "./pages/InfraPage";
 import SettingsPage from "./pages/SettingsPage";
 import { ThresholdsProvider } from "./contexts/ThresholdsContext";
 import AlertsPage from "./pages/AlertsPage";
+import PSPPage from "./pages/PSPPage";
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
               <Route path="/infra" component={InfraPage} />
               <Route path="/settings" component={SettingsPage} />
               <Route path="/alerts" component={AlertsPage} />
+              <Route path="/psp" component={PSPPage} />
               <Route path="/404" component={NotFound} />
               <Route component={NotFound} />
             </Switch>

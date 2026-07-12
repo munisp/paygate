@@ -257,3 +257,45 @@ describe("paygate proxy router", () => {
       expect(e.severity).toBe("critical");
     });
   });
+
+describe("PSP procedures", () => {
+  it("pspStats returns providers array with expected fields", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.pspStats({ forceMock: true });
+    expect(result).toHaveProperty("providers");
+    expect(Array.isArray(result.providers)).toBe(true);
+    expect(result.providers.length).toBeGreaterThan(0);
+    const p = result.providers[0];
+    expect(p).toHaveProperty("id");
+    expect(p).toHaveProperty("successRate");
+    expect(p).toHaveProperty("avgLatencyMs");
+    expect(p).toHaveProperty("retryQueueDepth");
+  });
+
+  it("pspStats latencyBuckets is an array", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.pspStats({ forceMock: true });
+    expect(Array.isArray(result.latencyBuckets)).toBe(true);
+  });
+
+  it("pspHistory returns history array for a known provider", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.pspHistory({ providerId: "stripe", hours: 24, forceMock: true });
+    expect(result).toHaveProperty("history");
+    expect(Array.isArray(result.history)).toBe(true);
+    expect(result.history.length).toBeGreaterThan(0);
+    const point = result.history[0];
+    expect(point).toHaveProperty("label");
+    expect(point).toHaveProperty("successRate");
+    expect(point).toHaveProperty("latencyMs");
+    expect(point).toHaveProperty("retryQueue");
+  });
+
+  it("checkBreaches includes psp_error_rate for degraded providers", async () => {
+    const caller = appRouter.createCaller(createCtx());
+    const result = await caller.paygate.checkBreaches({ forceMock: true });
+    const pspBreaches = result.breaches.filter(b => b.metric === "psp_error_rate");
+    // Checkout.com has successRate 94.1 which is below the 96% warn threshold
+    expect(pspBreaches.length).toBeGreaterThan(0);
+  });
+});

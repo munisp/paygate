@@ -1,46 +1,48 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import {
+  boolean,
+  integer,
+  pgEnum,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/pg-core";
 
 /**
  * Core user table backing auth flow.
  * Extend this file with additional tables as your product grows.
  * Columns use camelCase to match both database fields and generated types.
  */
-export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
-  id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
+export const roleEnum = pgEnum("role", ["user", "admin"]);
+export const severityEnum = pgEnum("severity", ["warn", "critical"]);
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: roleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
-
 /**
  * Persisted alert threshold settings (one row per owner, keyed by openId).
- * Stores warning and critical thresholds for consumer lag (messages) and
- * Redis memory utilization (percent). Defaults are applied in the router
- * when no row exists yet.
  */
-export const alertThresholds = mysqlTable("alert_thresholds", {
-  id: int("id").autoincrement().primaryKey(),
+export const alertThresholds = pgTable("alert_thresholds", {
+  id: serial("id").primaryKey(),
   ownerOpenId: varchar("ownerOpenId", { length: 64 }).notNull().unique(),
-  lagWarn: int("lagWarn").notNull().default(5),
-  lagCritical: int("lagCritical").notNull().default(20),
-  memWarnPct: int("memWarnPct").notNull().default(70),
-  memCriticalPct: int("memCriticalPct").notNull().default(85),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  lagWarn: integer("lagWarn").notNull().default(5),
+  lagCritical: integer("lagCritical").notNull().default(20),
+  memWarnPct: integer("memWarnPct").notNull().default(70),
+  memCriticalPct: integer("memCriticalPct").notNull().default(85),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type AlertThresholds = typeof alertThresholds.$inferSelect;
@@ -48,25 +50,16 @@ export type InsertAlertThresholds = typeof alertThresholds.$inferInsert;
 
 /**
  * Breach event log — one row per threshold crossing detected by checkBreaches.
- * Supports the /alerts history page with sorting, filtering, and acknowledgement.
  */
-export const breachEvents = mysqlTable("breach_events", {
-  id: int("id").autoincrement().primaryKey(),
-  /** "kafka_lag" | "redis_memory" */
+export const breachEvents = pgTable("breach_events", {
+  id: serial("id").primaryKey(),
   metric: varchar("metric", { length: 64 }).notNull(),
-  /** "warn" | "critical" */
-  severity: mysqlEnum("severity", ["warn", "critical"]).notNull(),
-  /** Human-readable description, e.g. "audit-archiver lag=45 (critical >20)" */
+  severity: severityEnum("severity").notNull(),
   message: text("message").notNull(),
-  /** Raw metric value at time of breach */
-  value: int("value").notNull(),
-  /** Threshold that was crossed */
-  threshold: int("threshold").notNull(),
-  /** Whether the operator has acknowledged this event */
-  acknowledged: int("acknowledged").notNull().default(0),
-  /** UTC epoch ms when the breach was detected */
+  value: integer("value").notNull(),
+  threshold: integer("threshold").notNull(),
+  acknowledged: boolean("acknowledged").notNull().default(false),
   detectedAt: timestamp("detectedAt").defaultNow().notNull(),
-  /** UTC epoch ms when it was acknowledged (null = unacknowledged) */
   acknowledgedAt: timestamp("acknowledgedAt"),
 });
 
@@ -75,25 +68,17 @@ export type InsertBreachEvent = typeof breachEvents.$inferInsert;
 
 /**
  * Named alert rules — per-metric, per-target (e.g. per consumer group or per Redis node).
- * Multiple rules can coexist for the same metric, each scoped to a specific target.
- * checkBreaches evaluates all active rules and fires notifications accordingly.
  */
-export const namedAlertRules = mysqlTable("named_alert_rules", {
-  id: int("id").autoincrement().primaryKey(),
-  /** Human-readable rule name, e.g. "payment-processor critical" */
+export const namedAlertRules = pgTable("named_alert_rules", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 128 }).notNull(),
-  /** "kafka_lag" | "redis_memory" */
   metric: varchar("metric", { length: 64 }).notNull(),
-  /** The specific target this rule applies to, e.g. "payment-processor" or "redis-primary" */
   target: varchar("target", { length: 128 }).notNull(),
-  /** "warn" | "critical" */
-  severity: mysqlEnum("severity", ["warn", "critical"]).notNull(),
-  /** Threshold value (messages for kafka_lag, percent for redis_memory) */
-  threshold: int("threshold").notNull(),
-  /** Whether this rule is active */
-  enabled: int("enabled").notNull().default(1),
+  severity: severityEnum("severity").notNull(),
+  threshold: integer("threshold").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type NamedAlertRule = typeof namedAlertRules.$inferSelect;

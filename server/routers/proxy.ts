@@ -137,6 +137,119 @@ const MOCK_REDIS = {
 
 // ─── router ──────────────────────────────────────────────────────────────────
 
+// ─── PSP mock data ───────────────────────────────────────────────────────────
+const MOCK_PSP = {
+  providers: [
+    {
+      id: "stripe",
+      name: "Stripe",
+      region: "US-East",
+      status: "healthy",
+      successRate: 98.7,
+      avgLatencyMs: 142,
+      p99LatencyMs: 380,
+      txLast24h: 48_210,
+      volumeUsd: 2_841_500,
+      retryQueueDepth: 3,
+      threeDsRate: 12.4,
+      declineRate: 1.3,
+      chargebackRate: 0.08,
+    },
+    {
+      id: "adyen",
+      name: "Adyen",
+      region: "EU-West",
+      status: "healthy",
+      successRate: 97.9,
+      avgLatencyMs: 198,
+      p99LatencyMs: 510,
+      txLast24h: 31_450,
+      volumeUsd: 1_920_300,
+      retryQueueDepth: 7,
+      threeDsRate: 18.2,
+      declineRate: 2.1,
+      chargebackRate: 0.12,
+    },
+    {
+      id: "checkout",
+      name: "Checkout.com",
+      region: "EU-Central",
+      status: "degraded",
+      successRate: 94.1,
+      avgLatencyMs: 312,
+      p99LatencyMs: 890,
+      txLast24h: 12_880,
+      volumeUsd: 780_200,
+      retryQueueDepth: 42,
+      threeDsRate: 22.8,
+      declineRate: 5.9,
+      chargebackRate: 0.31,
+    },
+    {
+      id: "paypal",
+      name: "PayPal",
+      region: "US-West",
+      status: "healthy",
+      successRate: 96.3,
+      avgLatencyMs: 224,
+      p99LatencyMs: 620,
+      txLast24h: 22_100,
+      volumeUsd: 1_105_800,
+      retryQueueDepth: 11,
+      threeDsRate: 8.6,
+      declineRate: 3.7,
+      chargebackRate: 0.19,
+    },
+    {
+      id: "mojaloop",
+      name: "Mojaloop",
+      region: "Africa",
+      status: "healthy",
+      successRate: 99.1,
+      avgLatencyMs: 88,
+      p99LatencyMs: 210,
+      txLast24h: 8_340,
+      volumeUsd: 142_600,
+      retryQueueDepth: 0,
+      threeDsRate: 0,
+      declineRate: 0.9,
+      chargebackRate: 0.02,
+    },
+  ],
+  // 24-hour latency histogram buckets (ms)
+  latencyBuckets: [
+    { bucket: "<50ms",   stripe: 18, adyen: 8,  checkout: 3,  paypal: 12, mojaloop: 42 },
+    { bucket: "50-100",  stripe: 32, adyen: 18, checkout: 7,  paypal: 24, mojaloop: 38 },
+    { bucket: "100-200", stripe: 28, adyen: 31, checkout: 14, paypal: 28, mojaloop: 14 },
+    { bucket: "200-500", stripe: 15, adyen: 28, checkout: 38, paypal: 22, mojaloop: 5  },
+    { bucket: "500ms+",  stripe: 7,  adyen: 15, checkout: 38, paypal: 14, mojaloop: 1  },
+  ],
+};
+
+// Generate 24-hour PSP history for a given provider
+function generatePspHistory(providerId: string, hours = 24) {
+  const base: Record<string, { successRate: number; latency: number; retryQueue: number }> = {
+    stripe:   { successRate: 98.7, latency: 142, retryQueue: 3  },
+    adyen:    { successRate: 97.9, latency: 198, retryQueue: 7  },
+    checkout: { successRate: 94.1, latency: 312, retryQueue: 42 },
+    paypal:   { successRate: 96.3, latency: 224, retryQueue: 11 },
+    mojaloop: { successRate: 99.1, latency: 88,  retryQueue: 0  },
+  };
+  const b = base[providerId] ?? { successRate: 97, latency: 200, retryQueue: 5 };
+  const now = Date.now();
+  return Array.from({ length: hours }, (_, i) => {
+    const t = new Date(now - (hours - 1 - i) * 3_600_000);
+    const jitter = (Math.random() - 0.5) * 0.04;
+    return {
+      time: t.toISOString(),
+      label: `${String(t.getUTCHours()).padStart(2, "0")}:00`,
+      successRate: Math.max(85, Math.min(100, b.successRate + jitter * 100)),
+      latencyMs: Math.max(30, Math.round(b.latency + (Math.random() - 0.5) * b.latency * 0.3)),
+      retryQueue: Math.max(0, Math.round(b.retryQueue + (Math.random() - 0.5) * b.retryQueue * 0.5)),
+    };
+  });
+}
+
 export const proxyRouter = router({
   // Gateway
   gatewayHealth: publicProcedure.input(sourceInput).query(({ input }) =>
@@ -408,7 +521,7 @@ export const proxyRouter = router({
       const ownerOpenId = ctx.user?.openId ?? "anonymous";
       await db.insert(alertThresholds)
         .values({ ownerOpenId, ...input })
-        .onDuplicateKeyUpdate({ set: { ...input } });
+        .onConflictDoUpdate({ target: alertThresholds.ownerOpenId, set: { ...input, updatedAt: new Date() } });
       return { success: true };
     }),
 
@@ -493,10 +606,10 @@ export const proxyRouter = router({
       // breach if the value exceeds the rule's threshold. Named rules take
       // precedence: if a group/node already has a global breach item for the
       // same metric, we replace it with the named-rule result.
-      let namedRules: Array<{ id: number; name: string; metric: string; target: string; severity: string; threshold: number; enabled: number }> = [];
+      let namedRules: Array<{ id: number; name: string; metric: string; target: string; severity: string; threshold: number; enabled: boolean }> = [];
       if (db) {
         try {
-          namedRules = await db.select().from(namedAlertRules).where(eq(namedAlertRules.enabled, 1));
+          namedRules = await db.select().from(namedAlertRules).where(eq(namedAlertRules.enabled, true)) ;
         } catch { /* non-fatal */ }
       }
 
@@ -542,6 +655,30 @@ export const proxyRouter = router({
         }
       }
 
+      // ── PSP success rate breach check ────────────────────────────────────
+      const psp = MOCK_PSP; // always use mock for now; swap for live fetch when available
+      const PSP_WARN_SUCCESS_RATE = 96;
+      const PSP_CRITICAL_SUCCESS_RATE = 94;
+      for (const provider of (psp.providers ?? [])) {
+        const sr: number = provider.successRate;
+        if (sr < PSP_CRITICAL_SUCCESS_RATE) {
+          breachItems.push({
+            metric: "psp_error_rate",
+            severity: "critical",
+            message: `PSP "${provider.name}" success rate CRITICAL: ${sr.toFixed(1)}% (threshold: ${PSP_CRITICAL_SUCCESS_RATE}%)`,
+            value: sr,
+            threshold: PSP_CRITICAL_SUCCESS_RATE,
+          });
+        } else if (sr < PSP_WARN_SUCCESS_RATE) {
+          breachItems.push({
+            metric: "psp_error_rate",
+            severity: "warn",
+            message: `PSP "${provider.name}" success rate WARNING: ${sr.toFixed(1)}% (threshold: ${PSP_WARN_SUCCESS_RATE}%)`,
+            value: sr,
+            threshold: PSP_WARN_SUCCESS_RATE,
+          });
+        }
+      }
       // Persist breach events to DB
       if (db && breachItems.length > 0) {
         try {
@@ -594,7 +731,7 @@ export const proxyRouter = router({
       if (input.metric) conditions.push(eq(breachEvents.metric, input.metric));
       if (input.severity) conditions.push(eq(breachEvents.severity, input.severity));
       if (input.acknowledged !== undefined) {
-        conditions.push(eq(breachEvents.acknowledged, input.acknowledged ? 1 : 0));
+        conditions.push(eq(breachEvents.acknowledged, input.acknowledged));
       }
       if (input.from) conditions.push(gte(breachEvents.detectedAt, new Date(input.from)));
       if (input.to) conditions.push(lte(breachEvents.detectedAt, new Date(input.to)));
@@ -618,7 +755,7 @@ export const proxyRouter = router({
           message: r.message,
           value: r.value,
           threshold: r.threshold,
-          acknowledged: r.acknowledged === 1,
+          acknowledged: r.acknowledged === true,
           detectedAt: r.detectedAt.toISOString(),
           acknowledgedAt: r.acknowledgedAt?.toISOString() ?? null,
         })),
@@ -635,10 +772,10 @@ export const proxyRouter = router({
       if (!db) return { acknowledged: 0 };
 
       await db.update(breachEvents)
-        .set({ acknowledged: 1, acknowledgedAt: new Date() })
+        .set({ acknowledged: true, acknowledgedAt: new Date() })
         .where(and(
           inArray(breachEvents.id, input.ids),
-          eq(breachEvents.acknowledged, 0),
+          eq(breachEvents.acknowledged, false),
         ));
 
       return { acknowledged: input.ids.length };
@@ -652,7 +789,7 @@ export const proxyRouter = router({
       try {
         const rows = await db.select({ id: breachEvents.id })
           .from(breachEvents)
-          .where(eq(breachEvents.acknowledged, 0));
+          .where(eq(breachEvents.acknowledged, false));
         return { count: rows.length };
       } catch {
         return { count: 0 };
@@ -703,9 +840,11 @@ export const proxyRouter = router({
           target: input.target,
           severity: input.severity,
           threshold: input.threshold,
-          enabled: 1,
+          enabled: true,
         });
-        return { ok: true, id: (result as any).insertId ?? null };
+        // PostgreSQL returns the inserted row; grab its id
+        const inserted = result as unknown as Array<{ id: number }>;
+        return { ok: true, id: Array.isArray(inserted) && inserted[0] ? inserted[0].id : null };
       }
     }),
 
@@ -724,7 +863,7 @@ export const proxyRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await db.update(namedAlertRules)
-        .set({ enabled: input.enabled ? 1 : 0 })
+        .set({ enabled: input.enabled, updatedAt: new Date() })
         .where(eq(namedAlertRules.id, input.id));
       return { ok: true };
     }),
@@ -741,7 +880,7 @@ export const proxyRouter = router({
       if (!db) return { acknowledged: 0 };
       try {
         // Build conditions: always restrict to unacknowledged
-        const conditions = [eq(breachEvents.acknowledged, 0)];
+        const conditions = [eq(breachEvents.acknowledged, false)];
         if (input.metric && input.metric !== "all") {
           conditions.push(eq(breachEvents.metric, input.metric));
         }
@@ -755,7 +894,7 @@ export const proxyRouter = router({
         if (rows.length === 0) return { acknowledged: 0 };
         const ids = rows.map(r => r.id);
         await db.update(breachEvents)
-          .set({ acknowledged: 1, acknowledgedAt: new Date() })
+          .set({ acknowledged: true, acknowledgedAt: new Date() })
           .where(inArray(breachEvents.id, ids));
         return { acknowledged: ids.length };
       } catch {
@@ -785,9 +924,9 @@ export const proxyRouter = router({
           conditions.push(eq(breachEvents.severity, input.severity));
         }
         if (input.acknowledged === "yes") {
-          conditions.push(eq(breachEvents.acknowledged, 1));
+          conditions.push(eq(breachEvents.acknowledged, true));
         } else if (input.acknowledged === "no") {
-          conditions.push(eq(breachEvents.acknowledged, 0));
+          conditions.push(eq(breachEvents.acknowledged, false));
         }
         if (input.dateFrom) {
           conditions.push(gte(breachEvents.detectedAt, input.dateFrom));
@@ -807,5 +946,34 @@ export const proxyRouter = router({
       } catch {
         return { events: [] };
       }
+    }),
+  // ── PSP Health ──────────────────────────────────────────────────────────
+  pspStats: publicProcedure
+    .input(sourceInput)
+    .query(async ({ input }) => {
+      const forceMock = input?.forceMock ?? true;
+      if (!forceMock) {
+        const live = await fetchPaygate<typeof MOCK_PSP | null>("/psp/stats", null);
+        if (live) return live;
+      }
+      return MOCK_PSP;
+    }),
+
+  pspHistory: publicProcedure
+    .input(z.object({
+      providerId: z.string(),
+      hours: z.number().min(1).max(720).optional(),
+      forceMock: z.boolean().optional(),
+    }))
+    .query(async ({ input }) => {
+      const forceMock = input.forceMock ?? true;
+      if (!forceMock) {
+        const live = await fetchPaygate<Array<{ time: string; label: string; successRate: number; latencyMs: number; retryQueue: number }> | null>(
+          `/psp/${input.providerId}/history?hours=${input.hours ?? 24}`,
+          null,
+        );
+        if (live) return { history: live };
+      }
+      return { history: generatePspHistory(input.providerId, input.hours ?? 24) };
     }),
 });
