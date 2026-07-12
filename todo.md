@@ -16,15 +16,15 @@
 - [x] Add vitest tests for proxy routes
 - [x] Add vitest tests for proxy routes
 - [x] Add vitest tests for proxy routes
-- [ ] Color-coded alerts on Kafka consumer lag and Redis memory utilization
+- [x] Color-coded alerts on Kafka consumer lag and Redis memory utilization
 - [x] Color-coded alerts on Kafka consumer lag and Redis memory utilization
 - [x] Manual Refresh Now button and mock/live toggle in top bar
 - [x] Kafka topic detail modal with historical throughput chart
 - [x] Color-coded alerts on Kafka consumer lag and Redis memory utilization
 - [x] Kafka topic detail modal with historical throughput chart
-- [ ] Redis node detail modal with historical memory and cache hit/miss charts
-- [ ] Date range picker in Kafka Topic Detail Modal
-- [ ] Toast notifications for manual refresh and MOCK/LIVE toggle
+- [x] Redis node detail modal with historical memory and cache hit/miss charts
+- [x] Date range picker in Kafka Topic Detail Modal
+- [x] Toast notifications for manual refresh and MOCK/LIVE toggle
 - [x] Redis node detail modal with historical memory and cache hit/miss charts
 - [x] Date range picker in Kafka Topic Detail Modal (24h / 7d / 30d presets + custom calendar range)
 - [x] Toast notifications for manual refresh and MOCK/LIVE toggle
