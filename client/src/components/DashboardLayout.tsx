@@ -21,6 +21,7 @@ import { mockRoutes, mockWorkflows } from "@/lib/mockData";
 import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
 import { trpc } from "@/lib/trpc";
 import { FlaskConical, Wifi } from "lucide-react";
+import { toast } from "sonner";
 
 const NAV_ITEMS = [
   { path: "/", label: "Overview", icon: LayoutDashboard },
@@ -297,7 +298,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             {/* Mock/Live toggle */}
             <button
-              onClick={() => setForceMock(!forceMock)}
+              onClick={() => {
+                const next = !forceMock;
+                setForceMock(next);
+                toast.success(next ? "Switched to MOCK mode" : "Switched to LIVE mode", {
+                  description: next ? "All panels now use mock data" : "All panels now use live data (with mock fallback)",
+                  duration: 2500,
+                });
+              }}
               title={forceMock ? "Currently forcing MOCK data — click to try LIVE" : "Currently using LIVE data (with mock fallback) — click to force MOCK"}
               className={cn(
                 "hidden md:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
@@ -351,7 +359,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             {/* Manual refresh */}
             <button
-              onClick={triggerRefresh}
+              onClick={() => {
+                triggerRefresh();
+                toast.success("Data refreshed", {
+                  description: "All panels updated",
+                  duration: 2000,
+                });
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors border border-border/50 font-mono active:scale-95"
             >
               <RefreshCw size={12} />

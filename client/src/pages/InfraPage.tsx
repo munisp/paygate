@@ -1,7 +1,7 @@
-// Obsidian Operations — Kafka / Redis Infrastructure Panel v2
-// Color-coded alerts + topic detail modal
+// Obsidian Operations — Kafka & Redis Telemetry
+// Color-coded alerts + topic detail modal + Redis node detail modal + date range picker
 import { useEffect, useState } from "react";
-import { Radio, MessageSquare, Zap, HardDrive, TrendingUp, Users, Clock, AlertTriangle, AlertCircle, CheckCircle2, ExternalLink, X } from "lucide-react";
+import { Radio, MessageSquare, Zap, HardDrive, TrendingUp, Users, Clock, AlertTriangle, AlertCircle, CheckCircle2, ExternalLink, CalendarIcon } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 import MetricCard from "@/components/MetricCard";
 import { useKafka, useRedis } from "@/hooks/usePaygateData";
@@ -9,7 +9,11 @@ import { useRefresh } from "@/contexts/RefreshContext";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar, Line } from "recharts";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import type { DateRange } from "react-day-picker";
 
 // ─── Alert threshold helpers ──────────────────────────────────────────────────
 
@@ -58,7 +62,6 @@ function LagCell({ lag }: { lag: number }) {
 function MemBar({ usedMb, maxMb }: { usedMb: number; maxMb: number }) {
   const pct = Math.round((usedMb / maxMb) * 100);
   const sev = memSeverity(pct);
-  const s = SEVERITY_STYLES[sev];
   return (
     <div className="mt-2 space-y-1">
       <div className="flex items-center justify-between">
@@ -80,16 +83,45 @@ function MemBar({ usedMb, maxMb }: { usedMb: number; maxMb: number }) {
 
 type TopicRow = { name: string; partitions: number; replication: number; msgPerSec: number; consumerLag: number; retentionHours: number };
 
+const PRESET_RANGES = [
+  { label: "24h", hours: 24 },
+  { label: "7d",  hours: 168 },
+  { label: "30d", hours: 720 },
+];
+
 function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | null; onClose: () => void; forceMock: boolean }) {
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [calOpen, setCalOpen] = useState(false);
+  const [activePreset, setActivePreset] = useState<number>(24);
+
+  const fromDate = dateRange?.from ?? new Date(Date.now() - activePreset * 3600 * 1000);
+  const toDate   = dateRange?.to   ?? new Date();
+
   const { data, isLoading } = trpc.paygate.topicHistory.useQuery(
-    { topicName: topic?.name ?? "", forceMock },
+    {
+      topicName: topic?.name ?? "",
+      forceMock,
+      from: fromDate.toISOString(),
+      to:   toDate.toISOString(),
+    },
     { enabled: !!topic }
   );
+
+  useEffect(() => {
+    setDateRange(undefined);
+    setActivePreset(24);
+  }, [topic?.name]);
 
   if (!topic) return null;
 
   const retentionLabel = topic.retentionHours >= 8760 ? "1 year" : topic.retentionHours >= 720 ? "30 days" : `${topic.retentionHours}h`;
   const lagSev = lagSeverity(topic.consumerLag);
+
+  const rangeLabel = dateRange?.from
+    ? dateRange.to
+      ? `${format(dateRange.from, "MMM d")} – ${format(dateRange.to, "MMM d")}`
+      : format(dateRange.from, "MMM d")
+    : PRESET_RANGES.find(p => p.hours === activePreset)?.label ?? "24h";
 
   return (
     <Dialog open={!!topic} onOpenChange={open => !open && onClose()}>
@@ -102,7 +134,6 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
           </DialogTitle>
         </DialogHeader>
 
-        {/* Config grid */}
         <div className="grid grid-cols-3 gap-3 mb-4">
           {[
             { label: "Partitions", value: String(topic.partitions) },
@@ -114,11 +145,7 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
             { label: "Cleanup Policy", value: data?.config.cleanupPolicy ?? "—" },
             { label: "Min ISR", value: String(data?.config.minInsyncReplicas ?? "—") },
           ].map(({ label, value, severity }) => (
-            <div
-              key={label}
-              className="rounded-lg p-3 border border-border"
-              style={{ background: "oklch(0.14 0.008 265)" }}
-            >
+            <div key={label} className="rounded-lg p-3 border border-border" style={{ background: "oklch(0.14 0.008 265)" }}>
               <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">{label}</div>
               {severity ? (
                 <SeverityBadge severity={severity} label={value} />
@@ -129,11 +156,55 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
           ))}
         </div>
 
-        {/* 24h throughput chart */}
         <div>
-          <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
-            <TrendingUp size={11} className="text-primary" />
-            24H THROUGHPUT TREND
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-bold font-mono uppercase tracking-widest flex items-center gap-2">
+              <TrendingUp size={11} className="text-primary" />
+              THROUGHPUT TREND
+            </div>
+            <div className="flex items-center gap-1.5">
+              {PRESET_RANGES.map(p => (
+                <button
+                  key={p.hours}
+                  onClick={() => { setActivePreset(p.hours); setDateRange(undefined); }}
+                  className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-mono border transition-colors",
+                    !dateRange && activePreset === p.hours
+                      ? "text-primary border-primary/40 bg-primary/10"
+                      : "text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary"
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+              <Popover open={calOpen} onOpenChange={setCalOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border transition-colors",
+                      dateRange
+                        ? "text-primary border-primary/40 bg-primary/10"
+                        : "text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <CalendarIcon size={9} />
+                    {rangeLabel}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end" style={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)" }}>
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={(range) => {
+                      setDateRange(range);
+                      if (range?.from && range?.to) setCalOpen(false);
+                    }}
+                    numberOfMonths={2}
+                    disabled={{ after: new Date() }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
           {isLoading ? (
             <div className="h-40 flex items-center justify-center text-xs text-muted-foreground font-mono">Loading history…</div>
@@ -147,7 +218,7 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.012 265)" />
-                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                <XAxis dataKey="time" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} interval="preserveStartEnd" />
                 <YAxis yAxisId="left" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
                 <Tooltip
@@ -174,21 +245,151 @@ function TopicDetailModal({ topic, onClose, forceMock }: { topic: TopicRow | nul
   );
 }
 
+// ─── Redis Node Detail Modal ──────────────────────────────────────────────────
+
+type RedisNode = { id: string; role: string; host: string; status: string; memUsedMb: number; memMaxMb: number; connectedClients: number; opsPerSec: number };
+
+function RedisNodeDetailModal({ node, onClose, forceMock }: { node: RedisNode | null; onClose: () => void; forceMock: boolean }) {
+  const { data, isLoading } = trpc.paygate.redisNodeHistory.useQuery(
+    { nodeId: node?.id ?? "", forceMock },
+    { enabled: !!node }
+  );
+
+  if (!node) return null;
+
+  const memPct = Math.round((node.memUsedMb / node.memMaxMb) * 100);
+  const memSev = memSeverity(memPct);
+
+  return (
+    <Dialog open={!!node} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="max-w-3xl bg-card border-border" style={{ background: "linear-gradient(135deg, oklch(0.17 0.010 265) 0%, oklch(0.15 0.009 265) 100%)" }}>
+        <DialogHeader>
+          <DialogTitle className="font-mono text-primary flex items-center gap-2">
+            <Zap size={14} />
+            {node.id}
+            <span className="text-muted-foreground text-xs font-normal ml-1">· Redis Node Detail</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          {[
+            { label: "Role",        value: node.role.toUpperCase() },
+            { label: "Host",        value: node.host },
+            { label: "Clients",     value: String(node.connectedClients) },
+            { label: "Ops/s",       value: node.opsPerSec > 0 ? node.opsPerSec.toLocaleString() : "—" },
+            { label: "Memory Used", value: `${node.memUsedMb} MB`, severity: memSev },
+            { label: "Max Memory",  value: data?.config.maxMemory ?? "—" },
+            { label: "Eviction",    value: data?.config.maxMemoryPolicy ?? "—" },
+            { label: "Persistence", value: data?.config.persistenceMode ?? "—" },
+            ...(node.role !== "primary" ? [{ label: "Repl Lag", value: data?.config.replicationLag ?? "—" }] : []),
+          ].map(({ label, value, severity }) => (
+            <div key={label} className="rounded-lg p-3 border border-border" style={{ background: "oklch(0.14 0.008 265)" }}>
+              <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider mb-1">{label}</div>
+              {severity ? (
+                <SeverityBadge severity={severity} label={value} />
+              ) : (
+                <div className="text-sm font-mono font-semibold text-foreground truncate">{value}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {isLoading ? (
+          <div className="h-40 flex items-center justify-center text-xs text-muted-foreground font-mono">Loading history…</div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
+                <HardDrive size={11} className="text-primary" />
+                24H MEMORY UTILIZATION
+              </div>
+              <ResponsiveContainer width="100%" height={150}>
+                <AreaChart data={data?.memHistory ?? []} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="memGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="oklch(0.72 0.18 200)" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="oklch(0.72 0.18 200)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.012 265)" />
+                  <XAxis dataKey="time" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                  <YAxis tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} domain={[0, 100]} unit="%" />
+                  <Tooltip
+                    contentStyle={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)", borderRadius: 6, fontSize: 11 }}
+                    formatter={(val: number, name: string) => [
+                      name === "pct" ? `${val}%` : `${val} MB`,
+                      name === "pct" ? "Utilization" : name === "usedMb" ? "Used" : "Max",
+                    ]}
+                  />
+                  <Area type="monotone" dataKey="pct" stroke="oklch(0.72 0.18 200)" fill="url(#memGrad)" strokeWidth={2} name="pct" />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-4 mt-1 text-[10px] font-mono text-muted-foreground">
+                <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-primary inline-block" /> Memory Utilization (%)</span>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-bold font-mono uppercase tracking-widest mb-3 flex items-center gap-2">
+                <TrendingUp size={11} className="text-primary" />
+                24H CACHE HIT / MISS RATE
+              </div>
+              <ResponsiveContainer width="100%" height={150}>
+                <AreaChart data={data?.hitMissHistory ?? []} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="hitsGrad2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="oklch(0.72 0.18 200)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="oklch(0.72 0.18 200)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="missGrad2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="oklch(0.78 0.16 75)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="oklch(0.78 0.16 75)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.28 0.012 265)" />
+                  <XAxis dataKey="time" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: "oklch(0.55 0.010 220)", fontFamily: "JetBrains Mono" }} domain={[0, 100]} unit="%" />
+                  <Tooltip
+                    contentStyle={{ background: "oklch(0.17 0.010 265)", border: "1px solid oklch(0.28 0.012 265)", borderRadius: 6, fontSize: 11 }}
+                    formatter={(val: number, name: string) => [
+                      name === "hitRate" ? `${val}%` : val.toLocaleString(),
+                      name === "hits" ? "Hits" : name === "misses" ? "Misses" : "Hit Rate",
+                    ]}
+                  />
+                  <Area yAxisId="left" type="monotone" dataKey="hits" stroke="oklch(0.72 0.18 200)" fill="url(#hitsGrad2)" strokeWidth={2} name="hits" />
+                  <Area yAxisId="left" type="monotone" dataKey="misses" stroke="oklch(0.78 0.16 75)" fill="url(#missGrad2)" strokeWidth={1.5} name="misses" />
+                  <Line yAxisId="right" type="monotone" dataKey="hitRate" stroke="oklch(0.75 0.16 145)" strokeWidth={1.5} dot={false} name="hitRate" />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-4 mt-1 text-[10px] font-mono text-muted-foreground">
+                <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-primary inline-block" /> Hits</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-amber-400 inline-block" /> Misses</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-400 inline-block" /> Hit Rate (%)</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function InfraPage() {
   const { tick, forceMock } = useRefresh();
   const utils = trpc.useUtils();
   const [selectedTopic, setSelectedTopic] = useState<TopicRow | null>(null);
+  const [selectedNode, setSelectedNode] = useState<RedisNode | null>(null);
 
-  // Re-fetch on refresh tick
   useEffect(() => {
     utils.paygate.kafka.invalidate();
     utils.paygate.redis.invalidate();
   }, [tick, utils]);
 
   const { data: kafkaRaw, isLoading: kafkaLoading } = useKafka();
-  const { data: redisRaw, isLoading: redisLoading } = useRedis();
+  const { data: redisRaw } = useRedis();
 
   const kafka = kafkaRaw as {
     brokers: { id: string; host: string; status: string; partitions: number; leaders: number }[];
@@ -197,7 +398,7 @@ export default function InfraPage() {
   } | undefined;
 
   const redis = redisRaw as {
-    nodes: { id: string; role: string; host: string; status: string; memUsedMb: number; memMaxMb: number; connectedClients: number; opsPerSec: number }[];
+    nodes: RedisNode[];
     stats: { hitRate: number; missRate: number; evictedKeys: number; expiredKeys: number; totalCommandsProcessed: number; uptimeSeconds: number };
     keyspaceHistory: { time: string; hits: number; misses: number }[];
   } | undefined;
@@ -212,10 +413,9 @@ export default function InfraPage() {
 
   return (
     <div className="space-y-5">
-      {/* Topic detail modal */}
       <TopicDetailModal topic={selectedTopic} onClose={() => setSelectedTopic(null)} forceMock={forceMock} />
+      <RedisNodeDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} forceMock={forceMock} />
 
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-foreground font-mono tracking-tight flex items-center gap-2">
@@ -226,17 +426,10 @@ export default function InfraPage() {
             Message broker topology · Consumer lag · Cache hit rate · Memory utilization
           </p>
         </div>
-        {/* Global alert summary */}
         <div className="hidden md:flex items-center gap-2">
-          {lagSev !== "ok" && (
-            <SeverityBadge severity={lagSev} label={`LAG: ${totalLag + totalGroupLag} msgs`} />
-          )}
-          {memSev !== "ok" && (
-            <SeverityBadge severity={memSev} label={`MEM: ${redisMemPct}%`} />
-          )}
-          {lagSev === "ok" && memSev === "ok" && (
-            <SeverityBadge severity="ok" label="ALL NOMINAL" />
-          )}
+          {lagSev !== "ok" && <SeverityBadge severity={lagSev} label={`LAG: ${totalLag + totalGroupLag} msgs`} />}
+          {memSev !== "ok" && <SeverityBadge severity={memSev} label={`MEM: ${redisMemPct}%`} />}
+          {lagSev === "ok" && memSev === "ok" && <SeverityBadge severity="ok" label="ALL NOMINAL" />}
         </div>
       </div>
 
@@ -262,7 +455,6 @@ export default function InfraPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Topic Registry table — clickable rows */}
           <div className="lg:col-span-2">
             <div
               className="bg-card border border-border rounded-lg overflow-hidden"
@@ -285,7 +477,6 @@ export default function InfraPage() {
                   </thead>
                   <tbody>
                     {kafka?.topics.map((t, i) => {
-                      const tLagSev = lagSeverity(t.consumerLag);
                       return (
                         <tr
                           key={t.name}
@@ -302,9 +493,7 @@ export default function InfraPage() {
                           <td className="px-4 py-2.5 font-mono text-foreground">{t.partitions}</td>
                           <td className="px-4 py-2.5 font-mono text-foreground">{t.replication}x</td>
                           <td className="px-4 py-2.5 font-mono text-foreground">{t.msgPerSec.toLocaleString()}</td>
-                          <td className="px-4 py-2.5">
-                            <LagCell lag={t.consumerLag} />
-                          </td>
+                          <td className="px-4 py-2.5"><LagCell lag={t.consumerLag} /></td>
                           <td className="px-4 py-2.5 font-mono text-muted-foreground">
                             {t.retentionHours >= 8760 ? "1y" : t.retentionHours >= 720 ? "30d" : `${t.retentionHours}h`}
                           </td>
@@ -317,7 +506,6 @@ export default function InfraPage() {
             </div>
           </div>
 
-          {/* Broker + consumer group status rail */}
           <div className="space-y-3">
             <div
               className="bg-card border border-border rounded-lg p-4"
@@ -356,7 +544,6 @@ export default function InfraPage() {
                         </div>
                         <SeverityBadge severity={gLagSev} label={`lag ${g.lag}`} />
                       </div>
-                      {/* Lag progress bar */}
                       {g.lag > 0 && (
                         <div className="h-1 bg-secondary rounded-full overflow-hidden">
                           <div
@@ -433,12 +620,13 @@ export default function InfraPage() {
             </div>
           </div>
 
-          {/* Redis node status rail with enhanced memory bars */}
+          {/* Redis node status rail — clickable cards */}
           <div className="space-y-3">
             {redis?.nodes.map(node => (
               <div
                 key={node.id}
-                className="bg-card border border-border rounded-lg p-4"
+                onClick={() => setSelectedNode(node)}
+                className="bg-card border border-border rounded-lg p-4 cursor-pointer transition-all hover:ring-1 hover:ring-primary/30 group"
                 style={{
                   background: "linear-gradient(135deg, oklch(0.17 0.010 265) 0%, oklch(0.15 0.009 265) 100%)",
                   boxShadow: node.status === "healthy"
@@ -448,7 +636,10 @@ export default function InfraPage() {
               >
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <div className="text-xs font-mono font-semibold text-foreground capitalize">{node.role}</div>
+                    <div className="text-xs font-mono font-semibold text-foreground capitalize flex items-center gap-1.5">
+                      {node.role}
+                      <ExternalLink size={9} className="opacity-0 group-hover:opacity-50 transition-opacity text-primary" />
+                    </div>
                     <div className="text-[10px] font-mono text-muted-foreground">{node.host}</div>
                   </div>
                   <StatusBadge status={node.status as "healthy" | "degraded" | "critical"} />
@@ -463,13 +654,11 @@ export default function InfraPage() {
                       <span className="text-[10px] font-mono text-foreground">{value}</span>
                     </div>
                   ))}
-                  {/* Enhanced memory bar with severity */}
                   <MemBar usedMb={node.memUsedMb} maxMb={node.memMaxMb} />
                 </div>
               </div>
             ))}
 
-            {/* Eviction stats */}
             {redis && (
               <div
                 className="bg-card border border-border rounded-lg p-4"
@@ -494,4 +683,3 @@ export default function InfraPage() {
     </div>
   );
 }
-

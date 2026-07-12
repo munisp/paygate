@@ -193,18 +193,33 @@ export const proxyRouter = router({
     }
   }),
 
-  // Topic detail: 24h historical throughput + config
+  // Topic detail: historical throughput + config, with optional date range
   topicHistory: publicProcedure
-    .input(z.object({ topicName: z.string(), forceMock: z.boolean().optional() }))
+    .input(z.object({
+      topicName: z.string(),
+      forceMock: z.boolean().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
     .query(({ input }) => {
-      // Generate deterministic-ish history seeded by topic name length
       const seed = input.topicName.length;
-      const history = Array.from({ length: 24 }, (_, i) => {
-        const peakHour = i > 8 && i < 18;
+      const fromMs = input.from ? new Date(input.from).getTime() : Date.now() - 24 * 3600 * 1000;
+      const toMs   = input.to   ? new Date(input.to).getTime()   : Date.now();
+      const rangeHours = Math.max(1, Math.round((toMs - fromMs) / 3600000));
+      // Up to 72 hourly points; beyond that use daily buckets (max 90 points)
+      const points = rangeHours <= 72 ? rangeHours : Math.min(90, Math.ceil(rangeHours / 24));
+      const bucketMs = (toMs - fromMs) / points;
+      const history = Array.from({ length: points }, (_, i) => {
+        const t = new Date(fromMs + i * bucketMs);
+        const h = t.getHours();
+        const peakHour = h > 8 && h < 18;
+        const label = rangeHours <= 72
+          ? `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(h).padStart(2, "0")}:00`
+          : `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`;
         return {
-          time: `${String(i).padStart(2, "0")}:00`,
+          time: label,
           msgPerSec: Math.round(100 + seed * 10 + (peakHour ? 300 : 0) + (i % 3) * 40),
-          lag: i > 16 && seed % 2 === 0 ? Math.round((i - 16) * 3) : 0,
+          lag: i > Math.floor(points * 0.67) && seed % 2 === 0 ? Math.round((i - Math.floor(points * 0.67)) * 3) : 0,
           errorRate: parseFloat(((i % 5 === 0 ? 0.3 : 0.05) + seed * 0.01).toFixed(2)),
         };
       });
@@ -221,5 +236,45 @@ export const proxyRouter = router({
         compressionType: "none", cleanupPolicy: "delete", minInsyncReplicas: 1,
       };
       return { topicName: input.topicName, history, config };
+    }),
+
+  // Redis node detail: 24h memory utilization + hit/miss history + config
+  redisNodeHistory: publicProcedure
+    .input(z.object({ nodeId: z.string(), forceMock: z.boolean().optional() }))
+    .query(({ input }) => {
+      const isPrimary = input.nodeId === "redis-primary";
+      const baseUsedMb = isPrimary ? 842 : 840;
+      const maxMb = 4096;
+
+      const memHistory = Array.from({ length: 24 }, (_, i) => {
+        const peakHour = i > 9 && i < 20;
+        const usedMb = Math.round(baseUsedMb + (peakHour ? 80 : 0) + (i % 4) * 15);
+        return {
+          time: `${String(i).padStart(2, "0")}:00`,
+          usedMb,
+          maxMb,
+          pct: parseFloat(((usedMb / maxMb) * 100).toFixed(1)),
+        };
+      });
+
+      const hitMissHistory = Array.from({ length: 24 }, (_, i) => {
+        const peakHour = i > 9 && i < 20;
+        const hits   = Math.round(7000 + (peakHour ? 3000 : 0) + (i % 3) * 400);
+        const misses = Math.round(300  + (peakHour ? 200  : 0) + (i % 5) * 30);
+        const hitRate = parseFloat(((hits / (hits + misses)) * 100).toFixed(1));
+        return { time: `${String(i).padStart(2, "0")}:00`, hits, misses, hitRate };
+      });
+
+      const nodeConfigs: Record<string, {
+        maxMemoryPolicy: string; maxMemory: string; persistenceMode: string; replicationLag: string;
+      }> = {
+        "redis-primary":   { maxMemoryPolicy: "allkeys-lru", maxMemory: "4096 MB", persistenceMode: "RDB + AOF", replicationLag: "N/A" },
+        "redis-replica-1": { maxMemoryPolicy: "allkeys-lru", maxMemory: "4096 MB", persistenceMode: "replica",   replicationLag: "< 1ms" },
+      };
+      const config = nodeConfigs[input.nodeId] ?? {
+        maxMemoryPolicy: "noeviction", maxMemory: "4096 MB", persistenceMode: "none", replicationLag: "unknown",
+      };
+
+      return { nodeId: input.nodeId, memHistory, hitMissHistory, config };
     }),
 });
