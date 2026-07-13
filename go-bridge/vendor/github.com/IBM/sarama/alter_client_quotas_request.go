@@ -17,6 +17,10 @@ type AlterClientQuotasRequest struct {
 	ValidateOnly bool                     // Whether the alteration should be validated, but not performed.
 }
 
+func (a *AlterClientQuotasRequest) setVersion(v int16) {
+	a.Version = v
+}
+
 type AlterClientQuotasEntry struct {
 	Entity []QuotaEntityComponent // The quota entity to alter.
 	Ops    []ClientQuotasOp       // An individual quota configuration entry to alter.
@@ -50,6 +54,9 @@ func (a *AlterClientQuotasRequest) decode(pd packetDecoder, version int16) error
 	entryCount, err := pd.getArrayLength()
 	if err != nil {
 		return err
+	}
+	if entryCount < 0 {
+		return errInvalidArrayLength
 	}
 	if entryCount > 0 {
 		a.Entries = make([]AlterClientQuotasEntry, entryCount)
@@ -104,9 +111,12 @@ func (a *AlterClientQuotasEntry) decode(pd packetDecoder, version int16) error {
 	if err != nil {
 		return err
 	}
+	if componentCount < 0 {
+		return errInvalidArrayLength
+	}
 	if componentCount > 0 {
 		a.Entity = make([]QuotaEntityComponent, componentCount)
-		for i := 0; i < componentCount; i++ {
+		for i := range componentCount {
 			component := QuotaEntityComponent{}
 			if err := component.decode(pd, version); err != nil {
 				return err
@@ -121,6 +131,9 @@ func (a *AlterClientQuotasEntry) decode(pd packetDecoder, version int16) error {
 	opCount, err := pd.getArrayLength()
 	if err != nil {
 		return err
+	}
+	if opCount < 0 {
+		return errInvalidArrayLength
 	}
 	if opCount > 0 {
 		a.Ops = make([]ClientQuotasOp, opCount)
@@ -179,7 +192,7 @@ func (c *ClientQuotasOp) decode(pd packetDecoder, version int16) error {
 }
 
 func (a *AlterClientQuotasRequest) key() int16 {
-	return 49
+	return apiKeyAlterClientQuotas
 }
 
 func (a *AlterClientQuotasRequest) version() int16 {
