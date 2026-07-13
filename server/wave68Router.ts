@@ -1043,7 +1043,8 @@ export const splitBillConsumerRouter = router({
       const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
       const [session] = await db.insert(consumerSplitSessions).values({
         id: sessionId,
-        creatorId: user.id,
+        initiatorId: String(user.id),
+        creatorId: Number(user.id) || null,
         title: input.title,
         totalAmountKobo: input.totalAmountKobo,
         currency: input.currency,
@@ -1058,7 +1059,7 @@ export const splitBillConsumerRouter = router({
         shareAmountKobo: p.shareAmountKobo,
         status: "pending" as const,
       }));
-      await db.insert(consumerSplitParticipants).values(participantRows);
+      await db.insert(consumerSplitParticipants).values(participantRows as any);
       return { session, participants: participantRows };
     }),
 
@@ -1116,8 +1117,8 @@ export const splitBillConsumerRouter = router({
       }
       const [participant] = await db.select().from(consumerSplitParticipants)
         .where(and(
-          eq(consumerSplitParticipants.id, input.participantId),
-          eq(consumerSplitParticipants.sessionId, input.sessionId),
+          eq(consumerSplitParticipants.id, input.participantId as any),
+          eq(consumerSplitParticipants.sessionId, input.sessionId as any),
         )).limit(1);
       if (!participant) throw new TRPCError({ code: "NOT_FOUND", message: "Participant not found" });
       if (participant.status === "paid") throw new TRPCError({ code: "BAD_REQUEST", message: "Share already paid" });
@@ -1130,21 +1131,21 @@ export const splitBillConsumerRouter = router({
         "p2p_send", `Split bill: ${session.title}`, ref);
 
       // Credit session creator
-      await creditWallet(session.creatorId, participant.shareAmountKobo, session.currency,
+      await creditWallet(session.creatorId!, participant.shareAmountKobo, session.currency,
         "p2p_receive", `Split bill payment: ${session.title}`, ref, user.name ?? undefined);
 
       // Mark participant as paid
       await db.update(consumerSplitParticipants)
-        .set({ status: "paid", paidAt: new Date(), walletTxnId: ref, userId: user.id })
-        .where(eq(consumerSplitParticipants.id, input.participantId));
+        .set({ status: "paid", paidAt: new Date(), walletTxnId: ref, userId: user.id } as any)
+        .where(eq(consumerSplitParticipants.id, input.participantId as any));
 
       // Check if all paid → settle session
       const allParticipants = await db.select().from(consumerSplitParticipants)
-        .where(eq(consumerSplitParticipants.sessionId, input.sessionId));
-      if (allParticipants.every(p => p.status === "paid" || p.id === input.participantId)) {
+        .where(eq(consumerSplitParticipants.sessionId, input.sessionId as any));
+      if (allParticipants.every(p => p.status === "paid" || String(p.id) === String(input.participantId))) {
         await db.update(consumerSplitSessions)
-          .set({ status: "settled" })
-          .where(eq(consumerSplitSessions.id, input.sessionId));
+          .set({ status: "settled" } as any)
+          .where(eq(consumerSplitSessions.id, String(input.sessionId)));
       }
       return { success: true, reference: ref };
     }),

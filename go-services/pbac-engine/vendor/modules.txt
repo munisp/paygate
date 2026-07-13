@@ -5,7 +5,7 @@ github.com/cespare/xxhash/v2
 ## explicit; go 1.23
 github.com/go-chi/chi/v5
 github.com/go-chi/chi/v5/middleware
-# github.com/go-chi/cors v1.2.1
+# github.com/go-chi/cors v1.2.2
 ## explicit; go 1.14
 github.com/go-chi/cors
 # github.com/go-chi/httprate v0.14.1
@@ -14,7 +14,7 @@ github.com/go-chi/httprate
 # go.uber.org/multierr v1.11.0
 ## explicit; go 1.19
 go.uber.org/multierr
-# go.uber.org/zap v1.27.0
+# go.uber.org/zap v1.28.0
 ## explicit; go 1.19
 go.uber.org/zap
 go.uber.org/zap/buffer

@@ -14,17 +14,17 @@ import {
   auditLogs,
   posTerminals,
   settlementBanks,
-  nexthubParticipantLimits,
   kybDocuments,
   kybVerifications,
   realtimeNotificationPreferences,
   apiRateLimitRules,
   fxRates,
-  nexthubDfsps,
-  nexthubParticipants,
 } from "../../drizzle/schema";
 import { storagePut } from "../storage";
 import { notifyOwner } from "../_core/notification";
+import { dispatchWebhookEvent, buildWebhookPayload } from "../webhookEvents";
+import { notifyMerchant } from "../pushClient";
+import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
 
 // ─── 1. Audit Logs ─────────────────────────────────────────────────────────
 const auditLogsRouter = router({
@@ -451,7 +451,38 @@ const merchantVerificationRouter = router({
       const [row] = await db.update(kybVerifications)
         .set({ status: "approved", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
+      // ── In-app notification (existing) ────────────────────────────────────
       await notifyOwner({ title: "Merchant KYB Approved", content: `KYB ${input.id} approved by ${input.reviewerId}.` });
+      // ── Kafka: kyb.approved event (Fix 2) ─────────────────────────────────
+      publishEvent(
+        KAFKA_TOPICS.KYC,
+        {
+          type: "kyb.approved",
+          verificationId: input.id,
+          merchantId: row?.merchantId ?? "",
+          reviewerId: input.reviewerId,
+          notes: input.notes ?? null,
+          timestamp: new Date().toISOString(),
+        },
+        row?.merchantId ?? input.id,
+        { "x-event-type": "kyb.approved" },
+      ).catch(() => {});
+      // ── Webhook: kyb.approved (Fix 2) ─────────────────────────────────────
+      if (row?.merchantId) {
+        dispatchWebhookEvent(
+          buildWebhookPayload("kyc.approved", row.merchantId, "", { verificationId: input.id, reviewerId: input.reviewerId, notes: input.notes ?? null }),
+        ).catch(() => {});
+        // ── Push notification: kyb.approved (Fix 2) ─────────────────────────
+        notifyMerchant({
+          merchantId: row.merchantId,
+          notification: {
+            title: "KYB Approved",
+            body: "Your business verification has been approved. You now have full access.",
+          },
+          type: "kyc_approved",
+          data: { verificationId: input.id },
+        }).catch(() => {});
+      }
       return row;
     }),
   reject: protectedProcedure
@@ -462,43 +493,42 @@ const merchantVerificationRouter = router({
       const [row] = await db.update(kybVerifications)
         .set({ status: "rejected", initiatedBy: input.reviewerId, updatedAt: new Date() } as any)
         .where(eq(kybVerifications.verificationId, input.id)).returning();
+      // ── In-app notification (existing) ────────────────────────────────────
       await notifyOwner({ title: "Merchant KYB Rejected", content: `KYB ${input.id} rejected. Reason: ${input.reason}` });
+      // ── Kafka: kyb.rejected event (Fix 2) ─────────────────────────────────
+      publishEvent(
+        KAFKA_TOPICS.KYC,
+        {
+          type: "kyb.rejected",
+          verificationId: input.id,
+          merchantId: row?.merchantId ?? "",
+          reviewerId: input.reviewerId,
+          reason: input.reason,
+          timestamp: new Date().toISOString(),
+        },
+        row?.merchantId ?? input.id,
+        { "x-event-type": "kyb.rejected" },
+      ).catch(() => {});
+      // ── Webhook: kyb.rejected (Fix 2) ─────────────────────────────────────
+      if (row?.merchantId) {
+        dispatchWebhookEvent(
+          buildWebhookPayload("kyc.rejected", row.merchantId, "", { verificationId: input.id, reviewerId: input.reviewerId, reason: input.reason }),
+        ).catch(() => {});
+        // ── Push notification: kyb.rejected (Fix 2) ─────────────────────────
+        notifyMerchant({
+          merchantId: row.merchantId,
+          notification: {
+            title: "KYB Not Approved",
+            body: `Your business verification was not approved. Reason: ${input.reason}`,
+          },
+          type: "kyc_rejected",
+          data: { verificationId: input.id, reason: input.reason },
+        }).catch(() => {});
+      }
       return row;
     }),
 });
 
-// ─── 10. NDC / Position Limits ────────────────────────────────────────────
-const ndcPositionLimitsRouter = router({
-  list: protectedProcedure
-    .input(z.object({ participantId: z.string().optional() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-      const conditions: any[] = [];
-      if (input.participantId) conditions.push(eq(nexthubParticipantLimits.participantId, input.participantId));
-      return db.select().from(nexthubParticipantLimits)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(desc(nexthubParticipantLimits.updatedAt));
-    }),
-  update: protectedProcedure
-    .input(z.object({
-      id: z.string(),
-      netDebitCap: z.number().positive().optional(),
-      positionLimit: z.number().positive().optional(),
-      liquidityCover: z.number().min(0).optional(),
-      alertThreshold: z.number().min(0).max(1).optional(),
-      currency: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new Error("DB unavailable");
-      const { id, ...rest } = input;
-      const [row] = await db.update(nexthubParticipantLimits)
-        .set({ ...rest, updatedAt: new Date() } as any)
-        .where(eq(nexthubParticipantLimits.id, id)).returning();
-      return row;
-    }),
-});
 
 // ─── 11. Bulk Transfers ───────────────────────────────────────────────────
 const bulkTransfersRouter = router({
@@ -543,32 +573,6 @@ const bulkTransfersRouter = router({
     }),
 });
 
-// ─── 12. DFSP Topology ────────────────────────────────────────────────────
-const dfspTopologyRouter = router({
-  get: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return { dfsps: [], participants: [], edges: [] };
-    const dfsps = await db.select().from(nexthubDfsps).orderBy(nexthubDfsps.dfspName);
-    const participants = await db.select().from(nexthubParticipants).limit(200);
-    return {
-      dfsps: dfsps.map((d: any) => ({
-        id: d.id, name: d.dfspName, dfspId: d.dfspId ?? d.id,
-        status: d.status ?? "ACTIVE", country: d.country ?? "NG",
-        participantCount: participants.filter((p: any) => p.dfspId === d.id).length,
-        currency: d.currency ?? "NGN", type: d.type ?? "DFSP",
-      })),
-      participants: participants.slice(0, 100).map((p: any) => ({
-        id: p.id, name: p.name, dfspId: p.dfspId, status: p.status, fspId: p.fspId ?? p.id,
-      })),
-      edges: dfsps.slice(0, 20).flatMap((d: any, i: number) =>
-        dfsps.slice(i + 1, Math.min(i + 4, dfsps.length)).map((d2: any) => ({
-          source: d.id, target: d2.id, volume: Math.floor(Math.random() * 1000),
-        }))
-      ),
-    };
-  }),
-});
-
 // ─── Main Wave 223 Extensions Router ──────────────────────────────────────
 export const wave223ExtRouter = router({
   auditLogs: auditLogsRouter,
@@ -580,7 +584,5 @@ export const wave223ExtRouter = router({
   settlementBanks: settlementBanksExtRouter,
   kycDocuments: kycDocumentsRouter,
   merchantVerification: merchantVerificationRouter,
-  ndcPositionLimits: ndcPositionLimitsRouter,
   bulkTransfers: bulkTransfersRouter,
-  dfspTopology: dfspTopologyRouter,
 });

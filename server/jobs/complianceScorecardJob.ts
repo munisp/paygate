@@ -46,7 +46,7 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     evaluate: async (merchantId, db) => {
       try {
         // Check if KYC records exist for this merchant
-        const result = await db.execute(
+        const result = await db!.execute(
           sql`SELECT COUNT(*) as total, SUM(CASE WHEN status = 'verified' THEN 1 ELSE 0 END) as verified
            FROM kyc_verifications WHERE merchant_id = ${merchantId} LIMIT 1`
         );
@@ -182,6 +182,7 @@ export async function complianceScorecardJobHandler(req: Request, res: Response)
     }
 
     const db = await getDb();
+    if (!db) return res.status(503).json({ error: "Database unavailable" });
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
     // Get all active merchants
@@ -217,7 +218,7 @@ export async function complianceScorecardJobHandler(req: Request, res: Response)
     for (const merchantId of merchantIds.slice(0, 50)) { // Cap at 50 to stay within 2-min timeout
       for (const check of COMPLIANCE_CHECKS) {
         try {
-          const result = await check.evaluate(merchantId, db);
+          const result = await check.evaluate(merchantId, db!);
           totalChecks++;
 
           if (result.status === "fail") failedChecks++;
