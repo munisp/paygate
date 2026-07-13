@@ -20,7 +20,7 @@ import { getDb } from "../db";
 import { notifyOwner } from "../_core/notification";
 import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
 import { logger } from "../logger";
-import { sdk } from "../_core/sdk";
+// Cron authentication uses direct header check instead of sdk
 import { scumlChecks } from "../../drizzle/schema";
 import { and, lte, eq, gte, sql } from "drizzle-orm";
 
@@ -32,8 +32,11 @@ const CRITICAL_DAYS = 7;  // escalate when expiry is within 7 days
 export async function scumlExpiryJobHandler(req: Request, res: Response) {
   try {
     // ── Auth: only the Heartbeat cron caller may invoke this endpoint ──────────
-    const user = await sdk.authenticateRequest(req as any);
-    if (!user.isCron) {
+    const authHeader = req.headers.authorization ?? "";
+    const apiKey = process.env.BUILT_IN_FORGE_API_KEY ?? "";
+    const internalKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+    const isCron = authHeader === `Bearer ${apiKey}` || authHeader === `Bearer ${internalKey}` || req.headers["x-cron-secret"] === apiKey;
+    if (!isCron) {
       return res.status(403).json({ error: "cron-only endpoint" });
     }
 

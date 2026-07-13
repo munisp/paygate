@@ -117,6 +117,12 @@ export default defineConfig({
           // under parallel load (109 files) it can exceed the default 5s limit.
           testTimeout: 15000,
           hookTimeout: 15000,
+          env: {
+            KEYCLOAK_ADMIN_PASSWORD: process.env.KEYCLOAK_ADMIN_PASSWORD || "paygate-keycloak-admin-2026",
+            KEYCLOAK_WEBHOOK_SECRET: process.env.KEYCLOAK_WEBHOOK_SECRET || "paygate-webhook-secret-2026",
+            MIDDLEWARE_BRIDGE_URL: process.env.MIDDLEWARE_BRIDGE_URL || "http://middleware.paygate.internal:9080",
+            MIDDLEWARE_INTERNAL_KEY: process.env.MIDDLEWARE_INTERNAL_KEY || "paygate-middleware-internal-key-2026",
+          },
         },
         resolve: {
           alias: sharedAlias,

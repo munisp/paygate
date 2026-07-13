@@ -211,7 +211,8 @@ const escrowV2Router = router({
     await db.update(escrowContractsV2).set({ status: "released", releasedAt: new Date(), updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
     
     // Get contract details for TigerBeetle wiring
-    const [contract] = await db.select().from(escrowContractsV2).where(eq(escrowContractsV2.id, input.contractId)).limit(1);
+    const contracts = await db.select().from(escrowContractsV2).where(eq(escrowContractsV2.id, input.contractId));
+    const contract = contracts[0];
     if (contract && contract.sellerId) {
       creditWalletViaMiddleware({
         walletId: `wallet_${contract.sellerId}`,
