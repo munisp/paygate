@@ -7,7 +7,7 @@ pydantic-settings==2.6.1
 sqlalchemy[asyncio]==2.0.37
 asyncpg==0.30.0
 redis[hiredis]==5.2.1
-pyarrow==19.0.0
+pyarrow==25.0.0
 deltalake==0.22.3
 pandas==2.2.3
 boto3==1.35.93
