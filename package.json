@@ -65,7 +65,7 @@
     "@types/cors": "^2.8.19",
     "@types/d3": "^7.4.3",
     "@types/express-slow-down": "^2.0.0",
-    "@types/multer": "^2.1.0",
+    "@types/multer": "^2.2.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.18.0",
     "@types/qrcode": "^1.5.6",
