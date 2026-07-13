@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	github.com/redis/go-redis/v9 v9.21.0
-	go.uber.org/zap v1.27.0
+	go.uber.org/zap v1.28.0
 )
 
 require (
