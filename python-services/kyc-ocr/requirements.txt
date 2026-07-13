@@ -11,6 +11,6 @@ confluent-kafka==2.15.0
 paddlepaddle==3.0.0
 paddleocr==2.10.0
 # Docling (IBM Research document understanding)
-docling==2.5.0
+docling==2.112.0
 # Optional: for VLM integration
 # openai==1.40.0  # if using GPT-4V
