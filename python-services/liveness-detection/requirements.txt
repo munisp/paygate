@@ -12,7 +12,7 @@ mediapipe==0.10.14
 insightface==0.7.3
 onnxruntime==1.27.0  # CPU; use onnxruntime-gpu for GPU
 # PyTorch — SilentFace anti-spoofing model
-torch==2.6.0
-torchvision==0.21.0
+torch==2.13.0
+torchvision==0.28.0
 # Docling (IBM Research) — document layout understanding
 docling==2.112.0
