@@ -1,27 +1,3 @@
-// The MIT License
-//
-// Copyright (c) 2020 Temporal Technologies Inc.  All rights reserved.
-//
-// Copyright (c) 2020 Uber Technologies, Inc.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
 package internal
 
 // All code in this file is private to the package.
@@ -73,6 +49,12 @@ type (
 		RetryPolicy            *commonpb.RetryPolicy
 		DisableEagerExecution  bool
 		VersioningIntent       VersioningIntent
+		Summary                string
+		Priority               *commonpb.Priority
+		// ScheduleID must be generated before serialization to give
+		// codecs/converters access to ActivityID, while maintaining
+		// backwards compatibility with how ActivityID is generated.
+		ScheduleID int64
 	}
 
 	// ExecuteLocalActivityOptions options for executing a local activity
@@ -80,28 +62,31 @@ type (
 		ScheduleToCloseTimeout time.Duration
 		StartToCloseTimeout    time.Duration
 		RetryPolicy            *RetryPolicy
+		Summary                string
 	}
 
 	// ExecuteActivityParams parameters for executing an activity
 	ExecuteActivityParams struct {
 		ExecuteActivityOptions
-		ActivityType  ActivityType
-		Input         *commonpb.Payloads
-		DataConverter converter.DataConverter
-		Header        *commonpb.Header
+		ActivityType     ActivityType
+		Input            *commonpb.Payloads
+		DataConverter    converter.DataConverter    // context-aware DC from ExecuteActivity
+		FailureConverter converter.FailureConverter // context-aware FC from ExecuteActivity
+		Header           *commonpb.Header
 	}
 
 	// ExecuteLocalActivityParams parameters for executing a local activity
 	ExecuteLocalActivityParams struct {
 		ExecuteLocalActivityOptions
-		ActivityFn    interface{} // local activity function pointer
-		ActivityType  string      // local activity type
-		InputArgs     []interface{}
-		WorkflowInfo  *WorkflowInfo
-		DataConverter converter.DataConverter
-		Attempt       int32
-		ScheduledTime time.Time
-		Header        *commonpb.Header
+		ActivityFn       interface{} // local activity function pointer
+		ActivityType     string      // local activity type
+		InputArgs        []interface{}
+		WorkflowInfo     *WorkflowInfo
+		DataConverter    converter.DataConverter    // context-aware DC from ExecuteLocalActivity
+		FailureConverter converter.FailureConverter // context-aware FC from ExecuteLocalActivity
+		Attempt          int32
+		ScheduledTime    time.Time
+		Header           *commonpb.Header
 	}
 
 	// AsyncActivityClient for requesting activity execution
@@ -125,26 +110,32 @@ type (
 	}
 
 	activityEnvironment struct {
-		taskToken          []byte
-		workflowExecution  WorkflowExecution
-		activityID         string
-		activityType       ActivityType
-		serviceInvoker     ServiceInvoker
-		logger             log.Logger
-		metricsHandler     metrics.Handler
-		isLocalActivity    bool
-		heartbeatTimeout   time.Duration
-		deadline           time.Time
-		scheduledTime      time.Time
-		startedTime        time.Time
-		taskQueue          string
-		dataConverter      converter.DataConverter
-		attempt            int32 // starts from 1.
-		heartbeatDetails   *commonpb.Payloads
-		workflowType       *WorkflowType
-		workflowNamespace  string
-		workerStopChannel  <-chan struct{}
-		contextPropagators []ContextPropagator
+		taskToken              []byte
+		workflowExecution      WorkflowExecution
+		activityID             string
+		activityType           ActivityType
+		serviceInvoker         ServiceInvoker
+		logger                 log.Logger
+		metricsHandler         metrics.Handler
+		isLocalActivity        bool
+		heartbeatTimeout       time.Duration
+		scheduleToCloseTimeout time.Duration
+		startToCloseTimeout    time.Duration
+		deadline               time.Time
+		scheduledTime          time.Time
+		startedTime            time.Time
+		taskQueue              string
+		dataConverter          converter.DataConverter
+		attempt                int32 // starts from 1.
+		heartbeatDetails       *commonpb.Payloads
+		workflowType           *WorkflowType
+		namespace              string
+		workerStopChannel      <-chan struct{}
+		contextPropagators     []ContextPropagator
+		client                 *WorkflowClient
+		priority               *commonpb.Priority
+		retryPolicy            *RetryPolicy
+		activityRunID          string
 	}
 
 	// context.WithValue need this type instead of basic type string to avoid lint error
@@ -367,20 +358,31 @@ func (a *activityEnvironmentInterceptor) ExecuteActivity(
 }
 
 func (a *activityEnvironmentInterceptor) GetInfo(ctx context.Context) ActivityInfo {
+	workflowNamespace := ""
+	if a.env.workflowExecution.ID != "" {
+		workflowNamespace = a.env.namespace
+	}
+
 	return ActivityInfo{
-		ActivityID:        a.env.activityID,
-		ActivityType:      a.env.activityType,
-		TaskToken:         a.env.taskToken,
-		WorkflowExecution: a.env.workflowExecution,
-		HeartbeatTimeout:  a.env.heartbeatTimeout,
-		Deadline:          a.env.deadline,
-		ScheduledTime:     a.env.scheduledTime,
-		StartedTime:       a.env.startedTime,
-		TaskQueue:         a.env.taskQueue,
-		Attempt:           a.env.attempt,
-		WorkflowType:      a.env.workflowType,
-		WorkflowNamespace: a.env.workflowNamespace,
-		IsLocalActivity:   a.env.isLocalActivity,
+		ActivityID:             a.env.activityID,
+		ActivityType:           a.env.activityType,
+		TaskToken:              a.env.taskToken,
+		WorkflowExecution:      a.env.workflowExecution,
+		HeartbeatTimeout:       a.env.heartbeatTimeout,
+		ScheduleToCloseTimeout: a.env.scheduleToCloseTimeout,
+		StartToCloseTimeout:    a.env.startToCloseTimeout,
+		Deadline:               a.env.deadline,
+		ScheduledTime:          a.env.scheduledTime,
+		StartedTime:            a.env.startedTime,
+		TaskQueue:              a.env.taskQueue,
+		Namespace:              a.env.namespace,
+		Attempt:                a.env.attempt,
+		WorkflowType:           a.env.workflowType,
+		WorkflowNamespace:      workflowNamespace,
+		IsLocalActivity:        a.env.isLocalActivity,
+		Priority:               convertFromPBPriority(a.env.priority),
+		RetryPolicy:            a.env.retryPolicy,
+		ActivityRunID:          a.env.activityRunID,
 	}
 }
 
@@ -425,6 +427,10 @@ func (a *activityEnvironmentInterceptor) GetHeartbeatDetails(ctx context.Context
 
 func (a *activityEnvironmentInterceptor) GetWorkerStopChannel(ctx context.Context) <-chan struct{} {
 	return a.env.workerStopChannel
+}
+
+func (a *activityEnvironmentInterceptor) GetClient(ctx context.Context) Client {
+	return a.env.client
 }
 
 // Needed so this can properly be considered an inbound interceptor

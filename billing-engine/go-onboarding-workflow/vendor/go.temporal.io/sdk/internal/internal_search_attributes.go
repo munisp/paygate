@@ -1,27 +1,3 @@
-// The MIT License
-//
-// Copyright (c) 2020 Temporal Technologies Inc.  All rights reserved.
-//
-// Copyright (c) 2020 Uber Technologies, Inc.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
 package internal
 
 import (
@@ -385,6 +361,8 @@ func (sa SearchAttributes) GetUntypedValues() map[SearchAttributeKey]interface{}
 }
 
 // Copy creates an update that copies existing values.
+//
+//workflowcheck:ignore
 func (sa SearchAttributes) Copy() SearchAttributeUpdate {
 	return func(s *SearchAttributes) {
 		// GetUntypedValues returns a copy of the map without nil values
@@ -438,6 +416,38 @@ func serializeTypedSearchAttributes(searchAttributes map[SearchAttributeKey]inte
 	return &commonpb.SearchAttributes{IndexedFields: serializedAttr}, nil
 }
 
+// sanitizeSearchAttributesForStart removes null or unset search attributes from
+// Start-like requests, even though workflow info may still contain them in the
+// current run.
+func sanitizeSearchAttributesForStart(attributes *commonpb.SearchAttributes) *commonpb.SearchAttributes {
+	indexedFields := attributes.GetIndexedFields()
+	if len(indexedFields) == 0 {
+		return attributes
+	}
+
+	var filteredAttributes map[string]*commonpb.Payload
+	for _, payload := range indexedFields {
+		if string(payload.GetMetadata()[converter.MetadataEncoding]) == converter.MetadataEncodingNil {
+			filteredAttributes = make(map[string]*commonpb.Payload, len(indexedFields)-1)
+			break
+		}
+	}
+	if filteredAttributes == nil {
+		return attributes
+	}
+
+	for key, payload := range indexedFields {
+		if string(payload.GetMetadata()[converter.MetadataEncoding]) == converter.MetadataEncodingNil {
+			continue
+		}
+		filteredAttributes[key] = payload
+	}
+	if len(filteredAttributes) == 0 {
+		return nil
+	}
+	return &commonpb.SearchAttributes{IndexedFields: filteredAttributes}
+}
+
 func serializeSearchAttributes(
 	untypedAttributes map[string]interface{},
 	typedAttributes SearchAttributes,
@@ -457,7 +467,7 @@ func serializeSearchAttributes(
 			return nil, err
 		}
 	}
-	return searchAttr, nil
+	return sanitizeSearchAttributesForStart(searchAttr), nil
 }
 
 func convertToTypedSearchAttributes(logger log.Logger, attributes map[string]*commonpb.Payload) SearchAttributes {
@@ -466,8 +476,9 @@ func convertToTypedSearchAttributes(logger log.Logger, attributes map[string]*co
 		if payload.Data == nil {
 			continue
 		}
-		valueType := enumspb.IndexedValueType(
-			enumspb.IndexedValueType_shorthandValue[string(payload.GetMetadata()["type"])])
+		// The type metadata is usually in PascalCase (e.g. "KeywordList") but in
+		// rare cases may be in SCREAMING_SNAKE_CASE (e.g. "INDEXED_VALUE_TYPE_KEYWORD_LIST").
+		valueType, _ := enumspb.IndexedValueTypeFromString(string(payload.GetMetadata()["type"]))
 		// For TemporalChangeVersion, we imply the value type
 		if valueType == 0 && key == TemporalChangeVersion {
 			valueType = enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST
