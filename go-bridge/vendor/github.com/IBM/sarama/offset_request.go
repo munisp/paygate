@@ -52,6 +52,32 @@ type OffsetRequest struct {
 	blocks         map[string]map[int32]*offsetRequestBlock
 }
 
+func NewOffsetRequest(version KafkaVersion) *OffsetRequest {
+	request := &OffsetRequest{}
+	if version.IsAtLeast(V2_2_0_0) {
+		// Version 5 adds a new error code, OFFSET_NOT_AVAILABLE.
+		request.Version = 5
+	} else if version.IsAtLeast(V2_1_0_0) {
+		// Version 4 adds the current leader epoch, which is used for fencing.
+		request.Version = 4
+	} else if version.IsAtLeast(V2_0_0_0) {
+		// Version 3 is the same as version 2.
+		request.Version = 3
+	} else if version.IsAtLeast(V0_11_0_0) {
+		// Version 2 adds the isolation level, which is used for transactional reads.
+		request.Version = 2
+	} else if version.IsAtLeast(V0_10_1_0) {
+		// Version 1 removes MaxNumOffsets.  From this version forward, only a single
+		// offset can be returned.
+		request.Version = 1
+	}
+	return request
+}
+
+func (r *OffsetRequest) setVersion(v int16) {
+	r.Version = v
+}
+
 func (r *OffsetRequest) encode(pe packetEncoder) error {
 	if r.isReplicaIDSet {
 		pe.putInt32(r.replicaID)
@@ -114,11 +140,14 @@ func (r *OffsetRequest) decode(pd packetDecoder, version int16) error {
 	if err != nil {
 		return err
 	}
+	if blockCount < 0 {
+		return errInvalidArrayLength
+	}
 	if blockCount == 0 {
 		return nil
 	}
 	r.blocks = make(map[string]map[int32]*offsetRequestBlock)
-	for i := 0; i < blockCount; i++ {
+	for range blockCount {
 		topic, err := pd.getString()
 		if err != nil {
 			return err
@@ -127,8 +156,11 @@ func (r *OffsetRequest) decode(pd packetDecoder, version int16) error {
 		if err != nil {
 			return err
 		}
+		if partitionCount < 0 {
+			return errInvalidArrayLength
+		}
 		r.blocks[topic] = make(map[int32]*offsetRequestBlock)
-		for j := 0; j < partitionCount; j++ {
+		for range partitionCount {
 			partition, err := pd.getInt32()
 			if err != nil {
 				return err
@@ -144,7 +176,7 @@ func (r *OffsetRequest) decode(pd packetDecoder, version int16) error {
 }
 
 func (r *OffsetRequest) key() int16 {
-	return 2
+	return apiKeyListOffsets
 }
 
 func (r *OffsetRequest) version() int16 {
@@ -156,11 +188,13 @@ func (r *OffsetRequest) headerVersion() int16 {
 }
 
 func (r *OffsetRequest) isValidVersion() bool {
-	return r.Version >= 0 && r.Version <= 4
+	return r.Version >= 0 && r.Version <= 5
 }
 
 func (r *OffsetRequest) requiredVersion() KafkaVersion {
 	switch r.Version {
+	case 5:
+		return V2_2_0_0
 	case 4:
 		return V2_1_0_0
 	case 3:

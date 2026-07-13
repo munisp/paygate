@@ -7,6 +7,10 @@ type AlterConfigsRequest struct {
 	ValidateOnly bool
 }
 
+func (a *AlterConfigsRequest) setVersion(v int16) {
+	a.Version = v
+}
+
 // AlterConfigsResource is an alter config resource type
 type AlterConfigsResource struct {
 	Type          ConfigResourceType
@@ -33,6 +37,9 @@ func (a *AlterConfigsRequest) decode(pd packetDecoder, version int16) error {
 	resourceCount, err := pd.getArrayLength()
 	if err != nil {
 		return err
+	}
+	if resourceCount < 0 {
+		return errInvalidArrayLength
 	}
 
 	a.Resources = make([]*AlterConfigsResource, resourceCount)
@@ -94,10 +101,13 @@ func (a *AlterConfigsResource) decode(pd packetDecoder, version int16) error {
 	if err != nil {
 		return err
 	}
+	if n < 0 {
+		return errInvalidArrayLength
+	}
 
 	if n > 0 {
 		a.ConfigEntries = make(map[string]*string, n)
-		for i := 0; i < n; i++ {
+		for range n {
 			configKey, err := pd.getString()
 			if err != nil {
 				return err
@@ -111,7 +121,7 @@ func (a *AlterConfigsResource) decode(pd packetDecoder, version int16) error {
 }
 
 func (a *AlterConfigsRequest) key() int16 {
-	return 33
+	return apiKeyAlterConfigs
 }
 
 func (a *AlterConfigsRequest) version() int16 {
