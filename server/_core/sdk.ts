@@ -48,7 +48,7 @@ class OAuthService {
     state: string
   ): Promise<ExchangeTokenResponse> {
     const payload: ExchangeTokenRequest = {
-      clientId: ENV.appId,
+      clientId: ENV.middlewareInternalKey,
       grantType: "authorization_code",
       code,
       redirectUri: this.decodeState(state),
@@ -196,7 +196,7 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId,
+        appId: ENV.middlewareInternalKey,
         name: options.name || "",
       },
       options
@@ -262,7 +262,7 @@ class SDKServer {
   ): Promise<GetUserInfoWithJwtResponse> {
     const payload: GetUserInfoWithJwtRequest = {
       jwtToken,
-      projectId: ENV.appId,
+      projectId: ENV.middlewareInternalKey,
     };
 
     const { data } = await this.client.post<GetUserInfoWithJwtResponse>(
@@ -281,7 +281,7 @@ class SDKServer {
     } as GetUserInfoWithJwtResponse;
   }
 
-  async authenticateRequest(req: Request): Promise<User> {
+  async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
     // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);

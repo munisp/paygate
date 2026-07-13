@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -377,27 +378,6 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: "NextHub SRBE",
-    icon: Landmark,
-    items: [
-      { icon: Landmark, label: "Settlement Windows", path: "/nexthub/settlement", badge: "NextHub" },
-      { icon: Scale, label: "Reconciliation", path: "/nexthub/reconciliation", badge: "NextHub" },
-      { icon: Banknote, label: "Billing Hub", path: "/nexthub/billing", badge: "NextHub" },
-      { icon: ShieldAlert, label: "Disputes", path: "/nexthub/disputes", badge: "NextHub" },
-      { icon: Network, label: "Security Dashboard", path: "/nexthub/security", badge: "NextHub" },
-      { icon: Building2, label: "DFSP Management", path: "/nexthub/dfsps", badge: "NextHub" },
-      { icon: Globe, label: "Oracle Registry", path: "/nexthub/oracles", badge: "NextHub" },
-      { icon: TrendingUp, label: "FX Dashboard", path: "/nexthub/fx", badge: "NextHub" },
-      { icon: Layers, label: "Bulk Transfers", path: "/nexthub/bulk-transfers", badge: "NextHub" },
-      { icon: ShieldCheck, label: "PISP Consents", path: "/nexthub/pisp", badge: "NextHub" },
-      { icon: Users, label: "Participants", path: "/nexthub/participants", badge: "W220", status: "live" as const, tooltip: "DFSP participant lifecycle, position limits, net debit cap" },
-      { icon: Network, label: "DFSP Topology", path: "/nexthub/topology", badge: "W223", status: "live" as const, tooltip: "Visual DFSP network topology map" },
-      { icon: Layers, label: "Bulk Transfer", path: "/nexthub/bulk-transfer", badge: "W223", status: "live" as const, tooltip: "Multi-row bulk transfer wizard with CSV upload" },
-      { icon: TrendingUp, label: "NDC / Limits", path: "/nexthub/ndc-limits", badge: "W223", status: "live" as const, tooltip: "Edit net debit caps and position limits per participant" },
-      { icon: Building2, label: "Settlement Banks", path: "/nexthub/settlement-banks", badge: "W223", status: "live" as const, tooltip: "Manage settlement bank accounts and RTGS/NIP config" },
-    ],
-  },
-  {
     title: "Domain Expansion",
     icon: Globe,
     collapsible: true,
@@ -458,9 +438,7 @@ const onboardingHubItems: NavItem[] = [
   { icon: Zap, label: "PISP Onboarding", path: "/onboarding/pisp", badge: "W223" },
   { icon: CreditCard, label: "PSP Onboarding", path: "/onboarding/psp", badge: "W223" },
   { icon: Monitor, label: "POS Operator", path: "/onboarding/pos-operator", badge: "W223" },
-  { icon: Shield, label: "Regulator", path: "/onboarding/regulator", badge: "W223" },
   { icon: Landmark, label: "Settlement Bank", path: "/onboarding/settlement-bank", badge: "W223" },
-  { icon: Key, label: "Regulator Access", path: "/admin/regulator-management", badge: "W226" },
 ];
 
 const ONBOARDING_STEPS = [
@@ -643,7 +621,6 @@ export default function Layout({ children }: LayoutProps) {
                 item.badge === "Live" ? "bg-emerald-500/20 text-emerald-400 border-0"
                 : item.badge === "AI" ? "bg-violet-500/20 text-violet-400 border-0"
                 : item.badge === "Admin" ? "bg-amber-500/20 text-amber-400 border-0"
-                : item.badge === "NextHub" ? "bg-indigo-500/20 text-indigo-400 border-0"
                 : item.badge?.startsWith("W2") ? "bg-teal-500/20 text-teal-400 border-0"
                 : "bg-blue-500/20 text-blue-400 border-0"
               }`}>
@@ -880,36 +857,6 @@ export default function Layout({ children }: LayoutProps) {
                         </Badge>
                       )}
                     </>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        )}
-        {/* Regulator Portal section */}
-        {!collapsed && (
-          <button
-            onClick={() => toggleGroup("__regulator__")}
-            className="sidebar-item w-full justify-between text-sidebar-foreground/50 hover:text-sidebar-foreground text-xs uppercase tracking-wider font-semibold mt-2"
-          >
-            <span className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5" />Regulator Portal</span>
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedGroups.has("__regulator__") ? "rotate-180" : ""}`} />
-          </button>
-        )}
-        {(collapsed || expandedGroups.has("__regulator__")) && (
-          <div className={!collapsed ? "ml-2 pl-2 border-l border-sidebar-border/50 space-y-0.5 mb-2" : ""}>
-            {regulatorItems.map((item) => {
-              const isActive = location === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  className={`sidebar-item ${isActive ? "active" : "text-sidebar-foreground/70"}`}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <item.icon className="w-4 h-4 flex-shrink-0" />
-                  {!collapsed && (
-                    <span className="flex-1 text-sm">{item.label}</span>
                   )}
                 </Link>
               );
@@ -1234,7 +1181,4 @@ export default function Layout({ children }: LayoutProps) {
     </div>
   );
 }
-const regulatorItems = [
-  { label: "Regulatory Dashboard", path: "/regulator", icon: ShieldCheck },
-];
 

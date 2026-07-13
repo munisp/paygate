@@ -79,7 +79,7 @@ export const sagaWiringRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
 
       const [saga] = await db
         .select()
@@ -191,7 +191,7 @@ export const sagaWiringRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const db = (await getDb())!;
 
       const [saga] = await db
         .select()

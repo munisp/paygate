@@ -125,10 +125,10 @@ export const usageMeteringRouter = router({
         .limit(1);
 
       // Default plan limits if not in DB
-      const defaultLimits: Record<string, { maxApiCalls: number; maxTxVolume: number; maxUsers: number; maxCorridors: number }> = {
-        starter: { maxApiCalls: 10_000, maxTxVolume: 1_000_000, maxUsers: 5, maxCorridors: 2 },
-        growth: { maxApiCalls: 100_000, maxTxVolume: 50_000_000, maxUsers: 25, maxCorridors: 10 },
-        enterprise: { maxApiCalls: 10_000_000, maxTxVolume: 1_000_000_000, maxUsers: 500, maxCorridors: 100 },
+      const defaultLimits: Record<string, { maxApiCallsPerMonth: number; maxTxVolumeUsdPerMonth: number; maxUsers: number; maxCorridors: number }> = {
+        starter: { maxApiCallsPerMonth: 10_000, maxTxVolumeUsdPerMonth: 1_000_000, maxUsers: 5, maxCorridors: 2 },
+        growth: { maxApiCallsPerMonth: 100_000, maxTxVolumeUsdPerMonth: 50_000_000, maxUsers: 25, maxCorridors: 10 },
+        enterprise: { maxApiCallsPerMonth: 10_000_000, maxTxVolumeUsdPerMonth: 1_000_000_000, maxUsers: 500, maxCorridors: 100 },
       };
       const limits = limitRows[0] ?? defaultLimits[plan] ?? defaultLimits.starter;
 

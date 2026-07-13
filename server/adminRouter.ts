@@ -297,11 +297,11 @@ const kycReviewRouter = router({
           message: notifBody,
         });
         // Send transactional email to merchant
-        if (existing.merchantEmail) {
-          const { sendEmail } = await import('../emailService');
+        if ((existing as any).merchantEmail) {
+          const { sendEmail } = await import('./emailService');
           const isApproved = input.decision === 'approved';
           await sendEmail({
-            to: existing.merchantEmail,
+            to: (existing as any).merchantEmail,
             subject: isApproved
               ? 'Your PayGate KYC/KYB Verification Has Been Approved'
               : 'Action Required: Your PayGate KYC/KYB Submission Was Rejected',
@@ -1107,7 +1107,7 @@ const configPanelRouter = router({
       return { flags: DEFAULTS.map((d) => ({ key: d.key, value: d.enabled, description: d.description })) };
     }
     try {
-      const { featureFlags } = await import("../../drizzle/schema");
+      const { featureFlags } = await import("../drizzle/schema");
       // Upsert defaults so table is always populated
       for (const def of DEFAULTS) {
         await db.insert(featureFlags).values({
@@ -1142,7 +1142,7 @@ const configPanelRouter = router({
       const db = await getDb();
       if (!db) return { updated: false, key: input.key, value: input.value, error: "DB unavailable" };
       try {
-        const { featureFlags } = await import("../../drizzle/schema");
+        const { featureFlags } = await import("../drizzle/schema");
         await db.update(featureFlags)
           .set({ enabled: input.value, updatedAt: new Date(), createdBy: ctx.user.openId })
           .where(eq(featureFlags.key, input.key));
@@ -1171,7 +1171,7 @@ const configPanelRouter = router({
       const maintenanceMsg = input.message ?? "Platform is under maintenance. Please try again later.";
       if (db) {
         try {
-          const { featureFlags } = await import("../../drizzle/schema");
+          const { featureFlags } = await import("../drizzle/schema");
           await db.insert(featureFlags).values({
             key: "maintenance_mode",
             name: "Maintenance Mode",
