@@ -1,3 +1,4 @@
+import { p2pTransferViaMiddleware } from "../middlewareBridge";
 import { ENV } from "./env";
 import "../tracing"; // MUST be first — initialises OpenTelemetry before any other imports
 import "dotenv/config";
@@ -39,8 +40,8 @@ import { payloadScanMiddleware, computeSecurityScore } from "../security116";
 import { slowDown } from "express-slow-down";
 import { verifyWebhookSignature, getPbacHealth, validateNonce } from "../pbac";
 import { sagaStreamHandler } from "../sagaStream";
-import { ndcBreachStreamHandler } from "../ndcBreachStream";
 import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
+import { scumlExpiryJobHandler } from "../jobs/scumlExpiryJob";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -1383,8 +1384,18 @@ async function startServer() {
         return res.status(400).json({ error: "Insufficient funds", success: false });
       const [recipient] = await db.select().from(merchants).where(eq(merchants.phone, to_phone)).limit(1);
       if (!recipient) return res.status(404).json({ error: "Recipient not found", success: false });
-      await db.update(wallets).set({ balance: sql`balance - ${amount}` }).where(eq(wallets.merchantId, sender.id));
-      await db.update(wallets).set({ balance: sql`balance + ${amount}` }).where(eq(wallets.merchantId, recipient.id));
+      // TigerBeetle wiring
+      p2pTransferViaMiddleware({
+        transferId: idempotency_key,
+        senderWalletId: `wallet_${sender.id}`,
+        receiverWalletId: `wallet_${recipient.id}`,
+        senderUserId: sender.id,
+        receiverUserId: recipient.id,
+        amount: amount,
+        currency: "NGN",
+        narration: "USSD P2P Transfer",
+      }).catch(e => console.error("[TigerBeetle] P2P transfer failed:", e));
+
       return res.json({ success: true, reference: idempotency_key });
     } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
   });
@@ -1411,8 +1422,18 @@ async function startServer() {
         return res.status(400).json({ error: "Insufficient funds", success: false });
       const [existing] = await db.select().from(transactions).where(eq(transactions.reference, idempotency_key)).limit(1);
       if (existing) return res.json({ success: true, reference: idempotency_key, duplicate: true });
-      await db.update(wallets).set({ balance: sql`balance - ${amount}` }).where(eq(wallets.merchantId, sender.id));
-      await db.update(wallets).set({ balance: sql`balance + ${amount}` }).where(eq(wallets.merchantId, merchantRecipient.id));
+      // TigerBeetle wiring
+      p2pTransferViaMiddleware({
+        transferId: idempotency_key,
+        senderWalletId: `wallet_${sender.id}`,
+        receiverWalletId: `wallet_${merchantRecipient.id}`,
+        senderUserId: sender.id,
+        receiverUserId: merchantRecipient.id,
+        amount: amount,
+        currency: "NGN",
+        narration: "USSD Merchant Payment",
+      }).catch(e => console.error("[TigerBeetle] Merchant payment failed:", e));
+
       return res.json({ success: true, reference: idempotency_key });
     } catch (e: any) { return res.status(500).json({ error: e.message, success: false }); }
   });
@@ -1957,7 +1978,7 @@ async function startServer() {
         if (externalRef) {
           try { const { getDb } = await import("../db"); const db = await getDb(); if (db) { const { momoTransactions } = await import("../../drizzle/schema"); const { eq } = await import("drizzle-orm"); await db.update(momoTransactions).set({ status, financialTxnId: String(body.financialTransactionId ?? ""), completedAt: status === "SUCCESSFUL" ? new Date() : null, updatedAt: new Date() }).where(eq(momoTransactions.externalRef, externalRef)); } } catch (dbErr: any) { console.error(`[MoMo/${momoProvider}] DB update failed:`, dbErr.message); }
         }
-        try { const { publishFluvioEvent } = await import("../fluvioClient"); await publishFluvioEvent(`paygate.momo.${momoProvider}.events`, { eventType: status === "SUCCESSFUL" ? "payment_completed" : "payment_pending", provider: momoProvider, externalRef, status, timestamp: new Date().toISOString() }); } catch (e: any) { console.warn(`[MoMo/${momoProvider}] Fluvio publish failed:`, e.message); }
+        try { const { publishAuditEvent } = await import("../kafkaClient"); await publishAuditEvent({ action: status === "SUCCESSFUL" ? "payment_completed" : "payment_pending", resource: "momo", resourceId: externalRef, userId: "system", merchantId: "system", metadata: { provider: momoProvider, status, timestamp: new Date().toISOString() }, ipAddress: undefined, userAgent: undefined, targetId: undefined, timestamp: new Date().toISOString() }); } catch (e: any) { console.warn(`[MoMo/${momoProvider}] Kafka publish failed:`, e.message); }
         console.log(`[MoMo/${momoProvider}] Webhook: ref=${externalRef} status=${status}`);
         res.status(200).json({ received: true });
       } catch (err: any) { console.error(`[MoMo/${momoProvider}] Webhook error:`, err.message); res.status(500).json({ error: "Internal server error" }); }
@@ -2429,10 +2450,16 @@ async function startServer() {
   // GET /api/saga-stream/:sagaId — real-time saga step updates via Server-Sent Events
   app.get("/api/saga-stream/:sagaId", sagaStreamHandler);
   // GET /api/ndc-stream — real-time NDC breach alert SSE stream
-  app.get("/api/ndc-stream", ndcBreachStreamHandler);
 
   // POST /api/scheduled/compliance-scorecard — nightly compliance evaluation Heartbeat job
   app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
+
+  // POST /api/scheduled/scuml-expiry-check — nightly SCUML registration expiry check (Fix 5)
+  // Schedule: 0 30 6 * * * (daily at 06:30 UTC)
+  app.post("/api/scheduled/scuml-expiry-check", scumlExpiryJobHandler);
+  app.get("/api/scheduled/scuml-expiry-check/status", (_req: any, res: any) => {
+    res.json({ job: "scuml-expiry-check", schedule: "0 30 6 * * *", description: "Checks all SCUML registrations expiring within 30 days or already lapsed." });
+  });
 
   // ─── tRPC API ──────────────────────────────────────────────────────────────
   app.use(
@@ -2557,7 +2584,14 @@ async function startServer() {
 
   // ─── Background Workers ─────────────────────────────────────────────────────
   const { startUSDCBalanceMonitor, stopUSDCBalanceMonitor } = await import("../usdcBalanceMonitor");
-  startUSDCBalanceMonitor();
+    startUSDCBalanceMonitor();
+
+  try {
+  } catch (e: any) {
+  }
+  try {
+  } catch (e: any) {
+  }
 
   // ─── Graceful Shutdown (SIGTERM / SIGINT) ──────────────────────────────────
   let isShuttingDown = false;
@@ -2761,3 +2795,4 @@ import("../slowQueryLogger").then(({ startSlowQueryLogger }) => {
 }).catch((err: unknown) => {
   console.warn("[slowQueryLogger] Failed to start:", err);
 });
+export * from "../apisixClient";

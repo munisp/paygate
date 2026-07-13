@@ -22,18 +22,49 @@ import (
 
 // partition_responses in protocol
 type ProduceResponseBlock struct {
-	Err         KError    // v0, error_code
-	Offset      int64     // v0, base_offset
-	Timestamp   time.Time // v2, log_append_time, and the broker is configured with `LogAppendTime`
-	StartOffset int64     // v5, log_start_offset
+	Err          KError                       // v0, error_code
+	Offset       int64                        // v0, base_offset
+	Timestamp    time.Time                    // v2, log_append_time, and the broker is configured with `LogAppendTime`
+	StartOffset  int64                        // v5, log_start_offset
+	RecordErrors []ProduceResponseRecordError // v8, record_errors (KIP-467)
+	ErrorMessage *string                      // v8, error_message (KIP-467)
+}
+
+// ProduceResponseRecordError identifies a record within a produced batch that
+// caused the whole batch to be dropped, along with the per-record error
+// message. Added in Produce response v8 (KIP-467).
+type ProduceResponseRecordError struct {
+	BatchIndex             int32   // v8, batch_index
+	BatchIndexErrorMessage *string // v8, batch_index_error_message (nullable)
+}
+
+func (p *ProduceResponseRecordError) encode(pe packetEncoder) error {
+	pe.putInt32(p.BatchIndex)
+	if err := pe.putNullableString(p.BatchIndexErrorMessage); err != nil {
+		return err
+	}
+	pe.putEmptyTaggedFieldArray()
+	return nil
+}
+
+func (p *ProduceResponseRecordError) decode(pd packetDecoder) (err error) {
+	if p.BatchIndex, err = pd.getInt32(); err != nil {
+		return err
+	}
+	if p.BatchIndexErrorMessage, err = pd.getNullableString(); err != nil {
+		return err
+	}
+	if _, err := pd.getEmptyTaggedFieldArray(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (b *ProduceResponseBlock) decode(pd packetDecoder, version int16) (err error) {
-	tmp, err := pd.getInt16()
+	b.Err, err = pd.getKError()
 	if err != nil {
 		return err
 	}
-	b.Err = KError(tmp)
 
 	b.Offset, err = pd.getInt64()
 	if err != nil {
@@ -55,11 +86,36 @@ func (b *ProduceResponseBlock) decode(pd packetDecoder, version int16) (err erro
 		}
 	}
 
+	if version >= 8 {
+		numRecordErrors, err := pd.getArrayLength()
+		if err != nil {
+			return err
+		}
+		if numRecordErrors < 0 {
+			return errInvalidArrayLength
+		}
+		if numRecordErrors > 0 {
+			b.RecordErrors = make([]ProduceResponseRecordError, numRecordErrors)
+			for i := range b.RecordErrors {
+				if err := b.RecordErrors[i].decode(pd); err != nil {
+					return err
+				}
+			}
+		}
+		if b.ErrorMessage, err = pd.getNullableString(); err != nil {
+			return err
+		}
+	}
+
+	if _, err := pd.getEmptyTaggedFieldArray(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (b *ProduceResponseBlock) encode(pe packetEncoder, version int16) (err error) {
-	pe.putInt16(int16(b.Err))
+	pe.putKError(b.Err)
 	pe.putInt64(b.Offset)
 
 	if version >= 2 {
@@ -76,6 +132,22 @@ func (b *ProduceResponseBlock) encode(pe packetEncoder, version int16) (err erro
 		pe.putInt64(b.StartOffset)
 	}
 
+	if version >= 8 {
+		if err = pe.putArrayLength(len(b.RecordErrors)); err != nil {
+			return err
+		}
+		for i := range b.RecordErrors {
+			if err = b.RecordErrors[i].encode(pe); err != nil {
+				return err
+			}
+		}
+		if err = pe.putNullableString(b.ErrorMessage); err != nil {
+			return err
+		}
+	}
+
+	pe.putEmptyTaggedFieldArray()
+
 	return nil
 }
 
@@ -85,6 +157,10 @@ type ProduceResponse struct {
 	ThrottleTime time.Duration // v1, throttle_time_ms
 }
 
+func (r *ProduceResponse) setVersion(v int16) {
+	r.Version = v
+}
+
 func (r *ProduceResponse) decode(pd packetDecoder, version int16) (err error) {
 	r.Version = version
 
@@ -92,9 +168,12 @@ func (r *ProduceResponse) decode(pd packetDecoder, version int16) (err error) {
 	if err != nil {
 		return err
 	}
+	if numTopics < 0 {
+		return errInvalidArrayLength
+	}
 
 	r.Blocks = make(map[string]map[int32]*ProduceResponseBlock, numTopics)
-	for i := 0; i < numTopics; i++ {
+	for range numTopics {
 		name, err := pd.getString()
 		if err != nil {
 			return err
@@ -104,10 +183,13 @@ func (r *ProduceResponse) decode(pd packetDecoder, version int16) (err error) {
 		if err != nil {
 			return err
 		}
+		if numBlocks < 0 {
+			return errInvalidArrayLength
+		}
 
 		r.Blocks[name] = make(map[int32]*ProduceResponseBlock, numBlocks)
 
-		for j := 0; j < numBlocks; j++ {
+		for range numBlocks {
 			id, err := pd.getInt32()
 			if err != nil {
 				return err
@@ -120,18 +202,20 @@ func (r *ProduceResponse) decode(pd packetDecoder, version int16) (err error) {
 			}
 			r.Blocks[name][id] = block
 		}
+
+		if _, err := pd.getEmptyTaggedFieldArray(); err != nil {
+			return err
+		}
 	}
 
 	if r.Version >= 1 {
-		millis, err := pd.getInt32()
-		if err != nil {
+		if r.ThrottleTime, err = pd.getDurationMs(); err != nil {
 			return err
 		}
-
-		r.ThrottleTime = time.Duration(millis) * time.Millisecond
 	}
 
-	return nil
+	_, err = pd.getEmptyTaggedFieldArray()
+	return err
 }
 
 func (r *ProduceResponse) encode(pe packetEncoder) error {
@@ -155,16 +239,18 @@ func (r *ProduceResponse) encode(pe packetEncoder) error {
 				return err
 			}
 		}
+		pe.putEmptyTaggedFieldArray()
 	}
 
 	if r.Version >= 1 {
-		pe.putInt32(int32(r.ThrottleTime / time.Millisecond))
+		pe.putDurationMs(r.ThrottleTime)
 	}
+	pe.putEmptyTaggedFieldArray()
 	return nil
 }
 
 func (r *ProduceResponse) key() int16 {
-	return 0
+	return apiKeyProduce
 }
 
 func (r *ProduceResponse) version() int16 {
@@ -172,15 +258,30 @@ func (r *ProduceResponse) version() int16 {
 }
 
 func (r *ProduceResponse) headerVersion() int16 {
+	if r.Version >= 9 {
+		return 1
+	}
 	return 0
 }
 
+func (r *ProduceResponse) isFlexible() bool {
+	return r.isFlexibleVersion(r.Version)
+}
+
+func (r *ProduceResponse) isFlexibleVersion(version int16) bool {
+	return version >= 9
+}
+
 func (r *ProduceResponse) isValidVersion() bool {
-	return r.Version >= 0 && r.Version <= 7
+	return r.Version >= 0 && r.Version <= 9
 }
 
 func (r *ProduceResponse) requiredVersion() KafkaVersion {
 	switch r.Version {
+	case 9:
+		return V2_8_0_0
+	case 8:
+		return V2_4_0_0
 	case 7:
 		return V2_1_0_0
 	case 6:

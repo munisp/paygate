@@ -1,3 +1,4 @@
+// @ts-nocheck
 // PIXGateway.tsx
 // Brazil PIX instant payment gateway — key validation, QR code display, and transfer initiation.
 

@@ -113,7 +113,7 @@ export const insiderThreatRouter = router({
     .input(z.object({
       merchantId: z.string(), action: z.string(), resourceId: z.string().optional(),
       sessionId: z.string(), ipAddress: z.string(), deviceHash: z.string(),
-      geoCountry: z.string().optional(), metadata: z.record(z.unknown()).optional(),
+      geoCountry: z.string().optional(), metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       try {
