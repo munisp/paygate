@@ -16,19 +16,22 @@ github.com/golang/mock/gomock
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
-# github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
-## explicit; go 1.14
-github.com/grpc-ecosystem/go-grpc-middleware/retry
-github.com/grpc-ecosystem/go-grpc-middleware/util/backoffutils
-github.com/grpc-ecosystem/go-grpc-middleware/util/metautils
-# github.com/grpc-ecosystem/grpc-gateway/v2 v2.19.1
-## explicit; go 1.19
+# github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
+## explicit; go 1.23.0
+github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/retry
+github.com/grpc-ecosystem/go-grpc-middleware/v2/metadata
+github.com/grpc-ecosystem/go-grpc-middleware/v2/util/backoffutils
+# github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0
+## explicit; go 1.21
 github.com/grpc-ecosystem/grpc-gateway/v2/internal/httprule
 github.com/grpc-ecosystem/grpc-gateway/v2/runtime
 github.com/grpc-ecosystem/grpc-gateway/v2/utilities
-# github.com/pborman/uuid v1.2.1
-## explicit
-github.com/pborman/uuid
+# github.com/nexus-rpc/nexus-proto-annotations v0.1.0
+## explicit; go 1.25.4
+github.com/nexus-rpc/nexus-proto-annotations/go/nexusannotations/v1
+# github.com/nexus-rpc/sdk-go v0.6.0
+## explicit; go 1.23
+github.com/nexus-rpc/sdk-go/nexus
 # github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 ## explicit
 github.com/pmezard/go-difflib/difflib
@@ -43,13 +46,19 @@ github.com/stretchr/objx
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
 github.com/stretchr/testify/mock
-# go.temporal.io/api v1.32.0
-## explicit; go 1.20
+github.com/stretchr/testify/require
+# go.temporal.io/api v1.63.0
+## explicit; go 1.25.4
+go.temporal.io/api/activity/v1
 go.temporal.io/api/batch/v1
+go.temporal.io/api/callback/v1
 go.temporal.io/api/command/v1
 go.temporal.io/api/common/v1
+go.temporal.io/api/compute/v1
+go.temporal.io/api/deployment/v1
 go.temporal.io/api/enums/v1
 go.temporal.io/api/errordetails/v1
+go.temporal.io/api/export/v1
 go.temporal.io/api/failure/v1
 go.temporal.io/api/filter/v1
 go.temporal.io/api/history/v1
@@ -63,11 +72,14 @@ go.temporal.io/api/internal/protojson/strs
 go.temporal.io/api/internal/strcase
 go.temporal.io/api/namespace/v1
 go.temporal.io/api/nexus/v1
+go.temporal.io/api/nexusservices/workerservice/v1
 go.temporal.io/api/operatorservice/v1
 go.temporal.io/api/protocol/v1
+go.temporal.io/api/protometa/v1
 go.temporal.io/api/proxy
 go.temporal.io/api/query/v1
 go.temporal.io/api/replication/v1
+go.temporal.io/api/rules/v1
 go.temporal.io/api/schedule/v1
 go.temporal.io/api/sdk/v1
 go.temporal.io/api/serviceerror
@@ -75,11 +87,12 @@ go.temporal.io/api/taskqueue/v1
 go.temporal.io/api/temporalproto
 go.temporal.io/api/update/v1
 go.temporal.io/api/version/v1
+go.temporal.io/api/worker/v1
 go.temporal.io/api/workflow/v1
 go.temporal.io/api/workflowservice/v1
 go.temporal.io/api/workflowservicemock/v1
-# go.temporal.io/sdk v1.26.1
-## explicit; go 1.20
+# go.temporal.io/sdk v1.46.0
+## explicit; go 1.25.4
 go.temporal.io/sdk/converter
 go.temporal.io/sdk/internal
 go.temporal.io/sdk/internal/common/backoff
@@ -88,15 +101,12 @@ go.temporal.io/sdk/internal/common/metrics
 go.temporal.io/sdk/internal/common/retry
 go.temporal.io/sdk/internal/common/serializer
 go.temporal.io/sdk/internal/common/util
+go.temporal.io/sdk/internal/extstore
 go.temporal.io/sdk/internal/log
 go.temporal.io/sdk/internal/protocol
 go.temporal.io/sdk/log
 go.temporal.io/sdk/temporal
 go.temporal.io/sdk/workflow
-# golang.org/x/exp v0.0.0-20231127185646-65229373498e
-## explicit; go 1.20
-golang.org/x/exp/constraints
-golang.org/x/exp/slices
 # golang.org/x/net v0.57.0
 ## explicit; go 1.25.0
 golang.org/x/net/http/httpguts
@@ -107,6 +117,10 @@ golang.org/x/net/internal/httpcommon
 golang.org/x/net/internal/httpsfv
 golang.org/x/net/internal/timeseries
 golang.org/x/net/trace
+# golang.org/x/sync v0.22.0
+## explicit; go 1.25.0
+golang.org/x/sync/errgroup
+golang.org/x/sync/semaphore
 # golang.org/x/sys v0.47.0
 ## explicit; go 1.25.0
 golang.org/x/sys/unix
@@ -147,6 +161,7 @@ google.golang.org/grpc/connectivity
 google.golang.org/grpc/credentials
 google.golang.org/grpc/credentials/insecure
 google.golang.org/grpc/encoding
+google.golang.org/grpc/encoding/gzip
 google.golang.org/grpc/encoding/internal
 google.golang.org/grpc/encoding/proto
 google.golang.org/grpc/experimental/balancer/weight

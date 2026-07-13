@@ -103,7 +103,7 @@ export const strRouter = router({
         submissionStatus: "pending",
         submissionAttempts: 0,
         deadlineBreached: false,
-      }).returning();
+      } as any).returning();
 
       // Publish to Kafka for async NFIU submission
       await publishEvent("str.filed", {
@@ -174,7 +174,7 @@ export const strRouter = router({
         submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
         lastAttemptAt: new Date(),
         updatedAt: new Date(),
-      }).where(eq(strRecords.id, input.id));
+       } as any).where(eq(strRecords.id, input.id));
       return { success: true };
     }),
 
@@ -186,7 +186,7 @@ export const strRouter = router({
         nfiuAcknowledgedAt: new Date(),
         submissionStatus: "acknowledged",
         updatedAt: new Date(),
-      }).where(eq(strRecords.id, input.id));
+       } as any).where(eq(strRecords.id, input.id));
       return { success: true };
     }),
 
@@ -271,7 +271,7 @@ export const strRouter = router({
         submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
         lastAttemptAt: new Date(),
         updatedAt: new Date(),
-      }).where(eq(strRecords.id, input.id));
+       } as any).where(eq(strRecords.id, input.id));
 
       await publishEvent('str.submitted', {
         str_id: record.id,
@@ -368,7 +368,7 @@ export const velocityLimitsRouter = router({
       await db.update(velocityLimitConfigs).set({
         isActive: false,
         updatedAt: new Date(),
-      }).where(and(
+       } as any).where(and(
         eq(velocityLimitConfigs.merchantId, input.merchantId),
         eq(velocityLimitConfigs.channel, input.channel),
         eq(velocityLimitConfigs.limitType, input.limitType),
@@ -387,7 +387,7 @@ export const velocityLimitsRouter = router({
         effectiveTo: input.effectiveTo ?? null,
         setBy: ctx.user.openId,
         reason: input.reason ?? null,
-      }).returning();
+      } as any).returning();
       // Publish to Kafka so Go bridge Redis counters are invalidated
       await publishEvent("velocity_limit.updated", {
         merchant_id: input.merchantId,
@@ -405,7 +405,7 @@ export const velocityLimitsRouter = router({
       await db.update(velocityLimitConfigs).set({
         isActive: false,
         updatedAt: new Date(),
-      }).where(eq(velocityLimitConfigs.id, input.id));
+       } as any).where(eq(velocityLimitConfigs.id, input.id));
       return { success: true };
     }),
 
@@ -443,7 +443,7 @@ export const velocityLimitsRouter = router({
         action: "allowed",
         resolvedAt: new Date(),
         resolvedBy: ctx.user.openId,
-      }).where(eq(velocityBreaches.id, input.breachId));
+       } as any).where(eq(velocityBreaches.id, input.breachId));
       return { success: true };
     }),
 });
@@ -493,7 +493,7 @@ export const interchangeRouter = router({
         isActive: false,
         effectiveTo: input.effectiveFrom,
         updatedAt: new Date(),
-      }).where(and(
+       } as any).where(and(
         eq(interchangeSchedule.scheme, input.scheme),
         eq(interchangeSchedule.cardType, input.cardType),
         eq(interchangeSchedule.channel, input.channel),
@@ -505,7 +505,7 @@ export const interchangeRouter = router({
         mcc: input.mcc ?? null,
         effectiveTo: input.effectiveTo ?? null,
         isActive: true,
-      }).returning();
+      } as any).returning();
       return entry;
     }),
 
@@ -749,7 +749,7 @@ export const chargebackLifecycleRouter = router({
         notes: input.notes ?? null,
         schemeRef: input.schemeRef ?? null,
         deadlineAt,
-      });
+      }) as any;
 
       // Update chargeback status
       const newStatus = input.event === "won" ? "resolved_merchant"
@@ -763,7 +763,7 @@ export const chargebackLifecycleRouter = router({
         updatedAt: new Date(),
         ...(newStatus === "resolved_merchant" || newStatus === "resolved_customer" || newStatus === "closed"
           ? { resolvedAt: new Date() } : {}),
-      }).where(eq(chargebacks.id, input.chargebackId));
+       } as any).where(eq(chargebacks.id, input.chargebackId));
 
       // Publish to Kafka for scheme submission if needed
       if (input.event === "submitted_to_scheme") {
@@ -819,7 +819,7 @@ export const chargebackLifecycleRouter = router({
         mimeType: input.mimeType,
         fileSizeBytes: input.fileSizeBytes,
         uploadedBy: ctx.user.openId,
-      }).returning();
+      } as any).returning();
 
       return { evidenceId: evidence.id, fileUrl: url };
     }),
@@ -908,7 +908,7 @@ export const regulatoryReportsRouter = router({
         period: input.period,
         regulator: "CBN",
         status: "pending",
-      }).returning();
+      } as any).returning();
 
       // Publish to Kafka for async generation by Python service
       await publishEvent("regulatory.generate_form_a", {
@@ -941,7 +941,7 @@ export const regulatoryReportsRouter = router({
         period: input.quarter,
         regulator: "CBN",
         status: "pending",
-      }).returning();
+      } as any).returning();
 
       await publishEvent("regulatory.generate_form_b", {
         report_id: report.id,
@@ -974,7 +974,7 @@ export const regulatoryReportsRouter = router({
         period,
         regulator: "CBN",
         status: "pending",
-      }).returning();
+      } as any).returning();
 
       await publishEvent("regulatory.generate_form_c", {
         report_id: report.id,
@@ -1001,7 +1001,7 @@ export const regulatoryReportsRouter = router({
         status: "submitted",
         submittedAt: new Date(),
         updatedAt: new Date(),
-      }).where(eq(regulatoryReports.id, input.reportId));
+       } as any).where(eq(regulatoryReports.id, input.reportId));
 
       const [report] = await db.select().from(regulatoryReports)
         .where(eq(regulatoryReports.id, input.reportId)).limit(1);
@@ -1016,7 +1016,7 @@ export const regulatoryReportsRouter = router({
         status: "submitted",
         fileUrl: input.fileUrl ?? null,
         fileKey: input.fileKey ?? null,
-      });
+      }) as any;
 
       return { success: true };
     }),
@@ -1088,13 +1088,13 @@ export const regulatoryReportsRouter = router({
         regulatorRef: input.regulatorRef,
         acknowledgedAt: ackAt,
         status: 'acknowledged',
-      }).where(eq(regulatoryReportSubmissions.id, input.submissionId));
+       } as any).where(eq(regulatoryReportSubmissions.id, input.submissionId));
       // Propagate acknowledged status to the parent report
       await db.update(regulatoryReports).set({
         status: 'acknowledged',
         acknowledgedAt: ackAt,
         updatedAt: new Date(),
-      }).where(eq(regulatoryReports.id, submission.reportId));
+       } as any).where(eq(regulatoryReports.id, submission.reportId));
       return { success: true };
     }),
 

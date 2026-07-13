@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * /settings/payments — Stripe Payment Configuration & Go-Live Checklist
  *

@@ -8,12 +8,13 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"io"
+
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/operatorservice/v1"
 	"go.temporal.io/api/workflowservice/v1"
-	"io"
 
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/internal"
@@ -218,11 +219,64 @@ type (
 	// ConnectionOptions are optional parameters that can be specified in ClientOptions
 	ConnectionOptions = internal.ConnectionOptions
 
+	// GrpcCompression controls gRPC compression for connections to the Temporal server.
+	GrpcCompression = internal.GrpcCompression
+
+	// GrpcCompressionGzip compresses outbound gRPC request bodies with gzip and
+	// accepts gzip-compressed responses. This is the default. If a specific
+	// server RPC does not support gzip, the client may retry that RPC without
+	// compression and continue using gzip for other RPCs.
+	GrpcCompressionGzip = internal.GrpcCompressionGzip
+
+	// GrpcCompressionNone disables gRPC request compression.
+	GrpcCompressionNone = internal.GrpcCompressionNone
+
 	// Credentials are optional credentials that can be specified in ClientOptions.
 	Credentials = internal.Credentials
 
+	// PayloadLimitOptions are optional payload size limits that can be specified in ClientOptions.
+	//
+	// NOTE: Experimental
+	PayloadLimitOptions = internal.PayloadLimitOptions
+
 	// StartWorkflowOptions configuration parameters for starting a workflow execution.
 	StartWorkflowOptions = internal.StartWorkflowOptions
+
+	// CompleteActivityByIDOptions provides options for CompleteActivityByIDWithOptions.
+	//
+	// ActivityType, WorkflowType, and TaskQueue values are not validated by the SDK.
+	// Providing incorrect values may cause serialization/deserialization mismatches
+	// if your codec uses them, for example, as encryption keys or signature input.
+	CompleteActivityByIDOptions = internal.CompleteActivityByIDOptions
+
+	// RecordActivityHeartbeatByIDOptions provides options for RecordActivityHeartbeatByIDWithOptions.
+	//
+	// ActivityType, WorkflowType, and TaskQueue values are not validated by the SDK.
+	// Providing incorrect values may cause serialization/deserialization mismatches
+	// if your codec uses them, for example, as encryption keys or signature input.
+	RecordActivityHeartbeatByIDOptions = internal.RecordActivityHeartbeatByIDOptions
+
+	// CompleteActivityOptions provides options for CompleteActivityWithOptions.
+	//
+	// Serialization context values are not validated by the SDK. Providing
+	// incorrect values may cause serialization/deserialization mismatches if your
+	// codec uses them, for example, as encryption keys or signature input.
+	CompleteActivityOptions = internal.CompleteActivityOptions
+
+	// CompleteActivityByActivityIDOptions provides options for CompleteActivityByActivityIDWithOptions.
+	//
+	// WorkflowID, ActivityType, WorkflowType, and TaskQueue values are not validated
+	// by the SDK. Providing incorrect values may cause serialization/deserialization
+	// mismatches if your codec uses them, for example, as encryption keys or
+	// signature input.
+	CompleteActivityByActivityIDOptions = internal.CompleteActivityByActivityIDOptions
+
+	// RecordActivityHeartbeatOptions provides options for RecordActivityHeartbeatWithOptions.
+	//
+	// Serialization context values are not validated by the SDK. Providing
+	// incorrect values may cause serialization/deserialization mismatches if your
+	// codec uses them, for example, as encryption keys or signature input.
+	RecordActivityHeartbeatOptions = internal.RecordActivityHeartbeatOptions
 
 	// WithStartWorkflowOperation defines how to start a workflow when using UpdateWithStartWorkflow.
 	// See [client.Client.NewWithStartWorkflowOperation] and [client.Client.UpdateWithStartWorkflow].
@@ -464,7 +518,7 @@ type (
 	// NOTE: Experimental
 	WorkerDeploymentHandle = internal.WorkerDeploymentHandle
 
-	// DeploymentListOptions are the parameters for configuring listing Worker Deployments.
+	// WorkerDeploymentListOptions are the parameters for configuring listing Worker Deployments.
 	//
 	// NOTE: Experimental
 	WorkerDeploymentListOptions = internal.WorkerDeploymentListOptions
@@ -629,6 +683,13 @@ type (
 	// NOTE: Experimental
 	AutoUpgradeVersioningOverride = internal.AutoUpgradeVersioningOverride
 
+	// OneTimeVersioningOverride routes the workflow to a specific deployment version until one
+	// workflow task completes there. After that workflow task completes, the override is cleared and
+	// the workflow follows the versioning behavior reported by the worker.
+	//
+	// NOTE: Experimental
+	OneTimeVersioningOverride = internal.OneTimeVersioningOverride
+
 	// WorkflowUpdateHandle represents a running or completed workflow
 	// execution update and gives the holder access to the outcome of the same.
 	WorkflowUpdateHandle = internal.WorkflowUpdateHandle
@@ -781,7 +842,7 @@ type (
 	// WARNING: Worker versioning is currently experimental.
 	VersioningAssignmentRuleWithTimestamp = internal.VersioningAssignmentRuleWithTimestamp //lint:ignore SA1019 transitioning to Worker Deployments
 
-	// VersioningAssignmentRule is a BuildID redirect rule for a task queue.
+	// VersioningRedirectRule is a BuildID redirect rule for a task queue.
 	// It changes the behavior of currently running workflows and new ones.
 	//
 	// Deprecated: Build-id based versioning is deprecated in favor of worker deployment based versioning and will be removed soon.
@@ -969,6 +1030,92 @@ type (
 	// NOTE: Experimental
 	TerminateActivityOptions = internal.ClientTerminateActivityOptions
 
+	// StartNexusOperationOptions contains configuration parameters for starting a Nexus operation execution.
+	//
+	// NOTE: Experimental
+	StartNexusOperationOptions = internal.ClientStartNexusOperationOptions
+
+	// NexusClientOptions contains options for creating a NexusClient.
+	//
+	// NOTE: Experimental
+	NexusClientOptions = internal.ClientNexusClientOptions
+
+	// NexusClient is the client for starting Nexus operations bound to a specific endpoint and service.
+	// This is for standalone Nexus operations outside of workflow context.
+	// For Nexus operations within workflows, use workflow.NexusClient.
+	//
+	// NOTE: Experimental
+	NexusClient = internal.ClientNexusClient
+
+	// NexusOperationHandle represents a running or completed standalone Nexus operation execution.
+	// It can be used to get the result, describe, cancel, or terminate the operation.
+	//
+	// NOTE: Experimental
+	NexusOperationHandle = internal.ClientNexusOperationHandle
+
+	// NexusOperationMetadata contains information about a Nexus operation execution.
+	// This is returned by ListNexusOperations and embedded in NexusOperationExecutionDescription.
+	//
+	// NOTE: Experimental
+	NexusOperationMetadata = internal.ClientNexusOperationMetadata
+
+	// NexusOperationExecutionDescription contains detailed information about a Nexus operation execution.
+	// This is returned by NexusOperationHandle.Describe.
+	//
+	// NOTE: Experimental
+	NexusOperationExecutionDescription = internal.ClientNexusOperationExecutionDescription
+
+	// NexusOperationCancellationInfo contains cancellation information for a Nexus operation.
+	//
+	// NOTE: Experimental
+	NexusOperationCancellationInfo = internal.ClientNexusOperationCancellationInfo
+
+	// DescribeNexusOperationOptions contains options for NexusOperationHandle.Describe call.
+	//
+	// NOTE: Experimental
+	DescribeNexusOperationOptions = internal.ClientDescribeNexusOperationOptions
+
+	// CancelNexusOperationOptions contains options for NexusOperationHandle.Cancel call.
+	//
+	// NOTE: Experimental
+	CancelNexusOperationOptions = internal.ClientCancelNexusOperationOptions
+
+	// TerminateNexusOperationOptions contains options for NexusOperationHandle.Terminate call.
+	//
+	// NOTE: Experimental
+	TerminateNexusOperationOptions = internal.ClientTerminateNexusOperationOptions
+
+	// ListNexusOperationsOptions contains input for ListNexusOperations call.
+	//
+	// NOTE: Experimental
+	ListNexusOperationsOptions = internal.ClientListNexusOperationsOptions
+
+	// CountNexusOperationsOptions contains input for CountNexusOperations call.
+	//
+	// NOTE: Experimental
+	CountNexusOperationsOptions = internal.ClientCountNexusOperationsOptions
+
+	// CountNexusOperationsResult contains the result of the CountNexusOperations call.
+	//
+	// NOTE: Experimental
+	CountNexusOperationsResult = internal.ClientCountNexusOperationsResult
+
+	// CountNexusOperationsAggregationGroup contains groups of Nexus operations if
+	// CountNexusOperationExecutions is grouped by a field.
+	//
+	// NOTE: Experimental
+	CountNexusOperationsAggregationGroup = internal.ClientCountNexusOperationsAggregationGroup
+
+	// ListNexusOperationsResult contains the result of the ListNexusOperations call.
+	//
+	// NOTE: Experimental
+	ListNexusOperationsResult = internal.ClientListNexusOperationsResult
+
+	// GetNexusOperationHandleOptions contains input for GetNexusOperationHandle call.
+	//
+	// NOTE: Experimental
+	GetNexusOperationHandleOptions = internal.ClientGetNexusOperationHandleOptions
+
 	// Client is the client for starting and getting information about a workflow executions as well as
 	// completing activities asynchronously.
 	Client interface {
@@ -1022,9 +1169,9 @@ type (
 		// GetRunID() will always return "run ID 1" and  Get(ctx context.Context, valuePtr interface{}) will return the result of second run.
 		GetWorkflow(ctx context.Context, workflowID string, runID string) WorkflowRun
 
-		// SignalWorkflow sends a signals to a workflow in execution
+		// SignalWorkflow sends a signals to a running workflow.
 		//  - workflow ID of the workflow.
-		//  - runID can be default(empty string). if empty string then it will pick the running execution of that workflow ID.
+		//  - runID can be default(empty string). If set to empty string, then it will pick the running execution of that workflow ID.
 		//  - signalName name to identify the signal.
 		// The errors it can return:
 		//  - serviceerror.NotFound
@@ -1034,11 +1181,12 @@ type (
 
 		// SignalWithStartWorkflow sends a signal to a running workflow.
 		// If the workflow is not running or not found, it starts the workflow and then sends the signal in transaction.
-		//  - workflowID, signalName, signalArg are same as SignalWorkflow's parameters
-		//  - options, workflow, workflowArgs are same as StartWorkflow's parameters
+		//  - workflowID, signalName, signalArg are the same as SignalWorkflow's parameters
+		//  - options, workflow, workflowArgs are the same as StartWorkflow's parameters
 		//  - the workflowID parameter is used instead of options.ID. If the latter is present, it must match the workflowID.
 		//
-		// NOTE: options.WorkflowIDReusePolicy is default to AllowDuplicate in this API.
+		// Note: options.WorkflowIDReusePolicy defaults to AllowDuplicate in this API.
+		//
 		// The errors it can return:
 		//  - serviceerror.NotFound
 		//  - serviceerror.InvalidArgument
@@ -1106,7 +1254,17 @@ type (
 		//  To fail the activity with an error.
 		//      CompleteActivity(token, nil, temporal.NewApplicationError("reason", details)
 		// The activity can fail with below errors ApplicationError, TimeoutError, CanceledError.
+		//
+		// If using a context-aware converter (DataConverterWithSerializationContext or
+		// FailureConverterWithSerializationContext), consider using
+		// CompleteActivityWithOptions to provide full activity metadata
+		// (ActivityType, WorkflowType, TaskQueue) to your codec.
 		CompleteActivity(ctx context.Context, taskToken []byte, result interface{}, err error) error
+
+		// CompleteActivityWithOptions reports activity completed with full context options.
+		// Similar to CompleteActivity but accepts a struct with optional ActivitySerializationContext
+		// fields (ActivityType, WorkflowType, TaskQueue, etc.) for custom codec support.
+		CompleteActivityWithOptions(ctx context.Context, opts CompleteActivityOptions) error
 
 		// CompleteActivityByID reports activity completed.
 		// Similar to CompleteActivity, but may save the user from keeping taskToken info.
@@ -1124,7 +1282,17 @@ type (
 		//  - ApplicationError
 		//  - TimeoutError
 		//  - CanceledError
+		//
+		// If using a context-aware converter (DataConverterWithSerializationContext or
+		// FailureConverterWithSerializationContext), consider using
+		// CompleteActivityByIDWithOptions to provide full activity metadata
+		// (ActivityType, WorkflowType, TaskQueue) to your codec.
 		CompleteActivityByID(ctx context.Context, namespace, workflowID, runID, activityID string, result interface{}, err error) error
+
+		// CompleteActivityByIDWithOptions reports activity completed with full context options.
+		// Similar to CompleteActivityByID but accepts a struct with optional ActivitySerializationContext
+		// fields (ActivityType, WorkflowType, TaskQueue) for custom codec support.
+		CompleteActivityByIDWithOptions(ctx context.Context, opts CompleteActivityByIDOptions) error
 
 		// CompleteActivityByActivityID reports activity completed.
 		// Similar to CompleteActivity, but may save the user from keeping taskToken info.
@@ -1140,7 +1308,17 @@ type (
 		//  - ApplicationError
 		//  - TimeoutError
 		//  - CanceledError
+		//
+		// If using a context-aware converter (DataConverterWithSerializationContext or
+		// FailureConverterWithSerializationContext), consider using
+		// CompleteActivityByActivityIDWithOptions to provide full activity metadata
+		// (ActivityType, WorkflowType, TaskQueue) to your codec.
 		CompleteActivityByActivityID(ctx context.Context, namespace, activityID, activityRunID string, result interface{}, err error) error
+
+		// CompleteActivityByActivityIDWithOptions reports standalone activity completed with full context options.
+		// Similar to CompleteActivityByActivityID but accepts a struct with optional
+		// ActivitySerializationContext fields for custom codec support.
+		CompleteActivityByActivityIDWithOptions(ctx context.Context, opts CompleteActivityByActivityIDOptions) error
 
 		// RecordActivityHeartbeat records heartbeat for an activity.
 		// taskToken - is the value of the binary "TaskToken" field of the "ActivityInfo" struct retrieved inside the activity.
@@ -1151,7 +1329,17 @@ type (
 		//  - serviceerror.NotFound
 		//  - serviceerror.Internal
 		//  - serviceerror.Unavailable
+		//
+		// If using a context-aware converter (DataConverterWithSerializationContext or
+		// FailureConverterWithSerializationContext), consider using
+		// RecordActivityHeartbeatWithOptions to provide full activity metadata
+		// (ActivityType, WorkflowType, TaskQueue) to your codec.
 		RecordActivityHeartbeat(ctx context.Context, taskToken []byte, details ...interface{}) error
+
+		// RecordActivityHeartbeatWithOptions records heartbeat with full context options.
+		// Similar to RecordActivityHeartbeat but accepts a struct with optional
+		// ActivitySerializationContext fields for custom codec support.
+		RecordActivityHeartbeatWithOptions(ctx context.Context, opts RecordActivityHeartbeatOptions) error
 
 		// RecordActivityHeartbeatByID records heartbeat for an activity.
 		// details - is the progress you want to record along with heart beat for this activity. If the activity is canceled,
@@ -1161,7 +1349,17 @@ type (
 		//  - serviceerror.NotFound
 		//  - serviceerror.Internal
 		//  - serviceerror.Unavailable
+		//
+		// If using a context-aware converter (DataConverterWithSerializationContext or
+		// FailureConverterWithSerializationContext), consider using
+		// RecordActivityHeartbeatByIDWithOptions to provide full activity metadata
+		// (ActivityType, WorkflowType, TaskQueue) to your codec.
 		RecordActivityHeartbeatByID(ctx context.Context, namespace, workflowID, runID, activityID string, details ...interface{}) error
+
+		// RecordActivityHeartbeatByIDWithOptions records heartbeat with full context options.
+		// Similar to RecordActivityHeartbeatByID but accepts a struct with optional
+		// ActivitySerializationContext fields for custom codec support.
+		RecordActivityHeartbeatByIDWithOptions(ctx context.Context, opts RecordActivityHeartbeatByIDOptions) error
 
 		// ListClosedWorkflow gets closed workflow executions based on request filters.
 		// Retrieved workflow executions are sorted by close time in descending order.
@@ -1431,6 +1629,30 @@ type (
 		//
 		// NOTE: Experimental
 		CountActivities(ctx context.Context, options CountActivitiesOptions) (*CountActivitiesResult, error)
+
+		// NewNexusClient creates a new Nexus client bound to the given endpoint and service.
+		// This is for standalone Nexus operations outside of workflow context.
+		// For Nexus operations within workflows, use workflow.NexusClient instead.
+		//
+		// NOTE: Experimental
+		NewNexusClient(options NexusClientOptions) (NexusClient, error)
+
+		// GetNexusOperationHandle creates a handle to the referenced Nexus operation.
+		// No network call is made. The handle can be used to poll, describe, cancel, or terminate.
+		//
+		// NOTE: Experimental
+		GetNexusOperationHandle(options GetNexusOperationHandleOptions) NexusOperationHandle
+
+		// ListNexusOperations lists Nexus operation executions based on query.
+		// Currently, all errors are returned in the iterator and not the base level error.
+		//
+		// NOTE: Experimental
+		ListNexusOperations(ctx context.Context, options ListNexusOperationsOptions) (ListNexusOperationsResult, error)
+
+		// CountNexusOperations counts Nexus operation executions based on query.
+		//
+		// NOTE: Experimental
+		CountNexusOperations(ctx context.Context, options CountNexusOperationsOptions) (*CountNexusOperationsResult, error)
 
 		// WorkflowService provides access to the underlying gRPC service. This should only be used for advanced use cases
 		// that cannot be accomplished via other Client methods. Unlike calls to other Client methods, calls directly to the

@@ -209,7 +209,7 @@ export function pbacProcedure(
           (ctx.user as any).id?.toString() ??
           "";
         const allowed = await canPerformMerchantAction(
-          ctx.user.id.toString(),
+          ctx.user!.id.toString(),
           merchantId,
           action
         );

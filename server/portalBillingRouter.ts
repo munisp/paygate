@@ -246,7 +246,7 @@ export const portalBillingRouter = router({
     await updatePortalSubscription(merchantId, { cancelAtPeriodEnd: 1 });
     // Audit: subscription cancellation is a critical billing event
     try {
-      const { publishAuditEvent } = await import("../auditEvents");
+      const { publishAuditEvent } = await import("./auditEvents");
       await publishAuditEvent({
         merchantId,
         actorId: String(ctx.user.id),

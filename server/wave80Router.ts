@@ -26,6 +26,7 @@ import {
   qrPayments,
 } from "../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { debitWalletViaMiddleware, creditWalletViaMiddleware } from "./middlewareBridge";
 
 // ─── 1. Open Banking V2 ───────────────────────────────────────────────────────
 const openBankingV2Router = router({
@@ -191,12 +192,37 @@ const escrowV2Router = router({
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
     const [contract] = await db.insert(escrowContractsV2).values({ merchantId: ctx.user.id.toString().toString(), title: input.title, description: input.description, amount: input.amount, currency: input.currency, buyerId: input.buyerId, sellerId: input.sellerId, releaseConditions: input.releaseConditions, status: "pending", expiresAt: new Date(Date.now() + input.expiryDays * 24 * 60 * 60 * 1000) }).returning();
+    
+    // TigerBeetle wiring (reserve funds)
+    debitWalletViaMiddleware({
+      walletId: `wallet_${ctx.user.id}`,
+      userId: ctx.user.id.toString(),
+      amount: input.amount,
+      currency: input.currency,
+      reference: `escrow_fund_${contract.id}`,
+      description: `Escrow funding for ${input.title}`,
+    }).catch((e: any) => console.error("[TigerBeetle] Escrow fund failed:", e));
+    
     return { contract };
   }),
   releaseContract: protectedProcedure.input(z.object({ contractId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
     await db.update(escrowContractsV2).set({ status: "released", releasedAt: new Date(), updatedAt: new Date() }).where(and(eq(escrowContractsV2.id, input.contractId), eq(escrowContractsV2.merchantId, ctx.user.id.toString())));
+    
+    // Get contract details for TigerBeetle wiring
+    const [contract] = await db.select().from(escrowContractsV2).where(eq(escrowContractsV2.id, input.contractId)).limit(1);
+    if (contract && contract.sellerId) {
+      creditWalletViaMiddleware({
+        walletId: `wallet_${contract.sellerId}`,
+        userId: contract.sellerId,
+        amount: contract.amount,
+        currency: contract.currency,
+        reference: `escrow_release_${contract.id}`,
+        description: `Escrow release for ${contract.title}`,
+      }).catch((e: any) => console.error("[TigerBeetle] Escrow release failed:", e));
+    }
+    
     return { success: true };
   }),
   disputeContract: protectedProcedure.input(z.object({ contractId: z.string(), reason: z.string().max(5000) })).mutation(async ({ input, ctx }) => {
