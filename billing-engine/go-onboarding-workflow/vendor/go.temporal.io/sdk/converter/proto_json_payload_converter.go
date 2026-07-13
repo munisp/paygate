@@ -1,27 +1,3 @@
-// The MIT License
-//
-// Copyright (c) 2020 Temporal Technologies Inc.  All rights reserved.
-//
-// Copyright (c) 2020 Uber Technologies, Inc.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
 package converter
 
 import (
@@ -33,17 +9,19 @@ import (
 	gogojsonpb "github.com/gogo/protobuf/jsonpb"
 	gogoproto "github.com/gogo/protobuf/proto"
 	commonpb "go.temporal.io/api/common/v1"
+	"go.temporal.io/api/temporalproto"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
 // ProtoJSONPayloadConverter converts proto objects to/from JSON.
 type ProtoJSONPayloadConverter struct {
-	gogoMarshaler         gogojsonpb.Marshaler
-	gogoUnmarshaler       gogojsonpb.Unmarshaler
-	protoMarshalOptions   protojson.MarshalOptions
-	protoUnmarshalOptions protojson.UnmarshalOptions
-	options               ProtoJSONPayloadConverterOptions
+	gogoMarshaler                 gogojsonpb.Marshaler
+	gogoUnmarshaler               gogojsonpb.Unmarshaler
+	protoMarshalOptions           protojson.MarshalOptions
+	protoUnmarshalOptions         protojson.UnmarshalOptions
+	temporalProtoUnmarshalOptions temporalproto.CustomJSONUnmarshalOptions
+	options                       ProtoJSONPayloadConverterOptions
 }
 
 // ProtoJSONPayloadConverterOptions represents options for `NewProtoJSONPayloadConverterWithOptions`.
@@ -64,6 +42,10 @@ type ProtoJSONPayloadConverterOptions struct {
 
 	// EmitUnpopulated specifies whether to emit unpopulated fields.
 	EmitUnpopulated bool
+
+	// LegacyTemporalProtoCompat will allow enums serialized as SCREAMING_SNAKE_CASE.
+	// Useful for backwards compatibility when migrating a proto message from gogoproto to standard protobuf.
+	LegacyTemporalProtoCompat bool
 }
 
 var (
@@ -73,10 +55,11 @@ var (
 // NewProtoJSONPayloadConverter creates new instance of `ProtoJSONPayloadConverter`.
 func NewProtoJSONPayloadConverter() *ProtoJSONPayloadConverter {
 	return &ProtoJSONPayloadConverter{
-		gogoMarshaler:         gogojsonpb.Marshaler{},
-		gogoUnmarshaler:       gogojsonpb.Unmarshaler{},
-		protoMarshalOptions:   protojson.MarshalOptions{},
-		protoUnmarshalOptions: protojson.UnmarshalOptions{},
+		gogoMarshaler:                 gogojsonpb.Marshaler{},
+		gogoUnmarshaler:               gogojsonpb.Unmarshaler{},
+		protoMarshalOptions:           protojson.MarshalOptions{},
+		protoUnmarshalOptions:         protojson.UnmarshalOptions{},
+		temporalProtoUnmarshalOptions: temporalproto.CustomJSONUnmarshalOptions{},
 	}
 }
 
@@ -97,6 +80,9 @@ func NewProtoJSONPayloadConverterWithOptions(options ProtoJSONPayloadConverterOp
 			EmitUnpopulated: options.EmitUnpopulated,
 		},
 		protoUnmarshalOptions: protojson.UnmarshalOptions{
+			DiscardUnknown: options.AllowUnknownFields,
+		},
+		temporalProtoUnmarshalOptions: temporalproto.CustomJSONUnmarshalOptions{
 			DiscardUnknown: options.AllowUnknownFields,
 		},
 		options: options,
@@ -193,7 +179,11 @@ func (c *ProtoJSONPayloadConverter) FromPayload(payload *commonpb.Payload, value
 
 	var err error
 	if isProtoMessage {
-		err = c.protoUnmarshalOptions.Unmarshal(payload.GetData(), protoMessage)
+		if c.options.LegacyTemporalProtoCompat {
+			err = c.temporalProtoUnmarshalOptions.Unmarshal(payload.GetData(), protoMessage)
+		} else {
+			err = c.protoUnmarshalOptions.Unmarshal(payload.GetData(), protoMessage)
+		}
 	} else if isGogoProtoMessage {
 		err = c.gogoUnmarshaler.Unmarshal(bytes.NewReader(payload.GetData()), gogoProtoMessage)
 	}
