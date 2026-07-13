@@ -92,7 +92,7 @@
     "express-slow-down": "^3.1.0",
     "fast-xml-parser": "^5.7.1",
     "framer-motion": "^12.23.22",
-    "helmet": "^8.1.0",
+    "helmet": "^8.3.0",
     "input-otp": "^1.4.2",
     "jose": "6.1.0",
     "jsqr": "^1.4.0",
