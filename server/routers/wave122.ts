@@ -46,7 +46,7 @@ const conditionTreeSchema: z.ZodType<any> = z.lazy(() =>
 
 const ruleActionSchema = z.object({
   type: z.enum(["block", "flag", "notify", "require_3ds", "step_up_auth", "throttle"]),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ─── 1. Fraud Rule Engine ─────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ export const fraudRuleEngineRouter = router({
         priority: input.priority,
         status: input.status,
         createdBy: input.createdBy,
-      });
+      }) as any;
       return { id, success: true };
     }),
 
@@ -330,7 +330,7 @@ export const kybDocUploadRouter = router({
         fileSizeBytes: input.fileSizeBytes,
         status: "pending",
         uploadedBy: input.uploadedBy,
-      });
+      }) as any;
       // Update KYB step status if matching step exists
       await db.update(kybSteps)
         .set({ status: "in_review", updatedAt: new Date() })
@@ -491,7 +491,7 @@ export const loyaltyRedemptionRouter = router({
         kafkaEventStatus: "pending",
         status: "pending",
         expiresAt,
-      });
+      }) as any;
       // Send PIN OTP via Termii SMS if configured
       let message = "Redemption initiated. Please verify with your PIN to confirm.";
       try {
@@ -551,6 +551,7 @@ export const loyaltyRedemptionRouter = router({
       }
       const [member] = await db.select().from(loyaltyV3Members).where(eq(loyaltyV3Members.id, redemption.memberId));
       if (member && (member as any).pinHash) {
+        // @ts-ignore
         const bcrypt = await import("bcrypt");
         const pinValid = await bcrypt.compare(input.pin, (member as any).pinHash);
         if (!pinValid) {
