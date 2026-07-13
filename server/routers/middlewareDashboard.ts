@@ -346,6 +346,57 @@ export const middlewareDashboardRouter = router({
         const live = await bridgeGet(`/v1/workflows/status/${input.workflowId}`);
         return live ?? { workflow_id: input.workflowId, status: "Running", source: "demo" };
       }),
+    /** List all active Temporal workflows for a merchant */
+    listWorkflows: protectedProcedure
+      .input(z.object({
+        merchantId: z.string().optional(),
+        limit: z.number().min(1).max(200).default(50),
+        status: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        const qs = new URLSearchParams();
+        if (input.merchantId) qs.set("merchant_id", input.merchantId);
+        if (input.status) qs.set("status", input.status);
+        qs.set("limit", String(input.limit));
+        const live = await bridgeGet(`/v1/temporal/workflows?${qs.toString()}`);
+        return live ?? { workflows: [], total: 0, source: "demo" };
+      }),
+    /** Force-terminate a stuck or runaway Temporal workflow (admin escape hatch) */
+    forceTerminate: protectedProcedure
+      .input(z.object({
+        workflowId: z.string(),
+        reason: z.string().min(1).max(500),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/terminate`, {
+          reason: input.reason,
+        });
+        if (!result) return { terminated: false, workflowId: input.workflowId, source: "demo" };
+        return { terminated: true, workflowId: input.workflowId, ...result };
+      }),
+    /** Signal a Temporal workflow (e.g., approve/reject a pending step) */
+    signal: protectedProcedure
+      .input(z.object({
+        workflowId: z.string(),
+        signalName: z.string(),
+        payload: z.record(z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/signal`, {
+          signal_name: input.signalName,
+          input: input.payload ?? {},
+        });
+        if (!result) return { signaled: false, workflowId: input.workflowId, source: "demo" };
+        return { signaled: true, workflowId: input.workflowId, ...result };
+      }),
+    /** Cancel a Temporal workflow gracefully */
+    cancel: protectedProcedure
+      .input(z.object({ workflowId: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/cancel`, {});
+        if (!result) return { cancelled: false, workflowId: input.workflowId, source: "demo" };
+        return { cancelled: true, workflowId: input.workflowId, ...result };
+      }),
   }),
 
   // ── TigerBeetle Ledger ───────────────────────────────────────────────────────
@@ -614,23 +665,170 @@ export const middlewareDashboardRouter = router({
 
   // ── APISIX ───────────────────────────────────────────────────────────────────
   apisix: router({
+    /** Live routes from APISIX Admin API (falls back to static config) */
     routes: protectedProcedure.query(async () => {
-      // Return static config from YAML
+      const { listRoutes } = await import('../apisixClient');
+      const live = await listRoutes();
+      if (live.total > 0) return { ...live, source: "live" };
+      // Fallback static config
       return {
         routes: [
-          { id: "cips-transfer-submit", uri: "/v1/cips/transfer", methods: ["POST"], status: "active" },
-          { id: "upi-pay", uri: "/v1/upi/pay", methods: ["POST"], status: "active" },
-          { id: "pix-payment-initiate", uri: "/v1/pix/payment", methods: ["POST"], status: "active" },
-          { id: "mojaloop-transfer", uri: "/v1/mojaloop/transfer", methods: ["POST"], status: "active" },
-          { id: "middleware-health", uri: "/v1/middleware/health", methods: ["GET"], status: "active" },
-          { id: "middleware-kafka-topics", uri: "/v1/middleware/kafka/topics", methods: ["GET"], status: "active" },
-          { id: "middleware-opensearch-query", uri: "/v1/middleware/opensearch/query", methods: ["POST"], status: "active" },
-          { id: "middleware-tigerbeetle-accounts", uri: "/v1/middleware/tigerbeetle/accounts", methods: ["GET", "POST"], status: "active" },
-          { id: "middleware-lakehouse-query", uri: "/v1/middleware/lakehouse/query", methods: ["POST"], status: "active" },
+          { id: "cips-transfer-submit", uri: "/v1/cips/transfer", status: 1 },
+          { id: "upi-pay", uri: "/v1/upi/pay", status: 1 },
+          { id: "pix-payment-initiate", uri: "/v1/pix/payment", status: 1 },
+          { id: "mojaloop-transfer", uri: "/v1/mojaloop/transfer", status: 1 },
+          { id: "middleware-health", uri: "/v1/middleware/health", status: 1 },
+          { id: "middleware-kafka-topics", uri: "/v1/middleware/kafka/topics", status: 1 },
+          { id: "middleware-opensearch-query", uri: "/v1/middleware/opensearch/query", status: 1 },
+          { id: "middleware-tigerbeetle-accounts", uri: "/v1/middleware/tigerbeetle/accounts", status: 1 },
+          { id: "middleware-lakehouse-query", uri: "/v1/middleware/lakehouse/query", status: 1 },
         ],
         total: 9,
         source: "static-config",
       };
+    }),
+    /** Live consumers (API keys) registered in APISIX */
+    consumers: protectedProcedure.query(async () => {
+      const { listConsumers } = await import('../apisixClient');
+      const live = await listConsumers();
+      return { ...live, source: live.total > 0 ? "live" : "empty" };
+    }),
+    /** APISIX gateway health */
+    health: protectedProcedure.query(async () => {
+      const { getApisixHealth } = await import('../apisixClient');
+      return getApisixHealth();
+    }),
+    /** Sync a route to APISIX (admin action) */
+    syncRoute: protectedProcedure
+      .input(z.object({
+        id: z.string(),
+        uri: z.string(),
+        name: z.string().optional(),
+        methods: z.array(z.string()).optional(),
+        upstreamId: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { syncRoute } = await import('../apisixClient');
+        const ok = await syncRoute({
+          id: input.id,
+          uri: input.uri,
+          name: input.name,
+          methods: input.methods,
+          upstream_id: input.upstreamId,
+          status: 1,
+        });
+        return { synced: ok, routeId: input.id };
+      }),
+    /** Delete a route from APISIX (admin action) */
+    deleteRoute: protectedProcedure
+      .input(z.object({ routeId: z.string() }))
+      .mutation(async ({ input }) => {
+        const { deleteRoute } = await import('../apisixClient');
+        const ok = await deleteRoute(input.routeId);
+        return { deleted: ok, routeId: input.routeId };
+      }),
+    /** Plugin usage analytics — counts how many routes use each plugin */
+    pluginStats: protectedProcedure.query(async () => {
+      const { listRoutes } = await import('../apisixClient');
+      const routeData = await listRoutes();
+      const pluginCounts: Record<string, number> = {};
+      for (const route of routeData.routes) {
+        if (route.plugins && typeof route.plugins === 'object') {
+          for (const pluginName of Object.keys(route.plugins)) {
+            pluginCounts[pluginName] = (pluginCounts[pluginName] ?? 0) + 1;
+          }
+        }
+      }
+      const plugins = Object.entries(pluginCounts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count);
+      if (plugins.length === 0) {
+        return {
+          plugins: [
+            { name: "key-auth", count: 9 },
+            { name: "rate-limiting", count: 9 },
+            { name: "cors", count: 7 },
+            { name: "opentelemetry", count: 5 },
+            { name: "ip-restriction", count: 3 },
+            { name: "request-id", count: 9 },
+          ],
+          source: "demo",
+        };
+      }
+      return { plugins, source: "live" };
+    }),
+    /** Gateway request metrics snapshot (from APISIX Prometheus endpoint via bridge) */
+    metrics: protectedProcedure.query(async () => {
+      const live = await bridgeGet("/v1/apisix/metrics");
+      if (live) return { ...live, source: "live" };
+      return {
+        source: "demo",
+        requestsPerSecond: parseFloat((Math.random() * 120 + 40).toFixed(1)),
+        p50LatencyMs: parseFloat((Math.random() * 8 + 4).toFixed(1)),
+        p95LatencyMs: parseFloat((Math.random() * 30 + 15).toFixed(1)),
+        p99LatencyMs: parseFloat((Math.random() * 80 + 40).toFixed(1)),
+        errorRate: parseFloat((Math.random() * 0.5).toFixed(2)),
+        totalRequests24h: Math.floor(Math.random() * 500_000 + 200_000),
+        activeConnections: Math.floor(Math.random() * 200 + 50),
+        upstreamLatencyMs: parseFloat((Math.random() * 12 + 3).toFixed(1)),
+        timestamp: Date.now(),
+      };
+    }),
+  }),
+
+  // ── PgBouncer Connection Pool ─────────────────────────────────────────────────
+  pgbouncer: router({
+    /** PgBouncer pool statistics — reads from the virtual pgbouncer SHOW POOLS table */
+    stats: protectedProcedure.query(async () => {
+      const pgBouncerUrl = process.env.PGBOUNCER_URL;
+      if (!pgBouncerUrl) {
+        return {
+          source: "demo",
+          configured: false,
+          pools: [
+            { database: "paygate_prod", user: "paygate", clActive: 12, clWaiting: 0, svActive: 12, svIdle: 13, svUsed: 0, maxWait: 0 },
+          ],
+          totalClActive: 12,
+          totalClWaiting: 0,
+          totalSvActive: 12,
+          totalSvIdle: 13,
+          poolMode: "transaction",
+          maxClientConn: 1000,
+          defaultPoolSize: 25,
+        };
+      }
+      try {
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: pgBouncerUrl, max: 1, connectionTimeoutMillis: 3000 });
+        const client = await pool.connect();
+        const [poolsRes] = await Promise.all([client.query('SHOW POOLS')]);
+        client.release();
+        await pool.end();
+        const pools = poolsRes.rows.map((r: any) => ({
+          database: r.database,
+          user: r.user,
+          clActive: parseInt(r.cl_active ?? 0),
+          clWaiting: parseInt(r.cl_waiting ?? 0),
+          svActive: parseInt(r.sv_active ?? 0),
+          svIdle: parseInt(r.sv_idle ?? 0),
+          svUsed: parseInt(r.sv_used ?? 0),
+          maxWait: parseInt(r.maxwait ?? 0),
+        }));
+        return {
+          source: "live",
+          configured: true,
+          pools,
+          totalClActive: pools.reduce((s: number, p: any) => s + p.clActive, 0),
+          totalClWaiting: pools.reduce((s: number, p: any) => s + p.clWaiting, 0),
+          totalSvActive: pools.reduce((s: number, p: any) => s + p.svActive, 0),
+          totalSvIdle: pools.reduce((s: number, p: any) => s + p.svIdle, 0),
+          poolMode: "transaction",
+          maxClientConn: 1000,
+          defaultPoolSize: 25,
+        };
+      } catch (err) {
+        return { source: "error", configured: true, error: String(err), pools: [], totalClActive: 0, totalClWaiting: 0, totalSvActive: 0, totalSvIdle: 0 };
+      }
     }),
   }),
 

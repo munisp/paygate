@@ -16,9 +16,10 @@ import { eq, and, desc, gte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
+import { creditWalletViaMiddleware, debitWalletViaMiddleware } from "../middlewareBridge";
 import { mobileMoneyTransactions, mobileMoneyProviders } from "../../drizzle/schema";
 
-const db = getDb();
+const db = (await getDb())!;
 
 function genRef(prefix = "MMT"): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -133,7 +134,7 @@ export const mobileMoneyRouter = router({
       amountKobo: z.number().int().positive(),
       currency: z.string().length(3),
       description: z.string().max(200).optional(),
-      metadata: z.record(z.string()).optional(),
+      metadata: z.record(z.string(), z.string()).optional(),
     }))
     .mutation(async ({ input }) => {
       const reference = genRef("MMC");
@@ -175,6 +176,16 @@ export const mobileMoneyRouter = router({
         timestamp: new Date().toISOString(),
       });
 
+      // TigerBeetle wiring
+      creditWalletViaMiddleware({
+        walletId: `wallet_${input.merchantId}`,
+        userId: input.merchantId,
+        amount: input.amountKobo,
+        currency: input.currency,
+        reference: reference,
+        description: `Mobile Money Collection from ${input.customerMsisdn}`,
+      }).catch(e => console.error("[TigerBeetle] Mobile money collection credit failed:", e));
+
       return txn;
     }),
 
@@ -189,7 +200,7 @@ export const mobileMoneyRouter = router({
       amountKobo: z.number().int().positive(),
       currency: z.string().length(3),
       description: z.string().max(200).optional(),
-      metadata: z.record(z.string()).optional(),
+      metadata: z.record(z.string(), z.string()).optional(),
     }))
     .mutation(async ({ input }) => {
       const reference = genRef("MMD");
@@ -226,6 +237,16 @@ export const mobileMoneyRouter = router({
         timestamp: new Date().toISOString(),
       });
 
+      // TigerBeetle wiring
+      debitWalletViaMiddleware({
+        walletId: `wallet_${input.merchantId}`,
+        userId: input.merchantId,
+        amount: input.amountKobo,
+        currency: input.currency,
+        reference: reference,
+        description: `Mobile Money Disbursement to ${input.recipientMsisdn}`,
+      }).catch(e => console.error("[TigerBeetle] Mobile money disbursement debit failed:", e));
+
       return txn;
     }),
 
@@ -234,7 +255,7 @@ export const mobileMoneyRouter = router({
     .input(z.object({ id: z.string(), merchantId: z.string() }))
     .query(async ({ input }) => {
       const [txn] = await db.select().from(mobileMoneyTransactions)
-        .where(and(eq(mobileMoneyTransactions.id, input.id), eq(mobileMoneyTransactions.merchantId, input.merchantId)));
+        .where(and(eq(mobileMoneyTransactions.id, parseInt(input.id)), eq(mobileMoneyTransactions.merchantId, input.merchantId)));
       if (!txn) throw new TRPCError({ code: "NOT_FOUND", message: "Transaction not found" });
 
       // Poll bridge if still pending
@@ -244,11 +265,10 @@ export const mobileMoneyRouter = router({
           if (bridgeStatus && bridgeStatus.status !== txn.status) {
             const newStatus = bridgeStatus.status as typeof txn.status;
             const updates: Partial<typeof mobileMoneyTransactions.$inferInsert> = {
-              status: newStatus,
-              providerStatus: bridgeStatus.providerStatus ?? null,
+              status: newStatus as any,
               updatedAt: new Date(),
             };
-            if (newStatus === "successful" || newStatus === "failed") {
+            if (newStatus === "successful" as any || newStatus === "failed" as any) {
               updates.completedAt = new Date();
             }
             await db.update(mobileMoneyTransactions).set(updates)
@@ -325,8 +345,7 @@ export const mobileMoneyRouter = router({
       providerCode: z.string(),
       externalReference: z.string(),
       status: z.string(),
-      providerStatus: z.string().optional(),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input }) => {
       const [txn] = await db.select().from(mobileMoneyTransactions)
@@ -343,9 +362,7 @@ export const mobileMoneyRouter = router({
       })();
 
       await db.update(mobileMoneyTransactions).set({
-        status: normalizedStatus,
-        providerStatus: input.providerStatus ?? input.status,
-        webhookDeliveredAt: new Date(),
+        status: normalizedStatus as any,
         ...(["successful", "failed"].includes(normalizedStatus) ? { completedAt: new Date() } : {}),
         updatedAt: new Date(),
       }).where(eq(mobileMoneyTransactions.id, txn.id));

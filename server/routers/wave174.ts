@@ -390,7 +390,7 @@ export const kybRiskScoreRouter = router({
       const livenessRows = await db.select().from(livenessSessions)
         .where(eq(livenessSessions.merchantId, ctx.user.tenantId ?? ""))
         .orderBy(desc(livenessSessions.createdAt)).limit(5);
-      const failedLiveness = livenessRows.filter(l => l.decision === "fail").length;
+      const failedLiveness = livenessRows.filter(l => l.decision === "spoof").length;
       const livenessScore = Math.min(100, failedLiveness * 20);
 
       // 6. BVN match score

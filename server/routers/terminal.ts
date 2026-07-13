@@ -19,6 +19,7 @@ import { eq, and, desc, gte, lte, sql, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
+import { creditWalletViaMiddleware } from "../middlewareBridge";
 import {
   terminals,
   terminalTransactions,
@@ -120,6 +121,7 @@ export const terminalRouter = router({
       pageSize: z.number().int().min(1).max(100).default(20),
     }))
     .query(async ({ input }) => {
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.pageSize;
       const conditions: any[] = [eq(terminals.merchantId, input.merchantId)];
       if (input.status) conditions.push(eq(terminals.status, input.status));
@@ -136,6 +138,7 @@ export const terminalRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string(), merchantId: z.string() }))
     .query(async ({ input }) => {
+      const db = (await getDb())!;
       const [terminal] = await db.select().from(terminals)
         .where(and(eq(terminals.id, input.id), eq(terminals.merchantId, input.merchantId)));
       if (!terminal) throw new TRPCError({ code: "NOT_FOUND", message: "Terminal not found" });
@@ -153,6 +156,7 @@ export const terminalRouter = router({
       location: z.string().max(200).optional(),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       // Check serial uniqueness
       const [existing] = await db.select({ id: terminals.id }).from(terminals)
         .where(eq(terminals.serialNumber, input.serialNumber));
@@ -189,6 +193,7 @@ export const terminalRouter = router({
       location: z.string().max(200).optional(),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const updates: Partial<typeof terminals.$inferInsert> = {
         status: input.status,
         updatedAt: new Date(),
@@ -217,6 +222,7 @@ export const terminalRouter = router({
       ipAddress: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const [terminal] = await db.select().from(terminals)
         .where(eq(terminals.serialNumber, input.serialNumber));
       if (!terminal) throw new TRPCError({ code: "NOT_FOUND", message: "Terminal not registered" });
@@ -244,6 +250,7 @@ export const terminalRouter = router({
       pageSize: z.number().int().min(1).max(100).default(20),
     }))
     .query(async ({ input }) => {
+      const db = (await getDb())!;
       const offset = (input.page - 1) * input.pageSize;
       const conditions: any[] = [eq(terminalTransactions.merchantId, input.merchantId)];
       if (input.terminalId) conditions.push(eq(terminalTransactions.terminalId, input.terminalId));
@@ -264,6 +271,7 @@ export const terminalRouter = router({
   getTransaction: protectedProcedure
     .input(z.object({ id: z.string(), merchantId: z.string() }))
     .query(async ({ input }) => {
+      const db = (await getDb())!;
       const [txn] = await db.select().from(terminalTransactions)
         .where(and(eq(terminalTransactions.id, input.id), eq(terminalTransactions.merchantId, input.merchantId)));
       if (!txn) throw new TRPCError({ code: "NOT_FOUND", message: "Transaction not found" });
@@ -279,6 +287,7 @@ export const terminalRouter = router({
       reason: z.string().max(500).optional(),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const [original] = await db.select().from(terminalTransactions)
         .where(and(
           eq(terminalTransactions.id, input.transactionId),
@@ -315,6 +324,16 @@ export const terminalRouter = router({
         reference, timestamp: new Date().toISOString(),
       });
 
+      // TigerBeetle wiring
+      creditWalletViaMiddleware({
+        walletId: `wallet_${input.merchantId}`,
+        userId: input.merchantId,
+        amount: refundAmount,
+        currency: original.currency,
+        reference: reference,
+        description: `Terminal refund for ${original.reference}`,
+      }).catch(e => console.error("[TigerBeetle] Terminal refund failed:", e));
+
       return refundTxn;
     }),
 
@@ -322,6 +341,7 @@ export const terminalRouter = router({
   voidTransaction: protectedProcedure
     .input(z.object({ transactionId: z.string(), merchantId: z.string() }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const [txn] = await db.select().from(terminalTransactions)
         .where(and(
           eq(terminalTransactions.id, input.transactionId),
@@ -346,6 +366,7 @@ export const terminalRouter = router({
       days: z.number().int().min(1).max(365).default(30),
     }))
     .query(async ({ input }) => {
+      const db = (await getDb())!;
       const since = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000);
       const conditions: any[] = [
         eq(terminalTransactions.merchantId, input.merchantId),
@@ -381,6 +402,7 @@ export const terminalRouter = router({
   getStreamConfig: protectedProcedure
     .input(z.object({ merchantId: z.string() }))
     .query(async ({ input }) => {
+      const db = (await getDb())!;
       const fluvioEndpoint = process.env.FLUVIO_ENDPOINT ?? "";
       const topic = "paygate.terminal.events";
       return {
@@ -404,6 +426,7 @@ export const terminalRouter = router({
       location: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const event = makeTerminalEvent(
         "provisioned",
         input.terminalId,
@@ -426,6 +449,7 @@ export const terminalRouter = router({
       status: z.string().default("active"),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const event = makeTerminalEvent(
         "heartbeat",
         input.terminalId,
@@ -461,6 +485,7 @@ export const terminalRouter = router({
       responseCode: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      const db = (await getDb())!;
       const topic = input.eventType === "txn_completed"
         ? "paygate.terminal.txn_completed"
         : "paygate.terminal.txn_failed";
