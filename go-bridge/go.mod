@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/IBM/sarama v1.43.3
 	github.com/google/uuid v1.6.0
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.12.3
 	github.com/stripe/stripe-go/v76 v76.25.0
 	github.com/tigerbeetle/tigerbeetle-go v0.16.11
 )
