@@ -8,8 +8,8 @@ numpy==1.26.4
 boto3==1.35.0
 confluent-kafka==2.15.0
 # PaddleOCR (install separately with GPU support if available)
-paddlepaddle==3.0.0
-paddleocr==2.10.0
+paddlepaddle==3.3.1
+paddleocr==3.7.0
 # Docling (IBM Research document understanding)
 docling==2.112.0
 # Optional: for VLM integration
