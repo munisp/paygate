@@ -10,7 +10,7 @@ redis[hiredis]==5.2.1
 pyarrow==25.0.0
 deltalake==0.22.3
 pandas==2.2.3
-boto3==1.35.93
+boto3==1.43.46
 opentelemetry-api==1.29.0
 opentelemetry-sdk==1.29.0
 opentelemetry-exporter-otlp==1.43.0
