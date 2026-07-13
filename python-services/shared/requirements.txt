@@ -1,7 +1,7 @@
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
-pydantic>=2.9.0
-redis==5.2.1
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+pydantic>=2.13.4
+redis==8.0.1
 aiokafka>=0.11.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 httpx==0.28.1

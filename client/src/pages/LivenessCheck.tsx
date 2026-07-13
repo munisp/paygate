@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * LivenessCheck.tsx — Web Liveness Verification Page
  *

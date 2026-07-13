@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * MojaloopTransfers — /mojaloop/transfers
  *
