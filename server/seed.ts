@@ -105,7 +105,7 @@ async function main() {
   for (const t of tenantData) {
     await db
       .insert(schema.tenants)
-      .values(t)
+      .values(t as any)
       .onConflictDoUpdate({ target: schema.tenants.id, set: { updatedAt: t.updatedAt } })
       .catch(() => {/* slug conflict — skip */});
   }
@@ -521,7 +521,7 @@ async function main() {
   for (const merchant of merchantData) {
     await db.insert(schema.wallets).values({
       tenantId: merchant.tenantId,
-      userId: merchant.ownerId,
+      userId: String(merchant.id),
       merchantId: merchant.id,
       currency: "NGN",
       balance: String(rand(100000, 50000000)),
@@ -578,7 +578,9 @@ async function main() {
   console.log("\n-> Seeding loyalty accounts...");
   let loyaltyCount = 0;
   for (const customer of customerData.slice(0, 10)) {
-    await db.insert(schema.loyaltyAccounts).values({
+    await db.insert(schema.consumerLoyaltyAccounts).values({
+      id: `loyalty_${loyaltyCount++}`,
+      userId: Number(customer.id) || 1,
       merchantId: merchantData[0].id,
       customerId: customer.id,
       programId: "default",

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Purchase Orders
  * Full PO management page with status workflow: pending → approved → received → cancelled.

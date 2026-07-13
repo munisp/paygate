@@ -138,7 +138,7 @@ export async function sagaStreamHandler(req: Request, res: Response) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    await verifySessionCookie(cookie);
+    await verifySessionToken(cookie);
   } catch {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -151,7 +151,7 @@ export async function sagaStreamHandler(req: Request, res: Response) {
   res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
   res.flushHeaders();
 
-  const db = await getDb();
+  const db = (await getDb())!;
   let lastUpdatedAt: string | null = null;
   let closed = false;
 
