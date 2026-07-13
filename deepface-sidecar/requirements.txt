@@ -2,7 +2,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pydantic==2.10.3
 deepface==0.0.100
-numpy>=1.24.0
+numpy>=2.5.1
 opencv-python-headless>=4.8.0
 scipy>=1.11.0
 tf-keras>=2.16.0
