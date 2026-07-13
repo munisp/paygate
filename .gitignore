@@ -121,4 +121,3 @@ infra/certs/*.srl
 infra/certs/server-ext.cnf
 *.pem
 .project-config.json
-.github/workflows/

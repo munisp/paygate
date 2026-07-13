@@ -1,35 +1,15 @@
-// The MIT License
-//
-// Copyright (c) 2020 Temporal Technologies Inc.  All rights reserved.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
 package serviceerror
 
 import (
 	"context"
 	"errors"
 
+	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"go.temporal.io/api/errordetails/v1"
+	"go.temporal.io/api/failure/v1"
 )
 
 // ToStatus converts service error to gRPC Status.
@@ -71,7 +51,25 @@ func FromStatus(st *status.Status) error {
 		return nil
 	}
 
-	// Simple case. `st.Code()` to `serviceerror` is one to one mapping and there are no error details.
+	errDetails := extractErrorDetails(st)
+
+	// Special case: MultiOperation error can have any status code.
+	if err, ok := errDetails.(*errordetails.MultiOperationExecutionFailure); ok {
+		errs := make([]error, len(err.Statuses))
+		for i, opStatus := range err.Statuses {
+			errs[i] = FromStatus(status.FromProto(&spb.Status{
+				Code:    opStatus.Code,
+				Message: opStatus.Message,
+				Details: opStatus.Details,
+			}))
+		}
+		return newMultiOperationExecution(st, errs)
+	}
+
+	// If there was an error during details extraction, for example unknown message type,
+	// which can happen when new error details are added and getting read by old clients,
+	// then errDetails will be of type `error` with corresponding error inside.
+	// This error is ignored and `serviceerror` is built using `st.Code()` only.
 	switch st.Code() {
 	case codes.DataLoss:
 		return newDataLoss(st)
@@ -80,27 +78,24 @@ func FromStatus(st *status.Status) error {
 	case codes.Canceled:
 		return newCanceled(st)
 	case codes.Unavailable:
-		return newUnavailable(st)
+		switch errDetails := errDetails.(type) {
+		case *errordetails.NamespaceUnavailableFailure:
+			return newNamespaceUnavailable(st, errDetails)
+		default:
+			return newUnavailable(st)
+		}
 	case codes.Unimplemented:
 		return newUnimplemented(st)
 	case codes.Unknown:
 		// Unwrap error message from unknown error.
 		return errors.New(st.Message())
-
-	// Unsupported codes.
-	case codes.Aborted,
-		codes.Unauthenticated:
-		// Use standard gRPC error representation for unsupported codes ("rpc error: code = %s desc = %s").
-		return st.Err()
-	}
-
-	errDetails := extractErrorDetails(st)
-	// If there was an error during details extraction, for example unknown message type,
-	// which can happen when new error details are added and getting read by old clients,
-	// then errDetails will be of type `error` with corresponding error inside.
-	// This error is ignored and `serviceerror` is built using `st.Code()` only.
-
-	switch st.Code() {
+	case codes.Aborted:
+		switch errDetails.(type) {
+		case *failure.MultiOperationExecutionAborted:
+			return newMultiOperationAborted(st)
+		default:
+			return newAborted(st)
+		}
 	case codes.Internal:
 		switch errDetails := errDetails.(type) {
 		case *errordetails.SystemWorkflowFailure:
@@ -118,9 +113,9 @@ func FromStatus(st *status.Status) error {
 			return newNotFound(st, nil)
 		}
 	case codes.InvalidArgument:
-		switch errDetails.(type) {
+		switch errDetails := errDetails.(type) {
 		case *errordetails.QueryFailedFailure:
-			return newQueryFailed(st)
+			return newQueryFailed(st, errDetails)
 		default:
 			return newInvalidArgument(st)
 		}
@@ -137,8 +132,12 @@ func FromStatus(st *status.Status) error {
 			return newNamespaceAlreadyExists(st)
 		case *errordetails.WorkflowExecutionAlreadyStartedFailure:
 			return newWorkflowExecutionAlreadyStarted(st, errDetails)
+		case *errordetails.ActivityExecutionAlreadyStartedFailure:
+			return newActivityExecutionAlreadyStarted(st, errDetails)
 		case *errordetails.CancellationAlreadyRequestedFailure:
 			return newCancellationAlreadyRequested(st)
+		case *errordetails.NexusOperationExecutionAlreadyStartedFailure:
+			return newNexusOperationExecutionAlreadyStarted(st, errDetails)
 		default:
 			return newAlreadyExists(st)
 		}
@@ -171,6 +170,9 @@ func FromStatus(st *status.Status) error {
 		default:
 			// fall through to st.Err()
 		}
+	// Unsupported code:
+	case codes.Unauthenticated:
+		// fall through to st.Err()
 	}
 
 	// `st.Code()` has unknown value (should never happen).
@@ -178,7 +180,7 @@ func FromStatus(st *status.Status) error {
 	return st.Err()
 }
 
-func extractErrorDetails(st *status.Status) interface{} {
+func extractErrorDetails(st *status.Status) any {
 	details := st.Details()
 	if len(details) > 0 {
 		return details[0]
