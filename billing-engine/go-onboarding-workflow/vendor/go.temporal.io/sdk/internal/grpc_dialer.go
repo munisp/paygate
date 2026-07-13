@@ -1,42 +1,25 @@
-// The MIT License
-//
-// Copyright (c) 2020 Temporal Technologies Inc.  All rights reserved.
-//
-// Copyright (c) 2020 Uber Technologies, Inc.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
 package internal
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/retry"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/internal/common/metrics"
 	"go.temporal.io/sdk/internal/common/retry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding"
+	grpcgzip "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -54,6 +37,8 @@ type (
 
 const (
 	// LocalHostPort is a default host:port for worker and client to connect to.
+	//
+	// Exposed as: [go.temporal.io/sdk/client.DefaultHostPort]
 	LocalHostPort = "localhost:7233"
 
 	// defaultServiceConfig is a default gRPC connection service config which enables DNS round-robin between IPs.
@@ -76,6 +61,9 @@ const (
 
 	// defaultKeepAliveTimeout is the keep alive timeout if one is not specified.
 	defaultKeepAliveTimeout = 15 * time.Second
+
+	// temporalNamespaceHeaderKey is the header key that should contain the target namespace of the request.
+	temporalNamespaceHeaderKey = "temporal-namespace"
 )
 
 func dial(params dialParameters) (*grpc.ClientConn, error) {
@@ -118,6 +106,14 @@ func dial(params dialParameters) (*grpc.ClientConn, error) {
 	opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxPayloadSize)))
 	opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxPayloadSize)))
 
+	switch compression := params.UserConnectionOptions.GrpcCompression.(type) {
+	case nil, *GrpcCompressionGzip:
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.UseCompressor(grpcgzip.Name)))
+	case *GrpcCompressionNone:
+	default:
+		return nil, fmt.Errorf("unsupported gRPC compression option %T", compression)
+	}
+
 	if !params.UserConnectionOptions.DisableKeepAliveCheck {
 		// gRPC utilizes keep alive mechanism to detect dead connections in case if server didn't close them
 		// gracefully. Client would ping the server periodically and expect replies withing the specified timeout.
@@ -141,42 +137,92 @@ func dial(params dialParameters) (*grpc.ClientConn, error) {
 	// Append any user-supplied options
 	opts = append(opts, params.UserConnectionOptions.DialOptions...)
 
-	return grpc.Dial(params.HostPort, opts...)
+	return grpc.NewClient(params.HostPort, opts...)
 }
 
 func requiredInterceptors(
-	metricsHandler metrics.Handler,
-	headersProvider HeadersProvider,
-	controller TrafficController,
+	clientOptions *ClientOptions,
 	excludeInternalFromRetry *atomic.Bool,
-	credentials Credentials,
 ) []grpc.UnaryClientInterceptor {
 	interceptors := []grpc.UnaryClientInterceptor{
 		errorInterceptor,
 		// Report aggregated metrics for the call, this is done outside of the retry loop.
-		metrics.NewGRPCInterceptor(metricsHandler, ""),
+		metrics.NewGRPCInterceptor(clientOptions.MetricsHandler, "", clientOptions.DisableErrorCodeMetricTags),
 		// By default the grpc retry interceptor *is disabled*, preventing accidental use of retries.
 		// We add call options for retry configuration based on the values present in the context.
 		retry.NewRetryOptionsInterceptor(excludeInternalFromRetry),
+	}
+	switch clientOptions.ConnectionOptions.GrpcCompression.(type) {
+	case nil, *GrpcCompressionGzip:
+		interceptors = append(interceptors, newGzipDowngradeInterceptor())
+	}
+	interceptors = append(
+		interceptors,
 		// Performs retries *IF* retry options are set for the call.
 		grpc_retry.UnaryClientInterceptor(),
+		// Prevents retrying grpc message too large errors, while allowing retries of other resource exhausted errors.
+		retry.GrpcMessageTooLargeErrorInterceptor,
 		// Report metrics for every call made to the server.
-		metrics.NewGRPCInterceptor(metricsHandler, attemptSuffix),
+		metrics.NewGRPCInterceptor(clientOptions.MetricsHandler, attemptSuffix, clientOptions.DisableErrorCodeMetricTags),
+	)
+	if clientOptions.HeadersProvider != nil {
+		interceptors = append(interceptors, headersProviderInterceptor(clientOptions.HeadersProvider))
 	}
-	if headersProvider != nil {
-		interceptors = append(interceptors, headersProviderInterceptor(headersProvider))
-	}
-	if controller != nil {
-		interceptors = append(interceptors, trafficControllerInterceptor(controller))
+	if clientOptions.TrafficController != nil {
+		interceptors = append(interceptors, trafficControllerInterceptor(clientOptions.TrafficController))
 	}
 	// Add credentials interceptor. This is intentionally added after headers
 	// provider to overwrite anything set there.
-	if credentials != nil {
-		if interceptor := credentials.gRPCInterceptor(); interceptor != nil {
+	if clientOptions.Credentials != nil {
+		if interceptor := clientOptions.Credentials.gRPCInterceptor(); interceptor != nil {
 			interceptors = append(interceptors, interceptor)
 		}
 	}
+	// Add namespace provider interceptor
+	interceptors = append(interceptors, namespaceProviderInterceptor())
 	return interceptors
+}
+
+func newGzipDowngradeInterceptor() grpc.UnaryClientInterceptor {
+	var gzipUnsupportedMethods sync.Map
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		if _, ok := gzipUnsupportedMethods.Load(method); ok {
+			return invoker(ctx, method, req, reply, cc, appendIdentityCompressor(opts)...)
+		}
+
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		if err == nil {
+			return nil
+		}
+		msg := strings.ToLower(err.Error())
+		if status.Code(err) != codes.Unimplemented ||
+			(!strings.Contains(msg, "decompress") &&
+				!strings.Contains(msg, "grpc-encoding") &&
+				!strings.Contains(msg, "compressor")) {
+			return err
+		}
+
+		gzipUnsupportedMethods.Store(method, struct{}{})
+		return invoker(ctx, method, req, reply, cc, appendIdentityCompressor(opts)...)
+	}
+}
+
+func appendIdentityCompressor(opts []grpc.CallOption) []grpc.CallOption {
+	identityOpts := make([]grpc.CallOption, len(opts), len(opts)+1)
+	copy(identityOpts, opts)
+	return append(identityOpts, grpc.UseCompressor(encoding.Identity))
+}
+
+func namespaceProviderInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		if nsReq, ok := req.(interface{ GetNamespace() string }); ok {
+			// Only add namespace if it doesn't already exist
+			if md, _ := metadata.FromOutgoingContext(ctx); len(md.Get(temporalNamespaceHeaderKey)) == 0 {
+				ctx = metadata.AppendToOutgoingContext(ctx, temporalNamespaceHeaderKey, nsReq.GetNamespace())
+			}
+		}
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
 }
 
 func trafficControllerInterceptor(controller TrafficController) grpc.UnaryClientInterceptor {
@@ -205,6 +251,9 @@ func headersProviderInterceptor(headersProvider HeadersProvider) grpc.UnaryClien
 
 func errorInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 	err := invoker(ctx, method, req, reply, cc, opts...)
-	err = serviceerror.FromStatus(status.Convert(err))
+	var grpcMessageTooLargeErr *retry.GrpcMessageTooLargeError
+	if !errors.As(err, &grpcMessageTooLargeErr) {
+		err = serviceerror.FromStatus(status.Convert(err))
+	}
 	return err
 }
