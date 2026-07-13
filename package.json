@@ -146,7 +146,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "add": "^2.0.6",
     "autoprefixer": "^10.4.20",
-    "drizzle-kit": "^0.31.4",
+    "drizzle-kit": "^0.31.10",
     "esbuild": "^0.25.0",
     "js-yaml": "^5.2.1",
     "pg-mem": "^3.0.14",
