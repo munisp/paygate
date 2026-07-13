@@ -102,6 +102,9 @@ github.com/klauspost/compress/zstd/internal/xxhash
 github.com/lib/pq
 github.com/lib/pq/oid
 github.com/lib/pq/scram
+# github.com/nexus-rpc/nexus-proto-annotations v0.1.0
+## explicit; go 1.25.4
+github.com/nexus-rpc/nexus-proto-annotations/go/nexusannotations/v1
 # github.com/nexus-rpc/sdk-go v0.6.0
 ## explicit; go 1.23
 github.com/nexus-rpc/sdk-go/nexus
@@ -140,12 +143,14 @@ github.com/stripe/stripe-go/v76/paymentintent
 github.com/tigerbeetle/tigerbeetle-go
 github.com/tigerbeetle/tigerbeetle-go/pkg/errors
 github.com/tigerbeetle/tigerbeetle-go/pkg/types
-# go.temporal.io/api v1.62.2
-## explicit; go 1.21
+# go.temporal.io/api v1.63.0
+## explicit; go 1.25.4
 go.temporal.io/api/activity/v1
 go.temporal.io/api/batch/v1
+go.temporal.io/api/callback/v1
 go.temporal.io/api/command/v1
 go.temporal.io/api/common/v1
+go.temporal.io/api/compute/v1
 go.temporal.io/api/deployment/v1
 go.temporal.io/api/enums/v1
 go.temporal.io/api/errordetails/v1
@@ -163,8 +168,10 @@ go.temporal.io/api/internal/protojson/strs
 go.temporal.io/api/internal/strcase
 go.temporal.io/api/namespace/v1
 go.temporal.io/api/nexus/v1
+go.temporal.io/api/nexusservices/workerservice/v1
 go.temporal.io/api/operatorservice/v1
 go.temporal.io/api/protocol/v1
+go.temporal.io/api/protometa/v1
 go.temporal.io/api/proxy
 go.temporal.io/api/query/v1
 go.temporal.io/api/replication/v1
@@ -180,8 +187,8 @@ go.temporal.io/api/worker/v1
 go.temporal.io/api/workflow/v1
 go.temporal.io/api/workflowservice/v1
 go.temporal.io/api/workflowservicemock/v1
-# go.temporal.io/sdk v1.41.0
-## explicit; go 1.23.0
+# go.temporal.io/sdk v1.46.0
+## explicit; go 1.25.4
 go.temporal.io/sdk/activity
 go.temporal.io/sdk/client
 go.temporal.io/sdk/converter
@@ -192,6 +199,7 @@ go.temporal.io/sdk/internal/common/metrics
 go.temporal.io/sdk/internal/common/retry
 go.temporal.io/sdk/internal/common/serializer
 go.temporal.io/sdk/internal/common/util
+go.temporal.io/sdk/internal/extstore
 go.temporal.io/sdk/internal/log
 go.temporal.io/sdk/internal/protocol
 go.temporal.io/sdk/log
@@ -216,6 +224,7 @@ golang.org/x/net/proxy
 golang.org/x/net/trace
 # golang.org/x/sync v0.22.0
 ## explicit; go 1.25.0
+golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
 # golang.org/x/sys v0.47.0
 ## explicit; go 1.25.0
@@ -257,6 +266,7 @@ google.golang.org/grpc/connectivity
 google.golang.org/grpc/credentials
 google.golang.org/grpc/credentials/insecure
 google.golang.org/grpc/encoding
+google.golang.org/grpc/encoding/gzip
 google.golang.org/grpc/encoding/internal
 google.golang.org/grpc/encoding/proto
 google.golang.org/grpc/experimental/balancer/weight
