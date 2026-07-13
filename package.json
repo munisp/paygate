@@ -91,7 +91,7 @@
     "express-rate-limit": "^8.3.1",
     "express-slow-down": "^3.1.0",
     "fast-xml-parser": "^5.7.1",
-    "framer-motion": "^12.23.22",
+    "framer-motion": "^12.42.2",
     "helmet": "^8.1.0",
     "input-otp": "^1.4.2",
     "jose": "6.1.0",
