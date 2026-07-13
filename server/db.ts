@@ -1,3 +1,4 @@
+import { debitWalletViaMiddleware } from "./middlewareBridge";
 import { cpus } from "os";
 import { and, asc, count, desc, eq, gte, like, lte, sql, sum } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -37,7 +38,11 @@ export { schema };
 // PostgreSQL is the database of choice for PayGate.
 // PG_DATABASE_URL takes precedence; DATABASE_URL is used only if it is already
 // a postgres:// URL (e.g. a managed PG instance injected by the platform).
+// PGBOUNCER_URL takes highest priority — routes all connections through PgBouncer.
 function resolveDbUrl(): string | undefined {
+  // PgBouncer connection pooler takes priority when configured in production.
+  // Set PGBOUNCER_URL="postgresql://paygate:<pw>@pgbouncer:6432/paygate_prod" to enable.
+  if (process.env.PGBOUNCER_URL) return process.env.PGBOUNCER_URL;
   const url = process.env.DATABASE_URL ?? "";
   if (url.startsWith("postgresql://") || url.startsWith("postgres://")) return url;
   // Fall back to explicit PG override or the local dev instance
@@ -192,8 +197,19 @@ export async function getTransactionById(id: string) {
 }
 export async function createTransaction(data: InsertTransaction) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
-  if (!db) throw new Error('Database unavailable');
-  await db.insert(transactions).values(data); return getTransactionById(data.id);
+  await db.insert(transactions).values(data);
+  
+  // TigerBeetle wiring (fire-and-forget)
+  debitWalletViaMiddleware({
+    walletId: `wallet_${data.merchantId ?? ""}`, // Default derivation
+    userId: data.merchantId ?? "",
+    amount: data.amount,
+    currency: data.currency ?? "NGN",
+    reference: data.reference ?? "",
+    description: data.description || "Transaction debit",
+  }).catch(e => console.error("[TigerBeetle] createTransaction debit failed:", e));
+  
+  return getTransactionById(data.id);
 }
 export async function updateTransaction(id: string, data: Partial<InsertTransaction>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
@@ -261,8 +277,19 @@ export async function getPayoutById(id: string) {
 }
 export async function createPayout(data: InsertPayout) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
-  if (!db) throw new Error('Database unavailable');
-  await db.insert(payouts).values(data); return getPayoutById(data.id);
+  await db.insert(payouts).values(data);
+  
+  // TigerBeetle wiring (fire-and-forget)
+  debitWalletViaMiddleware({
+    walletId: `wallet_${data.merchantId ?? ""}`, // Default derivation
+    userId: data.merchantId ?? "",
+    amount: data.amount,
+    currency: data.currency ?? "NGN",
+    reference: data.reference ?? "",
+    description: data.narration || "Payout debit",
+  }).catch(e => console.error("[TigerBeetle] createPayout debit failed:", e));
+  
+  return getPayoutById(data.id);
 }
 export async function updatePayout(id: string, data: Partial<InsertPayout>) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
@@ -2910,7 +2937,7 @@ async function enrichIpGeo(ip: string | null | undefined): Promise<{ country: st
     if (!res.ok) return { country: null, city: null };
     const data = await res.json() as { status: string; country?: string; city?: string };
     if (data.status !== "success") return { country: null, city: null };
-    const geo = { country: data.country ?? null, city: data.city ?? null, ts: Date.now() };
+    const geo = { country: data.country ?? "", city: data.city ?? "", ts: Date.now() };
     _geoCache.set(ip, { ...geo });
     return { country: geo.country, city: geo.city };
   } catch {

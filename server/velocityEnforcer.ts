@@ -31,7 +31,7 @@ export async function enforceVelocityLimits(params: VelocityCheckParams): Promis
     .from(velocityLimitConfigs)
     .where(
       and(
-        eq(velocityLimitConfigs.isActive, 1),
+        eq(velocityLimitConfigs.isActive, true),
         or(
           eq(velocityLimitConfigs.merchantId, merchantId),
           isNull(velocityLimitConfigs.merchantId)
@@ -67,7 +67,7 @@ export async function enforceVelocityLimits(params: VelocityCheckParams): Promis
       continue;
     }
 
-    const maxValue = limit.maxValue;
+    const maxValue = limit.maxValue ?? 0;
     const countBreached = limit.limitType === "count" && counterResult.count > maxValue;
     const amountBreached = limit.limitType === "amount" && counterResult.amount_kobo > maxValue;
 
@@ -77,7 +77,7 @@ export async function enforceVelocityLimits(params: VelocityCheckParams): Promis
         merchantId,
         channel,
         amountKobo,
-        userId,
+        userId: userId !== undefined ? String(userId) : undefined,
         details: JSON.stringify({
           observedCount: counterResult.count,
           observedAmountKobo: counterResult.amount_kobo,

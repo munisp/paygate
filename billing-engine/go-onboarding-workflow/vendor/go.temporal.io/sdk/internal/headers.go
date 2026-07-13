@@ -1,27 +1,3 @@
-// The MIT License
-//
-// Copyright (c) 2020 Temporal Technologies Inc.  All rights reserved.
-//
-// Copyright (c) 2020 Uber Technologies, Inc.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-
 package internal
 
 import (
@@ -34,11 +10,15 @@ import (
 
 // HeaderWriter is an interface to write information to temporal headers
 type (
+	//
+	// Exposed as: [go.temporal.io/sdk/workflow.HeaderWriter]
 	HeaderWriter interface {
 		Set(string, *commonpb.Payload)
 	}
 
 	// HeaderReader is an interface to read information from temporal headers
+	//
+	// Exposed as: [go.temporal.io/sdk/workflow.HeaderReader]
 	HeaderReader interface {
 		Get(string) (*commonpb.Payload, bool)
 		ForEachKey(handler func(string, *commonpb.Payload) error) error
@@ -46,6 +26,8 @@ type (
 
 	// ContextPropagator is an interface that determines what information from
 	// context to pass along
+	//
+	// Exposed as: [go.temporal.io/sdk/workflow.ContextPropagator]
 	ContextPropagator interface {
 		// Inject injects information from a Go Context into headers
 		Inject(context.Context, HeaderWriter) error
@@ -64,11 +46,13 @@ type (
 
 	// ContextAware is an optional interface that can be implemented alongside
 	// DataConverter. This interface allows Temporal to pass Workflow/Activity
-	// contexts to the DataConverter so that it may tailor it's behaviour.
+	// contexts to the DataConverter so that it may tailor its behavior.
 	//
 	// Note that data converters may be called in non-context-aware situations to
 	// convert payloads that may not be customized per context. Data converter
 	// implementers should not expect or require contextual data be present.
+	//
+	// Exposed as: [go.temporal.io/sdk/workflow.ContextAware]
 	ContextAware interface {
 		WithWorkflowContext(ctx Context) converter.DataConverter
 		WithContext(ctx context.Context) converter.DataConverter
