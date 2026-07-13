@@ -3,7 +3,7 @@ uvicorn[standard]==0.32.1
 httpx==0.28.1
 pydantic==2.8.2
 kafka-python==2.0.2
-redis==5.2.1
+redis==8.0.1
 sqlalchemy==2.0.37
 pymysql==1.1.1
 prometheus-client==0.21.0
