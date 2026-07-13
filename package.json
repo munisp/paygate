@@ -60,7 +60,7 @@
     "@tanstack/react-query": "^5.90.2",
     "@trpc/client": "^11.7.0",
     "@trpc/react-query": "^11.7.0",
-    "@trpc/server": "^11.7.0",
+    "@trpc/server": "^11.18.0",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.19",
     "@types/d3": "^7.4.3",
@@ -143,7 +143,7 @@
     "@types/react": "^19.2.1",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^5.0.4",
-    "@vitest/coverage-v8": "^4.1.6",
+    "@vitest/coverage-v8": "^4.1.10",
     "add": "^2.0.6",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.4",
@@ -160,7 +160,7 @@
     "typescript": "5.9.3",
     "vite": "^8.0.9",
     "vite-plugin-manus-runtime": "^0.0.57",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
