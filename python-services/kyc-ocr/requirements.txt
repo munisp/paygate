@@ -6,7 +6,7 @@ pillow==11.0.0
 opencv-python-headless==4.10.0.84
 numpy==1.26.4
 boto3==1.35.0
-confluent-kafka==2.5.0
+confluent-kafka==2.15.0
 # PaddleOCR (install separately with GPU support if available)
 paddlepaddle==3.0.0
 paddleocr==2.10.0
