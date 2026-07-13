@@ -1,7 +1,7 @@
 {
   "name": "@paygate/checkout-react",
   "version": "1.0.0",
-  "description": "PayGate hosted checkout SDK — vanilla JS + React component",
+  "description": "PayGate hosted checkout SDK \u2014 vanilla JS + React component",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,9 @@
     },
     "./cdn": "./dist/checkout.global.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs,iife --dts --globalName PayGate --out-dir dist --entry.checkout.global src/cdn.ts",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch"
@@ -23,15 +25,26 @@
     "react-dom": ">=17"
   },
   "peerDependenciesMeta": {
-    "react": { "optional": true },
-    "react-dom": { "optional": true }
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/react": "^18",
-    "tsup": "^8.0.0",
+    "tsup": "^8.4.0",
     "typescript": "^5.0.0"
   },
-  "keywords": ["paygate", "checkout", "payment", "nigeria", "africa", "psp"],
+  "keywords": [
+    "paygate",
+    "checkout",
+    "payment",
+    "nigeria",
+    "africa",
+    "psp"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

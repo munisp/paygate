@@ -1,8 +1,8 @@
-fastapi==0.115.5
+fastapi==0.115.6
 uvicorn[standard]==0.32.1
 httpx==0.28.1
-pytest==8.3.4
-pytest-asyncio==0.24.0
-httpx[asyncio]
+pytest==8.4.0
+pytest-asyncio==0.25.0
+httpx[asyncio]==0.28.1
 
 redis[asyncio]==5.2.1
