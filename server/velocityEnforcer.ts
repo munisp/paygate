@@ -23,33 +23,33 @@ interface VelocityCheckParams {
 
 export async function enforceVelocityLimits(params: VelocityCheckParams): Promise<void> {
   const { merchantId, channel, amountKobo, userId } = params;
-  const db = getDb();
+  const db = await getDb();
+  if (!db) return; // DB unavailable — fail open
 
-  // Load active limits for this merchant+channel or global limits
   const limits = await db
     .select()
     .from(velocityLimitConfigs)
     .where(
       and(
-        eq(velocityLimitConfigs.isActive, true),
+        eq(velocityLimitConfigs.isActive, 1),
         or(
           eq(velocityLimitConfigs.merchantId, merchantId),
           isNull(velocityLimitConfigs.merchantId)
         ),
         or(
-          eq(velocityLimitConfigs.channel, channel as any),
-          eq(velocityLimitConfigs.channel, "all" as any)
+          eq(velocityLimitConfigs.channel, channel),
+          eq(velocityLimitConfigs.channel, "all")
         )
       )
     );
 
-  if (limits.length === 0) return; // No limits configured — allow
+  if (limits.length === 0) return;
 
   for (const limit of limits) {
     const windowSecs = limit.windowSeconds;
     const url = `${VELOCITY_COUNTER_URL}/check/${merchantId}/${channel}/${windowSecs}`;
-
     let counterResult: { count: number; amount_kobo: number };
+
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -58,40 +58,41 @@ export async function enforceVelocityLimits(params: VelocityCheckParams): Promis
         signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) {
-        // Counter service unavailable — fail open (log and continue)
         console.error(`[VelocityEnforcer] Counter service error ${res.status} for ${merchantId}`);
         continue;
       }
       counterResult = await res.json();
     } catch (err) {
-      // Network error — fail open
       console.error(`[VelocityEnforcer] Counter service unreachable:`, err);
       continue;
     }
 
-    const countBreached = limit.maxCount !== null && counterResult.count > limit.maxCount;
-    const amountBreached = limit.maxAmountKobo !== null && counterResult.amount_kobo > limit.maxAmountKobo;
+    const maxValue = limit.maxValue;
+    const countBreached = limit.limitType === "count" && counterResult.count > maxValue;
+    const amountBreached = limit.limitType === "amount" && counterResult.amount_kobo > maxValue;
 
     if (countBreached || amountBreached) {
-      // Record breach asynchronously (don't await to avoid latency)
       db.insert(velocityBreaches).values({
         limitConfigId: limit.id,
         merchantId,
-        channel: channel as any,
-        windowSeconds: windowSecs,
-        observedCount: counterResult.count,
-        observedAmountKobo: counterResult.amount_kobo,
-        limitCount: limit.maxCount,
-        limitAmountKobo: limit.maxAmountKobo,
-        triggeredBy: String(userId),
+        channel,
+        amountKobo,
+        userId,
+        details: JSON.stringify({
+          observedCount: counterResult.count,
+          observedAmountKobo: counterResult.amount_kobo,
+          maxValue,
+          limitType: limit.limitType,
+          windowSeconds: windowSecs,
+        }),
         breachedAt: new Date(),
-      }).catch(e => console.error("[VelocityEnforcer] Failed to record breach:", e));
+      }).catch((e: unknown) => console.error("[VelocityEnforcer] Failed to record breach:", e));
 
       throw new TRPCError({
         code: "FORBIDDEN",
         message: countBreached
-          ? `Transaction count limit exceeded: ${counterResult.count} in ${windowSecs}s window (max ${limit.maxCount})`
-          : `Transaction amount limit exceeded: ₦${(counterResult.amount_kobo / 100).toFixed(2)} in ${windowSecs}s window (max ₦${((limit.maxAmountKobo ?? 0) / 100).toFixed(2)})`,
+          ? `Transaction count limit exceeded: ${counterResult.count} in ${windowSecs}s window (max ${maxValue})`
+          : `Transaction amount limit exceeded: ₦${(counterResult.amount_kobo / 100).toFixed(2)} in ${windowSecs}s window`,
       });
     }
   }
