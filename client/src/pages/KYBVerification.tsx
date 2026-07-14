@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -120,7 +121,14 @@ export default function KYBVerification() {
                       <p className="text-sm font-medium">{d.fullName}</p>
                       <p className="text-xs text-muted-foreground">BVN: {d.bvn ?? "—"} · NIN: {d.nin ?? "—"}</p>
                     </div>
-                    <Badge variant="outline" className="text-xs">Director</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">Director</Badge>
+                      <Link href={`/kyb/director-kyc/${d.id}`}>
+                        <Button variant="outline" size="sm" className="text-xs h-6 px-2" aria-label={`Start KYC for ${d.fullName}`}>
+                          KYC
+                        </Button>
+                      </Link>
+                    </div>
                   </CardContent>
                 </Card>
               ))}

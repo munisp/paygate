@@ -79,7 +79,7 @@ export default function DataExport() {
   ];
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6" role="main" aria-label="Data export">
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Download className="w-6 h-6 text-blue-600" /> Data Export

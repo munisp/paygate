@@ -368,3 +368,4 @@ func RegisterPayGateRoutes(ctx context.Context) error {
 	slog.Info("[apisix] PayGate routes registered", "count", len(routes))
 	return nil
 }
+

@@ -85,7 +85,7 @@ export default function BNPLCalculator() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto" role="main" aria-label="BNPL calculator">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

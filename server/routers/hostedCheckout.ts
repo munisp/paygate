@@ -10,8 +10,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { db } from "../db";
-import { hostedPaymentSessions, checkoutThemes, paymentLinks, paymentLinkEvents } from "../../drizzle/schema";
-import { sql, count, gte, lte } from "drizzle-orm";
+import { hostedPaymentSessions, checkoutThemes, paymentLinks } from "../../drizzle/schema";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -309,7 +308,7 @@ export const hostedCheckoutRouter = router({
       bnplProvider: z.enum(["carbon", "fairmoney", "creditcorp"]).optional(),
       bnplInstallmentCount: z.number().int().min(2).max(12).optional(),
       // Metadata
-      metadata: z.record(z.string(), z.string()).optional(),
+      metadata: z.record(z.string()).optional(),
       ipAddress: z.string().optional(),
       userAgent: z.string().optional(),
     }))
@@ -421,7 +420,7 @@ export const hostedCheckoutRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
       const [session] = await db.select().from(hostedPaymentSessions)
-        .where(eq(hostedPaymentSessions.id, parseInt(input.sessionId)));
+        .where(eq(hostedPaymentSessions.id, input.sessionId));
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
 
       // For bank transfer: check if NIP session has been paid (poll Go bridge)
@@ -440,7 +439,7 @@ export const hostedCheckoutRouter = router({
                   status: "completed",
                   paidAt: new Date(json.paidAt),
                   updatedAt: new Date(),
-                 } as any).where(eq(hostedPaymentSessions.id, session.id));
+                }).where(eq(hostedPaymentSessions.id, session.id));
                 return { ...session, status: "completed", paidAt: new Date(json.paidAt) };
               }
             }
@@ -459,7 +458,7 @@ export const hostedCheckoutRouter = router({
     }))
     .mutation(async ({ input }) => {
       const [session] = await db.select().from(hostedPaymentSessions)
-        .where(eq(hostedPaymentSessions.id, parseInt(input.sessionId)));
+        .where(eq(hostedPaymentSessions.id, input.sessionId));
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
       if (session.status === "completed") return { success: true, session };
       if (session.status === "expired") throw new TRPCError({ code: "BAD_REQUEST", message: "Session expired" });
@@ -487,16 +486,16 @@ export const hostedCheckoutRouter = router({
       });
 
       // Start Temporal workflow
-      const workflowId = await startTemporalWorkflow(session.id.toString(), session.merchantId);
+      const workflowId = await startTemporalWorkflow(session.id, session.merchantId);
 
       // Mark session completed
       await db.update(hostedPaymentSessions).set({
         status: "completed",
         paidAt: now,
-        tigerBeetleTransferId: tbId ? String(tbId) : undefined,
+        tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
         temporalWorkflowId: workflowId ?? undefined,
         updatedAt: now,
-       } as any).where(eq(hostedPaymentSessions.id, session.id));
+      }).where(eq(hostedPaymentSessions.id, session.id));
 
       // Publish Kafka payment.completed event
       await publishKafka(`${session.tenantId}.payment.completed`, {
@@ -520,7 +519,7 @@ export const hostedCheckoutRouter = router({
           merchantName: session.merchantId, // In production: resolve merchant name from DB
           description: session.description ?? undefined,
         }).then(() => {
-          db.update(hostedPaymentSessions).set({ receiptEmailSentAt: new Date() } as any)
+          db.update(hostedPaymentSessions).set({ receiptEmailSentAt: new Date() })
             .where(eq(hostedPaymentSessions.id, session.id)).catch(() => {});
         }).catch(() => {});
       }
@@ -534,7 +533,7 @@ export const hostedCheckoutRouter = router({
       stripeEventType: z.string(),
       stripePaymentIntentId: z.string().optional(),
       stripeChargeId: z.string().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
+      metadata: z.record(z.unknown()).optional(),
     }))
     .mutation(async ({ input }) => {
       if (!input.stripePaymentIntentId) return { received: true, matched: false };
@@ -551,16 +550,16 @@ export const hostedCheckoutRouter = router({
           merchantId: session.merchantId,
           reference: session.reference,
         });
-        const workflowId = await startTemporalWorkflow(session.id.toString(), session.merchantId);
+        const workflowId = await startTemporalWorkflow(session.id, session.merchantId);
 
         await db.update(hostedPaymentSessions).set({
           status: "completed",
           paidAt: now,
-          tigerBeetleTransferId: tbId ? String(tbId) : undefined,
+          tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
           temporalWorkflowId: workflowId ?? undefined,
           webhookDeliveredAt: now,
           updatedAt: now,
-         } as any).where(eq(hostedPaymentSessions.id, session.id));
+        }).where(eq(hostedPaymentSessions.id, session.id));
 
         await publishKafka(`${session.tenantId}.payment.completed`, {
           sessionId: session.id,
@@ -587,10 +586,10 @@ export const hostedCheckoutRouter = router({
       if (input.stripeEventType === "payment_intent.payment_failed") {
         await db.update(hostedPaymentSessions).set({
           status: "failed",
-          
+          failedAt: new Date(),
           failureReason: "Stripe payment failed",
           updatedAt: new Date(),
-         } as any).where(eq(hostedPaymentSessions.id, session.id));
+        }).where(eq(hostedPaymentSessions.id, session.id));
 
         await publishKafka(`${session.tenantId}.payment.failed`, {
           sessionId: session.id,
@@ -626,10 +625,10 @@ export const hostedCheckoutRouter = router({
         await db.update(hostedPaymentSessions).set({
           status: "completed",
           paidAt: now,
-          tigerBeetleTransferId: tbId ? String(tbId) : undefined,
-          
+          tigerBeetleTransferId: tbId ? Number(tbId) : undefined,
+          webhookDeliveredAt: new Date(),
           updatedAt: new Date(),
-         } as any).where(eq(hostedPaymentSessions.id, session.id));
+        }).where(eq(hostedPaymentSessions.id, session.id));
 
         await publishKafka(`${session.tenantId}.payment.completed`, {
           sessionId: session.id,
@@ -653,10 +652,10 @@ export const hostedCheckoutRouter = router({
       } else {
         await db.update(hostedPaymentSessions).set({
           status: input.status === "expired" ? "expired" : "failed",
-          
+          failedAt: new Date(),
           failureReason: `NIP ${input.status}`,
           updatedAt: new Date(),
-         } as any).where(eq(hostedPaymentSessions.id, session.id));
+        }).where(eq(hostedPaymentSessions.id, session.id));
       }
 
       return { received: true, matched: true };
@@ -685,119 +684,6 @@ export const hostedCheckoutRouter = router({
         .limit(input.limit)
         .offset(input.offset);
       return rows;
-    }),
-
-  // ── Analytics ─────────────────────────────────────────────────────────────
-  trackEvent: publicProcedure
-    .input(z.object({
-      paymentLinkId: z.string(),
-      merchantId: z.string(),
-      eventType: z.enum(["view", "method_selected", "payment_initiated", "payment_completed", "payment_failed", "abandoned"]),
-      paymentMethod: z.string().optional(),
-      sessionId: z.string().optional(),
-      amount: z.number().int().optional(),
-      currency: z.string().default("NGN"),
-      userAgent: z.string().optional(),
-      ipAddress: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const [event] = await db.insert(paymentLinkEvents)
-        .values(input as any)
-        .returning();
-      return event;
-    }),
-
-  getLinkAnalytics: protectedProcedure
-    .input(z.object({
-      paymentLinkId: z.string(),
-      merchantId: z.string(),
-      startDate: z.date().optional(),
-      endDate: z.date().optional(),
-    }))
-    .query(async ({ input }) => {
-      const { paymentLinkId, merchantId, startDate, endDate } = input;
-      const conditions: any[] = [
-        eq(paymentLinkEvents.paymentLinkId, paymentLinkId),
-        eq(paymentLinkEvents.merchantId, merchantId),
-        ...(startDate ? [gte(paymentLinkEvents.createdAt, startDate)] : []),
-        ...(endDate ? [lte(paymentLinkEvents.createdAt, endDate)] : []),
-      ];
-      const rows = await db.select({
-        eventType: paymentLinkEvents.eventType,
-        cnt: count(),
-      }).from(paymentLinkEvents)
-        .where(and(...conditions))
-        .groupBy(paymentLinkEvents.eventType);
-
-      const byType = Object.fromEntries(rows.map(r => [r.eventType, Number(r.cnt)]));
-      const views = byType["view"] ?? 0;
-      const methodSelected = byType["method_selected"] ?? 0;
-      const initiated = byType["payment_initiated"] ?? 0;
-      const completed = byType["payment_completed"] ?? 0;
-      const failed = byType["payment_failed"] ?? 0;
-      const abandoned = byType["abandoned"] ?? 0;
-
-      const byMethod = await db.select({
-        method: paymentLinkEvents.paymentMethod,
-        cnt: count(),
-      }).from(paymentLinkEvents)
-        .where(and(...conditions, eq(paymentLinkEvents.eventType, "payment_completed")))
-        .groupBy(paymentLinkEvents.paymentMethod);
-
-      return {
-        funnel: [
-          { stage: "Views", count: views, rate: 100 },
-          { stage: "Method Selected", count: methodSelected, rate: views > 0 ? Math.round((methodSelected / views) * 100) : 0 },
-          { stage: "Payment Initiated", count: initiated, rate: views > 0 ? Math.round((initiated / views) * 100) : 0 },
-          { stage: "Completed", count: completed, rate: views > 0 ? Math.round((completed / views) * 100) : 0 },
-        ],
-        conversionRate: views > 0 ? Math.round((completed / views) * 100) : 0,
-        dropOffRate: initiated > 0 ? Math.round(((initiated - completed) / initiated) * 100) : 0,
-        failureRate: (completed + failed) > 0 ? Math.round((failed / (completed + failed)) * 100) : 0,
-        abandonRate: initiated > 0 ? Math.round((abandoned / initiated) * 100) : 0,
-        byMethod,
-      };
-    }),
-
-  getDailyStats: protectedProcedure
-    .input(z.object({
-      merchantId: z.string(),
-      paymentLinkId: z.string().optional(),
-      days: z.number().int().min(1).max(90).default(30),
-    }))
-    .query(async ({ input }) => {
-      const { merchantId, paymentLinkId, days } = input;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
-
-      const conditions: any[] = [
-        eq(paymentLinkEvents.merchantId, merchantId),
-        gte(paymentLinkEvents.createdAt, since),
-        ...(paymentLinkId ? [eq(paymentLinkEvents.paymentLinkId, paymentLinkId)] : []),
-      ];
-
-      const rows = await db.select({
-        date: sql<string>`DATE(${paymentLinkEvents.createdAt})`,
-        eventType: paymentLinkEvents.eventType,
-        cnt: count(),
-      }).from(paymentLinkEvents)
-        .where(and(...conditions))
-        .groupBy(sql`DATE(${paymentLinkEvents.createdAt})`, paymentLinkEvents.eventType)
-        .orderBy(sql`DATE(${paymentLinkEvents.createdAt})`);
-
-      const byDate: Record<string, Record<string, number>> = {};
-      for (const row of rows) {
-        if (!byDate[row.date]) byDate[row.date] = {};
-        byDate[row.date][row.eventType] = Number(row.cnt);
-      }
-
-      return Object.entries(byDate).map(([date, events]) => ({
-        date,
-        views: events["view"] ?? 0,
-        initiated: events["payment_initiated"] ?? 0,
-        completed: events["payment_completed"] ?? 0,
-        failed: events["payment_failed"] ?? 0,
-      }));
     }),
 
   // ── Checkout Theme CRUD ───────────────────────────────────────────────────
@@ -837,7 +723,7 @@ export const hostedCheckoutRouter = router({
 
       if (existing.length > 0) {
         const [updated] = await db.update(checkoutThemes)
-          .set({ ...updates, updatedAt: new Date() } as any)
+          .set({ ...updates, updatedAt: new Date() })
           .where(eq(checkoutThemes.merchantId, merchantId))
           .returning();
         return updated;
@@ -847,5 +733,5 @@ export const hostedCheckoutRouter = router({
           .returning();
         return created;
       }
-    }) as any,
+    }),
 });

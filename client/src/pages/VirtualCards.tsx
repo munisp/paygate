@@ -51,7 +51,7 @@ export default function VirtualCards() {
   const totalBalance = (data ?? []).reduce((s: number, c: any) => s + Number(c.balance ?? 0), 0);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6" role="main" aria-label="Virtual cards management">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

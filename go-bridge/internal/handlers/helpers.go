@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
+	"strconv"
 )
 
 // respondJSON writes a JSON response with the given status code.
@@ -17,4 +21,30 @@ func respondJSON(w http.ResponseWriter, status int, v interface{}) {
 // respondError writes a JSON error response.
 func respondError(w http.ResponseWriter, status int, msg string) {
 	respondJSON(w, status, map[string]string{"error": msg})
+}
+
+// getEnvOrDefault returns the environment variable value or a default.
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+
+// bytesReader wraps a byte slice as an io.Reader.
+func bytesReader(b []byte) io.Reader {
+	return bytes.NewReader(b)
+}
+
+// parseIntQuery parses an integer query parameter with a fallback default.
+func parseIntQuery(r *http.Request, key string, defaultVal int) int {
+	s := r.URL.Query().Get(key)
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 1 {
+		return defaultVal
+	}
+	return v
 }

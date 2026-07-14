@@ -638,6 +638,7 @@ export const invoiceFinV2Router = router({
         approvedAmount: input.approvedAmount,
         updatedAt: new Date(),
       }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")));
+      publishAuditEvent({ action: 'invoice_financing.approved', actorId: ctx.user.openId, targetId: input.id, metadata: { approvedAmount: input.approvedAmount }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true };
     }),
 

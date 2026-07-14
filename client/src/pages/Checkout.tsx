@@ -13,13 +13,8 @@ import {
   Copy, ExternalLink, Plus, Palette, Eye, Link2, QrCode, Loader2,
   AlertCircle, Shield, Upload, RefreshCw, CheckCircle2, XCircle,
   Clock, CreditCard, Building2, Phone, Smartphone, DollarSign,
-  ToggleLeft, ToggleRight, Zap, Code2, BarChart3, Settings, TrendingUp,
-  Users, Activity,
+  ToggleLeft, ToggleRight, Zap, Code2, BarChart3, Settings,
 } from "lucide-react";
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
-} from "recharts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -189,7 +184,7 @@ export default function Checkout() {
   const merchantId = (user as any)?.merchantId ?? "default";
   const tenantId = (user as any)?.tenantId ?? "default";
 
-  const [activeTab, setActiveTab] = useState<"links" | "theme" | "embed" | "sessions" | "analytics">("links");
+  const [activeTab, setActiveTab] = useState<"links" | "theme" | "embed" | "sessions">("links");
 
   // ── Theme state ──────────────────────────────────────────────────────────
   const [theme, setTheme] = useState({
@@ -303,27 +298,16 @@ export default function Checkout() {
     { enabled: activeTab === "sessions", staleTime: 15_000 },
   );
 
-  // ── Analytics ────────────────────────────────────────────────────────────
-  const { data: dailyStats, isLoading: dailyLoading } = trpc.hostedCheckout.getDailyStats.useQuery(
-    { merchantId, days: 30 },
-    { enabled: activeTab === "analytics", staleTime: 60_000 },
-  );
-  const { data: funnelData, isLoading: funnelLoading } = trpc.hostedCheckout.getLinkAnalytics.useQuery(
-    { merchantId },
-    { enabled: activeTab === "analytics", staleTime: 60_000 },
-  );
-
   const copyLink = (url: string) => {
     navigator.clipboard.writeText(url);
     toast.success("Payment link copied!");
   };
 
   const TABS = [
-    { id: "links",     label: "Payment Links",  icon: Link2 },
-    { id: "theme",     label: "Checkout Theme", icon: Palette },
-    { id: "embed",     label: "Embed Code",     icon: Code2 },
-    { id: "sessions", label: "Sessions",        icon: BarChart3 },
-    { id: "analytics", label: "Analytics",      icon: TrendingUp },
+    { id: "links",    label: "Payment Links", icon: Link2 },
+    { id: "theme",    label: "Checkout Theme", icon: Palette },
+    { id: "embed",    label: "Embed Code",    icon: Code2 },
+    { id: "sessions", label: "Sessions",      icon: BarChart3 },
   ] as const;
 
   const EMBED_CODE = `<!-- PayGate Inline Checkout -->
@@ -809,96 +793,6 @@ export function PayGateButton({ amount, email, onSuccess }) {
               )}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* ── Analytics Tab ─────────────────────────────────────────────────── */}
-      {activeTab === "analytics" && (
-        <div className="space-y-6">
-          {/* KPI summary row */}
-          {funnelData && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: "Total Views", value: funnelData.funnel?.views ?? 0, icon: Users, color: "text-blue-500" },
-                { label: "Initiated", value: funnelData.funnel?.initiated ?? 0, icon: Activity, color: "text-yellow-500" },
-                { label: "Completed", value: funnelData.funnel?.completed ?? 0, icon: CheckCircle2, color: "text-green-500" },
-                { label: "Conversion", value: `${funnelData.conversionRate ?? 0}%`, icon: TrendingUp, color: "text-indigo-500" },
-              ].map(kpi => (
-                <div key={kpi.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
-                  <div className={`p-2 rounded-lg bg-muted ${kpi.color}`}>
-                    <kpi.icon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
-                    <p className="text-lg font-bold">{kpi.value}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Daily volume line chart */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-indigo-500" />
-              Daily Payment Volume (Last 30 Days)
-            </h3>
-            {dailyLoading ? (
-              <Skeleton className="h-48 w-full" />
-            ) : dailyStats?.length ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={dailyStats} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: any, name: string) => [v, name.charAt(0).toUpperCase() + name.slice(1)]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="completed" stroke="#10B981" strokeWidth={2} dot={false} name="Completed" />
-                  <Line type="monotone" dataKey="initiated" stroke="#F59E0B" strokeWidth={2} dot={false} name="Initiated" />
-                  <Line type="monotone" dataKey="views" stroke="#6366F1" strokeWidth={2} dot={false} name="Views" />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
-                <TrendingUp className="w-6 h-6 mr-2 opacity-30" /> No data yet
-              </div>
-            )}
-          </div>
-
-          {/* Conversion funnel bar chart */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-indigo-500" />
-              Conversion Funnel by Payment Method
-            </h3>
-            {funnelLoading ? (
-              <Skeleton className="h-48 w-full" />
-            ) : funnelData?.byMethod && Object.keys(funnelData.byMethod).length ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart
-                  data={Object.entries(funnelData.byMethod).map(([method, counts]: any) => ({ method, ...counts }))}
-                  margin={{ top: 4, right: 16, bottom: 0, left: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="method" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="initiated" fill="#F59E0B" name="Initiated" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="completed" fill="#10B981" name="Completed" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
-                <BarChart3 className="w-6 h-6 mr-2 opacity-30" /> No funnel data yet
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>

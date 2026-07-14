@@ -4,8 +4,8 @@
  */
 
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { publishAuditEvent } from "../kafkaClient";
 import { getDb } from "../db";
-import { debitWalletViaMiddleware } from "../middlewareBridge";
 import { z } from "zod";
 import {
   splitBillSessions,
@@ -76,7 +76,8 @@ export const splitBillRouter = router({
       splitType: input.splitType,
       participantCount: input.participantCount,
       notes: input.notes ?? null,
-    } as any).returning();
+      status: "pending",
+    }).returning();
     // Auto-create equal shares if splitType is equal
     if (input.splitType === "equal") {
       const shareKobo = Math.floor(input.totalAmountKobo / input.participantCount);
@@ -86,7 +87,8 @@ export const splitBillRouter = router({
           participantIndex: i + 1,
           shareKobo,
           status: "pending",
-        })) as any);
+        }))
+      );
     }
     return session;
   }),
@@ -101,15 +103,15 @@ export const splitBillRouter = router({
     paymentReference: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(splitBillShares).set({ status: "paid", paidAt: new Date() } as any)
-      .where(eq(splitBillShares.id, input.shareId as any));
+    await db.update(splitBillShares).set({ status: "paid", paidAt: new Date() })
+      .where(eq(splitBillShares.id, input.shareId));
     return { success: true };
   }),
   listSplitPayments: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(splitPayments)
-      .where(eq(splitPayments.splitPaymentId, ctx.user.tenantId ?? ""))
+      .where(eq(splitPayments.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(splitPayments.createdAt))
       .offset(offset).limit(limit);
     return { payments: rows, total: rows.length };
@@ -153,7 +155,7 @@ export const staffRouter = router({
       bankCode: input.bankCode ?? null,
       accountNumber: input.accountNumber ?? null,
       active: true,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   updateMember: protectedProcedure.input(z.object({
@@ -167,12 +169,12 @@ export const staffRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(staffMembers).set(rest as any).where(eq(staffMembers.id, id));
+    await db.update(staffMembers).set(rest).where(eq(staffMembers.id, id));
     return { success: true };
   }),
   deleteMember: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(staffMembers).set({ active: false } as any).where(eq(staffMembers.id, input.id));
+    await db.update(staffMembers).set({ active: false }).where(eq(staffMembers.id, input.id));
     return { success: true };
   }),
   listShifts: protectedProcedure.input(paginationInput.extend({
@@ -201,18 +203,18 @@ export const staffRouter = router({
       clockIn: new Date(input.clockIn),
       clockOut: input.clockOut ? new Date(input.clockOut) : null,
       tipsKobo: input.tipsKobo,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   clockIn: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(staffShifts).set({ clockIn: new Date() } as any)
+    await db.update(staffShifts).set({ clockIn: new Date() })
       .where(eq(staffShifts.id, input.shiftId));
     return { success: true };
   }),
   clockOut: protectedProcedure.input(z.object({ shiftId: z.number() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(staffShifts).set({ clockOut: new Date() } as any)
+    await db.update(staffShifts).set({ clockOut: new Date() })
       .where(eq(staffShifts.id, input.shiftId));
     return { success: true };
   }),
@@ -227,7 +229,7 @@ export const stripeSubscriptionsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(stripeSubscriptions)
-      .where(eq(stripeSubscriptions.userId, ctx.user.tenantId ?? ""))
+      .where(eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(stripeSubscriptions.createdAt))
       .offset(offset).limit(limit);
     return { subscriptions: rows, total: rows.length };
@@ -246,7 +248,7 @@ export const stripeSubscriptionsRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(subscriptionCharges)
       .where(eq(subscriptionCharges.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(subscriptionCharges.chargedAt))
+      .orderBy(desc(subscriptionCharges.createdAt))
       .offset(offset).limit(limit);
     return { charges: rows, total: rows.length };
   }),
@@ -258,17 +260,17 @@ export const stripeSubscriptionsRouter = router({
       cancelled: sql<number>`count(*) filter (where status = 'cancelled')`,
       pastDue: sql<number>`count(*) filter (where status = 'past_due')`,
     }).from(stripeSubscriptions)
-      .where(eq(stripeSubscriptions.userId, ctx.user.tenantId ?? ""));
+      .where(eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? ""));
     return stats ?? { total: 0, active: 0, cancelled: 0, pastDue: 0 };
   }),
   cancel: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(stripeSubscriptions)
-      .where(and(eq(stripeSubscriptions.id, input.id), eq(stripeSubscriptions.userId, ctx.user.tenantId ?? "")))
+      .where(and(eq(stripeSubscriptions.id, input.id), eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? "")))
       .limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
     await db.update(stripeSubscriptions)
-      .set({ status: "cancelled" as any } as any)
+      .set({ status: "cancelled" as any })
       .where(eq(stripeSubscriptions.id, input.id));
     return { success: true };
   }),
@@ -283,7 +285,7 @@ export const superAgentV2Router = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(superAgentV2Networks)
-      .where(eq(superAgentV2Networks.merchantId, ctx.user.tenantId ?? ""))
+      .where(eq(superAgentV2Networks.superAgentMerchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(superAgentV2Networks.createdAt))
       .offset(offset).limit(limit);
     return { networks: rows, total: rows.length };
@@ -300,18 +302,19 @@ export const superAgentV2Router = router({
       commissionBps: input.commissionBps,
       notes: input.notes ?? null,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(superAgentV2Networks).set({ status: "suspended" } as any)
+    await db.update(superAgentV2Networks).set({ status: "suspended" })
       .where(eq(superAgentV2Networks.id, input.id));
+    publishAuditEvent({ action: 'super_agent_network.suspended', actorId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   reactivate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(superAgentV2Networks).set({ status: "active" } as any)
+    await db.update(superAgentV2Networks).set({ status: "active" })
       .where(eq(superAgentV2Networks.id, input.id));
     return { success: true };
   }),
@@ -349,7 +352,7 @@ export const supportRouter = router({
     sessionId: z.string(),
     content: z.string().min(1),
     role: z.enum(["user", "agent", "system"]).default("user"),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: z.record(z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(supportMessages).values({
@@ -360,7 +363,7 @@ export const supportRouter = router({
       content: input.content,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       status: "sent",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   startSession: protectedProcedure.input(z.object({
@@ -378,12 +381,12 @@ export const supportRouter = router({
       content: input.initialMessage,
       metadata: JSON.stringify({ category: input.category, priority: input.priority }),
       status: "sent",
-    } as any).returning();
+    }).returning();
     return { sessionId, message: row };
   }),
   closeSession: protectedProcedure.input(z.object({ sessionId: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(supportMessages).set({ status: "closed" } as any)
+    await db.update(supportMessages).set({ status: "closed" })
       .where(eq(supportMessages.sessionId, input.sessionId));
     return { success: true };
   }),
@@ -427,7 +430,7 @@ export const taxFilingRouter = router({
       taxAmount: input.taxAmount,
       dueDate: input.dueDate ? new Date(input.dueDate) : null,
       status: "draft",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   file: protectedProcedure.input(z.object({
@@ -439,7 +442,7 @@ export const taxFilingRouter = router({
       status: "filed",
       filedAt: new Date(),
       receiptNumber: input.receiptNumber ?? null,
-    } as any).where(eq(taxFilingRecords.id, input.id));
+    }).where(eq(taxFilingRecords.id, input.id));
     return { success: true };
   }),
   markPaid: protectedProcedure.input(z.object({
@@ -450,7 +453,7 @@ export const taxFilingRouter = router({
     await db.update(taxFilingRecords).set({
       status: "paid",
       receiptNumber: input.receiptNumber ?? null,
-    } as any).where(eq(taxFilingRecords.id, input.id));
+    }).where(eq(taxFilingRecords.id, input.id));
     return { success: true };
   }),
 });
@@ -490,7 +493,8 @@ export const tenantMgmtRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(tenants).values({
       ...input,
-    } as any).returning();
+      status: "pending",
+    }).returning();
     return row;
   }),
   update: protectedProcedure.input(z.object({
@@ -505,12 +509,13 @@ export const tenantMgmtRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(tenants).set(rest as any).where(eq(tenants.id, id));
+    await db.update(tenants).set(rest).where(eq(tenants.id, id));
     return { success: true };
   }),
   suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(tenants).set({ status: "suspended" } as any).where(eq(tenants.id, input.id));
+    await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, input.id));
+    publishAuditEvent({ action: 'tenant.suspended', actorId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
@@ -534,9 +539,9 @@ export const tenantMgmtRouter = router({
     const existing = await db.select().from(tenantConfig)
       .where(eq(tenantConfig.tenantId, tenantId)).limit(1);
     if (existing.length > 0) {
-      await db.update(tenantConfig).set(rest as any).where(eq(tenantConfig.tenantId, tenantId));
+      await db.update(tenantConfig).set(rest).where(eq(tenantConfig.tenantId, tenantId));
     } else {
-      await db.insert(tenantConfig).values({ tenantId, ...rest } as any);
+      await db.insert(tenantConfig).values({ tenantId, ...rest });
     }
     return { success: true };
   }),
@@ -565,7 +570,7 @@ export const tenantMgmtRouter = router({
     const [row] = await db.insert(tenantCorridors).values({
       ...input,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listCorridorStats: protectedProcedure.input(paginationInput.extend({
@@ -602,7 +607,7 @@ export const tenantMgmtRouter = router({
       ...input,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   getPlanLimits: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
@@ -633,9 +638,9 @@ export const tenantMgmtRouter = router({
     const existing = await db.select().from(tenantSsoConfigs)
       .where(eq(tenantSsoConfigs.tenantId, tenantId)).limit(1);
     if (existing.length > 0) {
-      await db.update(tenantSsoConfigs).set(rest as any).where(eq(tenantSsoConfigs.tenantId, tenantId));
+      await db.update(tenantSsoConfigs).set(rest).where(eq(tenantSsoConfigs.tenantId, tenantId));
     } else {
-      await db.insert(tenantSsoConfigs).values({ tenantId, ...rest } as any);
+      await db.insert(tenantSsoConfigs).values({ tenantId, ...rest });
     }
     return { success: true };
   }),
@@ -698,7 +703,7 @@ export const transactionReceiptsRouter = router({
       emailAddress: input.emailAddress ?? null,
       pdfUrl: input.pdfUrl ?? null,
       viewCount: 0,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   resend: protectedProcedure.input(z.object({ id: z.string(), emailAddress: z.string().email().optional() })).mutation(async ({ input }) => {
@@ -706,7 +711,7 @@ export const transactionReceiptsRouter = router({
     await db.update(transactionReceipts).set({
       emailSentAt: new Date(),
       ...(input.emailAddress ? { emailAddress: input.emailAddress } : {}),
-    } as any).where(eq(transactionReceipts.id, input.id));
+    }).where(eq(transactionReceipts.id, input.id));
     return { success: true };
   }),
 });
@@ -735,7 +740,8 @@ export const usdcRouter = router({
     const [row] = await db.insert(usdcDeposits).values({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
-    } as any).returning();
+      status: "pending",
+    }).returning();
     return row;
   }),
   listPayouts: protectedProcedure.input(paginationInput.extend({
@@ -759,18 +765,8 @@ export const usdcRouter = router({
     const [row] = await db.insert(usdcPayouts).values({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
-    } as any).returning();
-    
-    // TigerBeetle wiring
-    debitWalletViaMiddleware({
-      walletId: `wallet_${ctx.user.tenantId ?? ""}`,
-      userId: ctx.user.tenantId ?? "",
-      amount: input.amountUsdc * 1500 * 100, // Approx NGN Kobo conversion for ledger
-      currency: "NGN",
-      reference: `usdc_payout_${row.id}`,
-      description: `USDC payout to ${input.destinationAddress}`,
-    }).catch(e => console.error("[TigerBeetle] USDC payout debit failed:", e));
-    
+      status: "pending",
+    }).returning();
     return row;
   }),
   listV2Wallets: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -792,7 +788,7 @@ export const usdcRouter = router({
       ...input,
       balanceUsdc: 0,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listV2Transactions: protectedProcedure.input(paginationInput.extend({
@@ -851,7 +847,7 @@ export const insuranceClaimsRouter = router({
       description: input.description,
       documents: input.documents ? JSON.stringify(input.documents) : null,
       status: "submitted",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   approve: protectedProcedure.input(z.object({
@@ -864,7 +860,7 @@ export const insuranceClaimsRouter = router({
       status: "approved",
       approvedAmountKobo: input.approvedAmountKobo,
       approvedAt: new Date(),
-    } as any).where(eq(userInsuranceClaims.id, input.id));
+    }).where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
   }),
   reject: protectedProcedure.input(z.object({
@@ -876,7 +872,7 @@ export const insuranceClaimsRouter = router({
       status: "rejected",
       rejectionReason: input.reason,
       rejectedAt: new Date(),
-    } as any).where(eq(userInsuranceClaims.id, input.id));
+    }).where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
   }),
   pay: protectedProcedure.input(z.object({
@@ -884,7 +880,7 @@ export const insuranceClaimsRouter = router({
     paymentReference: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(userInsuranceClaims).set({ status: "paid", paidAt: new Date() } as any)
+    await db.update(userInsuranceClaims).set({ status: "paid", paidAt: new Date() })
       .where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
   }),
@@ -908,7 +904,7 @@ export const webhookSimulatorRouter = router({
   simulate: protectedProcedure.input(z.object({
     webhookId: z.string(),
     eventType: z.string(),
-    payload: z.record(z.string(), z.unknown()),
+    payload: z.record(z.unknown()),
     targetUrl: z.string().url(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -945,7 +941,7 @@ export const webhookSimulatorRouter = router({
       durationMs: latencyMs,
       success: status === "success",
       error: status !== "success" ? responseBody : null,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   retry: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
@@ -979,7 +975,7 @@ export const webhookSimulatorRouter = router({
       durationMs: latencyMs,
       success: status === "success",
       error: status !== "success" ? responseBody : null,
-    } as any).where(eq(webhookSimulatorLogs.id, input.id));
+    }).where(eq(webhookSimulatorLogs.id, input.id));
     return { success: true, status, responseStatus, latencyMs };
   }),
   clear: protectedProcedure.mutation(async ({ ctx }) => {

@@ -12,6 +12,7 @@
  */
 
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { publishAuditEvent } from "../kafkaClient";
 import { getDb } from "../db";
 import { z } from "zod";
 import {
@@ -147,10 +148,10 @@ const adminNotifPrefsRouter = router({
     const existing = await db.select().from(adminNotificationPrefs)
       .where(eq(adminNotificationPrefs.userId, ctx.user.id)).limit(1);
     if (existing.length > 0) {
-      await db.update(adminNotificationPrefs).set(input as any)
+      await db.update(adminNotificationPrefs).set(input)
         .where(eq(adminNotificationPrefs.userId, ctx.user.id));
     } else {
-      await db.insert(adminNotificationPrefs).values({ userId: ctx.user.id, ...input } as any);
+      await db.insert(adminNotificationPrefs).values({ userId: ctx.user.id, ...input });
     }
     return { success: true };
   }),
@@ -192,7 +193,7 @@ const agentBankingV4Router = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   updateAgent: protectedProcedure.input(z.object({
@@ -204,7 +205,7 @@ const agentBankingV4Router = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(agentBankingV4Agents).set(rest as any).where(eq(agentBankingV4Agents.id, id));
+    await db.update(agentBankingV4Agents).set(rest).where(eq(agentBankingV4Agents.id, id));
     return { success: true };
   }),
   listNetworks: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -249,7 +250,7 @@ const auditEventsRouter = router({
     action: z.string(),
     resource: z.string(),
     resourceId: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: z.record(z.unknown()).optional(),
     ipAddress: z.string().optional(),
     userAgent: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
@@ -258,7 +259,7 @@ const auditEventsRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -274,7 +275,7 @@ const bnplRepaymentRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const conditions = [];
     if (input.bnplLoanId) conditions.push(eq(bnplRepaymentSchedules.bnplLoanId, input.bnplLoanId));
-    if (input.status) conditions.push(eq(bnplRepaymentSchedules.status, input.status as any));
+    if (input.status) conditions.push(eq(bnplRepaymentSchedules.status, input.status));
     const rows = await db.select().from(bnplRepaymentSchedules)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(bnplRepaymentSchedules.instalmentNumber)
@@ -287,7 +288,7 @@ const bnplRepaymentRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(bnplRepaymentSchedules)
-      .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() } as any)
+      .set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
       .where(eq(bnplRepaymentSchedules.id, input.id));
     return { success: true };
   }),
@@ -320,7 +321,7 @@ const carbonCreditsV2Router = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -350,7 +351,7 @@ const complianceReportsRouter = router({
   create: protectedProcedure.input(z.object({
     reportType: z.string(),
     period: z.string(),
-    data: z.record(z.string(), z.unknown()).optional(),
+    data: z.record(z.unknown()).optional(),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -359,12 +360,12 @@ const complianceReportsRouter = router({
       ...input,
       data: input.data ? JSON.stringify(input.data) : null,
       status: "draft",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   submit: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(complianceReports).set({ status: "submitted", submittedAt: new Date() } as any)
+    await db.update(complianceReports).set({ status: "submitted", submittedAt: new Date() })
       .where(eq(complianceReports.id, input.id));
     return { success: true };
   }),
@@ -377,7 +378,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerBudgets)
-      .where(eq(consumerBudgets.userId, ctx.user!.id))
+      .where(eq(consumerBudgets.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { budgets: rows, total: rows.length };
   }),
@@ -392,7 +393,7 @@ const consumerFinanceRouter = router({
       userId: String(ctx.user.id),
       ...input,
       spentKobo: 0,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   updateBudget: protectedProcedure.input(z.object({
@@ -402,7 +403,7 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(consumerBudgets).set(rest as any).where(eq(consumerBudgets.id, id));
+    await db.update(consumerBudgets).set(rest).where(eq(consumerBudgets.id, id));
     return { success: true };
   }),
   deleteBudget: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -414,7 +415,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSavingsGoals)
-      .where(eq(consumerSavingsGoals.userId, ctx.user!.id))
+      .where(eq(consumerSavingsGoals.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { goals: rows, total: rows.length };
   }),
@@ -433,14 +434,14 @@ const consumerFinanceRouter = router({
       currentKobo: 0,
       status: "active",
       targetDate: input.targetDate ? new Date(input.targetDate) : null,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listRecurringPayments: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerRecurringPayments)
-      .where(eq(consumerRecurringPayments.userId, ctx.user!.id))
+      .where(eq(consumerRecurringPayments.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { payments: rows, total: rows.length };
   }),
@@ -460,12 +461,12 @@ const consumerFinanceRouter = router({
       ...input,
       nextRunAt: new Date(input.nextRunAt),
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(consumerRecurringPayments).set({ status: "cancelled" } as any)
+    await db.update(consumerRecurringPayments).set({ status: "cancelled" })
       .where(eq(consumerRecurringPayments.id, input.id));
     return { success: true };
   }),
@@ -475,7 +476,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerContacts)
-      .where(eq(consumerContacts.userId, ctx.user!.id))
+      .where(eq(consumerContacts.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { contacts: rows, total: rows.length };
   }),
@@ -491,7 +492,7 @@ const consumerFinanceRouter = router({
     const [row] = await db.insert(consumerContacts).values({
       userId: String(ctx.user.id),
       ...input,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   deleteContact: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -524,7 +525,7 @@ const consumerFinanceRouter = router({
       totalAmountKobo: input.totalAmountKobo,
       currency: input.currency,
       status: "pending",
-    } as any).returning();
+    }).returning();
     if (input.participants.length > 0) {
       await db.insert(consumerSplitParticipants).values(
         input.participants.map(p => ({
@@ -532,7 +533,8 @@ const consumerFinanceRouter = router({
           userId: p.userId,
           shareKobo: p.shareKobo,
           status: "pending",
-        })) as any);
+        }))
+      );
     }
     return session;
   }),
@@ -540,7 +542,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerKycRecords)
-      .where(eq(consumerKycRecords.userId, ctx.user!.id))
+      .where(eq(consumerKycRecords.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { records: rows, total: rows.length };
   }),
@@ -548,7 +550,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerCards)
-      .where(eq(consumerCards.userId, ctx.user!.id))
+      .where(eq(consumerCards.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { cards: rows, total: rows.length };
   }),
@@ -556,7 +558,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerLoyaltyAccounts)
-      .where(eq(consumerLoyaltyAccounts.userId, ctx.user!.id))
+      .where(eq(consumerLoyaltyAccounts.userId, String(ctx.user.id)))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -598,7 +600,7 @@ const couponRouter = router({
       ...input,
       status: "applied",
       redeemedAt: new Date(),
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -639,7 +641,7 @@ const cryptoOfframpRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -685,13 +687,14 @@ const emiLoansRouter = router({
       totalAmountKobo: emi * input.tenureMonths,
       paidInstalments: 0,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(emiLoans).set({ status: "active", disbursedAt: new Date() } as any)
+    await db.update(emiLoans).set({ status: "active", disbursedAt: new Date() })
       .where(eq(emiLoans.id, input.id));
+    publishAuditEvent({ action: 'emi_loan.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   listRepayments: protectedProcedure.input(paginationInput.extend({
@@ -718,7 +721,7 @@ const emiLoansRouter = router({
       ...input,
       status: "paid",
       paidAt: new Date(),
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -763,18 +766,18 @@ const escrowRouter = router({
       milestones: input.milestones ? JSON.stringify(input.milestones) : null,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() } as any)
+    await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
       .where(eq(escrowContracts.id, input.id));
     return { success: true };
   }),
   dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(escrowContracts).set({ status: "disputed" } as any)
+    await db.update(escrowContracts).set({ status: "disputed" })
       .where(eq(escrowContracts.id, input.id));
     return { success: true };
   }),
@@ -815,32 +818,32 @@ const featureFlagsRouter = router({
     enabled: z.boolean().default(false),
     rolloutPercentage: z.number().int().min(0).max(100).default(0),
     targetMerchantIds: z.string().optional(),
-    targetingRules: z.record(z.string(), z.unknown()).optional(),
+    targetingRules: z.record(z.unknown()).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(featureFlags).values({
       ...input,
       targetingRules: input.targetingRules ? JSON.stringify(input.targetingRules) : null,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(featureFlags).set({ enabled: input.enabled } as any).where(eq(featureFlags.id, input.id));
+    await db.update(featureFlags).set({ enabled: input.enabled }).where(eq(featureFlags.id, input.id));
     return { success: true };
   }),
   update: protectedProcedure.input(z.object({
     id: z.string(),
     rolloutPercentage: z.number().int().min(0).max(100).optional(),
     targetMerchantIds: z.string().optional(),
-    targetingRules: z.record(z.string(), z.unknown()).optional(),
+    targetingRules: z.record(z.unknown()).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, targetingRules, ...rest } = input;
     await db.update(featureFlags).set({
       ...rest,
       ...(targetingRules !== undefined ? { targetingRules: JSON.stringify(targetingRules) } : {}),
-    } as any).where(eq(featureFlags.id, id));
+    }).where(eq(featureFlags.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -895,12 +898,12 @@ const geofenceRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       enabled: true,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(geofenceRules).set({ enabled: input.enabled } as any).where(eq(geofenceRules.id, input.id));
+    await db.update(geofenceRules).set({ enabled: input.enabled }).where(eq(geofenceRules.id, input.id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -937,7 +940,7 @@ const helpSearchRouter = router({
     await db.insert(helpSearchAnalytics).values({
       ...input,
       searchedAt: new Date(),
-    } as any);
+    });
     return { success: true };
   }),
   topQueries: protectedProcedure.input(z.object({ limit: z.number().int().min(1).max(50).default(10) })).query(async ({ input }) => {
@@ -980,7 +983,7 @@ const inventoryRouter = router({
     const [row] = await db.insert(inventoryTransactions).values({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listReservations: protectedProcedure.input(paginationInput.extend({
@@ -1006,7 +1009,7 @@ const inventoryRouter = router({
       ...input,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listAuditLog: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -1051,12 +1054,13 @@ const inviteCodesRouter = router({
       maxUses: input.maxUses,
       usedCount: 0,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(inviteCodes).set({ status: "revoked" } as any).where(eq(inviteCodes.id, input.id));
+    await db.update(inviteCodes).set({ status: "revoked" }).where(eq(inviteCodes.id, input.id));
+    publishAuditEvent({ action: 'invite_code.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   validate: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
@@ -1109,7 +1113,7 @@ const invoiceFinancingRouter = router({
       invoiceDueDate: new Date(input.invoiceDueDate),
       documents: input.documents ? JSON.stringify(input.documents) : null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   approve: protectedProcedure.input(z.object({
@@ -1123,7 +1127,7 @@ const invoiceFinancingRouter = router({
       approvedAmountKobo: input.approvedAmountKobo,
       interestRateBps: input.interestRateBps,
       approvedAt: new Date(),
-    } as any).where(eq(invoiceFinancingV2Applications.id, input.id));
+    }).where(eq(invoiceFinancingV2Applications.id, input.id));
     return { success: true };
   }),
 });
@@ -1182,24 +1186,24 @@ const invoicesRouter = router({
       dueDate: input.dueDate ? new Date(input.dueDate) : null,
       notes: input.notes ?? null,
       status: "draft",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "sent", sentAt: new Date() } as any)
+    await db.update(invoices).set({ status: "sent", sentAt: new Date() })
       .where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
   markPaid: protectedProcedure.input(z.object({ id: z.string(), paidAt: z.number().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() } as any)
+    await db.update(invoices).set({ status: "paid", paidAt: input.paidAt ? new Date(input.paidAt) : new Date() })
       .where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
   void: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "void" } as any).where(eq(invoices.invoiceId, input.id));
+    await db.update(invoices).set({ status: "void" }).where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -1232,7 +1236,7 @@ const kdsRouter = router({
       ...input,
       categories: input.categories ? JSON.stringify(input.categories) : null,
       status: "online",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   update: protectedProcedure.input(z.object({
@@ -1242,7 +1246,7 @@ const kdsRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(kdsStations).set(rest as any).where(eq(kdsStations.id, id));
+    await db.update(kdsStations).set(rest).where(eq(kdsStations.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -1276,7 +1280,7 @@ const loyaltyProgramsRouter = router({
       ...input,
       tiers: input.tiers ? JSON.stringify(input.tiers) : null,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listAccounts: protectedProcedure.input(paginationInput.extend({
@@ -1312,7 +1316,7 @@ const loyaltyProgramsRouter = router({
       ...input,
       balanceBefore: 0,
       balanceAfter: input.points,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listV3Programs: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -1378,7 +1382,7 @@ const marketplaceRouter = router({
       totalKobo,
       notes: input.notes ?? null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   updateStatus: protectedProcedure.input(z.object({
@@ -1388,7 +1392,7 @@ const marketplaceRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(marketplaceOrders).set(rest as any).where(eq(marketplaceOrders.id, id));
+    await db.update(marketplaceOrders).set(rest).where(eq(marketplaceOrders.id, id));
     return { success: true };
   }),
 });
@@ -1428,7 +1432,7 @@ const merchantRiskRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -1443,7 +1447,7 @@ const moneyRequestsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(moneyRequests)
-      .where(eq(moneyRequests.requesterId, ctx.user!.id))
+      .where(eq(moneyRequests.requesterId, ctx.user.tenantId ?? ""))
       .orderBy(desc(moneyRequests.createdAt))
       .offset(offset).limit(limit);
     return { requests: rows, total: rows.length };
@@ -1461,18 +1465,19 @@ const moneyRequestsRouter = router({
       ...input,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "approved", approvedAt: new Date() } as any)
+    await db.update(moneyRequests).set({ status: "approved", approvedAt: new Date() })
       .where(eq(moneyRequests.id, input.id));
+    publishAuditEvent({ action: 'money_request.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "declined" } as any).where(eq(moneyRequests.id, input.id));
+    await db.update(moneyRequests).set({ status: "declined" }).where(eq(moneyRequests.id, input.id));
     return { success: true };
   }),
 });
@@ -1498,7 +1503,7 @@ const multiCurrencyRouter = router({
       ...input,
       balanceKobo: 0,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listEntries: protectedProcedure.input(paginationInput.extend({
@@ -1525,7 +1530,7 @@ const multiCurrencyRouter = router({
     const [row] = await db.insert(multiCurrencyLedgerEntries).values({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -1557,7 +1562,7 @@ const mutualFundsRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
 });
@@ -1584,7 +1589,7 @@ const nfcRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listTransactions: protectedProcedure.input(paginationInput.extend({
@@ -1615,7 +1620,7 @@ const nftBadgesRouter = router({
     name: z.string().min(1).max(500),
     description: z.string().optional(),
     imageUrl: z.string().url().optional(),
-    criteria: z.record(z.string(), z.unknown()).optional(),
+    criteria: z.record(z.unknown()).optional(),
     maxSupply: z.number().int().positive().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -1625,7 +1630,7 @@ const nftBadgesRouter = router({
       criteria: input.criteria ? JSON.stringify(input.criteria) : null,
       mintedCount: 0,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   award: protectedProcedure.input(z.object({
@@ -1634,7 +1639,7 @@ const nftBadgesRouter = router({
     walletAddress: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(nftBadges).set({ mintedCount: sql`${nftBadges.mintedCount} + 1` } as any)
+    await db.update(nftBadges).set({ mintedCount: sql`${nftBadges.mintedCount} + 1` })
       .where(eq(nftBadges.id, input.badgeId));
     return { success: true, badgeId: input.badgeId, recipientId: input.recipientId };
   }),
@@ -1678,13 +1683,14 @@ const openBankingRouter = router({
       redirectUri: input.redirectUri,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   revokeConsent: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(openBankingConsentsV2).set({ status: "revoked", revokedAt: new Date() } as any)
+    await db.update(openBankingConsentsV2).set({ status: "revoked", revokedAt: new Date() })
       .where(eq(openBankingConsentsV2.id, input.id));
+    publishAuditEvent({ action: 'open_banking_consent.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
 });
@@ -1712,7 +1718,7 @@ const partnerOnboardingRouter = router({
   updateStep: protectedProcedure.input(z.object({
     id: z.string(),
     currentStep: z.number().int().min(1).max(10),
-    stepData: z.record(z.string(), z.unknown()).optional(),
+    stepData: z.record(z.unknown()).optional(),
     completed: z.boolean().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
@@ -1721,7 +1727,7 @@ const partnerOnboardingRouter = router({
       stepData: input.stepData ? JSON.stringify(input.stepData) : undefined,
       completedAt: input.completed ? new Date() : undefined,
       status: input.completed ? "completed" : "in_progress",
-    } as any).where(eq(partnerOnboardingSessions.id, input.id));
+    }).where(eq(partnerOnboardingSessions.id, input.id));
     return { success: true };
   }),
 });
@@ -1762,18 +1768,19 @@ const payrollRouter = router({
       ...input,
       payDate: new Date(input.payDate),
       status: "draft",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "approved", approvedAt: new Date() } as any)
+    await db.update(payrollRuns).set({ status: "approved", approvedAt: new Date() })
       .where(eq(payrollRuns.id, input.id));
+    publishAuditEvent({ action: 'payroll_run.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "processing", processedAt: new Date() } as any)
+    await db.update(payrollRuns).set({ status: "processing", processedAt: new Date() })
       .where(eq(payrollRuns.id, input.id));
     return { success: true };
   }),
@@ -1806,7 +1813,7 @@ const payrollRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   listV3Runs: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -1836,7 +1843,7 @@ const portfolioRouter = router({
   }),
   create: protectedProcedure.input(z.object({
     portfolioId: z.string(),
-    targetAllocations: z.record(z.string(), z.number()),
+    targetAllocations: z.record(z.number()),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
@@ -1846,12 +1853,12 @@ const portfolioRouter = router({
       targetAllocations: JSON.stringify(input.targetAllocations),
       notes: input.notes ?? null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(portfolioRebalancingOrders).set({ status: "executed", executedAt: new Date() } as any)
+    await db.update(portfolioRebalancingOrders).set({ status: "executed", executedAt: new Date() })
       .where(eq(portfolioRebalancingOrders.id, input.id));
     return { success: true };
   }),
@@ -1890,12 +1897,12 @@ const ptspRouter = router({
       ...input,
       settlementDate: new Date(input.settlementDate),
       status: "pending",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   settle: protectedProcedure.input(z.object({ id: z.string(), reference: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(ptspBatches).set({ status: "settled", settledAt: new Date() } as any)
+    await db.update(ptspBatches).set({ status: "settled", settledAt: new Date() })
       .where(eq(ptspBatches.id, input.id));
     return { success: true };
   }),
@@ -1946,13 +1953,13 @@ const realtimeNotifRouter = router({
   }),
   markRead: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(realtimeNotificationHistory).set({ readAt: new Date() } as any)
+    await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
       .where(eq(realtimeNotificationHistory.id, input.id));
     return { success: true };
   }),
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
     const db = (await getDb())!;
-    await db.update(realtimeNotificationHistory).set({ readAt: new Date() } as any)
+    await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
       .where(and(
         eq(realtimeNotificationHistory.userId, String(ctx.user.id)),
         isNull(realtimeNotificationHistory.readAt)
@@ -1969,7 +1976,7 @@ const realtimeNotifRouter = router({
     pushEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
     smsEnabled: z.boolean().optional(),
-    categories: z.record(z.string(), z.boolean()).optional(),
+    categories: z.record(z.boolean()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const existing = await db.select().from(realtimeNotificationPreferences)
@@ -1978,13 +1985,13 @@ const realtimeNotifRouter = router({
       await db.update(realtimeNotificationPreferences).set({
         ...input,
         categories: input.categories ? JSON.stringify(input.categories) : undefined,
-      } as any).where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id)));
+      }).where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id)));
     } else {
       await db.insert(realtimeNotificationPreferences).values({
         userId: String(ctx.user.id),
         ...input,
         categories: input.categories ? JSON.stringify(input.categories) : null,
-      } as any);
+      });
     }
     return { success: true };
   }),
@@ -2018,7 +2025,7 @@ const recipeRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       allergens: input.allergens ? JSON.stringify(input.allergens) : null,
-    } as any).returning();
+    }).returning();
     return row;
   }),
   update: protectedProcedure.input(z.object({
@@ -2028,12 +2035,12 @@ const recipeRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, ...rest } = input;
-    await db.update(recipeIngredients).set(rest as any).where(eq(recipeIngredients.id, id as any));
+    await db.update(recipeIngredients).set(rest).where(eq(recipeIngredients.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.delete(recipeIngredients).where(eq(recipeIngredients.id, input.id as any));
+    await db.delete(recipeIngredients).where(eq(recipeIngredients.id, input.id));
     return { success: true };
   }),
 });
@@ -2069,12 +2076,12 @@ const reconciliationRouter = router({
       status: "resolved",
       resolution: input.resolution,
       resolvedAt: new Date(),
-    } as any).where(eq(reconciliationAlerts.id, input.id));
+    }).where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
   }),
   dismiss: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(reconciliationAlerts).set({ status: "dismissed" } as any)
+    await db.update(reconciliationAlerts).set({ status: "dismissed" })
       .where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
   }),
@@ -2105,7 +2112,7 @@ const regulatoryReportsRouter = router({
   generate: protectedProcedure.input(z.object({
     reportType: z.enum(["cbn_returns", "fiu_str", "cac_annual", "firs_vat", "ndic_returns"]),
     period: z.string(),
-    data: z.record(z.string(), z.unknown()).optional(),
+    data: z.record(z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(regulatoryReports).values({
@@ -2113,12 +2120,12 @@ const regulatoryReportsRouter = router({
       ...input,
       data: input.data ? JSON.stringify(input.data) : null,
       status: "draft",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   submit: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(regulatoryReports).set({ status: "submitted", submittedAt: new Date() } as any)
+    await db.update(regulatoryReports).set({ status: "submitted", submittedAt: new Date() })
       .where(eq(regulatoryReports.id, input.id));
     return { success: true };
   }),
@@ -2146,7 +2153,7 @@ const restaurantRouter = router({
       merchantId: ctx.user.tenantId ?? "",
       ...input,
       status: "available",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   updateTableStatus: protectedProcedure.input(z.object({
@@ -2154,7 +2161,7 @@ const restaurantRouter = router({
     status: z.enum(["available", "occupied", "reserved", "cleaning"]),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(restaurantTables).set({ status: input.status } as any).where(eq(restaurantTables.id, input.id));
+    await db.update(restaurantTables).set({ status: input.status }).where(eq(restaurantTables.id, input.id));
     return { success: true };
   }),
   listOrders: protectedProcedure.input(paginationInput.extend({
@@ -2191,7 +2198,7 @@ const restaurantRouter = router({
       orderType: input.orderType,
       notes: input.notes ?? null,
       status: "pending",
-    } as any).returning();
+    }).returning();
     if (input.items.length > 0) {
       await db.insert(restaurantOrderItems).values(
         input.items.map(item => ({
@@ -2199,7 +2206,8 @@ const restaurantRouter = router({
           merchantId: ctx.user.tenantId ?? "",
           ...item,
           status: "pending",
-        })) as any);
+        }))
+      );
     }
     return order;
   }),
@@ -2208,7 +2216,7 @@ const restaurantRouter = router({
     status: z.enum(["pending", "confirmed", "preparing", "ready", "served", "paid", "cancelled"]),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(restaurantOrders).set({ status: input.status } as any).where(eq(restaurantOrders.id, input.id));
+    await db.update(restaurantOrders).set({ status: input.status }).where(eq(restaurantOrders.id, input.id));
     return { success: true };
   }),
   listOrderItems: protectedProcedure.input(z.object({ orderId: z.string() })).query(async ({ input }) => {
@@ -2250,19 +2258,20 @@ const sdkTokensRouter = router({
       permissions: input.permissions ? JSON.stringify(input.permissions) : null,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "active",
-    } as any).returning();
+    }).returning();
     return row;
   }),
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(sdkTokens).set({ status: "revoked", revokedAt: new Date() } as any)
+    await db.update(sdkTokens).set({ status: "revoked", revokedAt: new Date() })
       .where(eq(sdkTokens.id, input.id));
+    publishAuditEvent({ action: 'sdk_token.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const newToken = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
-    await db.update(sdkTokens).set({ token: newToken, rotatedAt: new Date() } as any)
+    await db.update(sdkTokens).set({ token: newToken, rotatedAt: new Date() })
       .where(eq(sdkTokens.id, input.id));
     return { success: true, token: newToken };
   }),
@@ -2285,13 +2294,13 @@ const settlementSlaRouter = router({
   }),
   acknowledge: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(settlementSlaEvents).set({ status: "acknowledged", acknowledgedAt: new Date() } as any)
+    await db.update(settlementSlaEvents).set({ status: "acknowledged", acknowledgedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),
   resolve: protectedProcedure.input(z.object({ id: z.string(), resolution: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(settlementSlaEvents).set({ status: "resolved", resolvedAt: new Date() } as any)
+    await db.update(settlementSlaEvents).set({ status: "resolved", resolvedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),

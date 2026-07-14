@@ -724,6 +724,81 @@ def retrain_model(x_internal_key: Optional[str] = Header(None)):
         "redis_saved": saved,
     }
 
+# ─── GeoIP DB Hardening ───────────────────────────────────────────────────────────────
+
+def _geoip_db_info() -> dict:
+    """Return metadata about the GeoLite2 DB file for health/status reporting."""
+    if not os.path.exists(GEOIP_DB_PATH):
+        return {
+            "available": False,
+            "path": GEOIP_DB_PATH,
+            "age_days": None,
+            "size_bytes": None,
+            "stale": None,
+        }
+    try:
+        stat = os.stat(GEOIP_DB_PATH)
+        age_days = (datetime.now(timezone.utc).timestamp() - stat.st_mtime) / 86400
+        return {
+            "available": True,
+            "path": GEOIP_DB_PATH,
+            "age_days": round(age_days, 1),
+            "size_bytes": stat.st_size,
+            "stale": age_days > 30,  # MaxMind releases weekly; warn after 30 days
+        }
+    except Exception as e:
+        return {"available": False, "path": GEOIP_DB_PATH, "error": str(e)}
+
+
+@app.post("/geoip/reload")
+def geoip_reload(x_internal_key: Optional[str] = Header(None)):
+    """Hot-reload the GeoLite2 DB without restarting the service.
+
+    Useful after a new DB file is mounted via K8s ConfigMap or volume update.
+    Requires internal API key authentication.
+    """
+    _verify_key(x_internal_key)
+    global _geoip_reader
+    if not os.path.exists(GEOIP_DB_PATH):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"GeoIP DB not found at {GEOIP_DB_PATH}. "
+                "Run scripts/download-geoip.mjs and mount the file."
+            ),
+        )
+    try:
+        import geoip2.database
+        old_reader = _geoip_reader
+        _geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
+        if old_reader is not None:
+            try:
+                old_reader.close()
+            except Exception:
+                pass
+        info = _geoip_db_info()
+        log.info("geoip_reloaded", path=GEOIP_DB_PATH, age_days=info.get("age_days"))
+        return {"success": True, "db_info": info}
+    except Exception as e:
+        log.error("geoip_reload_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"GeoIP reload failed: {e}")
+
+
+@app.get("/geoip/status")
+def geoip_status(x_internal_key: Optional[str] = Header(None)):
+    """Return current GeoIP DB status including staleness check."""
+    _verify_key(x_internal_key)
+    info = _geoip_db_info()
+    reader = _get_geoip()
+    info["reader_loaded"] = reader is not None
+    if info.get("stale"):
+        info["warning"] = (
+            "GeoLite2 DB is more than 30 days old. "
+            "Run scripts/download-geoip.mjs to refresh, then POST /geoip/reload."
+        )
+    return info
+
+
 # ─── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     log.info("threat_intel_starting", port=PORT, version="2.0.0")

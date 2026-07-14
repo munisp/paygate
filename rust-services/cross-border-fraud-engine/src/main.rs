@@ -513,10 +513,22 @@ async fn handle_batch_score(
     let results: Vec<FraudScoringResponse> = body.iter()
         .map(|r| score_transaction(r))
         .collect();
-
+    let count = results.len();
     HttpResponse::Ok().json(serde_json::json!({
         "results": results,
-        "count": results.len(),
+        "count": count,
+    }))
+}
+
+async fn handle_metrics(
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    let cache_size = state.score_cache.read().map(|c| c.len()).unwrap_or(0);
+    HttpResponse::Ok().json(serde_json::json!({
+        "service": "cross-border-fraud-engine",
+        "cache_entries": cache_size,
+        "supported_rails": ["mojaloop", "cips", "upi", "pix", "brics_pay", "swift"],
+        "uptime_ts": Utc::now().to_rfc3339(),
     }))
 }
 
@@ -577,6 +589,7 @@ async fn main() -> std::io::Result<()> {
             .route("/v1/score", web::post().to(handle_score))
             .route("/v1/score/batch", web::post().to(handle_batch_score))
             .route("/v1/rules", web::get().to(handle_rules))
+            .route("/v1/metrics", web::get().to(handle_metrics))
     })
     .bind(format!("0.0.0.0:{}", port))?
     .run()

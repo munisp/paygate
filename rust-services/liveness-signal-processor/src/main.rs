@@ -1,3 +1,5 @@
+mod extensions;
+
 /// PayGate Liveness Signal Processor (Rust)
 ///
 /// Responsibilities:
@@ -23,19 +25,32 @@ use image::{DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
 use rayon::prelude::*;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Instant};
+use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::Instant};
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info};
 use uuid::Uuid;
 
+
+// ─── Prometheus counters ──────────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct AppMetrics {
+    pub real_count: AtomicU64,
+    pub spoof_count: AtomicU64,
+    pub uncertain_count: AtomicU64,
+    pub batch_count: AtomicU64,
+    pub error_count: AtomicU64,
+}
+
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-struct AppState {
-    internal_key: String,
-    node_callback_url: String,
-    http_client: reqwest::Client,
+pub struct AppState {
+    pub internal_key: String,
+    pub node_callback_url: String,
+    pub http_client: reqwest::Client,
+    pub metrics: Arc<AppMetrics>,
 }
 
 // ─── Request / Response types ────────────────────────────────────────────────
@@ -84,7 +99,7 @@ struct SignalResponse {
 // ─── Signal Analysis ─────────────────────────────────────────────────────────
 
 /// Decode base64 image → DynamicImage
-fn decode_image(b64: &str) -> anyhow::Result<DynamicImage> {
+pub fn decode_image(b64: &str) -> anyhow::Result<DynamicImage> {
     let bytes = B64.decode(b64.trim())?;
     let img = image::load_from_memory(&bytes)?;
     Ok(img)
@@ -92,7 +107,7 @@ fn decode_image(b64: &str) -> anyhow::Result<DynamicImage> {
 
 /// Local Binary Pattern histogram — detects flat printed textures.
 /// Returns a "realness" score: high = natural skin texture, low = flat surface.
-fn lbp_realness(gray: &GrayImage) -> f32 {
+pub fn lbp_realness(gray: &GrayImage) -> f32 {
     let (w, h) = gray.dimensions();
     if w < 3 || h < 3 {
         return 0.5;
@@ -141,7 +156,7 @@ fn lbp_realness(gray: &GrayImage) -> f32 {
 
 /// FFT-based frequency analysis — detects screen refresh artefacts (moire, banding).
 /// Returns a "realness" score: high = natural frequency distribution, low = periodic artefacts.
-fn fft_realness(gray: &GrayImage) -> f32 {
+pub fn fft_realness(gray: &GrayImage) -> f32 {
     let (w, h) = gray.dimensions();
     let n = (w as usize).min(256); // Analyse centre strip up to 256px wide
 
@@ -191,7 +206,7 @@ fn fft_realness(gray: &GrayImage) -> f32 {
 
 /// Colour-depth score — real faces have smooth HSV gradients across skin regions.
 /// Flat printed photos and screens have abrupt colour transitions at edges.
-fn colour_depth_score(rgb: &RgbImage) -> f32 {
+pub fn colour_depth_score(rgb: &RgbImage) -> f32 {
     let (w, h) = rgb.dimensions();
     if w < 4 || h < 4 {
         return 0.5;
@@ -242,7 +257,7 @@ fn colour_depth_score(rgb: &RgbImage) -> f32 {
 
 /// Gradient coherence — measures smoothness of edge transitions.
 /// Deepfakes often have incoherent blending boundaries around the face swap region.
-fn gradient_coherence(gray: &GrayImage) -> f32 {
+pub fn gradient_coherence(gray: &GrayImage) -> f32 {
     let (w, h) = gray.dimensions();
     if w < 3 || h < 3 {
         return 0.5;
@@ -281,7 +296,7 @@ fn gradient_coherence(gray: &GrayImage) -> f32 {
 }
 
 /// Classify spoof type and compute per-class confidence scores.
-fn classify_spoof(
+pub fn classify_spoof(
     lbp: f32,
     fft: f32,
     colour: f32,
@@ -466,6 +481,7 @@ async fn main() -> anyhow::Result<()> {
         http_client: reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()?,
+        metrics: Arc::new(AppMetrics::default()),
     });
 
     let cors = CorsLayer::new()
@@ -475,6 +491,9 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/analyse", post(analyse_signal))
+        .route("/analyse/batch", post(extensions::analyse_batch))
+        .route("/calibrate", post(extensions::calibrate))
+        .route("/metrics", axum::routing::get(extensions::metrics_handler))
         .route("/health", axum::routing::get(health))
         .layer(cors)
         .with_state(state);

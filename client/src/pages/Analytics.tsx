@@ -94,6 +94,12 @@ export default function Analytics() {
     { days: Math.min(days, 90, { staleTime: 30_000 }) },
     { staleTime: 120_000 },
   );
+  const [plGroupBy, setPlGroupBy] = useState<'day'|'month'|'rail'|'cardType'>('day');
+  const { data: interchangePL, isLoading: plLoading } = trpc.analytics.interchangePL.useQuery(
+    { from: range.from, to: range.to, groupBy: plGroupBy },
+    { staleTime: 60_000 },
+  );
+  const { data: pspHealth } = trpc.analytics.pspIntegrationHealth.useQuery(undefined, { staleTime: 30_000 });
   const CHANNEL_COLORS: Record<string, string> = {
     card: "#4F46E5",
     bank_transfer: "#10B981",
@@ -534,6 +540,116 @@ export default function Analytics() {
           <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /> Pass (≥90%)</div>
           <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-500" /> Borderline (70–89%)</div>
           <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-red-500" /> Fail (&lt;70%)</div>
+        </div>
+      </div>
+
+      {/* ── PSP Integration Health Banner ─────────────────────────────────── */}
+      {pspHealth && (
+        <div className={`rounded-xl border p-4 flex items-center gap-4 ${
+          pspHealth.healthStatus === 'warning'
+            ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800'
+            : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800'
+        }`}>
+          <ShieldAlert className={`w-5 h-5 flex-shrink-0 ${
+            pspHealth.healthStatus === 'warning' ? 'text-amber-600' : 'text-emerald-600'
+          }`} />
+          <div className="flex-1">
+            <p className="text-sm font-semibold">
+              PSP Integration Health: <span className={pspHealth.healthStatus === 'warning' ? 'text-amber-600' : 'text-emerald-600'}>
+                {pspHealth.healthStatus === 'warning' ? 'Action Required' : 'All Systems Healthy'}
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {pspHealth.strBacklog > 0 && `${pspHealth.strBacklog} pending STR(s) awaiting NFIU submission · `}
+              {pspHealth.velocityBreachesLast24h > 0 && `${pspHealth.velocityBreachesLast24h} velocity breach(es) in last 24h · `}
+              {pspHealth.activeSchemes.length} active scheme membership(s)
+            </p>
+          </div>
+          {pspHealth.healthStatus === 'warning' && (
+            <a href="/cbn-reports" className="text-xs font-medium text-amber-700 underline underline-offset-2">View STR Queue →</a>
+          )}
+        </div>
+      )}
+
+      {/* ── Interchange P&L Section ────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 pt-2">
+        <Layers className="w-5 h-5 text-indigo-500" />
+        <h2 className="text-lg font-semibold" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Interchange P&amp;L</h2>
+        <Badge variant="outline" className="text-xs text-indigo-600 border-indigo-200 bg-indigo-50">Fee income vs scheme costs</Badge>
+      </div>
+
+      {/* Interchange KPI cards */}
+      <div className="grid grid-cols-3 gap-4">
+        {plLoading ? Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="bg-card rounded-xl border border-border p-5"><Skeleton className="h-12 w-full" /></div>
+        )) : [
+          { label: 'Fee Income', value: fmt(Number(interchangePL?.summary?.totalFeeKobo ?? 0) / 100), color: 'text-emerald-600' },
+          { label: 'Scheme Costs', value: fmt(Number(interchangePL?.summary?.totalSchemeCostKobo ?? 0) / 100), color: 'text-rose-600' },
+          { label: 'Net P&L', value: fmt(Number(interchangePL?.summary?.netPLKobo ?? 0) / 100), color: Number(interchangePL?.summary?.netPLKobo ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600' },
+        ].map((k: any) => (
+          <div key={k.label} className="bg-card rounded-xl border border-border p-5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{k.label}</p>
+            <p className={`text-2xl font-bold font-mono ${k.color}`}>{k.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Interchange chart */}
+      <div className="bg-card rounded-xl border border-border p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold" style={{ fontFamily: 'Space Grotesk, sans-serif' }}>Interchange Fee Breakdown</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">Fee income vs scheme costs over time</p>
+          </div>
+          <Select value={plGroupBy} onValueChange={(v: any) => setPlGroupBy(v)}>
+            <SelectTrigger className="w-32 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="day">By Day</SelectItem>
+              <SelectItem value="month">By Month</SelectItem>
+              <SelectItem value="rail">By Rail</SelectItem>
+              <SelectItem value="cardType">By Card Type</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {plLoading ? <Skeleton className="h-52 w-full" /> : !interchangePL?.rows?.length ? (
+          <div className="h-52 flex items-center justify-center text-muted-foreground text-sm">
+            No interchange records in this period
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={interchangePL.rows.map((r: any) => ({
+              name: r.period ?? r.rail ?? r.cardType ?? 'Unknown',
+              feeIncome: Math.round(Number(r.totalFeeKobo ?? 0) / 100),
+              schemeCost: Math.round(Number(r.totalSchemeKobo ?? 0) / 100),
+              netPL: Math.round((Number(r.totalFeeKobo ?? 0) - Number(r.totalSchemeKobo ?? 0)) / 100),
+              txnCount: Number(r.txnCount ?? 0),
+            }))}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} tickFormatter={(v: any) => fmt(v)} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: 12 }}
+                formatter={(v: number, name: string) => [
+                  name === 'txnCount' ? v.toLocaleString() : fmt(v),
+                  name === 'feeIncome' ? 'Fee Income' : name === 'schemeCost' ? 'Scheme Cost' : name === 'netPL' ? 'Net P&L' : 'Txn Count',
+                ]}
+              />
+              <Legend formatter={(v: string) => v === 'feeIncome' ? 'Fee Income' : v === 'schemeCost' ? 'Scheme Cost' : v === 'netPL' ? 'Net P&L' : 'Txn Count'} />
+              <Bar yAxisId="left" dataKey="feeIncome" fill="#4F46E5" radius={[4, 4, 0, 0]} />
+              <Bar yAxisId="left" dataKey="schemeCost" fill="#EF4444" radius={[4, 4, 0, 0]} />
+              <Line yAxisId="left" type="monotone" dataKey="netPL" stroke="#10B981" strokeWidth={2} dot={false} />
+              <Bar yAxisId="right" dataKey="txnCount" fill="#F59E0B" opacity={0.3} radius={[4, 4, 0, 0]} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-indigo-500" /> Fee Income</div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-red-500" /> Scheme Cost</div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /> Net P&L</div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-400 opacity-60" /> Txn Count</div>
         </div>
       </div>
     </div>

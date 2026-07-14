@@ -103,7 +103,7 @@ export const strRouter = router({
         submissionStatus: "pending",
         submissionAttempts: 0,
         deadlineBreached: false,
-      } as any).returning();
+      }).returning();
 
       // Publish to Kafka for async NFIU submission
       await publishEvent("str.filed", {
@@ -174,7 +174,7 @@ export const strRouter = router({
         submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
         lastAttemptAt: new Date(),
         updatedAt: new Date(),
-       } as any).where(eq(strRecords.id, input.id));
+      }).where(eq(strRecords.id, input.id));
       return { success: true };
     }),
 
@@ -186,7 +186,7 @@ export const strRouter = router({
         nfiuAcknowledgedAt: new Date(),
         submissionStatus: "acknowledged",
         updatedAt: new Date(),
-       } as any).where(eq(strRecords.id, input.id));
+      }).where(eq(strRecords.id, input.id));
       return { success: true };
     }),
 
@@ -210,125 +210,6 @@ export const strRouter = router({
       deadlineBreached: Number(breached[0]?.count ?? 0),
     };
   }),
-
-  /**
-   * One-click NFIU goAML submit — calls the Go bridge which calls the Python goAML client.
-   * On success, marks the STR as submitted and publishes to Fluvio/Kafka.
-   */
-  submitToNFIU: protectedProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const db = (await getDb())!;
-      const merchantId = ctx.user.tenantId ?? ctx.user.openId;
-      const [record] = await db.select().from(strRecords)
-        .where(and(eq(strRecords.id, input.id), eq(strRecords.merchantId, merchantId)))
-        .limit(1);
-      if (!record) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (record.submissionStatus === 'acknowledged') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'STR already acknowledged by NFIU' });
-      }
-
-      const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL;
-      let nfiuRef: string | null = null;
-      let status = 'submitted';
-
-      if (bridgeUrl) {
-        try {
-          const resp = await fetch(`${bridgeUrl}/api/v1/str/submit`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.INTERNAL_API_KEY ?? ''}`,
-            },
-            body: JSON.stringify({
-              strId: record.id,
-              merchantId,
-              reportRef: record.reportRef,
-              subjectData: record.subjectData,
-              transactionData: record.transactionData,
-              narrative: record.narrative,
-              suspicionType: record.suspicionType,
-            }),
-          });
-          if (resp.ok) {
-            const data = await resp.json() as { nfiuRef?: string; status?: string };
-            nfiuRef = data.nfiuRef ?? null;
-            status = data.status ?? 'submitted';
-          }
-        } catch (e) {
-          // Bridge unavailable — mark as pending retry
-          status = 'pending';
-        }
-      } else {
-        // Sandbox mode: generate a mock NFIU ref
-        nfiuRef = `NFIU-${record.reportRef}-${Date.now()}`;
-      }
-
-      await db.update(strRecords).set({
-        nfiuRef,
-        nfiuSubmittedAt: new Date(),
-        submissionStatus: status,
-        submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
-        lastAttemptAt: new Date(),
-        updatedAt: new Date(),
-       } as any).where(eq(strRecords.id, input.id));
-
-      await publishEvent('str.submitted', {
-        str_id: record.id,
-        merchant_id: merchantId,
-        nfiu_ref: nfiuRef,
-        status,
-      });
-
-      return { success: true, nfiuRef, status };
-    }),
-
-  /**
-   * Pending STRs with time-to-deadline countdown for the filing queue UI.
-   */
-  getPendingWithCountdown: protectedProcedure
-    .input(z.object({
-      includeBreached: z.boolean().default(true),
-    }))
-    .query(async ({ ctx, input }) => {
-      const db = (await getDb())!;
-      const merchantId = ctx.user.tenantId ?? ctx.user.openId;
-      const now = new Date();
-
-      const rows = await db.select().from(strRecords)
-        .where(and(
-          eq(strRecords.merchantId, merchantId),
-          sql`${strRecords.submissionStatus} IN ('pending', 'failed')`,
-        ))
-        .orderBy(strRecords.deadlineAt)
-        .limit(100);
-
-      return rows.map(row => {
-        const deadlineAt = row.deadlineAt ? new Date(row.deadlineAt) : null;
-        const msRemaining = deadlineAt ? deadlineAt.getTime() - now.getTime() : null;
-        const hoursRemaining = msRemaining !== null ? Math.floor(msRemaining / 3_600_000) : null;
-        const isOverdue = msRemaining !== null && msRemaining < 0;
-        const urgency: 'critical' | 'warning' | 'normal' =
-          isOverdue ? 'critical' :
-          hoursRemaining !== null && hoursRemaining < 4 ? 'critical' :
-          hoursRemaining !== null && hoursRemaining < 12 ? 'warning' : 'normal';
-
-        return {
-          ...row,
-          subjectData: row.subjectData ? JSON.parse(row.subjectData) : null,
-          transactionData: row.transactionData ? JSON.parse(row.transactionData) : null,
-          suspicionIndicators: row.suspicionIndicators ? JSON.parse(row.suspicionIndicators) : [],
-          hoursRemaining,
-          isOverdue,
-          urgency,
-          deadlineLabel: deadlineAt
-            ? isOverdue
-              ? `${Math.abs(hoursRemaining ?? 0)}h overdue`
-              : `${hoursRemaining}h remaining`
-            : 'No deadline',
-        };
-      });
-    }),
 });
 
 // ─── 2. Velocity Limits Router ────────────────────────────────────────────────
@@ -368,7 +249,7 @@ export const velocityLimitsRouter = router({
       await db.update(velocityLimitConfigs).set({
         isActive: false,
         updatedAt: new Date(),
-       } as any).where(and(
+      }).where(and(
         eq(velocityLimitConfigs.merchantId, input.merchantId),
         eq(velocityLimitConfigs.channel, input.channel),
         eq(velocityLimitConfigs.limitType, input.limitType),
@@ -387,7 +268,7 @@ export const velocityLimitsRouter = router({
         effectiveTo: input.effectiveTo ?? null,
         setBy: ctx.user.openId,
         reason: input.reason ?? null,
-      } as any).returning();
+      }).returning();
       // Publish to Kafka so Go bridge Redis counters are invalidated
       await publishEvent("velocity_limit.updated", {
         merchant_id: input.merchantId,
@@ -405,7 +286,7 @@ export const velocityLimitsRouter = router({
       await db.update(velocityLimitConfigs).set({
         isActive: false,
         updatedAt: new Date(),
-       } as any).where(eq(velocityLimitConfigs.id, input.id));
+      }).where(eq(velocityLimitConfigs.id, input.id));
       return { success: true };
     }),
 
@@ -443,7 +324,7 @@ export const velocityLimitsRouter = router({
         action: "allowed",
         resolvedAt: new Date(),
         resolvedBy: ctx.user.openId,
-       } as any).where(eq(velocityBreaches.id, input.breachId));
+      }).where(eq(velocityBreaches.id, input.breachId));
       return { success: true };
     }),
 });
@@ -493,7 +374,7 @@ export const interchangeRouter = router({
         isActive: false,
         effectiveTo: input.effectiveFrom,
         updatedAt: new Date(),
-       } as any).where(and(
+      }).where(and(
         eq(interchangeSchedule.scheme, input.scheme),
         eq(interchangeSchedule.cardType, input.cardType),
         eq(interchangeSchedule.channel, input.channel),
@@ -505,7 +386,7 @@ export const interchangeRouter = router({
         mcc: input.mcc ?? null,
         effectiveTo: input.effectiveTo ?? null,
         isActive: true,
-      } as any).returning();
+      }).returning();
       return entry;
     }),
 
@@ -749,7 +630,7 @@ export const chargebackLifecycleRouter = router({
         notes: input.notes ?? null,
         schemeRef: input.schemeRef ?? null,
         deadlineAt,
-      }) as any;
+      });
 
       // Update chargeback status
       const newStatus = input.event === "won" ? "resolved_merchant"
@@ -763,7 +644,7 @@ export const chargebackLifecycleRouter = router({
         updatedAt: new Date(),
         ...(newStatus === "resolved_merchant" || newStatus === "resolved_customer" || newStatus === "closed"
           ? { resolvedAt: new Date() } : {}),
-       } as any).where(eq(chargebacks.id, input.chargebackId));
+      }).where(eq(chargebacks.id, input.chargebackId));
 
       // Publish to Kafka for scheme submission if needed
       if (input.event === "submitted_to_scheme") {
@@ -819,7 +700,7 @@ export const chargebackLifecycleRouter = router({
         mimeType: input.mimeType,
         fileSizeBytes: input.fileSizeBytes,
         uploadedBy: ctx.user.openId,
-      } as any).returning();
+      }).returning();
 
       return { evidenceId: evidence.id, fileUrl: url };
     }),
@@ -908,7 +789,7 @@ export const regulatoryReportsRouter = router({
         period: input.period,
         regulator: "CBN",
         status: "pending",
-      } as any).returning();
+      }).returning();
 
       // Publish to Kafka for async generation by Python service
       await publishEvent("regulatory.generate_form_a", {
@@ -941,7 +822,7 @@ export const regulatoryReportsRouter = router({
         period: input.quarter,
         regulator: "CBN",
         status: "pending",
-      } as any).returning();
+      }).returning();
 
       await publishEvent("regulatory.generate_form_b", {
         report_id: report.id,
@@ -974,7 +855,7 @@ export const regulatoryReportsRouter = router({
         period,
         regulator: "CBN",
         status: "pending",
-      } as any).returning();
+      }).returning();
 
       await publishEvent("regulatory.generate_form_c", {
         report_id: report.id,
@@ -1001,7 +882,7 @@ export const regulatoryReportsRouter = router({
         status: "submitted",
         submittedAt: new Date(),
         updatedAt: new Date(),
-       } as any).where(eq(regulatoryReports.id, input.reportId));
+      }).where(eq(regulatoryReports.id, input.reportId));
 
       const [report] = await db.select().from(regulatoryReports)
         .where(eq(regulatoryReports.id, input.reportId)).limit(1);
@@ -1016,7 +897,7 @@ export const regulatoryReportsRouter = router({
         status: "submitted",
         fileUrl: input.fileUrl ?? null,
         fileKey: input.fileKey ?? null,
-      }) as any;
+      });
 
       return { success: true };
     }),
@@ -1088,14 +969,148 @@ export const regulatoryReportsRouter = router({
         regulatorRef: input.regulatorRef,
         acknowledgedAt: ackAt,
         status: 'acknowledged',
-       } as any).where(eq(regulatoryReportSubmissions.id, input.submissionId));
+      }).where(eq(regulatoryReportSubmissions.id, input.submissionId));
       // Propagate acknowledged status to the parent report
       await db.update(regulatoryReports).set({
         status: 'acknowledged',
         acknowledgedAt: ackAt,
         updatedAt: new Date(),
-       } as any).where(eq(regulatoryReports.id, submission.reportId));
+      }).where(eq(regulatoryReports.id, submission.reportId));
       return { success: true };
+    }),
+
+  /**
+   * Interchange P&L analytics — daily/monthly fee income grouped by scheme, channel, card type.
+   */
+  interchangePnl: adminProcedure
+    .input(z.object({
+      period: z.enum(["7d", "30d", "90d", "12m"]).default("30d"),
+    }))
+    .query(async ({ input }) => {
+      const db = (await getDb())!;
+      const periodDays = input.period === "7d" ? 7 : input.period === "30d" ? 30 : input.period === "90d" ? 90 : 365;
+      const since = new Date(Date.now() - periodDays * 86_400_000);
+      const byScheme = await db
+        .select({
+          scheme: interchangeFeeRecords.scheme,
+          channel: interchangeFeeRecords.channel,
+          cardType: interchangeFeeRecords.cardType,
+          billingPeriod: interchangeFeeRecords.billingPeriod,
+          totalFeeKobo: sql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+          totalVolumeKobo: sql<number>`coalesce(sum(${interchangeFeeRecords.transactionAmountKobo}), 0)`,
+          txCount: sql<number>`count(*)`,
+          avgBps: sql<number>`coalesce(avg(${interchangeFeeRecords.basisPoints}), 0)`,
+        })
+        .from(interchangeFeeRecords)
+        .where(gte(interchangeFeeRecords.createdAt, since))
+        .groupBy(
+          interchangeFeeRecords.scheme,
+          interchangeFeeRecords.channel,
+          interchangeFeeRecords.cardType,
+          interchangeFeeRecords.billingPeriod,
+        )
+        .orderBy(desc(interchangeFeeRecords.billingPeriod));
+      const totalFeeKobo = byScheme.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+      const totalVolumeKobo = byScheme.reduce((s, r) => s + Number(r.totalVolumeKobo), 0);
+      return {
+        summary: {
+          totalFeeKobo,
+          totalVolumeKobo,
+          effectiveBps: totalVolumeKobo > 0 ? Math.round((totalFeeKobo / totalVolumeKobo) * 10_000) : 0,
+          txCount: byScheme.reduce((s, r) => s + Number(r.txCount), 0),
+        },
+        rows: byScheme.map(r => ({
+          ...r,
+          totalFeeKobo: Number(r.totalFeeKobo),
+          totalVolumeKobo: Number(r.totalVolumeKobo),
+          txCount: Number(r.txCount),
+          avgBps: Number(r.avgBps),
+        })),
+      };
+    }),
+
+  /**
+   * STR filing queue — pending STRs with countdown to 24h CBN deadline.
+   */
+  pendingStrQueue: adminProcedure
+    .query(async () => {
+      const db = (await getDb())!;
+      const rows = await db
+        .select()
+        .from(strRecords)
+        .where(eq(strRecords.submissionStatus, "pending"))
+        .orderBy(strRecords.filedAt)
+        .limit(200);
+      const now = Date.now();
+      return rows.map(r => {
+        const ageMs = now - new Date(r.filedAt).getTime();
+        const deadlineMs = 24 * 3_600_000;
+        const remainingMs = Math.max(0, deadlineMs - ageMs);
+        const remainingHours = remainingMs / 3_600_000;
+        return {
+          ...r,
+          ageHours: Math.round(ageMs / 3_600_000 * 10) / 10,
+          remainingHours: Math.round(remainingHours * 10) / 10,
+          isUrgent: remainingHours < 4,
+          isOverdue: remainingMs === 0,
+        };
+      });
+    }),
+
+  /**
+   * Submit a single STR to NFIU via the Go bridge — one-click from the filing queue.
+   */
+  submitStrToNfiu: adminProcedure
+    .input(z.object({ strId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [record] = await db
+        .select()
+        .from(strRecords)
+        .where(eq(strRecords.id, input.strId))
+        .limit(1);
+      if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "STR record not found" });
+      if (record.submissionStatus === "submitted" || record.submissionStatus === "acknowledged") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "STR already submitted" });
+      }
+      const bridgeUrl = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
+      const resp = await fetch(`${bridgeUrl}/api/cbn/str/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": process.env.MIDDLEWARE_INTERNAL_KEY ?? "",
+        },
+        body: JSON.stringify({
+          str_id: record.id,
+          transaction_id: record.transactionId,
+          merchant_id: record.merchantId,
+          subject_data: record.subjectData,
+          transaction_data: record.transactionData,
+          suspicion_type: record.suspicionType,
+          suspicion_grounds: record.suspicionGrounds,
+          narrative: record.narrative,
+        }),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.text();
+        await db.update(strRecords).set({
+          submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
+          lastAttemptAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(strRecords.id, input.strId));
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `NFIU submission failed: ${errBody}` });
+      }
+      const result = await resp.json() as { reference: string };
+      await db.update(strRecords).set({
+        nfiuRef: result.reference,
+        nfiuSubmittedAt: new Date(),
+        submissionStatus: "submitted",
+        submissionAttempts: sql`${strRecords.submissionAttempts} + 1`,
+        lastAttemptAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(strRecords.id, input.strId));
+      await publishEvent("str.submitted", { strId: input.strId, nfiuReference: result.reference });
+      return { success: true, nfiuReference: result.reference };
     }),
 
   upcomingDeadlines: adminProcedure
