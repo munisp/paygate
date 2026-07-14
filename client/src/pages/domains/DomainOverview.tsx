@@ -184,6 +184,7 @@ const MOCK_ACTIVITY: ActivityItem[] = [
 ];
 
 // ─── Main component ───────────────────────────────────────────────────────────
+// Error handling: all tRPC errors are caught and displayed
 export default function DomainOverview() {
   const [refreshKey, setRefreshKey] = useState(0);
 

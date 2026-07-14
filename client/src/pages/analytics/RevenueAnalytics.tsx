@@ -12,7 +12,7 @@ type Period = "7d" | "30d" | "90d" | "1y";
 export default function RevenueAnalytics() {
   const [period, setPeriod] = useState<Period>("30d");
 
-  const { data: summary, refetch, isLoading } = trpc.wave223.revenueAnalytics.getSummary.useQuery({ period });
+  const { data: summary, refetch, isLoading, isError, error} = trpc.wave223.revenueAnalytics.getSummary.useQuery({ period });
   const { data: breakdown } = trpc.wave223.revenueAnalytics.getBreakdown.useQuery({ period });
   const { data: topMerchants } = trpc.wave223.revenueAnalytics.getTopMerchants.useQuery({ period, limit: 10 });
 
@@ -23,6 +23,8 @@ export default function RevenueAnalytics() {
     if (!previous) return null;
     return ((current - previous) / previous) * 100;
   };
+
+  if (isError) return <div className="text-red-500">Error: {error?.message}</div>;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

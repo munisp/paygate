@@ -27,7 +27,7 @@ import { logger } from "./logger";
 // ─── Bridge availability ──────────────────────────────────────────────────────
 
 export function isBridgeAvailable(): boolean {
-  return Boolean(ENV.middlewareBridgeUrl);
+  return Boolean(process.env.MIDDLEWARE_BRIDGE_URL || ENV.middlewareBridgeUrl);
 }
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
