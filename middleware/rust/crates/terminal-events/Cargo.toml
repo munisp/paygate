@@ -1,0 +1,52 @@
+[package]
+name = "terminal-events"
+version = "0.1.0"
+edition = "2021"
+description = "PayGate POS terminal event serialisation, Fluvio streaming, and TigerBeetle settlement"
+license = "MIT"
+
+[[bin]]
+name = "terminal-settlement-service"
+path = "src/main.rs"
+
+[lib]
+name = "terminal_events"
+path = "src/lib.rs"
+
+[dependencies]
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Fluvio native client
+fluvio = "0.21"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# TigerBeetle
+tigerbeetle-unofficial = "0.3"
+
+# HTTP server (settlement service)
+axum = { version = "0.7", features = ["json"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+opentelemetry = "0.22"
+opentelemetry-otlp = { version = "0.15", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.23"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Config
+dotenvy = "0.15"
+
+[dev-dependencies]
+tokio-test = "0.4"

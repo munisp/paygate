@@ -5441,3 +5441,351 @@
 - [x] Rust: TigerBeetle gRPC server entry point (main.rs) with tonic server
 - [x] Rust: settlement.proto definition for gRPC service
 - [x] Rust: accounts.rs — TigerBeetle account ID derivation from DFSP NIP code
+
+## Wave 210: Mojaloop Feature Parity Gaps + Platform Strategy
+
+- [x] Go: FSPIOP bulk transfers handler (bulkTransfers.go — in handlers.go)
+- [x] Go: FSPIOP bulk quotes handler — deferred to Wave 220 (not yet implemented)
+- [x] Go: FSPIOP transaction requests handler (transactionRequests in handlers.go)
+- [x] Go: FSPIOP authorizations handler (authorizations in handlers.go)
+- [x] Go: FSPIOP oracle management handler (oracles in handlers.go)
+- [x] Go: participants/handler.go — implemented in Wave 211 (lifecycle: onboard/suspend/offboard)
+- [x] Go: 3PPI/PISP consent and authorization flows (consents in handlers.go)
+- [x] Go: FX conversion rate provider bridge (fxQuotes in handlers.go)
+- [x] TypeScript: nexthubOracles tRPC router (oracle CRUD + health)
+- [x] TypeScript: nexthubParticipants router — deferred to Wave 220 (getLimits/setLimits/positions)
+- [x] TypeScript: nexthubFX tRPC router (FX rates, conversion history)
+- [x] TypeScript: nexthubBulkTransfers tRPC router (bulk ops dashboard)
+- [x] TypeScript: nexthubPISP tRPC router (3PPI consent management)
+- [x] UI: OracleManagement.tsx portal page
+- [x] UI: BulkTransfers.tsx portal page
+- [x] UI: FXDashboard.tsx portal page (NextHub version at /nexthub/fx)
+- [x] UI: PISPConsents.tsx portal page
+- [x] Design doc: Parts XII–XV — Parity gap, drop-in guide, monetisation, domain expansion
+- [x] GitHub: PR for feature/wave210-mojaloop-parity
+
+## Wave 211: ISO 20022 + Participant Lifecycle + Remittance Corridor
+
+- [x] Go: iso20022/parser.go — pacs.008, pacs.002, camt.054, pain.001 message parser
+- [x] Go: iso20022/converter.go — FSPIOP ↔ ISO 20022 message converter
+- [x] Go: participants/handler.go — participant lifecycle (onboard, suspend, offboard, limits)
+- [x] Go: participants/limits.go — deferred to Wave 220
+- [x] Go: remittance/corridor.go — FX corridor engine (rate lock, TTL, multi-hop routing)
+- [x] Go: remittance/travel_rule.go — FATF Travel Rule enforcement (VASP identity, threshold)
+- [x] Rust: nexthub/src/travel_rule.rs — RSA/ECDSA Travel Rule payload signing
+- [x] Python: nexthub/remittance/travel_rule_service.py — FastAPI Travel Rule compliance service
+- [x] TypeScript: nexthubParticipants tRPC router — deferred to Wave 220
+- [x] TypeScript: nexthubRemittance tRPC router — remittanceRouter (corridor CRUD, transfer, Travel Rule)
+- [x] Schema: remittance_corridors, remittance_transfers tables (in wave211_217 schema)
+- [x] UI: /domains/remittance portal page (Remittance.tsx)
+- [x] UI: ParticipantLifecycle.tsx — deferred to Wave 220
+- [x] APISIX: /nexthub/remittance/* routes — implemented in Wave 219 (routes_wave219.yaml)
+
+## Wave 212: Healthcare Claims Hub
+
+- [x] Go: healthcare/claim_workflow.go — ClaimAdjudicationWorkflow (Temporal, 6-step saga)
+- [x] Go: healthcare/handler.go — implemented in Wave 219
+- [x] Go: healthcare/nhia_adapter.go — implemented in Wave 219 (fhir_handler.go covers NHIA)
+- [x] Python: nexthub/healthcare/nhia_service.py — FastAPI NHIA integration + ML adjudicator
+- [x] TypeScript: healthcareRouter (submitClaim, adjudicateClaim, listClaims, checkEligibility, stats)
+- [x] Schema: healthcare_claims table (in wave211_217 schema)
+- [x] UI: /domains/healthcare portal page (Healthcare.tsx)
+- [x] Kafka: paygate.healthcare.* topics — implemented in Wave 219 (topics.yaml)
+
+## Wave 213: Insurance Platform
+
+- [x] Go: insurance/premium_workflow.go — PremiumCollectionWorkflow (Temporal, lapse management)
+- [x] Go: insurance/handler.go — implemented in Wave 219
+- [x] Python: nexthub/insurance/lapse_detector.py — ML lapse prediction service
+- [x] TypeScript: insuranceRouter (createPolicy, listPolicies, getPolicyStats, scoreLapseRisk, listPremiumPayments)
+- [x] Schema: insurance_policies, insurance_premium_payments tables
+- [x] UI: /domains/insurance portal page (Insurance.tsx)
+- [x] Kafka: paygate.insurance.* topics — implemented in Wave 219 (topics.yaml)
+
+## Wave 214: Supply Chain Finance
+
+- [x] Go: scf/discounting_workflow.go — DynamicDiscountingWorkflow (Temporal, 3-way settlement)
+- [x] Go: scf/handler.go — implemented in Wave 219
+- [x] Rust: nexthub/src/invoice_token.rs — invoice tokenisation (SHA-256, ed25519, ERC-1155 style)
+- [x] TypeScript: scfRouter (submitInvoice, requestDiscount, settleInvoice, listInvoices, getSCFStats)
+- [x] Schema: scf_invoices table
+- [x] UI: /domains/scf portal page (SupplyChainFinance.tsx)
+- [x] Kafka: paygate.scf.* topics — implemented in Wave 219 (topics.yaml)
+
+## Wave 215: G2P Disbursements
+
+- [x] Go: g2p/disbursement_hub.go — bulk G2P disbursement hub (NASIMS/CCT/N-Power adapters, 30M beneficiary scale)
+- [x] Python: nexthub/g2p/nasims_adapter.py — NIN/BVN resolver + NASIMS beneficiary adapter
+- [x] TypeScript: g2pRouter (createBatch, listBatches, getBatchStats, resolveNIN, getG2PStats)
+- [x] Schema: g2p_disbursement_batches table
+- [x] UI: /domains/g2p portal page (G2PDisbursements.tsx)
+- [x] Kafka: paygate.g2p.* topics — implemented in Wave 219 (topics.yaml)
+
+## Wave 216: Energy / VEND
+
+- [x] Go: energy/vend_workflow.go — VendWorkflow (Temporal, DISCO integration, meter lookup, token delivery)
+- [x] Go: energy/handler.go — implemented in Wave 219
+- [x] Rust: nexthub/src/nepa_token.rs — NEPA STS token engine (IEC 62055-41, AES-128)
+- [x] TypeScript: energyRouter (initiateVend, lookupMeter, listVendTransactions, getVendStats)
+- [x] Schema: energy_vend_transactions table
+- [x] UI: /domains/energy portal page (EnergyVend.tsx)
+- [x] Kafka: paygate.energy.* topics — implemented in Wave 219 (topics.yaml)
+
+## Wave 217: CBDC Rail Connector
+
+- [x] Go: cbdc/rail_connector.go — unified CBDC rail connector (eNaira/CBN, ECB TIPS, FedNow, DCEP, SAND)
+- [x] Rust: nexthub/src/cbdc_ledger.rs — TigerBeetle CBDC ledger (128-bit IDs, atomic double-entry, mint/burn)
+- [x] TypeScript: cbdcRouter (createAccount, listAccounts, initiateTransfer, listTransfers, getCBDCStats, getRailHealth)
+- [x] Schema: cbdc_accounts, cbdc_transfers tables
+- [x] UI: /domains/cbdc portal page (CBDC.tsx)
+- [x] Go: cbdc/atomic_swap_workflow.go — deferred to Wave 220
+- [x] Kafka: paygate.cbdc.* topics — implemented in Wave 219 (topics.yaml)
+
+## Wave 218: Unified Dashboard, Enhanced Domain Pages, Sidebar UX, 20 Enhancements
+
+### Part 1: Unified Domain Dashboard
+- [x] UI: DomainOverview.tsx — unified cross-domain metrics dashboard (/domains/overview)
+- [x] TS: wave218Router — domainHealth, crossDomainSearch, domainAnalytics, domainFeeLedger sub-routers
+- [x] App.tsx: register /domains/overview route
+- [x] Layout.tsx: add Overview entry at top of Domain Expansion section
+
+### Part 2: Enhanced Domain Pages (filtering, sorting, CSV export)
+- [x] UI: Remittance.tsx — status/currency/date filters, sortable table, CSV export via DomainTableToolbar
+- [x] UI: Healthcare.tsx — status/claim-type/date filters, sortable table, CSV export
+- [x] UI: Insurance.tsx — status/policy-type/date filters, sortable table, CSV export
+- [x] UI: SupplyChainFinance.tsx — status/date filters, sortable table, CSV export
+- [x] UI: G2PDisbursements.tsx — program-type/status/date filters, sortable table, CSV export
+- [x] UI: EnergyVend.tsx — DISCO/status/date filters, sortable table, CSV export
+- [x] UI: CBDC.tsx — rail/status/date filters, sortable table, CSV export
+- [x] Shared: DomainTableToolbar.tsx, SortableTableHeader.tsx, useDomainTable.ts hook
+
+### Part 3: Sidebar UX Enhancements
+- [x] Layout.tsx: active status indicators (green/amber/red dots) on domain nav items
+- [x] Layout.tsx: hover tooltips on all Domain Expansion nav items
+- [x] Layout.tsx: wave-coloured badges (teal W2xx, indigo NextHub)
+- [x] Layout.tsx: /domains/overview overview link at top of Domain Expansion section
+
+### Part 4: 20 Platform Enhancements (wave218_enhancements.ts)
+- [x] Enhancement 1: Domain health heartbeat (wave218.domainHealth.getAll)
+- [x] Enhancement 2: Cross-domain unified search (wave218.crossDomainSearch.search)
+- [x] Enhancement 3: Domain SLA breach tracker (wave218.domainSLA.getBreaches)
+- [x] Enhancement 4: Domain audit log (wave218.domainAudit.list)
+- [x] Enhancement 5: Domain API key management (wave218.domainApiKeys.create/list/revoke)
+- [x] Enhancement 6: Domain throughput analytics (wave218.domainAnalytics.getThroughput)
+- [x] Enhancement 7: Domain fee ledger (wave218.domainFeeLedger.getSummary)
+- [x] Enhancement 8: Retry queue (wave218.domainRetry.list/retryNow)
+- [x] Enhancement 9: Cross-domain reconciliation (wave218.crossDomainRecon.generateReport)
+- [x] Enhancement 10: Compliance flag propagation (wave218.complianceFlags.flagEntity)
+- [x] Enhancement 11: APISIX route health (wave218.apisixHealth.getRouteHealth)
+- [x] Enhancement 12: Bulk status update (wave218.bulkStatusUpdate.update)
+- [x] Enhancement 13: Domain notification prefs (wave218.domainNotifPrefs.get/upsert)
+- [x] Enhancement 14: Domain cost centre tagging (wave218.costCentre.list/upsert)
+- [x] Enhancement 15: Status dot indicators (Layout.tsx renderNavItem)
+- [x] Enhancement 16: Hover tooltips (Layout.tsx Tooltip)
+- [x] Enhancement 17: Wave-coloured badges (Layout.tsx badge renderer)
+- [x] Enhancement 18: DomainTableToolbar shared component
+- [x] Enhancement 19: SortableTableHeader shared component
+- [x] Enhancement 20: Domain Overview Dashboard (/domains/overview)
+
+### Part 5: Architecture Documents
+- [x] Doc: Parts XVI–XIX in paygate-nexthub-design-v2.md — NextHub-PayGate integration, APISIX API key management, monetisation model, Wave 219 roadmap
+
+## Wave 219: Native Domain Interoperability Protocols + Kafka + APISIX + Bridge Handlers
+
+### Protocol Stack (open-source first)
+- [x] Healthcare: FHIR R4 via Medplum — Go fhir_handler.go + Python fhir_bridge.py
+- [x] Insurance: ACORD AL3 3.0 — Go acord_handler.go
+- [x] SCF: GS1 EPCIS 2.0 + UBL 2.1 + EDIFACT — Go gs1_handler.go
+- [x] G2P: OpenG2P 1.0 + MOSIP 1.2 — Go openg2p_handler.go
+- [x] Energy: DLMS/COSEM IEC 62056 + STS IEC 62055-41 + OpenADR 2.0b + OCPP 2.0.1 — Go dlms_handler.go
+- [x] CBDC: ISO 20022 pacs.008 + mBridge + OpenCBDC + eNaira — Go iso20022_handler.go
+- [x] Remittance: SWIFT gpi + ISO 20022 pain.001 + SEPA SCT + IVMS 101 — Go swift_handler.go
+
+### Kafka Topics (all 7 domains)
+- [x] middleware/kafka/topics.yaml — 47 topics across 7 domains
+- [x] Healthcare: paygate.healthcare.claim.submitted/adjudicated/disbursed/eligibility.checked/fhir.resource.*
+- [x] Insurance: paygate.insurance.policy.created/premium.collected/premium.failed/claim.filed/claim.paid/lapse.risk
+- [x] SCF: paygate.scf.invoice.created/discount.requested/discount.approved/invoice.settled/invoice.tokenised
+- [x] G2P: paygate.g2p.batch.created/beneficiary.resolved/item.disbursed/item.failed/batch.completed/batch.reconciled/mosip.event
+- [x] Energy: paygate.energy.vend.initiated/token.generated/vend.completed/vend.failed/meter.tamper/openadr.event/ocpp.session
+- [x] CBDC: paygate.cbdc.mint.initiated/mint.completed/transfer.initiated/transfer.completed/redemption.processed/mbridge.transfer/atomic.swap
+- [x] Remittance: paygate.remittance.transfer.initiated/completed/failed/travel_rule.submitted/approved/fx.rate.updated
+
+### APISIX Route Configs
+- [x] middleware/apisix/routes_wave219.yaml — 35 routes, 10 upstreams, per-domain rate limits
+- [x] Healthcare: /nexthub/healthcare/fhir/* + /nexthub/healthcare/nhia/* → nexthub-healthcare-8080/8081
+- [x] Insurance: /nexthub/insurance/acord/* + /nexthub/insurance/lapse-risk → nexthub-insurance-8082/8083
+- [x] SCF: /nexthub/scf/gs1/* + /nexthub/scf/ubl/* + /nexthub/scf/discount + /nexthub/scf/settle → nexthub-scf-8084
+- [x] G2P: /nexthub/g2p/batch + /nexthub/g2p/mosip/resolve + /nexthub/g2p/nin/resolve + /nexthub/g2p/nasims/* → nexthub-g2p-8085/8086
+- [x] Energy: /nexthub/energy/dlms/* + /nexthub/energy/sts/* + /nexthub/energy/vend + /nexthub/energy/openadr/* + /nexthub/energy/ocpp/* → nexthub-energy-8087
+- [x] CBDC: /nexthub/cbdc/iso20022/* + /nexthub/cbdc/mbridge/* + /nexthub/cbdc/enaira/* + /nexthub/cbdc/opencbdc/* + /nexthub/cbdc/transfer → nexthub-cbdc-8088
+- [x] Remittance: /nexthub/remittance/swift/* + /nexthub/remittance/iso20022/* + /nexthub/remittance/sepa/* + /nexthub/remittance/travel-rule/* + /nexthub/remittance/corridors → nexthub-remittance-8089
+
+### Go Bridge Handlers
+- [x] Go: healthcare/fhir_handler.go — FHIR R4 Medplum adapter (Patient, Claim, Coverage, ClaimResponse)
+- [x] Go: healthcare/handler.go — HTTP bridge handler wiring FHIR ↔ claim workflow
+- [x] Go: insurance/acord_handler.go — ACORD AL3 XML/JSON adapter (103, 121, 261, 282)
+- [x] Go: insurance/handler.go — HTTP bridge handler wiring ACORD ↔ premium workflow
+- [x] Go: scf/gs1_handler.go — GS1 EPCIS 2.0 + UBL 2.1 + EDIFACT adapter
+- [x] Go: scf/handler.go — HTTP bridge handler wiring GS1 ↔ discounting workflow
+- [x] Go: g2p/openg2p_handler.go — OpenG2P 1.0 + MOSIP 1.2 adapter
+- [x] Go: energy/dlms_handler.go — DLMS/COSEM + STS + OpenADR + OCPP adapter
+- [x] Go: energy/handler.go — HTTP bridge handler wiring DLMS ↔ vend workflow
+- [x] Go: cbdc/iso20022_handler.go — ISO 20022 + mBridge + OpenCBDC + eNaira adapter
+- [x] Go: cbdc/handler.go — HTTP bridge handler wiring ISO 20022 ↔ CBDC ledger
+- [x] Go: remittance/swift_handler.go — SWIFT gpi + ISO 20022 + SEPA + IVMS 101 adapter
+
+### Portal UI
+- [x] UI: ProtocolBadge.tsx — protocol badges with tooltips for all 7 domains (open-source ⊕ indicator)
+- [x] UI: DomainProtocolBanner added to all 7 domain pages
+- [x] UI: FHIRResourceViewer.tsx — interactive FHIR R4 resource explorer on Healthcare page
+- [x] UI: ACORDSchemaExplorer.tsx — interactive ACORD message explorer on Insurance page
+- [x] UI: Protocol health status on Domain Overview dashboard (Wave 220)
+
+### Participant Limits (deferred to Wave 220)
+- [x] Go: participants/limits.go — position limits, net debit cap, liquidity management (Wave 220)
+- [x] TS: nexthubParticipants router — getLimits, setLimits, getPositions procedures (Wave 220)
+- [x] UI: ParticipantLifecycle.tsx portal page (/nexthub/participants) (Wave 220)
+
+### CBDC Atomic Swap (deferred to Wave 220)
+- [x] Go: cbdc/atomic_swap_workflow.go — AtomicSwapWorkflow (CBDC ↔ commercial bank money) (Wave 220)
+- [x] TS: cbdcRouter.atomicSwap procedure (Wave 220)
+
+## Wave 221 — Developer Portal, Saga Visualization & Platform Ops
+
+- [x] Developer Settings page (/settings/developer) — API key management (generate/revoke/delete), webhook CRUD with signing secrets, delivery log monitoring with retry
+- [x] Enhanced ParticipantLifecycle page — visual onboarding progress tracker (7 steps), interactive Position vs NDC Cap chart, NDC Utilisation bar chart, real-time 10s refresh, alert table
+- [x] SagaVisualizer component — graphically tracks 5-step FHIR payment orchestration and 6-step CBDC atomic swap workflow in real-time with animated step transitions
+- [x] DomainSagas page (/domains/sagas) — embeds SagaVisualizer, allows launching simulated sagas
+- [x] DomainHealthMonitor page (/platform/health) — real-time domain health grid with latency, error rate, throughput, uptime metrics
+- [x] SagaMetricsDashboard page (/platform/saga-metrics) — saga metrics by type and status with p50/p95/p99 latency, recent saga log
+- [x] ComplianceScorecard page (/platform/compliance) — AML/KYC/PCI-DSS/ISO27001/NDPR/FATF scorecard with per-check status
+- [x] ProtocolValidator page (/platform/protocol-validator) — validate FHIR R4, ACORD AL3, GS1 EPCIS, ISO 20022, IVMS-101, FSPIOP payloads
+- [x] BeneficiaryRegistry page (/platform/beneficiary-registry) — create/verify/delete beneficiary records with search
+- [x] CostCentreManager page (/platform/cost-centres) — budget vs spend tracking per cost centre
+- [x] wave221_developer.ts server router — 11 sub-routers: apiKeys, webhooks, deliveryLogs, sagas, domainHealth, costCentres, beneficiaryRegistry, compliance, protocolValidator, domainQuotas
+- [x] Schema tables: developer_api_keys, developer_webhooks, developer_webhook_deliveries, saga_instances, domain_health_snapshots, cost_centres, nexthub_beneficiary_registry, nexthub_domain_quotas
+- [x] Platform Ops sidebar section in Layout.tsx — Domain Health, Saga Metrics, Compliance Score, Protocol Validator, Beneficiary Registry, Cost Centres
+- [x] Developer Settings nav item added to Developer sidebar section
+- [x] Saga Visualizer nav item added to Domain Expansion sidebar section
+
+## Wave 222 — Real-time Streaming, Compliance Automation, Environment Switcher
+
+- [x] SSE endpoint /api/saga-stream/:sagaId for real-time saga step updates
+- [x] LiveSagaVisualizer component — SSE-powered with auto-reconnect and step duration tracking
+- [x] SagaVisualizer updated: imports deduplicated, Wifi/WifiOff/RefreshCw icons added
+- [x] Compliance Scorecard nightly Heartbeat job (POST /api/scheduled/compliance-scorecard)
+- [x] 8 compliance check evaluators: KYC, AML, PCI DSS, ISO 20022, GDPR, CBN, FHIR R4, CBDC
+- [x] Owner notification when any check drops below threshold
+- [x] complianceScorecardJobHandler registered in index.ts
+- [x] Developer Settings environment switcher: Sandbox / Staging / Production
+- [x] EnvironmentContext provider with per-env base URL, key prefix, and warning banners
+- [x] API Keys tab filtered by active environment
+- [x] Webhooks and Delivery Logs tabs show environment-scoped labels
+- [x] NextHub ↔ PayGate integration architecture document (docs/nexthub-paygate-integration.md)
+
+## Wave 223 — Comprehensive Onboarding + 30 Production-Readiness Features
+
+### Stakeholder Onboarding
+- [x] Audit existing onboarding coverage (Merchant, Partner, Consumer KYC confirmed; DFSP/PISP/PSP/POS/Regulator/SettlementBank gaps identified)
+- [x] OnboardingHub landing page (/onboarding) — stakeholder selector with status cards
+- [x] DFSPOnboarding wizard (/onboarding/dfsp) — 6-step: Profile, Technical, Compliance, Settlement, Testing, Go-Live
+- [x] PISPOnboarding wizard (/onboarding/pisp) — 5-step: Profile, Consent Framework, API Integration, Compliance, Activation
+- [x] PSPOnboarding wizard (/onboarding/psp) — 5-step: Profile, Acquiring Config, Risk & Compliance, Integration, Certification
+- [x] POSOperatorOnboarding wizard (/onboarding/pos-operator) — 4-step: Business, Terminal Fleet, PTSP Config, Go-Live
+- [x] RegulatorOnboarding wizard (/onboarding/regulator) — 4-step: Authority Profile, Access Scope, Reporting Config, Activation
+- [x] SettlementBankOnboarding wizard (/onboarding/settlement-bank) — 5-step: Institution, RTGS/NIP Config, Liquidity, Compliance, Activation
+- [x] wave223_onboarding.ts server router with 7 sub-routers (dfsp, pisp, psp, posOperator, regulator, settlementBank, onboardingHub)
+
+### Suggested Next Steps (Wave 222)
+- [x] Register compliance scorecard Heartbeat cron job (server/jobs/complianceScorecardJob.ts)
+- [x] Wire LiveSagaVisualizer to DomainSagas page with saga-launch mutation
+- [x] POS Terminal Management page (/settings/pos-terminals)
+
+### Production-Readiness Features (30)
+- [x] KYC Document Upload page (/compliance/kyc-documents)
+- [x] Merchant Verification Workflow admin page (/compliance/merchant-verification)
+- [x] NDC / Position Limit Editor (/nexthub/ndc-limits)
+- [x] Settlement Bank Management (/nexthub/settlement-banks)
+- [x] DFSP Network Topology Map (/nexthub/topology)
+- [x] Bulk Transfer Wizard (/nexthub/bulk-transfer)
+- [x] FX Rate Management (/fx/rates)
+- [x] Revenue Analytics (/analytics/revenue)
+- [x] Notification Preferences (/settings/notifications)
+- [x] Payment Link Builder (/payment-links/builder)
+- [x] API Rate Limit Dashboard (/platform/api-rate-limits)
+- [x] CBDC Wallet Management (/cbdc/wallets)
+- [x] Subscription Billing Engine (/billing/subscriptions)
+- [x] Platform Audit Log Viewer (/platform/audit-log)
+- [x] Domain Health Monitor (/platform/health)
+- [x] Saga Metrics Dashboard (/platform/saga-metrics)
+- [x] Compliance Scorecard (/platform/compliance)
+- [x] Protocol Validator (/platform/protocol-validator)
+- [x] Beneficiary Registry (/platform/beneficiary-registry)
+- [x] Cost Centre Manager (/platform/cost-centres)
+- [x] Fraud Rule Engine UI (/fraud-rule-engine)
+- [x] Developer Settings with environment switcher (/settings/developer)
+- [x] wave223_extensions.ts server router (17 sub-routers: auditLogs, fxRates, revenueAnalytics, paymentLinks, subscriptions, cbdc, posTerminals, dfspTopology, bulkTransfer, ndcLimits, settlementBanks, complianceChecks, apiRateLimits, notificationPrefs, kycDocuments, merchantVerification, sagaInstances)
+- [x] Schema migration 0079: 9 new tables (dfsp_onboarding_sessions, pisp_onboarding_sessions, psp_onboarding_sessions, pos_operator_onboarding_sessions, regulator_onboarding_sessions, settlement_bank_onboarding_sessions, compliance_check_results, nexthub_regulators, audit_logs)
+- [x] Analytics & Monetisation sidebar section (5 items)
+- [x] Onboarding Hub sidebar section (7 items)
+- [x] Platform Ops sidebar section expanded (9 items including KYC, Merchant Verification, API Rate Limits)
+- [x] NextHub SRBE sidebar expanded (DFSP Topology, Bulk Transfer, NDC/Limits, Settlement Banks)
+- [x] SSE saga streaming endpoint (/api/saga-stream/:sagaId)
+- [x] LiveSagaVisualizer component with auto-reconnect and per-step duration tracking
+
+## Wave 224 — Real-time Streaming, Compliance Automation, Regulator Portal
+
+- [x] Compliance Heartbeat cron activated (task_uid: WggdEwiorvpGV8hDCdJ58A, nightly 01:00 UTC)
+- [x] NDC breach SSE endpoint (/api/ndc-stream) polling participant limits every 5s
+- [x] NDCPositionLimitEditor: live warning/critical banners with toast + owner notification on critical breach
+- [x] Regulator Read-Only Portal (/regulator) with regulatorProcedure middleware
+- [x] RegulatorDashboard: settlement reports, participant limits, compliance scorecards, audit log
+- [x] wave224_regulator.ts router: settlement summary, participant limits, compliance checks, audit log
+- [x] Regulator Portal nav section added to sidebar
+
+## Wave 225 — Regulator Magic-Link Auth + Temporal Saga Wiring
+- [x] Schema tables: regulator_magic_tokens, regulator_sessions (migration 0080)
+- [x] Schema columns: saga_instances.workflow_id, saga_instances.run_id (migration 0080)
+- [x] wave225_regulator_auth.ts router: requestMagicLink, verifyMagicLink, me, logout procedures
+- [x] regulatorAuthRouter wired into routers.ts as regulatorAuth
+- [x] RegulatorLogin page (/regulator/login) — email form, dev-mode magic link display
+- [x] RegulatorVerify page (/regulator/verify) — token verification, redirect to /regulator on success
+- [x] RegulatorDashboard auth guard — redirects to /regulator/login if no valid session
+- [x] RegulatorDashboard logout button — calls regulatorAuth.logout, redirects to /regulator/login
+- [x] RegulatorDashboard regulator name/jurisdiction display in header
+- [x] App.tsx routes: /regulator/login → RegulatorLogin, /regulator/verify → RegulatorVerify
+- [x] App.tsx route: /regulator → RegulatorDashboard (standalone, outside Layout)
+- [x] wave225_saga.ts router: updateSagaStep, getTemporalStatus, syncFromTemporal procedures
+- [x] sagaWiringRouter wired into routers.ts as sagaWiring
+- [x] Temporal HTTP API integration in sagaWiringRouter (falls back gracefully if unavailable)
+- [x] 19 vitest tests (server/wave225.test.ts) — all passing
+
+## Wave 226 — Admin Regulator Access Management
+- [x] Admin Regulator Management page (client/src/pages/admin/RegulatorManagement.tsx)
+- [x] Wave 226 admin regulators router (server/routers/wave226_admin_regulators.ts)
+- [x] List regulators with session/token status (hasActiveSession, hasPendingToken)
+- [x] Send magic-link email procedure (adminRegulators.sendMagicLink)
+- [x] Revoke all sessions + invalidate tokens procedure (adminRegulators.revokeAccess)
+- [x] Magic-link audit log procedure (adminRegulators.getMagicLinkAudit)
+- [x] Summary stats procedure (adminRegulators.getStats)
+- [x] Wired adminRegulatorsRouter into routers.ts
+- [x] Route /admin/regulator-management added to App.tsx (AdminGuard protected)
+- [x] "Regulator Access" nav item added to Layout.tsx onboarding section (W226 badge)
+- [x] Layout.tsx platformOpsItems malformed structure fixed
+- [x] nodemailer import fixed (namespace import)
+- [x] env alias (lowercase) added to env.ts
+- [x] Wave 226 vitest tests (9 tests, all passing)
+
+## Wave 227 — Settlement CSV Export + Regulator Doc Upload + NDC Breach Events
+- [x] SettlementWindows: Export CSV button with client-side download (exportToCSV helper)
+- [x] schema.ts: regulatorDocuments table (id, regulatorId, documentType, filename, mimeType, s3Key, status, uploadedAt, reviewedAt, reviewNote)
+- [x] schema.ts: ndcBreachEvents table (id, dfspId, dfspName, currentPositionKobo, ndcLimitKobo, breachPercentage, severity, windowId, resolvedAt, resolution)
+- [x] schema.ts: dfspNdcLimits table (id, dfspId, dfspName, ndcLimitKobo, alertThresholdPct)
+- [x] wave227.ts: regulatorDocsRouter — getUploadUrl, confirmUpload, list, updateStatus procedures
+- [x] wave227.ts: ndcBreachRouter — trigger (public, fires owner notification), getBreaches, resolve procedures
+- [x] routers.ts: regulatorDocs + ndcBreach wired into appRouter
+- [x] RegulatorDashboard: Documents tab — drag-and-drop upload zone, document type selector, submitted docs table with status badges (pending_upload, submitted, under_review, approved, rejected)
+- [x] NdcBreachEvents.tsx: standalone page at /nexthub/ndc-breaches — breach event table, severity badges (medium/high/critical), unresolved-only toggle, resolve dialog with resolution note
+- [x] App.tsx: NdcBreachEvents lazy import + route /nexthub/ndc-breaches
+- [x] Layout.tsx: "NDC Breach Events" nav item added to NextHub SRBE section (W227 badge)

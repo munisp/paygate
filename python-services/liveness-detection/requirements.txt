@@ -1,8 +1,8 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+fastapi==0.115.6
+uvicorn[standard]==0.51.0
 pydantic==2.9.2
-httpx==0.27.2
-pillow==10.4.0
+httpx==0.28.1
+pillow==12.3.0
 opencv-python-headless==4.10.0.84
 numpy==1.26.4
 confluent-kafka==2.5.0
@@ -10,9 +10,9 @@ confluent-kafka==2.5.0
 mediapipe==0.10.14
 # InsightFace — ArcFace face recognition + quality
 insightface==0.7.3
-onnxruntime==1.19.2  # CPU; use onnxruntime-gpu for GPU
+onnxruntime==1.27.0  # CPU; use onnxruntime-gpu for GPU
 # PyTorch — SilentFace anti-spoofing model
-torch==2.4.0
-torchvision==0.19.0
+torch==2.13.0
+torchvision==0.28.0
 # Docling (IBM Research) — document layout understanding
-docling==2.5.0
+docling==2.112.0

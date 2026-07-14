@@ -1,0 +1,46 @@
+[package]
+name = "nip-events"
+version = "0.1.0"
+edition = "2021"
+description = "PayGate NIBSS NIP event serialisation, Fluvio producer, and TigerBeetle settlement"
+
+[[bin]]
+name = "nip-settlement"
+path = "src/main.rs"
+
+[dependencies]
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "1"
+
+# Fluvio
+fluvio = "0.22"
+
+# Kafka (rdkafka)
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# TigerBeetle client
+tigerbeetle-unofficial = "0.1"
+
+# Axum HTTP server
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Environment
+dotenvy = "0.15"

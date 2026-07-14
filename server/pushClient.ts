@@ -36,6 +36,7 @@ export type NotificationType =
   | "kyc_rejected"
   | "fraud_alert"
   | "settlement_completed"
+  | "liveness_failed"
   | "generic";
 
 export interface DispatchResult {

@@ -21,11 +21,11 @@
 
 import { protectedProcedure } from "./trpc";
 import { initTRPC } from "@trpc/server";
-import type { Context } from "./context";
+import type { TrpcContext } from "./context";
 import { getDb } from "../db";
 import * as schema from "../../drizzle/schema";
 
-const _t = initTRPC.context<Context>().create();
+const _t = initTRPC.context<TrpcContext>().create();
 const middleware = _t.middleware;
 
 // ─── PII field names to redact from audit input ───────────────────────────────
@@ -51,11 +51,12 @@ function sanitiseInput(input: unknown, depth = 0): unknown {
 }
 
 // ─── Core audit middleware ────────────────────────────────────────────────────
-export const auditLogMiddleware = middleware(async ({ ctx, path, type, next, rawInput }) => {
+export const auditLogMiddleware = middleware(async ({ ctx, path, type, next, getRawInput }) => {
   if (type !== "mutation") return next();
 
   const start = Date.now();
   let status: "success" | "error" = "success";
+  const rawInput = await getRawInput();
   let errorMsg: string | undefined;
 
   try {
@@ -125,7 +126,7 @@ export const auditedProcedure = protectedProcedure.use(auditLogMiddleware);
  * Or in server/_core/index.ts after router creation:
  *   const auditedRouter = applyAuditMiddleware(appRouter);
  */
-export function applyGlobalAuditMiddleware<T extends ReturnType<typeof t.router>>(
+export function applyGlobalAuditMiddleware<T extends ReturnType<typeof _t.router>>(
   router: T
 ): T {
   // tRPC v11 does not support post-hoc middleware on routers.
