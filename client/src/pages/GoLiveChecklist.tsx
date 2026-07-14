@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";

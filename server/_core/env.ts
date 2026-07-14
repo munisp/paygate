@@ -72,6 +72,10 @@ export const ENV = {
   pgDatabaseUrl: process.env.PG_DATABASE_URL ??
     (process.env.DATABASE_URL?.startsWith("postgres") ? process.env.DATABASE_URL : undefined) ??
     "postgresql://paygate_user:paygate_dev_2026@127.0.0.1:5432/paygate_db",
+  // PgBouncer connection pooler URL — when set, the application routes all DB connections
+  // through PgBouncer (port 6432) instead of directly to PostgreSQL (port 5432).
+  // In production, set PGBOUNCER_URL to "postgresql://paygate:<password>@pgbouncer:6432/paygate_prod"
+  pgBouncerUrl: process.env.PGBOUNCER_URL ?? null as string | null,
 
   // ─── Tier 1-5 Service URLs ──────────────────────────────────────────────
   creditScoringUrl: process.env.CREDIT_SCORING_URL ?? "http://credit-scoring:8100",
@@ -335,4 +339,14 @@ export const ENV = {
   pixApiKey: process.env.PIX_API_KEY ?? '',
   // DeepFace sidecar
   deepfaceSidecarUrl: process.env.DEEPFACE_SIDECAR_URL ?? 'http://localhost:8001',
+  // ─── Kafka / Fluvio streaming ──────────────────────────────────────────────────
+  kafkaBootstrapServers: process.env.KAFKA_BOOTSTRAP_SERVERS ?? 'localhost:9092',
+  fluvioEndpoint: process.env.FLUVIO_ENDPOINT ?? 'localhost:9003',
+  
+  // ─── APISIX Gateway ────────────────────────────────────────────────────────────
+  apisixAdminUrl: process.env.APISIX_ADMIN_URL ?? 'http://apisix:9180/apisix/admin',
+  apisixApiKey: process.env.APISIX_API_KEY ?? 'edd1c9f034335f136f87ad84b625c8f1',
 };
+
+// Lowercase alias for convenience — use `env` in new code
+export const env = ENV;

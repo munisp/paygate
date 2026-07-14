@@ -1,0 +1,497 @@
+# Dependabot configuration for munisp/paygate
+# Covers: Go modules (10 services), Python pip (51 services), npm (3 workspaces),
+#         and GitHub Actions workflow dependencies.
+#
+# Strategy:
+#   - Security updates: open immediately (no schedule restriction)
+#   - Version updates: weekly on Mondays, grouped by ecosystem to reduce PR noise
+#   - All PRs target main and are auto-labelled for triage
+#   - PR limit per ecosystem kept low to avoid flooding the review queue
+
+version: 2
+
+updates:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # GitHub Actions — keep workflow action versions current
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # npm — root workspace
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "npm"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      grpc-stack:
+        patterns: ["@grpc/*", "protobufjs"]
+      trpc-stack:
+        patterns: ["@trpc/*"]
+      vite-build:
+        patterns: ["vite", "esbuild", "tsup", "rollup", "@vitejs/*"]
+      babel:
+        patterns: ["@babel/*"]
+      testing:
+        patterns: ["vitest", "@vitest/*", "jest", "@jest/*"]
+      security-critical:
+        patterns: ["axios", "dompurify", "multer", "nodemailer", "qs", "js-yaml", "postcss"]
+    ignore:
+      # Avoid major version bumps that require migration work
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # npm — checkout-react SDK package
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/packages/checkout-react"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "npm"
+      - "sdk"
+    commit-message:
+      prefix: "chore(deps/checkout-react)"
+    groups:
+      all-deps:
+        patterns: ["*"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # npm — mobile React Native app
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/mobile/react-native"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "npm"
+      - "mobile"
+    commit-message:
+      prefix: "chore(deps/mobile)"
+    groups:
+      expo:
+        patterns: ["expo", "expo-*", "@expo/*"]
+      react-native:
+        patterns: ["react-native", "@react-native/*", "react-native-*"]
+      trpc-stack:
+        patterns: ["@trpc/*"]
+      babel:
+        patterns: ["@babel/*"]
+    ignore:
+      - dependency-name: "react-native"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "expo"
+        update-types: ["version-update:semver-major"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Go — go-bridge (payment gateway bridge)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "/go-bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-bridge"
+    commit-message:
+      prefix: "chore(deps/go-bridge)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+      google-cloud:
+        patterns: ["google.golang.org/*", "cloud.google.com/*"]
+      grpc:
+        patterns: ["google.golang.org/grpc", "@grpc/*"]
+      database:
+        patterns: ["github.com/jackc/pgx/*", "github.com/redis/go-redis/*"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Go — billing-engine services
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "/billing-engine/go-audit-rbac"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "billing-engine"
+    commit-message:
+      prefix: "chore(deps/billing)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+      grpc:
+        patterns: ["google.golang.org/grpc"]
+
+  - package-ecosystem: "gomod"
+    directory: "/billing-engine/go-event-ingestor"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "billing-engine"
+    commit-message:
+      prefix: "chore(deps/billing)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+      grpc:
+        patterns: ["google.golang.org/grpc"]
+
+  - package-ecosystem: "gomod"
+    directory: "/billing-engine/go-onboarding-workflow"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "billing-engine"
+    commit-message:
+      prefix: "chore(deps/billing)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Go — go-services (gateway microservices)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "/go-services/liveness-gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-services"
+    commit-message:
+      prefix: "chore(deps/go-services)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  - package-ecosystem: "gomod"
+    directory: "/go-services/pbac-engine"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-services"
+    commit-message:
+      prefix: "chore(deps/go-services)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  - package-ecosystem: "gomod"
+    directory: "/go-services/cips-gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-services"
+    commit-message:
+      prefix: "chore(deps/go-services)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  - package-ecosystem: "gomod"
+    directory: "/go-services/mojaloop-fspiop-adapter"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-services"
+    commit-message:
+      prefix: "chore(deps/go-services)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  - package-ecosystem: "gomod"
+    directory: "/go-services/pix-gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-services"
+    commit-message:
+      prefix: "chore(deps/go-services)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  - package-ecosystem: "gomod"
+    directory: "/go-services/upi-gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "go-services"
+    commit-message:
+      prefix: "chore(deps/go-services)"
+    groups:
+      golang-x:
+        patterns: ["golang.org/x/*"]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Python — representative high-risk services (full list would exceed 50-entry limit)
+  # Dependabot supports up to 50 entries per dependabot.yml.
+  # The shared/ requirements.txt covers common transitive deps for all services.
+  # ─────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/python-services/shared"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+      - "shared"
+    commit-message:
+      prefix: "chore(deps/python-shared)"
+    groups:
+      fastapi-stack:
+        patterns: ["fastapi", "uvicorn", "starlette", "pydantic", "pydantic-*"]
+      http-clients:
+        patterns: ["httpx", "aiohttp", "requests"]
+      database:
+        patterns: ["sqlalchemy", "redis", "psycopg*", "asyncpg"]
+      security-critical:
+        patterns: ["cryptography", "python-multipart", "python-jose", "passlib"]
+
+  - package-ecosystem: "pip"
+    directory: "/python-services/liveness-detection"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "ml"
+    commit-message:
+      prefix: "chore(deps/python-ml)"
+    groups:
+      pytorch:
+        patterns: ["torch", "torchvision", "torchaudio"]
+      pillow:
+        patterns: ["pillow", "pillow-*"]
+
+  - package-ecosystem: "pip"
+    directory: "/python-services/fraud-heatmap"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "ml"
+    commit-message:
+      prefix: "chore(deps/python-ml)"
+    groups:
+      spark:
+        patterns: ["pyspark", "pyarrow"]
+
+  - package-ecosystem: "pip"
+    directory: "/python-services/aml-monitor"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps/python)"
+    groups:
+      fastapi-stack:
+        patterns: ["fastapi", "uvicorn", "starlette"]
+      http-clients:
+        patterns: ["httpx", "aiohttp"]
+
+  - package-ecosystem: "pip"
+    directory: "/python-services/kyc-ocr"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "ml"
+    commit-message:
+      prefix: "chore(deps/python-ml)"
+    groups:
+      paddle:
+        patterns: ["paddlepaddle", "paddleocr"]
+      pillow:
+        patterns: ["pillow"]
+
+  - package-ecosystem: "pip"
+    directory: "/python-services/iso20022-parser"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps/python)"
+    groups:
+      xml:
+        patterns: ["lxml", "xmltodict"]
+
+  - package-ecosystem: "pip"
+    directory: "/python-services/ussd-gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps/python)"
+    groups:
+      fastapi-stack:
+        patterns: ["fastapi", "uvicorn", "python-multipart"]
+
+  - package-ecosystem: "pip"
+    directory: "/billing-engine/python-settlement-lakehouse"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "billing-engine"
+    commit-message:
+      prefix: "chore(deps/billing)"
+    groups:
+      spark:
+        patterns: ["pyspark", "pyarrow"]
+
+  - package-ecosystem: "pip"
+    directory: "/deepface-sidecar"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "ml"
+    commit-message:
+      prefix: "chore(deps/python-ml)"
+    groups:
+      ml:
+        patterns: ["torch*", "pillow", "tensorflow*", "keras*"]

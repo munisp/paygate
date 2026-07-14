@@ -75,6 +75,7 @@ const UPIGateway = lz(() => import("./pages/UPIGateway"));
 const PIXGateway = lz(() => import("./pages/PIXGateway"));
 const DeveloperPortal = lz(() => import("./pages/DeveloperPortal"));
 const WorkflowObservability = lz(() => import("./pages/WorkflowObservability"));
+const GatewayAndWorkflowMonitor = lz(() => import("./pages/GatewayAndWorkflowMonitor"));
 const KeycloakRoleSync = lz(() => import("./pages/KeycloakRoleSync"));
 const NIPBanks = lz(() => import("./pages/NIPBanks"));
 const Subscriptions = lz(() => import("./pages/Subscriptions"));
@@ -409,6 +410,8 @@ const DataExportPage = lz(() => import("./pages/DataExport"));
 const OnboardingStatusPage = lz(() => import("./pages/OnboardingStatus"));
 const ClaimDocumentsPage = lz(() => import("./pages/ClaimDocuments"));
 const CorridorLiveStatsPage = lz(() => import("./pages/CorridorLiveStats"));
+// Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down
+// Wave 229 — Billing Engine Analytics Dashboard
 const PortfolioRebalancingPage = lz(() => import("./pages/PortfolioRebalancing"));
 // Wave 155-156: Liveness verification
 const LivenessCheckPage = lz(() => import("./pages/LivenessCheck"));
@@ -430,13 +433,36 @@ const ProductionReadinessDashboardPage = lz(() => import("./pages/ProductionRead
 const UBOManagerPage = lz(() => import("./pages/UBOManager"));
 // Admin: Corridor Monitor
 const AdminCorridorMonitorPage = lz(() => import("./pages/admin/AdminCorridorMonitor"));
-// NextHub SRBE
-const NHSettlementWindows = lz(() => import("./pages/nexthub/SettlementWindows"));
-const NHReconciliationExceptions = lz(() => import("./pages/nexthub/ReconciliationExceptions"));
-const NHBillingHub = lz(() => import("./pages/nexthub/BillingHub"));
-const NHDisputesHub = lz(() => import("./pages/nexthub/DisputesHub"));
-const NHSecurityDashboard = lz(() => import("./pages/nexthub/SecurityDashboard"));
-const NHDFSPManagement = lz(() => import("./pages/nexthub/DFSPManagement"));
+const HostedPaymentLazy = lz(() => import("./pages/HostedPayment"));
+// Wave 211-217 — Domain Expansion
+const DomainOverview = lz(() => import("./pages/domains/DomainOverview"));
+const DomainRemittance = lz(() => import("./pages/domains/Remittance"));
+const DomainHealthcare = lz(() => import("./pages/domains/Healthcare"));
+const DomainInsurance = lz(() => import("./pages/domains/Insurance"));
+const DomainSCF = lz(() => import("./pages/domains/SupplyChainFinance"));
+const DomainG2P = lz(() => import("./pages/domains/G2PDisbursements"));
+const DomainEnergy = lz(() => import("./pages/domains/EnergyVend"));
+const DomainCBDC = lz(() => import("./pages/domains/CBDC"));
+// Wave 221
+const DomainSagas = lz(() => import("./pages/domains/DomainSagas"));
+const DeveloperSettings = lz(() => import("./pages/settings/DeveloperSettings"));
+const DomainHealthMonitor = lz(() => import("./pages/platform/DomainHealthMonitor"));
+const SagaMetricsDashboard = lz(() => import("./pages/platform/SagaMetricsDashboard"));
+const ComplianceScorecard = lz(() => import("./pages/platform/ComplianceScorecard"));
+const ProtocolValidator = lz(() => import("./pages/platform/ProtocolValidator"));
+const BeneficiaryRegistry = lz(() => import("./pages/platform/BeneficiaryRegistry"));
+const CostCentreManager = lz(() => import("./pages/platform/CostCentreManager"));
+const KYCDocumentUpload = lz(() => import("./pages/compliance/KYCDocumentUpload"));
+const PlatformAuditLogViewer = lz(() => import("./pages/platform/AuditLogViewer"));
+const MerchantVerification = lz(() => import("./pages/compliance/MerchantVerification"));
+const FXRateManagement = lz(() => import("./pages/fx/FXRateManagement"));
+const RevenueAnalytics = lz(() => import("./pages/analytics/RevenueAnalytics"));
+const NotificationPreferences = lz(() => import("./pages/settings/NotificationPreferences"));
+const PaymentLinkBuilder = lz(() => import("./pages/PaymentLinkBuilder"));
+const APIRateLimitDashboard = lz(() => import("./pages/platform/APIRateLimitDashboard"));
+const CBDCWalletManagement = lz(() => import("./pages/cbdc/CBDCWalletManagement"));
+const SubscriptionBilling = lz(() => import("./pages/billing/SubscriptionBilling"));
+
 
 // ── Page loading fallback ─────────────────────────────────────────────────────
 function PageLoader() {
@@ -480,6 +506,17 @@ function Router() {
           <Route path="/admin/settlement-sla"><AdminGuard><AdminSettlementSLA /></AdminGuard></Route>
           <Route path="/admin/dispute-lifecycle"><AdminGuard><AdminDisputeLifecycle /></AdminGuard></Route>
           <Route path="/admin/ai"><AdminGuard><LakehouseAIDashboard /></AdminGuard></Route>
+        </Switch>
+      </Suspense>
+    );
+  }
+
+  const isRegulatorPage = false;
+
+  if (isRegulatorPage) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
         </Switch>
       </Suspense>
     );
@@ -794,6 +831,7 @@ function Router() {
           <Route path="/admin/plan-limits"><AdminGuard><PlanLimitsPage /></AdminGuard></Route>
           <Route path="/admin/billing-invoices"><AdminGuard><BillingInvoicesPage /></AdminGuard></Route>
           <Route path="/billing-engine/analytics" component={BillingAnalyticsPage} />
+          {/* Wave 229 — Billing Engine Analytics Dashboard */}
           <Route path="/billing-engine" component={BillingConfigPage} />
           <Route path="/admin/sso-config"><AdminGuard><SSOConfigPage /></AdminGuard></Route>
           <Route path="/bnpl/repayment" component={BNPLRepaymentPage} />
@@ -813,6 +851,7 @@ function Router() {
           <Route path="/consumer/loyalty-app" component={ConsumerLoyaltyApp} />
           <Route path="/webhook-live" component={WebhookLiveStream} />
           <Route path="/admin/middleware-dashboard"><AdminGuard><MiddlewareDashboard /></AdminGuard></Route>
+          <Route path="/admin/gateway-monitor"><AdminGuard><GatewayAndWorkflowMonitor /></AdminGuard></Route>
           <Route path="/staff-management" component={StaffManagementPage} />
           <Route path="/insurance-claims" component={InsuranceClaimsPage} />
           <Route path="/support-chat" component={SupportChatPage} />
@@ -863,6 +902,7 @@ function Router() {
           <Route path="/onboarding-status" component={OnboardingStatusPage} />
           <Route path="/claim-documents" component={ClaimDocumentsPage} />
           <Route path="/corridor-live" component={CorridorLiveStatsPage} />
+          {/* Wave 228 — Corridor Live Stats V2 + Multi-Currency Ledger Drill-Down */}
           <Route path="/portfolio-rebalancing" component={PortfolioRebalancingPage} />
           <Route path="/liveness-check" component={LivenessCheckPage} />
           <Route path="/liveness-replay" component={LivenessReplayViewerPage} />
@@ -890,18 +930,60 @@ function Router() {
         <Route path="/ussd/menu-builder" component={UssdMenuBuilder} />
         <Route path="/partner/onboarding" component={PartnerOnboardingPage} />
         <Route path="/order/:id" component={PublicOrderPageLazy} />
+        <Route path="/pay/:linkId" component={HostedPaymentLazy} />
         <Route path="/tenant/corridors" component={TenantCorridorsPage} />
         <Route path="/tenant/plan-limits" component={PlanLimitsPage} />
         <Route path="/tenant/admin-dashboard" component={TenantAdminDashboard} />
         <Route path="/kyb/ubo-manager" component={UBOManagerPage} />
         <Route path="/admin/corridor-monitor"><AdminGuard><AdminCorridorMonitorPage /></AdminGuard></Route>
-        {/* NextHub SRBE Routes */}
-        <Route path="/nexthub/settlement" component={NHSettlementWindows} />
-        <Route path="/nexthub/reconciliation" component={NHReconciliationExceptions} />
-        <Route path="/nexthub/billing" component={NHBillingHub} />
-        <Route path="/nexthub/disputes" component={NHDisputesHub} />
-        <Route path="/nexthub/security" component={NHSecurityDashboard} />
-        <Route path="/nexthub/dfsps" component={NHDFSPManagement} />
+
+        {/* Wave 210 — Mojaloop Feature Parity */}
+
+
+
+
+        {/* Wave 211-217 Domain Expansion Routes */}
+        <Route path="/domains/overview" component={DomainOverview} />
+        <Route path="/domains/remittance" component={DomainRemittance} />
+        <Route path="/domains/healthcare" component={DomainHealthcare} />
+        <Route path="/domains/insurance" component={DomainInsurance} />
+        <Route path="/domains/scf" component={DomainSCF} />
+        <Route path="/domains/g2p" component={DomainG2P} />
+        <Route path="/domains/energy" component={DomainEnergy} />
+        <Route path="/domains/cbdc" component={DomainCBDC} />
+        {/* Wave 221 */}
+        <Route path="/domains/sagas" component={DomainSagas} />
+        <Route path="/settings/developer" component={DeveloperSettings} />
+        <Route path="/platform/health" component={DomainHealthMonitor} />
+        <Route path="/platform/saga-metrics" component={SagaMetricsDashboard} />
+        <Route path="/platform/compliance" component={ComplianceScorecard} />
+        <Route path="/platform/protocol-validator" component={ProtocolValidator} />
+        <Route path="/platform/beneficiary-registry" component={BeneficiaryRegistry} />
+        <Route path="/platform/cost-centres" component={CostCentreManager} />
+        {/* Wave 223 — Onboarding Hub */}
+        <Route path="/onboarding" component={OnboardingHub} />
+        <Route path="/onboarding/dfsp" component={DFSPOnboarding} />
+        <Route path="/onboarding/pisp" component={PISPOnboarding} />
+        <Route path="/onboarding/psp" component={PSPOnboarding} />
+        <Route path="/onboarding/pos-operator" component={POSOperatorOnboarding} />
+        <Route path="/onboarding/settlement-bank" component={SettlementBankOnboarding} />
+        {/* Wave 223 — POS Terminal Management */}
+        <Route path="/settings/pos-terminals" component={POSTerminalManagement} />
+        <Route path="/compliance/kyc-documents" component={KYCDocumentUpload} />
+        <Route path="/compliance/merchant-verification" component={MerchantVerification} />
+
+
+
+
+        <Route path="/fx/rates" component={FXRateManagement} />
+        <Route path="/analytics/revenue" component={RevenueAnalytics} />
+        <Route path="/settings/notifications" component={NotificationPreferences} />
+        <Route path="/payment-links/builder" component={PaymentLinkBuilder} />
+        <Route path="/platform/api-rate-limits" component={APIRateLimitDashboard} />
+        <Route path="/cbdc/wallets" component={CBDCWalletManagement} />
+        <Route path="/billing/subscriptions" component={SubscriptionBilling} />
+        <Route path="/platform/audit-log" component={PlatformAuditLogViewer} />
+
           <Route component={Dashboard} />
     </Switch>
       </Suspense>
