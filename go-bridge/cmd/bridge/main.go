@@ -25,12 +25,12 @@ import (
 	"time"
 
 	"github.com/paygate/go-bridge/internal/apisix"
+	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/dapr"
 	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/keycloak"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
-	"github.com/paygate/go-bridge/internal/insider"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/redis"
@@ -211,12 +211,26 @@ slog.Info("env var validation complete")
 
 	// Auth / role sync
 	mux.HandleFunc("POST /v1/auth/sync-roles", authMiddleware(handlers.SyncRolesToPermify))
-	// Biometric token exchange (no authMiddleware — caller presents refresh_token, not access_token)
-	mux.HandleFunc("POST /v1/auth/biometric-token", keycloak.HandleBiometricToken)
-	// Alias with slash separator for Flutter SDK compatibility
-	mux.HandleFunc("POST /v1/auth/biometric/token", keycloak.HandleBiometricToken)
-	mux.HandleFunc("POST /v1/auth/biometric-revoke", authMiddleware(keycloak.HandleBiometricRevoke))
-	mux.HandleFunc("POST /v1/auth/biometric/revoke", authMiddleware(keycloak.HandleBiometricRevoke))
+	// u2500u2500 Permify policy sync + relationship management (Wave 131) u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+	mux.HandleFunc("POST /v1/permify/schema/write", authMiddleware(handlers.PermifyWriteSchema))
+	mux.HandleFunc("POST /v1/permify/relationships/write", authMiddleware(handlers.PermifyWriteRelationships))
+	mux.HandleFunc("POST /v1/permify/relationships/delete", authMiddleware(handlers.PermifyDeleteRelationship))
+	mux.HandleFunc("POST /v1/permify/relationships/list", authMiddleware(handlers.PermifyListRelationships))
+	// u2500u2500 Keycloak admin: group + role management (Wave 131) u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+	mux.HandleFunc("POST /v1/keycloak/users/sync-group", authMiddleware(handlers.KeycloakSyncGroup))
+	mux.HandleFunc("POST /v1/keycloak/users/assign-role", authMiddleware(handlers.KeycloakAssignRole))
+	mux.HandleFunc("POST /v1/keycloak/users/revoke-role", authMiddleware(handlers.KeycloakRevokeRole))
+	// ── APISIX Admin API routes ────────────────────────────────────────────────
+	mux.HandleFunc("GET /v1/apisix/routes", authMiddleware(handlers.APISIXListRoutes))
+	mux.HandleFunc("POST /v1/apisix/routes", authMiddleware(handlers.APISIXUpsertRoute))
+	mux.HandleFunc("DELETE /v1/apisix/routes/{id}", authMiddleware(handlers.APISIXDeleteRoute))
+	mux.HandleFunc("GET /v1/apisix/consumers", authMiddleware(handlers.APISIXListConsumers))
+	mux.HandleFunc("POST /v1/apisix/consumers", authMiddleware(handlers.APISIXUpsertConsumer))
+	mux.HandleFunc("DELETE /v1/apisix/consumers/{username}", authMiddleware(handlers.APISIXDeleteConsumer))
+	mux.HandleFunc("GET /v1/apisix/plugins", authMiddleware(handlers.APISIXListPlugins))
+	mux.HandleFunc("POST /v1/apisix/plugins/enable", authMiddleware(handlers.APISIXEnablePlugin))
+	mux.HandleFunc("POST /v1/apisix/plugins/disable", authMiddleware(handlers.APISIXDisablePlugin))
+	mux.HandleFunc("GET /v1/apisix/health", handlers.APISIXHealth)
 
 	// ── Fluvio SSE stream endpoint ──────────────────────────────────────────────
 	// Clients subscribe to GET /v1/stream/events for real-time SSE updates
@@ -240,10 +254,18 @@ slog.Info("env var validation complete")
 	// Notifications
 	mux.HandleFunc("POST /v1/notifications/payout-approval-email", authMiddleware(handlers.SendPayoutApprovalEmail))
 
-	// NIP / NIBSS name enquiry
+	// NIP / NIBSS name enquiry + instant debit (Wave 131)
 	mux.HandleFunc("POST /v1/nibss/name-enquiry", authMiddleware(handlers.NIPNameEnquiry))
-	// NIP 3.0 Instant Debit (dual-message authorisation)
 	mux.HandleFunc("POST /v1/nip/instant-debit", authMiddleware(handlers.NIPInstantDebit))
+	// Lakehouse analytics (Wave 133)
+	mux.HandleFunc("POST /v1/lakehouse/query", authMiddleware(lakehouse.QueryHandler))
+	mux.HandleFunc("GET /v1/lakehouse/tables", authMiddleware(lakehouse.TablesHandler))
+	mux.HandleFunc("POST /v1/lakehouse/export", authMiddleware(lakehouse.ExportHandler))
+	// Biometric token exchange (Wave 131)
+	mux.HandleFunc("POST /v1/auth/biometric-token", authMiddleware(handlers.BiometricToken))
+	mux.HandleFunc("POST /v1/auth/biometric-revoke", authMiddleware(handlers.BiometricRevoke))
+	mux.HandleFunc("POST /v1/auth/biometric/token", authMiddleware(handlers.BiometricToken))
+	mux.HandleFunc("POST /v1/auth/biometric/revoke", authMiddleware(handlers.BiometricRevoke))
 	// USDC payout operations (native Solana engine)
 	mux.HandleFunc("POST /v1/usdc/payout", authMiddleware(handlers.InitiateUSDCPayout))
 	mux.HandleFunc("POST /v1/usdc/wallet/validate", authMiddleware(handlers.ValidateUSDCWallet))
@@ -547,21 +569,22 @@ slog.Info("env var validation complete")
 
 
 // ── Cross-Border Rails (CIPS / UPI / PIX / Mojaloop) ────────────────────────
-mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransfer))
+mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransferReal))
 mux.HandleFunc("GET /v1/cips/status", authMiddleware(handlers.GetCIPSTransferStatus))
 mux.HandleFunc("GET /v1/cips/corridors", authMiddleware(handlers.GetCIPSCorridors))
 mux.HandleFunc("GET /v1/cips/health", handlers.GetCIPSHealth)
 
-mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPay))
+mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPayReal))
 mux.HandleFunc("POST /v1/upi/collect", authMiddleware(handlers.ProxyUPICollect))
-mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPA))
+mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPAReal))
 mux.HandleFunc("GET /v1/upi/status", authMiddleware(handlers.GetUPITransferStatus))
 mux.HandleFunc("GET /v1/upi/health", handlers.GetUPIHealth)
 
-mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPayment))
+mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPaymentReal))
 mux.HandleFunc("POST /v1/pix/key/lookup", authMiddleware(handlers.LookupPIXKey))
 mux.HandleFunc("GET /v1/pix/status", authMiddleware(handlers.GetPIXTransferStatus))
 mux.HandleFunc("GET /v1/pix/health", handlers.GetPIXHealth)
+	mux.HandleFunc("GET /v1/cross-border/circuit-status", handlers.GetCrossRailCircuitStatus)
 
 mux.HandleFunc("POST /v1/mojaloop/transfer", authMiddleware(handlers.ProxyMojaloopTransfer))
 mux.HandleFunc("GET /v1/mojaloop/quote", authMiddleware(handlers.GetMojaloopQuote))
@@ -641,9 +664,6 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/insurance/quote", handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/v1/quote"))
 	mux.HandleFunc("/v1/iso20022/health", handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/health"))
 	mux.HandleFunc("/v1/iso20022/parse", handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/v1/parse"))
-	// ISO 20022 XSD validation (native Go — no sidecar required)
-	mux.HandleFunc("POST /v1/iso20022/validate", authMiddleware(handlers.ValidateISO20022))
-	mux.HandleFunc("POST /v1/iso20022/validate/batch", authMiddleware(handlers.ValidateISO20022Batch))
 	mux.HandleFunc("/v1/kiosk/health", handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/health"))
 	mux.HandleFunc("/v1/kiosk/status", handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/v1/status"))
 	mux.HandleFunc("/v1/kyc-ocr-py/health", handlers.ProxyToService("KYC_OCR_PY_URL", "http://localhost:8231", "/health"))
@@ -697,17 +717,33 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/bandwidth/report", handlers.ProbeReport)
 	mux.HandleFunc("/v1/bandwidth/stats", handlers.ProbeStats)
 
-	// ─── Insider Threat Prevention ─────────────────────────────────────────────
-	insider.Init(insider.DefaultConfig())
-	mux.HandleFunc("/v1/insider/session/bind", handlers.BindInsiderSession)
-	mux.HandleFunc("/v1/insider/session/validate", handlers.GatePrivilegedAction)
-	mux.HandleFunc("/v1/insider/action/gate", handlers.GatePrivilegedAction)
-	mux.HandleFunc("/v1/insider/approval/create", handlers.ApproveDualControl)
-	mux.HandleFunc("/v1/insider/approval/resolve", handlers.RejectDualControl)
-	mux.HandleFunc("/v1/insider/approval/status", handlers.GetDualControlRequestHandler)
-	mux.HandleFunc("/v1/insider/alerts", handlers.ListInsiderThreatAlerts)
-	mux.HandleFunc("/v1/insider/alert/resolve", handlers.InsiderThreatHealth)
-	mux.HandleFunc("/v1/insider/score", handlers.InsiderThreatHealth)
+	// ── CBN STR (Suspicious Transaction Report) Pipeline ──────────────────────
+	mux.HandleFunc("POST /v1/cbn/str", authMiddleware(handlers.CreateSTR))
+	mux.HandleFunc("GET /v1/cbn/str", authMiddleware(handlers.ListSTRs))
+	mux.HandleFunc("GET /v1/cbn/str/{id}", authMiddleware(handlers.GetSTR))
+	mux.HandleFunc("POST /v1/cbn/str/{id}/submit", authMiddleware(handlers.SubmitSTRToFIU))
+	mux.HandleFunc("POST /v1/cbn/str/{id}/acknowledge", authMiddleware(handlers.AcknowledgeSTR))
+
+	// ── Sub-merchant Velocity Limits ──────────────────────────────────────────
+	mux.HandleFunc("GET /v1/velocity/config/{merchant_id}", authMiddleware(handlers.GetVelocityConfig))
+	mux.HandleFunc("PUT /v1/velocity/config/{merchant_id}", authMiddleware(handlers.UpsertVelocityConfig))
+	mux.HandleFunc("POST /v1/velocity/check", authMiddleware(handlers.CheckVelocity))
+	mux.HandleFunc("GET /v1/velocity/counters/{merchant_id}", authMiddleware(handlers.GetVelocityCounters))
+
+	// ── Chargeback Lifecycle (full state machine) ──────────────────────────────
+	mux.HandleFunc("POST /v1/chargebacks/{id}/advance", authMiddleware(handlers.AdvanceChargebackState))
+	mux.HandleFunc("POST /v1/chargebacks/{id}/stripe-sync", authMiddleware(handlers.SyncChargebackFromStripe))
+	mux.HandleFunc("GET /v1/chargebacks/{id}/timeline", authMiddleware(handlers.GetChargebackTimeline))
+
+	// ── Interchange Fee Engine ─────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/interchange/calculate", authMiddleware(handlers.CalculateInterchange))
+	mux.HandleFunc("GET /v1/interchange/schedule", authMiddleware(handlers.GetInterchangeSchedule))
+	mux.HandleFunc("PUT /v1/interchange/schedule", authMiddleware(handlers.UpsertInterchangeSchedule))
+
+	// ── Scheme Membership (Visa/Mastercard BIN sponsorship) ───────────────────
+	mux.HandleFunc("GET /v1/scheme/membership", authMiddleware(handlers.GetSchemeMembership))
+	mux.HandleFunc("POST /v1/scheme/bin-lookup", authMiddleware(handlers.BINLookup))
+	mux.HandleFunc("POST /v1/scheme/dispute/submit", authMiddleware(handlers.SubmitSchemeDispute))
 
 	srv := &http.Server{
 		Addr:              ":" + port,

@@ -218,3 +218,141 @@ export const loyaltyAccountsRelations = relations(loyaltyAccounts, ({ one, many 
 export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ one }) => ({
   account: one(loyaltyAccounts, { fields: [loyaltyTransactions.accountId], references: [loyaltyAccounts.accountId] }),
 }));
+
+// ─── Wave 137: Extended Relations (P2 gap closure) ───────────────────────────
+import {
+  accessibilityFallbackSessions, adverseMediaScreenings, agentBankingV4Agents,
+  aiAuditTrail, billPayments, billingEvents, bnplPlans, bnplRepaymentSchedules,
+  bulkCollections, bulkPaymentSchedules, carbonCredits, cashbackBalances,
+  cashbackTransactions, chargebacks, complianceReports, consumerBudgets,
+  consumerCards, consumerContacts, consumerDisputes, consumerFinanceLoans,
+  consumerFraudFlags, consumerKycRecords, consumerLoyaltyAccounts,
+  consumerLoyaltyTxns, consumerWallets, consumerWalletTxns, escrowContracts,
+  invoices, kycSubmissions,
+  paymentLinks, reconciliationAlerts,
+  securityAuditSnapshots, keycloakRoleSyncLogs, stripeSubscriptions,
+  supportMessages, taxFilingRecords, uboOwners, ussdSessions,
+} from "./schema";
+
+export const accessibilityFallbackSessionsRelations = relations(accessibilityFallbackSessions, ({ one }) => ({
+  merchant: one(merchants, { fields: [accessibilityFallbackSessions.merchantId], references: [merchants.id] }),
+}));
+export const adverseMediaScreeningsRelations = relations(adverseMediaScreenings, ({ one }) => ({
+  merchant: one(merchants, { fields: [adverseMediaScreenings.merchantId], references: [merchants.id] }),
+}));
+export const agentBankingV4AgentsRelations = relations(agentBankingV4Agents, ({ one }) => ({
+  merchant: one(merchants, { fields: [agentBankingV4Agents.merchantId], references: [merchants.id] }),
+}));
+export const aiAuditTrailRelations = relations(aiAuditTrail, ({ one }) => ({
+  merchant: one(merchants, { fields: [aiAuditTrail.merchantId], references: [merchants.id] }),
+}));
+export const billPaymentsRelations = relations(billPayments, ({ one }) => ({
+  merchant: one(merchants, { fields: [billPayments.merchantId], references: [merchants.id] }),
+}));
+export const billingEventsRelations = relations(billingEvents, ({ one }) => ({
+  merchant: one(merchants, { fields: [billingEvents.merchantId], references: [merchants.id] }),
+}));
+export const bnplPlansRelations = relations(bnplPlans, ({ one, many }) => ({
+  merchant: one(merchants, { fields: [bnplPlans.merchantId], references: [merchants.id] }),
+  repayments: many(bnplRepaymentSchedules),
+}));
+export const bnplRepaymentSchedulesRelations = relations(bnplRepaymentSchedules, ({ one }) => ({
+  plan: one(bnplPlans, { fields: [bnplRepaymentSchedules.planId], references: [bnplPlans.id] }),
+}));
+export const bulkCollectionsRelations = relations(bulkCollections, ({ one }) => ({
+  merchant: one(merchants, { fields: [bulkCollections.merchantId], references: [merchants.id] }),
+}));
+export const bulkPaymentSchedulesRelations = relations(bulkPaymentSchedules, ({ one }) => ({
+  merchant: one(merchants, { fields: [bulkPaymentSchedules.merchantId], references: [merchants.id] }),
+}));
+export const carbonCreditsRelations = relations(carbonCredits, ({ one }) => ({
+  merchant: one(merchants, { fields: [carbonCredits.merchantId], references: [merchants.id] }),
+}));
+export const cashbackBalancesRelations = relations(cashbackBalances, ({ one, many }) => ({
+  merchant: one(merchants, { fields: [cashbackBalances.merchantId], references: [merchants.id] }),
+  transactions: many(cashbackTransactions),
+}));
+export const cashbackTransactionsRelations = relations(cashbackTransactions, ({ one }) => ({
+  merchant: one(merchants, { fields: [cashbackTransactions.merchantId], references: [merchants.id] }),
+}));
+export const chargebacksRelations = relations(chargebacks, ({ one }) => ({
+  merchant: one(merchants, { fields: [chargebacks.merchantId], references: [merchants.id] }),
+  transaction: one(transactions, { fields: [chargebacks.transactionId], references: [transactions.id] }),
+}));
+export const complianceReportsRelations = relations(complianceReports, ({ one }) => ({
+  merchant: one(merchants, { fields: [complianceReports.merchantId], references: [merchants.id] }),
+}));
+export const consumerBudgetsRelations = relations(consumerBudgets, ({ one }) => ({
+  user: one(users, { fields: [consumerBudgets.userId], references: [users.id] }),
+}));
+export const consumerCardsRelations = relations(consumerCards, ({ one }) => ({
+  user: one(users, { fields: [consumerCards.userId], references: [users.id] }),
+}));
+export const consumerContactsRelations = relations(consumerContacts, ({ one }) => ({
+  user: one(users, { fields: [consumerContacts.userId], references: [users.id] }),
+}));
+export const consumerDisputesRelations = relations(consumerDisputes, ({ one }) => ({
+  user: one(users, { fields: [consumerDisputes.userId], references: [users.id] }),
+}));
+export const consumerFinanceLoansRelations = relations(consumerFinanceLoans, ({ one }) => ({
+  merchant: one(merchants, { fields: [consumerFinanceLoans.merchantId], references: [merchants.id] }),
+}));
+export const consumerFraudFlagsRelations = relations(consumerFraudFlags, ({ one }) => ({
+  user: one(users, { fields: [consumerFraudFlags.userId], references: [users.id] }),
+}));
+export const consumerKycRecordsRelations = relations(consumerKycRecords, ({ one }) => ({
+  user: one(users, { fields: [consumerKycRecords.userId], references: [users.id] }),
+}));
+export const consumerLoyaltyAccountsRelations = relations(consumerLoyaltyAccounts, ({ one, many }) => ({
+  user: one(users, { fields: [consumerLoyaltyAccounts.userId], references: [users.id] }),
+  transactions: many(consumerLoyaltyTxns),
+}));
+export const consumerLoyaltyTxnsRelations = relations(consumerLoyaltyTxns, ({ one }) => ({
+  user: one(users, { fields: [consumerLoyaltyTxns.userId], references: [users.id] }),
+}));
+export const consumerWalletsRelations = relations(consumerWallets, ({ one, many }) => ({
+  user: one(users, { fields: [consumerWallets.userId], references: [users.id] }),
+  transactions: many(consumerWalletTxns),
+}));
+export const consumerWalletTxnsRelations = relations(consumerWalletTxns, ({ one }) => ({
+  user: one(users, { fields: [consumerWalletTxns.userId], references: [users.id] }),
+}));
+export const escrowContractsRelations = relations(escrowContracts, ({ one }) => ({
+  merchant: one(merchants, { fields: [escrowContracts.merchantId], references: [merchants.id] }),
+}));
+
+export const invoicesRelations = relations(invoices, ({ one }) => ({
+  merchant: one(merchants, { fields: [invoices.merchantId], references: [merchants.id] }),
+}));
+export const kycSubmissionsRelations = relations(kycSubmissions, ({ one }) => ({
+  merchant: one(merchants, { fields: [kycSubmissions.merchantId], references: [merchants.id] }),
+}));
+export const paymentLinksRelations = relations(paymentLinks, ({ one }) => ({
+  merchant: one(merchants, { fields: [paymentLinks.merchantId], references: [merchants.id] }),
+}));
+
+export const reconciliationAlertsRelations = relations(reconciliationAlerts, ({ one }) => ({
+  merchant: one(merchants, { fields: [reconciliationAlerts.merchantId], references: [merchants.id] }),
+}));
+
+export const securityAuditSnapshotsRelations = relations(securityAuditSnapshots, ({ one }) => ({
+  merchant: one(merchants, { fields: [securityAuditSnapshots.merchantId], references: [merchants.id] }),
+}));
+export const keycloakRoleSyncLogsRelations = relations(keycloakRoleSyncLogs, ({ one }) => ({
+  user: one(users, { fields: [keycloakRoleSyncLogs.userId], references: [users.id] }),
+}));
+export const stripeSubscriptionsRelations = relations(stripeSubscriptions, ({ one }) => ({
+  merchant: one(merchants, { fields: [stripeSubscriptions.merchantId], references: [merchants.id] }),
+}));
+export const supportMessagesRelations = relations(supportMessages, ({ one }) => ({
+  merchant: one(merchants, { fields: [supportMessages.merchantId], references: [merchants.id] }),
+}));
+export const taxFilingRecordsRelations = relations(taxFilingRecords, ({ one }) => ({
+  merchant: one(merchants, { fields: [taxFilingRecords.merchantId], references: [merchants.id] }),
+}));
+export const uboOwnersRelations = relations(uboOwners, ({ one }) => ({
+  merchant: one(merchants, { fields: [uboOwners.merchantId], references: [merchants.id] }),
+}));
+export const ussdSessionsRelations = relations(ussdSessions, ({ one }) => ({
+  merchant: one(merchants, { fields: [ussdSessions.merchantId], references: [merchants.id] }),
+}));

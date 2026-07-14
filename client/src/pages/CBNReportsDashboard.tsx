@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * CBNReportsDashboard.tsx
  *
@@ -53,6 +52,10 @@ import {
   ChevronRight,
   Calendar,
   Building2,
+  Shield,
+  Loader2,
+  Send,
+  Timer,
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -346,6 +349,9 @@ export default function CBNReportsDashboard() {
             <TabsTrigger value="submissions">
               <Clock className="w-3 h-3 mr-1" /> Submission History ({submissions.length})
             </TabsTrigger>
+            <TabsTrigger value="str-queue">
+              <Shield className="w-3 h-3 mr-1" /> STR Queue
+            </TabsTrigger>
           </TabsList>
 
           {/* Reports Tab */}
@@ -519,6 +525,11 @@ export default function CBNReportsDashboard() {
               </div>
             )}
           </TabsContent>
+
+          {/* STR Filing Queue Tab */}
+          <TabsContent value="str-queue" className="space-y-4">
+            <STRFilingQueue />
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -533,5 +544,170 @@ export default function CBNReportsDashboard() {
         onClose={() => setAckSubmissionId(null)}
       />
     </DashboardLayout>
+  );
+}
+
+// ─── STR Filing Queue Component ───────────────────────────────────────────────
+
+function STRFilingQueue() {
+  const utils = trpc.useUtils();
+
+  const { data: pendingStrs, isLoading } = trpc.str.listPending.useQuery(
+    { limit: 50 },
+    { refetchInterval: 60_000 }
+  );
+
+  const submitMutation = trpc.str.submitToNFIU.useMutation({
+    onSuccess: () => {
+      utils.str.listPending.invalidate();
+      toast.success("STR submitted to NFIU successfully");
+    },
+    onError: (err) => toast.error(`Submission failed: ${err.message}`),
+  });
+
+  function getDeadlineInfo(createdAt: Date | string) {
+    const created = new Date(createdAt);
+    const deadline = new Date(created.getTime() + 24 * 60 * 60 * 1000);
+    const msLeft = deadline.getTime() - Date.now();
+    const hoursLeft = Math.max(0, Math.floor(msLeft / (1000 * 60 * 60)));
+    const minutesLeft = Math.max(0, Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60)));
+    return {
+      hoursLeft,
+      minutesLeft,
+      isUrgent: msLeft > 0 && msLeft < 4 * 60 * 60 * 1000,
+      isOverdue: msLeft <= 0,
+    };
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const strs = (pendingStrs as any)?.records ?? [];
+
+  if (strs.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <Shield className="w-12 h-12 text-green-500 mb-3" />
+        <p className="text-lg font-semibold">No Pending STRs</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          All suspicious transaction reports have been filed with the NFIU.
+        </p>
+      </div>
+    );
+  }
+
+  const urgentCount = strs.filter((s: any) => {
+    const { isUrgent, isOverdue } = getDeadlineInfo(s.createdAt);
+    return isUrgent || isOverdue;
+  }).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <p className="text-sm text-amber-800 dark:text-amber-200">
+          CBN requires STRs to be filed within <strong>24 hours</strong> of detection.
+          {urgentCount > 0 && (
+            <span className="ml-1 font-semibold text-red-600">
+              {urgentCount} record(s) require immediate action.
+            </span>
+          )}
+        </p>
+      </div>
+
+      <div className="rounded-md border overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Reference</TableHead>
+              <TableHead>Subject</TableHead>
+              <TableHead>Amount (₦)</TableHead>
+              <TableHead>Risk Score</TableHead>
+              <TableHead>Deadline</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {strs.map((str: any) => {
+              const { hoursLeft, minutesLeft, isUrgent, isOverdue } = getDeadlineInfo(str.createdAt);
+              const isSubmitting =
+                submitMutation.isPending &&
+                (submitMutation.variables as any)?.strId === str.id;
+              return (
+                <TableRow key={str.id}>
+                  <TableCell className="font-mono text-xs">{str.referenceNumber}</TableCell>
+                  <TableCell>
+                    <div>
+                      <p className="text-sm font-medium">{str.subjectName ?? "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {str.subjectAccountNumber ?? ""}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {((str.transactionAmountKobo ?? 0) / 100).toLocaleString("en-NG", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        str.riskScore >= 80
+                          ? "destructive"
+                          : str.riskScore >= 60
+                          ? "secondary"
+                          : "outline"
+                      }
+                    >
+                      {str.riskScore ?? 0}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div
+                      className={`flex items-center gap-1.5 text-sm ${
+                        isOverdue
+                          ? "text-red-600 font-semibold"
+                          : isUrgent
+                          ? "text-amber-600 font-medium"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      <Timer className="w-3.5 h-3.5" />
+                      {isOverdue ? (
+                        <span>OVERDUE</span>
+                      ) : (
+                        <span>
+                          {hoursLeft}h {minutesLeft}m left
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      variant={isUrgent || isOverdue ? "destructive" : "outline"}
+                      disabled={submitMutation.isPending}
+                      onClick={() => submitMutation.mutate({ strId: str.id })}
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : (
+                        <Send className="w-3 h-3 mr-1" />
+                      )}
+                      Submit to NFIU
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }

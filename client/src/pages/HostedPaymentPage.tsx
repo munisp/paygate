@@ -188,214 +188,29 @@ function CardForm({ onPay, amountKobo, currency, clientSecret, primaryColor, isL
 }
 
 function BankTransferPanel({ session, primaryColor }: { session: any; primaryColor: string }) {
-  // ── Step 1: bank selection → Step 2: name enquiry → Step 3: virtual account ──
-  const [step, setStep] = useState<"select_bank" | "name_enquiry" | "virtual_account">(
-    session.nipVirtualAccountNumber ? "virtual_account" : "select_bank"
-  );
-  const [bankSearch, setBankSearch] = useState("");
-  const [selectedBank, setSelectedBank] = useState<{ nipCode: string; bankName: string } | null>(null);
-  const [accountNumber, setAccountNumber] = useState("");
-  const [accountName, setAccountName] = useState<string | null>(null);
-  const [virtualAccount, setVirtualAccount] = useState<{
-    accountNumber: string; accountName: string; bankName: string; expiresAt: Date;
-  } | null>(
-    session.nipVirtualAccountNumber
-      ? { accountNumber: session.nipVirtualAccountNumber, accountName: session.nipAccountName ?? "",
-          bankName: session.nipBankName ?? "", expiresAt: new Date(session.nipExpiresAt ?? Date.now() + 30 * 60_000) }
-      : null
-  );
-
-  const expiresAt = virtualAccount?.expiresAt ?? null;
+  const expiresAt = session.nipExpiresAt ? new Date(session.nipExpiresAt) : null;
   const { mins, secs, expired } = useCountdown(expiresAt);
 
-  // Load bank list
-  const { data: banksData, isLoading: banksLoading } = trpc.nipBanks.list.useQuery(
-    { category: "all", search: bankSearch || undefined, activeOnly: true },
-    { staleTime: 60_000 * 60 }
-  );
-
-  // Name enquiry mutation
-  const nameEnquiryMutation = trpc.nipBanks.nameEnquiry.useMutation({
-    onSuccess: (data) => {
-      setAccountName(data.accountName);
-    },
-    onError: () => {
-      toast.error("Account not found. Please check the account number.");
-    },
-  });
-
-  // Generate virtual account mutation
-  const generateVAMutation = trpc.nipBanks.generateVirtualAccount.useMutation({
-    onSuccess: (data) => {
-      setVirtualAccount({
-        accountNumber: data.accountNumber,
-        accountName: data.accountName,
-        bankName: data.bankName,
-        expiresAt: new Date(data.expiresAt),
-      });
-      setStep("virtual_account");
-    },
-    onError: () => {
-      toast.error("Failed to generate virtual account. Please try again.");
-    },
-  });
-
-  const handleBankSelect = (bank: { nipCode: string; bankName: string }) => {
-    setSelectedBank(bank);
-    setStep("name_enquiry");
-    setAccountNumber("");
-    setAccountName(null);
-  };
-
-  const handleNameEnquiry = () => {
-    if (!selectedBank || accountNumber.length !== 10) return;
-    nameEnquiryMutation.mutate({ bankNipCode: selectedBank.nipCode, accountNumber });
-  };
-
-  const handleGenerateVA = () => {
-    if (!selectedBank || !accountName) return;
-    generateVAMutation.mutate({
-      merchantId: session.merchantId ?? "",
-      reference: session.reference ?? `REF${Date.now()}`,
-      bankNipCode: selectedBank.nipCode,
-      accountName: accountName,
-      amountExpected: Number(session.amountKobo),
-      expiryMinutes: 30,
-      checkoutSessionId: session.id,
-    });
-  };
-
-  // ── Step 1: Bank Selection ──────────────────────────────────────────────────
-  if (step === "select_bank") {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm font-semibold text-gray-700">Select your bank</p>
-        <input
-          type="text"
-          placeholder="Search bank name or code…"
-          value={bankSearch}
-          onChange={(e) => setBankSearch(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-        />
-        {banksLoading ? (
-          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
-        ) : (
-          <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
-            {(banksData ?? []).map((bank: any) => (
-              <button
-                key={bank.nipCode}
-                onClick={() => handleBankSelect({ nipCode: bank.nipCode, bankName: bank.bankName })}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-blue-50 transition-colors text-left"
-              >
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{bank.bankName}</p>
-                  <p className="text-xs text-gray-400">{bank.nipCode} · {bank.category}</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-300" />
-              </button>
-            ))}
-            {(banksData ?? []).length === 0 && (
-              <p className="text-center text-sm text-gray-400 py-4">No banks found</p>
-            )}
-          </div>
-        )}
-        <div className="flex items-center gap-2 text-xs text-gray-400 pt-1">
-          <Zap className="w-3.5 h-3.5 text-yellow-400" />
-          <span>All {(banksData ?? []).length} CBN-licensed NIP banks supported</span>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Step 2: Name Enquiry ────────────────────────────────────────────────────
-  if (step === "name_enquiry") {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <button onClick={() => setStep("select_bank")} className="text-gray-400 hover:text-gray-600">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <p className="text-sm font-semibold text-gray-700">{selectedBank?.bankName}</p>
-            <p className="text-xs text-gray-400">Enter your account number</p>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <input
-            type="tel"
-            placeholder="10-digit account number"
-            value={accountNumber}
-            maxLength={10}
-            onChange={(e) => { setAccountNumber(e.target.value.replace(/\D/g, "")); setAccountName(null); }}
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-lg font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-300"
-          />
-          {accountNumber.length === 10 && !accountName && (
-            <button
-              onClick={handleNameEnquiry}
-              disabled={nameEnquiryMutation.isPending}
-              className="w-full py-2.5 rounded-xl text-sm font-medium text-white transition-opacity disabled:opacity-60"
-              style={{ backgroundColor: primaryColor }}
-            >
-              {nameEnquiryMutation.isPending ? (
-                <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</span>
-              ) : "Verify Account"}
-            </button>
-          )}
-        </div>
-
-        {accountName && (
-          <div className="bg-green-50 rounded-xl px-4 py-3 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-green-600 font-semibold uppercase tracking-wide">Account verified</p>
-              <p className="text-base font-bold text-gray-900">{accountName}</p>
-            </div>
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
-          </div>
-        )}
-
-        {accountName && (
-          <button
-            onClick={handleGenerateVA}
-            disabled={generateVAMutation.isPending}
-            className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-opacity disabled:opacity-60"
-            style={{ backgroundColor: primaryColor }}
-          >
-            {generateVAMutation.isPending ? (
-              <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Generating account…</span>
-            ) : "Get Virtual Account"}
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  // ── Step 3: Virtual Account Display ────────────────────────────────────────
   return (
     <div className="space-y-4">
       <div className="bg-blue-50 rounded-2xl p-5 space-y-4">
         <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Transfer to this account</p>
+
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">Bank Name</p>
-              <p className="font-semibold text-gray-900">{virtualAccount?.bankName ?? session.nipBankName ?? "—"}</p>
+              <p className="font-semibold text-gray-900">{session.nipBankName ?? "PayGate Virtual Bank"}</p>
             </div>
           </div>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">Account Number</p>
               <p className="font-mono text-2xl font-bold text-gray-900 tracking-widest">
-                {virtualAccount?.accountNumber ?? session.nipVirtualAccountNumber ?? "—"}
+                {session.nipVirtualAccountNumber ?? "—"}
               </p>
             </div>
-            <CopyButton text={virtualAccount?.accountNumber ?? session.nipVirtualAccountNumber ?? ""} label="Copy" />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-500">Account Name</p>
-              <p className="text-sm font-medium text-gray-700">{virtualAccount?.accountName ?? "—"}</p>
-            </div>
+            <CopyButton text={session.nipVirtualAccountNumber ?? ""} label="Copy" />
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -409,6 +224,7 @@ function BankTransferPanel({ session, primaryColor }: { session: any; primaryCol
         </div>
       </div>
 
+      {/* Countdown */}
       {expiresAt && !expired && (
         <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-xl px-4 py-3">
           <Clock className="w-4 h-4" />
@@ -418,7 +234,7 @@ function BankTransferPanel({ session, primaryColor }: { session: any; primaryCol
       {expired && (
         <div className="flex items-center gap-2 text-sm text-rose-700 bg-rose-50 rounded-xl px-4 py-3">
           <XCircle className="w-4 h-4" />
-          <span>Account expired. <button onClick={() => setStep("select_bank")} className="underline font-medium">Start again</button></span>
+          <span>Account expired. Please start a new payment.</span>
         </div>
       )}
 
@@ -576,16 +392,6 @@ export default function HostedPaymentPage() {
 
   const initiateMutation = trpc.hostedCheckout.initiatePayment.useMutation();
   const confirmMutation = trpc.hostedCheckout.confirmPayment.useMutation();
-  const trackEvent = trpc.hostedCheckout.trackEvent.useMutation();
-
-  // Fire 'view' event on page load
-  const linkId = linkData?.link?.id;
-  useEffect(() => {
-    if (linkId) {
-      trackEvent.mutate({ paymentLinkId: linkId, eventType: "view" });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkId]);
   const { data: statusData, refetch: refetchStatus } = trpc.hostedCheckout.getStatus.useQuery(
     { sessionId: session?.id ?? "" },
     { enabled: !!session?.id && paymentState === "processing", refetchInterval: 3000 },
@@ -616,8 +422,6 @@ export default function HostedPaymentPage() {
 
   const handleInitiate = async (method: string) => {
     if (!link) return;
-    // Fire analytics events
-    trackEvent.mutate({ paymentLinkId: link.id, eventType: "method_selected", metadata: { method } });
     setSelectedMethod(method);
     setPaymentState("processing");
     try {
@@ -637,7 +441,6 @@ export default function HostedPaymentPage() {
       });
       setSession(s);
       setStep("pay");
-      trackEvent.mutate({ paymentLinkId: link.id, eventType: "initiated", metadata: { method, sessionId: s.id } });
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to initiate payment");
       setPaymentState("idle");

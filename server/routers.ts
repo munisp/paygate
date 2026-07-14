@@ -1,15 +1,4 @@
 import { checkBruteForce, recordFailedLogin, clearFailedLogins } from "./security";
-import { chargebackLifecycleRouter } from './routers/chargebackLifecycle';
-import { insiderThreatRouter } from './routers/insiderThreat';
-import { interchangeRouter } from './routers/interchange';
-import { kycRouter } from './routers/kyc';
-import { mobileMoneyRouter } from './routers/mobileMoney';
-import { mojaloopRouter } from './routers/mojaloop';
-import { regulatoryReportsRouter } from './routers/regulatoryReports';
-import { schemeMembershipRouter } from './routers/schemeMembership';
-import { strRouter } from './routers/str';
-import { terminalRouter } from './routers/terminal';
-import { velocityLimitsRouter } from './routers/velocityLimits';
 import { publishTransactionEvent, publishPayoutEvent, publishFraudEvent, publishAuditEvent } from "./kafkaClient";
 import { ollamaRouter } from "./ollamaRouter";
 import { orphanedTablesRouter } from "./orphanedTablesCRUD";
@@ -204,15 +193,16 @@ import { wave164Router } from './routers/wave164';
 import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
-import { nipBanksRouter } from './routers/nipBanks';
-// Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
-import { wave221Router } from './routers/wave221_developer';
-// Wave 223 — Paygate DFSP Onboarding (DFSP, PISP, PSP, POS Operator, Settlement Bank)
-import { wave223Router } from './routers/wave223_onboarding';
-import { wave223ExtRouter } from './routers/wave223_extensions';
-import { remittanceRouter, healthcareRouter, insuranceRouter, scfRouter, g2pRouter, energyRouter, cbdcRouter } from './routers/wave211_217';
-import { wave218Router } from './routers/wave218_enhancements';
-
+import {
+  strRouter,
+  velocityLimitsRouter,
+  interchangeRouter,
+  schemeMembershipRouter,
+  chargebackLifecycleRouter,
+  regulatoryReportsRouter,
+} from './routers/psp-production';
+import { ecommerceRouter } from './routers/ecommerce';
+import { hostedCheckoutRouter } from './routers/hostedCheckout';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -221,9 +211,6 @@ import {
   pythonGetKioskHealth, pythonGetKioskAnomaly, pythonHandleUSSD, pythonGetUSSDBalance,
   checkAllMicroservices, gnnScoreTransaction, mergeFraudScores,
 } from "./microservices";
-import { hostedCheckoutRouter } from "./routers/hostedCheckout";
-import { sagaWiringRouter } from "./routers/wave225_saga";
-// psp-production
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1417,11 +1404,6 @@ const apiKeysRouter = router({
         resourceId: apiKey.id,
         metadata: { name: input.name, environment: input.environment },
       })).catch(() => {});
-      // Sync consumer to APISIX for gateway-level API key authentication (fire-and-forget)
-      import('./apisixClient').then(({ syncConsumer }) => syncConsumer(
-        `merchant_${merchant.id}_${apiKey.id}`,
-        { 'key-auth': { key: rawKey } },
-      )).catch(e => console.warn('[APISIX] syncConsumer failed:', e?.message));
       return { ...apiKey, rawKey };
     }),
 
@@ -1442,9 +1424,6 @@ const apiKeysRouter = router({
         metadata: {},
       })).catch(() => {});
       publishAuditEvent({ action: 'api_key.revoked', userId: ctx.user.openId, targetId: input.id, metadata: { merchantId: merchant.id }, timestamp: new Date().toISOString() }).catch(() => {});
-      // Remove consumer from APISIX gateway so the revoked key is immediately rejected at the edge
-      import('./apisixClient').then(({ deleteConsumer }) => deleteConsumer(`merchant_${merchant.id}_${input.id}`))
-        .catch(e => console.warn('[APISIX] deleteConsumer failed:', e?.message));
       return { success: true };
     }),
 });
@@ -2094,26 +2073,6 @@ const paymentLinksRouter = router({
       const csv = [headers, ...rows].map(r => r.map((v: any) => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       return { csv, count: txs.length, filename: `payment-link-${input.id}-transactions.csv` };
     }),
-  /**
-   * Public procedure — returns minimal payment link info for the hosted payment page.
-   * No authentication required. Only returns active links.
-   */
-  getPublic: publicProcedure
-    .input(z.object({ linkId: z.string().min(1) }))
-    .query(async ({ input }) => {
-      const link = await getPaymentLinkById(input.linkId);
-      if (!link || !link.isActive) throw new TRPCError({ code: "NOT_FOUND", message: "Payment link not found or inactive" });
-      // Return only public-safe fields — never expose merchantId internals
-      return {
-        id: link.id,
-        title: link.title,
-        description: link.description ?? null,
-        amountMinor: link.amount ? Math.round(link.amount * 100) : null,
-        currency: link.currency ?? "NGN",
-        merchantName: null, // populated from merchant record if needed
-        expiresAt: null,
-      };
-    }),
 });
 
 // ─── Team Router ──────────────────────────────────────────────────────────────
@@ -2546,7 +2505,7 @@ const merchantAnalyticsRouter = router({
         ]);
       return { merchant, comparison, dailyBreakdown, topCustomers, heatmap, recentFeed, channelBreakdown, timeSeries, fraudStats };
     }),
-  /** Manually trigger analytics digest email for the current merchant */
+    /** Manually trigger analytics digest email for the current merchant */
   sendDigest: protectedProcedure
     .mutation(async ({ ctx }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -2555,8 +2514,121 @@ const merchantAnalyticsRouter = router({
       await sendMerchantDailyDigest(merchant.id);
       return { sent: true };
     }),
-});
 
+  /**
+   * Interchange P&L analytics — daily/monthly fee income vs scheme costs
+   * Queries interchange_fee_records grouped by rail and card type.
+   */
+  interchangePL: protectedProcedure
+    .input(z.object({
+      from: z.date(),
+      to: z.date(),
+      groupBy: z.enum(['day', 'month', 'rail', 'cardType']).default('day'),
+    }))
+    .query(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { interchangeFeeRecords } = await import('../drizzle/schema');
+      const { sql: drizzleSql, and: drizzleAnd, gte: drizzleGte, lte: drizzleLte, eq: drizzleEq } = await import('drizzle-orm');
+      const { db } = await import('./db');
+
+      const baseWhere = drizzleAnd(
+        drizzleEq(interchangeFeeRecords.merchantId, merchant.id),
+        drizzleGte(interchangeFeeRecords.createdAt, input.from),
+        drizzleLte(interchangeFeeRecords.createdAt, input.to),
+      );
+
+      if (input.groupBy === 'rail') {
+        const rows = await db
+          .select({
+            rail: interchangeFeeRecords.rail,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            txnCount: drizzleSql<number>`count(*)`,
+          })
+          .from(interchangeFeeRecords)
+          .where(baseWhere)
+          .groupBy(interchangeFeeRecords.rail);
+        const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+        const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
+        return { groupBy: 'rail', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
+      }
+
+      if (input.groupBy === 'cardType') {
+        const rows = await db
+          .select({
+            cardType: interchangeFeeRecords.cardType,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            txnCount: drizzleSql<number>`count(*)`,
+          })
+          .from(interchangeFeeRecords)
+          .where(baseWhere)
+          .groupBy(interchangeFeeRecords.cardType);
+        const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+        const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
+        return { groupBy: 'cardType', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
+      }
+
+      // day or month grouping — use DATE_FORMAT for MySQL-compatible syntax
+      const truncFn = input.groupBy === 'month'
+        ? drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m')`
+        : drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m-%d')`;
+
+      const rows = await db
+        .select({
+          period: truncFn,
+          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
+          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+          txnCount: drizzleSql<number>`count(*)`,
+        })
+        .from(interchangeFeeRecords)
+        .where(baseWhere)
+        .groupBy(truncFn)
+        .orderBy(truncFn);
+
+      const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
+      const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
+      return {
+        groupBy: input.groupBy,
+        rows,
+        summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost },
+      };
+    }),
+
+  /**
+   * PSP integration health — AML alerts, velocity breaches, STR backlog, scheme status
+   */
+  pspIntegrationHealth: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await resolveUser(ctx.user.openId);
+      const merchant = await requireMerchant(user.id);
+      const { strRecords, velocityBreaches, schemeMemberships } = await import('../drizzle/schema');
+      const { sql: drizzleSql, eq: drizzleEq, and: drizzleAnd, gte: drizzleGte } = await import('drizzle-orm');
+      const { db } = await import('./db');
+
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const [strBacklog, recentBreaches, activeSchemes] = await Promise.all([
+        db.select({ count: drizzleSql<number>`count(*)` })
+          .from(strRecords)
+          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.status, 'pending'))),
+        db.select({ count: drizzleSql<number>`count(*)` })
+          .from(velocityBreaches)
+          .where(drizzleAnd(drizzleEq(velocityBreaches.merchantId, merchant.id), drizzleGte(velocityBreaches.createdAt, since24h))),
+        db.select({ scheme: schemeMemberships.scheme, status: schemeMemberships.status })
+          .from(schemeMemberships)
+          .where(drizzleEq(schemeMemberships.merchantId, merchant.id)),
+      ]);
+
+      return {
+        strBacklog: Number(strBacklog[0]?.count ?? 0),
+        velocityBreachesLast24h: Number(recentBreaches[0]?.count ?? 0),
+        activeSchemes,
+        healthStatus: Number(strBacklog[0]?.count ?? 0) > 0 ? 'warning' : 'healthy',
+      };
+    }),
+});
 // ─── Middleware Bridge Router ─────────────────────────────────────────────────
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8090";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "dev-internal-key";
@@ -2833,22 +2905,22 @@ const middlewareRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
-        const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
+        const since = new Date(Date.now() - input.loginAnomalyWindowMinutes * 60 * 1000);
         const events = await getKeycloakEvents({
           limit: 1000,
           eventType: "LOGIN_ERROR",
           fromDate: since,
         });
         const count = events.length;
-        const exceeded = count >= input.threshold;
+        const exceeded = count >= input.loginAnomalyThreshold;
         if (exceeded) {
           const { notifyOwner } = await import("./_core/notification");
           await notifyOwner({
             title: "⚠️ Auth Anomaly Detected",
-            content: `${count} login failures in the last ${input.windowMinutes} minutes (threshold: ${input.threshold}). Check /security/auth-events for details.`,
+            content: `${count} login failures in the last ${input.loginAnomalyWindowMinutes} minutes (threshold: ${input.loginAnomalyThreshold}). Check /security/auth-events for details.`,
           });
         }
-        return { count, exceeded, windowMinutes: input.windowMinutes, threshold: input.threshold, since };
+        return { count, exceeded, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold, since };
       }),
 
     // ── Active Keycloak sessions list (admin) ──
@@ -2928,17 +3000,17 @@ const middlewareRouter = router({
         const user = await resolveUser(ctx.user.openId);
         // Get old values for audit log
         const oldConfig = await getAnomalyConfig(user.id);
-        await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
+        await setAnomalyConfig(user.id, input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
         // Record audit entry
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: false,
           oldWindowMinutes: oldConfig.loginAnomalyWindowMinutes,
           oldThreshold: oldConfig.loginAnomalyThreshold,
-          newWindowMinutes: input.windowMinutes,
-          newThreshold: input.threshold,
+          newWindowMinutes: input.loginAnomalyWindowMinutes,
+          newThreshold: input.loginAnomalyThreshold,
         });
-        return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
+        return { ok: true, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold };
       }),
 
     // ── Acknowledge a geo-anomaly event (admin dismisses new-country alert) ──
@@ -2972,15 +3044,15 @@ const middlewareRouter = router({
         }
                 // Get old global config for audit log
         const oldGlobal = await getGlobalAnomalyConfig();
-        await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
+        await setGlobalAnomalyConfig(input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
         const user = await resolveUser(ctx.user.openId);
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: true,
           oldWindowMinutes: oldGlobal.loginAnomalyWindowMinutes,
           oldThreshold: oldGlobal.loginAnomalyThreshold,
-          newWindowMinutes: input.windowMinutes,
-          newThreshold: input.threshold,
+          newWindowMinutes: input.loginAnomalyWindowMinutes,
+          newThreshold: input.loginAnomalyThreshold,
         });
         return { ok: true };
       }),
@@ -3344,7 +3416,7 @@ const fraudRiskRouter = router({
       let seeded = 0;
       for (const alert of DEMO_ALERTS) {
         try {
-          await db.insert(fraudAlerts).values({ ...alert, merchantId: merchant.id } as any);
+          await db.insert(fraudAlerts).values({ ...alert, merchantId: merchant.id });
           seeded++;
         } catch { /* skip duplicates */ }
       }
@@ -3858,7 +3930,7 @@ const complianceKycRouter = router({
         if (adaptedDecision === 'spoof') {
           await updateKycSubmission(input.submissionId, String(user.id), {
             status: 'rejected',
-            rejectionReason: `Liveness check failed: ${result?.decision ?? 'suspected spoof'} (score: ${livenessScore})`,
+            rejectionReason: `Liveness check failed: ${result?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
         // Persist liveness result to DB regardless of outcome
@@ -4182,7 +4254,7 @@ const complianceKycRouter = router({
         limit: 10000,
         offset: 0,
       });
-      const rows = (result as any).rows ?? result ?? [];
+      const rows = result.rows ?? result ?? [];
       const header = [
         'submission_id', 'status', 'document_type', 'full_name',
         'date_of_birth', 'id_number', 'liveness_score', 'liveness_decision',
@@ -4203,7 +4275,7 @@ const complianceKycRouter = router({
       ].join(','));
       const csv = [header, ...csvRows].join('\n');
       const filename = `kyc-submissions-${new Date().toISOString().split('T')[0]}.csv`;
-      return { csv, count: (rows as any[]).length, filename };
+      return { csv, count: rows.length, filename };
     }),
 });
 // ─── BNPL Router ─────────────────────────────────────────────────────────────
@@ -4247,13 +4319,13 @@ const bnplRouter = router({
         GROUP BY plan_type`
       );
       return {
-        monthlyData: (rows as unknown as any[]).map(r => ({
+        monthlyData: (rows as any[]).map(r => ({
           month: r.month,
           disbursed: Number(r.disbursed),
           repaid: Number(r.repaid),
           defaults: Number(r.defaults),
         })),
-        planSplit: (planRows as unknown as any[]).map((r, i) => ({
+        planSplit: (planRows as any[]).map((r, i) => ({
           name: r.name ?? `Plan ${i + 1}`,
           value: Number(r.value),
           color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i % 4],
@@ -4464,7 +4536,7 @@ const mobileMoneyReconRouter = router({
         WHERE merchant_id = ${merchant.id}
         GROUP BY provider`
       );
-      return (rows as unknown as any[]).map(r => ({
+      return (rows as any[]).map(r => ({
         provider: r.provider,
         total: Number(r.total),
         matched: Number(r.matched),
@@ -4490,7 +4562,7 @@ const mobileMoneyReconRouter = router({
         GROUP BY DAYNAME(created_at), DAYOFWEEK(created_at)
         ORDER BY DAYOFWEEK(created_at) ASC`
       );
-      return (rows as unknown as any[]).map(r => ({
+      return (rows as any[]).map(r => ({
         day: r.day?.substring(0, 3),
         matched: Number(r.matched),
         unmatched: Number(r.unmatched),
@@ -4696,7 +4768,7 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const { upsertFxAlert } = await import('./db');
       const pair = `${input.baseCurrency}/${input.targetCurrency}`;
-      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.threshold });
+      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.loginAnomalyThreshold });
       return { success: true, alert };
     }),
   convertCurrency: protectedProcedure
@@ -4776,7 +4848,7 @@ const fxRouter = router({
       if (triggered.length > 0) {
         await notifyOwner({
           title: `FX Rate Alert Triggered (${triggered.length})`,
-          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.threshold})`).join("\n"),
+          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.loginAnomalyThreshold})`).join("\n"),
         });
       }
       return { triggered, checkedAt: new Date().toISOString() };
@@ -4847,7 +4919,7 @@ const exportRouter = router({
 const walletRouter = router({
   getWallet: protectedProcedure.query(async ({ ctx }) => {
     const { getOrCreateWallet, listWalletTransactions, getWalletTransactionCount } = await import("./db");
-    const wallet = await getOrCreateWallet(String(ctx.user!.id), null);
+    const wallet = await getOrCreateWallet(String(ctx.user.id), null);
     if (!wallet) return { wallet: null, transactions: [], total: 0 };
     const [txs, total] = await Promise.all([
       listWalletTransactions(wallet.id, { limit: 20 }),
@@ -4859,7 +4931,7 @@ const walletRouter = router({
     .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {
       const { getWalletByUserId, listWalletTransactions, getWalletTransactionCount } = await import("./db");
-      const wallet = await getWalletByUserId(String(ctx.user!.id));
+      const wallet = await getWalletByUserId(String(ctx.user.id));
       if (!wallet) return { transactions: [], total: 0 };
       const [txs, total] = await Promise.all([
         listWalletTransactions(wallet.id, { limit: input.limit, offset: input.offset }),
@@ -4877,7 +4949,7 @@ const walletRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
-      const senderWallet = await getOrCreateWallet(String(ctx.user!.id));
+      const senderWallet = await getOrCreateWallet(String(ctx.user.id));
       if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
       const execute = async () => {
         const balance = parseFloat(senderWallet.balance);
@@ -4915,7 +4987,7 @@ const walletRouter = router({
         return { success: true, reference: ref, transaction: tx };
       };
       if (input.idempotencyKey) {
-        return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user!.id), operation: "wallet.sendMoney", requestBody: input, execute });
+        return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
       }
       return execute();
     }),
@@ -4927,7 +4999,7 @@ const walletRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
-      const wallet = await getOrCreateWallet(String(ctx.user!.id));
+      const wallet = await getOrCreateWallet(String(ctx.user.id));
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
       const ref = `TOPUP-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
       const balanceBefore = parseFloat(wallet.balance);
@@ -6856,8 +6928,6 @@ const posRouter = router({
 
   /**
    * Bulk upsert products (import from CSV / sync from inventory system).
-
-
    */
   "products.bulkUpsert": protectedProcedure
     .input(z.object({
@@ -6914,7 +6984,7 @@ const geofenceRouter = router({
       offset: z.number().min(0).default(0),
     }))
     .query(async ({ ctx, input }) => {
-      const merchant = await getMerchantByOwnerId(ctx.user!.id);
+      const merchant = await getMerchantByOwnerId(ctx.user.id);
       if (!merchant) return [];
       return listGeofenceRules(merchant.id);
     }),
@@ -6927,12 +6997,12 @@ const geofenceRouter = router({
     radiusMeters: z.number().min(50).max(50000),
     active: z.boolean(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     return upsertGeofenceRule({ ...input, merchantId: merchant.id });
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await deleteGeofenceRule(input.id, merchant.id);
     return { ok: true };
@@ -6942,7 +7012,7 @@ const geofenceRouter = router({
 // ─── Agent Banking Router ─────────────────────────────────────────────────────
 const agentBankingRouter = router({
   listSubAgents: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listSubAgents(merchant.id);
   }),
@@ -6950,13 +7020,13 @@ const agentBankingRouter = router({
     subAgentMerchantId: z.string(),
     status: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await upsertSubAgent({ superAgentMerchantId: merchant.id, ...input });
     return { ok: true };
   }),
   disburseCommissions: protectedProcedure.mutation(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const result = await disburseAgentCommissions(merchant.id);
     if (result.disbursed > 0) {
@@ -6965,7 +7035,7 @@ const agentBankingRouter = router({
     return result;
   }),
   kioskHealth: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return { total: 0, online: 0, warning: 0, offline: 0, terminals: [] };
     // Try Python kiosk-health anomaly detector first (ML-based)
     const pythonHealth = await pythonGetKioskHealth(merchant.id);
@@ -6989,7 +7059,7 @@ const agentBankingRouter = router({
 // ─── Restaurant Router ────────────────────────────────────────────────────────
 const restaurantRouter = router({
   listTables: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listRestaurantTables(merchant.id);
   }),
@@ -7000,7 +7070,7 @@ const restaurantRouter = router({
     posX: z.number().default(0),
     posY: z.number().default(0),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await createRestaurantTable({ merchantId: merchant.id, ...input });
     return { id };
@@ -7009,7 +7079,7 @@ const restaurantRouter = router({
     id: z.string(),
     status: z.enum(["available", "occupied", "reserved", "cleaning"]),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await updateRestaurantTableStatus(input.id, merchant.id, input.status);
     return { ok: true };
@@ -7017,13 +7087,13 @@ const restaurantRouter = router({
   updateTablePosition: protectedProcedure.input(z.object({
     id: z.string(), posX: z.number(), posY: z.number(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await updateRestaurantTablePosition(input.id, merchant.id, input.posX, input.posY);
     return { ok: true };
   }),
   listOrders: protectedProcedure.input(z.object({ status: z.string().optional() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listRestaurantOrders(merchant.id, input.status);
   }),
@@ -7032,7 +7102,7 @@ const restaurantRouter = router({
     covers: z.number().min(1).default(1),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await createRestaurantOrder({ merchantId: merchant.id, ...input });
     return { id };
@@ -7052,7 +7122,7 @@ const restaurantRouter = router({
     id: z.string(),
     status: z.enum(["open", "sent_to_kitchen", "ready", "paid", "voided"]),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await updateOrderStatus(input.id, merchant.id, input.status);
     return { ok: true };
@@ -7064,7 +7134,7 @@ const restaurantRouter = router({
     orderId: z.string(),
     splitCount: z.number().min(2).max(20),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const order = await getOrderWithItems(input.orderId);
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
@@ -7079,7 +7149,7 @@ const restaurantRouter = router({
   }),
   // Menu management
   listMenu: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return { categories: [], items: [] };
     const [categories, items] = await Promise.all([
       listMenuCategories(merchant.id),
@@ -7092,7 +7162,7 @@ const restaurantRouter = router({
     name: z.string().min(1),
     displayOrder: z.number().default(0),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await upsertMenuCategory({ ...input, merchantId: merchant.id });
     return { id };
@@ -7106,20 +7176,20 @@ const restaurantRouter = router({
     available: z.boolean().default(true),
     imageUrl: z.string().nullable().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await upsertMenuItem({ ...input, merchantId: merchant.id });
     return { id };
   }),
   toggleItemAvailability: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await toggleMenuItemAvailability(input.id, merchant.id);
     return { ok: true };
   }),
   // Loyalty
   getLoyaltyProgram: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return null;
     return getLoyaltyProgram(merchant.id);
   }),
@@ -7128,20 +7198,20 @@ const restaurantRouter = router({
     redeemRate: z.number().min(1),
     active: z.boolean(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await upsertLoyaltyProgram({ ...input, merchantId: merchant.id });
     return { ok: true };
   }),
   getLoyaltyAccount: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return null;
     return getOrCreateLoyaltyAccount(merchant.id, input.customerId);
   }),
   earnPoints: protectedProcedure.input(z.object({
     customerId: z.number(), points: z.number().min(1), orderId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     // Try Rust loyalty-ledger (double-entry, atomic)
     const rustResult = await rustEarnPoints({
@@ -7159,7 +7229,7 @@ const restaurantRouter = router({
   redeemPoints: protectedProcedure.input(z.object({
     customerId: z.number(), points: z.number().min(1), orderId: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     // Try Rust loyalty-ledger (validates balance atomically)
     const rustResult = await rustRedeemPoints({
@@ -7179,12 +7249,12 @@ const restaurantRouter = router({
     return { ok: true };
   }),
   getLoyaltyBalance: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return null;
     return rustGetLoyaltyBalance(merchant.id, String(input.customerId));
   }),
   getLoyaltyHistory: protectedProcedure.input(z.object({ customerId: z.number() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     // Try Rust for history (includes expiry metadata)
     const rustHistory = await rustGetLoyaltyHistory(merchant.id, String(input.customerId));
@@ -7194,14 +7264,14 @@ const restaurantRouter = router({
     return getLoyaltyHistory(account.id);
   }),
   tableTurnStats: protectedProcedure.input(z.object({ date: z.string().optional() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return { turnsToday: 0, avgDwellMinutes: 0, coversServed: 0 };
     const date = input.date ?? new Date().toISOString().slice(0, 10);
     return getRestaurantTableTurnStats(merchant.id, date);
   }),
   // ─── Online Ordering ─────────────────────────────────────────────────────
   getOnlineOrderingLink: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: 'NOT_FOUND' });
     return { slug: merchant.id, active: true };
   }),
@@ -7257,7 +7327,7 @@ const restaurantRouter = router({
 // ─── KDS Router ───────────────────────────────────────────────────────────────
 const kdsRouter = router({
   listStations: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listKdsStations(merchant.id);
   }),
@@ -7267,13 +7337,13 @@ const kdsRouter = router({
     categories: z.array(z.string()),
     active: z.boolean().default(true),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await upsertKdsStation({ ...input, merchantId: merchant.id });
     return { id };
   }),
   listOrders: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listKdsOrders(merchant.id);
   }),
@@ -7285,7 +7355,7 @@ const kdsRouter = router({
     orderId: z.string(),
     tableNumber: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     await markOrderComplete(input.orderId, merchant.id);
     // KDS→Soundbox: announce in merchant's preferred language
@@ -7309,7 +7379,7 @@ const kdsRouter = router({
 // ─── Inventory Router ─────────────────────────────────────────────────────────
 const inventoryRouter = router({
   listItems: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     // Try Rust inventory-engine first (richer data with needs_reorder flag)
     const rustItems = await rustListInventoryItems(merchant.id);
@@ -7337,7 +7407,7 @@ const inventoryRouter = router({
     reorderLevel: z.number().min(0),
     costPerUnit: z.number().min(0),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await upsertInventoryItem({ ...input, merchantId: merchant.id });
     return { id };
@@ -7371,7 +7441,7 @@ const inventoryRouter = router({
     return { costKobo: cost, ingredients: [] };
   }),
   getCOGS: protectedProcedure.input(z.object({ from: z.string(), to: z.string() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return null;
     return rustGetCOGS(merchant.id, input.from, input.to);
   }),
@@ -7388,7 +7458,7 @@ const inventoryRouter = router({
 // ─── Payroll Router ───────────────────────────────────────────────────────────
 const payrollRouter = router({
   listStaff: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listStaffMembers(merchant.id);
   }),
@@ -7400,7 +7470,7 @@ const payrollRouter = router({
     bankCode: z.string().nullable().optional(),
     accountNumber: z.string().nullable().optional(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await upsertStaffMember({ ...input, merchantId: merchant.id });
     return { id };
@@ -7411,13 +7481,13 @@ const payrollRouter = router({
     clockOut: z.date().nullable().optional(),
     tipsKobo: z.number().min(0).default(0),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     const id = await recordStaffShift({ ...input, merchantId: merchant.id });
     return { id };
   }),
   listShifts: protectedProcedure.input(z.object({ staffId: z.string().optional() })).query(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listStaffShifts(merchant.id, input.staffId);
   }),
@@ -7425,7 +7495,7 @@ const payrollRouter = router({
     periodStart: z.date(),
     periodEnd: z.date(),
   })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
     // Try Python payroll service first (handles tax calc, NHF, pension)
     const pythonResult = await pythonRunPayroll({
@@ -7437,7 +7507,7 @@ const payrollRouter = router({
     return createPayrollRun({ ...input, merchantId: merchant.id });
   }),
   getPayrollHistory: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     const pythonHistory = await pythonGetPayrollHistory(merchant.id);
     if (pythonHistory) return pythonHistory;
@@ -7447,12 +7517,12 @@ const payrollRouter = router({
     return pythonGetPayrollStub(input.runId, input.staffId);
   }),
   listRuns: protectedProcedure.query(async ({ ctx }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) return [];
     return listPayrollRuns(merchant.id);
   }),
   approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const merchant = await getMerchantByOwnerId(ctx.user!.id);
+    const merchant = await getMerchantByOwnerId(ctx.user.id);
     if (!merchant) throw new TRPCError({ code: "NOT_FOUND" });
         await approvePayrollRun(input.id, merchant.id);
     // Fire-and-forget Kafka audit event
@@ -9148,20 +9218,6 @@ const tenantsRouter = router({
 });
 // tier6to8Router now imported at top
 export const appRouter = router({
-  // Added missing routers
-  chargebackLifecycle: chargebackLifecycleRouter,
-  hostedCheckout: hostedCheckoutRouter,
-  sagaWiring: sagaWiringRouter,
-  insiderThreat: insiderThreatRouter,
-  interchange: interchangeRouter,
-  kyc: kycRouter,
-  mobileMoney: mobileMoneyRouter,
-  mojaloop: mojaloopRouter,
-  regulatoryReports: regulatoryReportsRouter,
-  schemeMembership: schemeMembershipRouter,
-  str: strRouter,
-  terminal: terminalRouter,
-  velocityLimits: velocityLimitsRouter,
   auth: authRouter,
   system: systemRouter,
   onboarding: onboardingRouter,
@@ -9403,34 +9459,17 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
-
-  nipBanks: nipBanksRouter,
-  // Wave 221 — Developer Settings, Saga Visualizer, Domain Health, Compliance, Registry
-  wave221: wave221Router,
-  // Wave 223 — Paygate DFSP Onboarding (DFSP, PISP, PSP, POS Operator, Settlement Bank)
-  wave223: router({
-    ...wave223Router._def.procedures,
-    ...wave223ExtRouter._def.procedures,
-  }),
-  // Wave 223 Extensions — Audit Logs, Revenue Analytics, FX Rates, KYC, Merchant Verification, etc.
-  // These are exposed under the wave223 namespace to match frontend trpc.wave223.* calls
-  // (merged into the wave223 key via the appRouter definition below)
-  // Wave 210 — Mojaloop Feature Parity (Oracles, FX, Bulk Transfers, PISP)
-  remittance: remittanceRouter,
-  // Wave 212 — Healthcare Claims Hub
-  healthcare: healthcareRouter,
-  // Wave 213 — Insurance Premium & Claims
-  insurance: insuranceRouter,
-  // Wave 214 — Supply Chain Finance
-  scf: scfRouter,
-  // Wave 215 — G2P Disbursements
-  g2p: g2pRouter,
-  // Wave 216 — Energy / VEND
-  energy: energyRouter,
-  // Wave 217 — CBDC Rail Connector
-  cbdc: cbdcRouter,
-  wave218: wave218Router,
-
+  // PSP Licence Holder — production routers
+  str: strRouter,
+  velocityLimits: velocityLimitsRouter,
+  interchange: interchangeRouter,
+  schemeMembership: schemeMembershipRouter,
+  chargebackLifecycle: chargebackLifecycleRouter,
+  regulatoryReports: regulatoryReportsRouter,
+  // E-Commerce
+  ecommerce: ecommerceRouter,
+  // Hosted Checkout Payment Page
+  hostedCheckout: hostedCheckoutRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

@@ -1,368 +1,256 @@
 """
-PayGate OpenSearch Audit Log Indexer
-======================================
-Kafka consumer that indexes all PayGate audit events, transactions, fraud signals,
-and insider threat alerts into OpenSearch for compliance, forensics, and analytics.
-
-Architecture:
-  - Kafka consumer group: paygate-opensearch-indexer
-  - OpenSearch: full-text + structured search over financial events
-  - Bulk indexing with configurable batch size and flush interval
-  - Dead-letter queue for failed indexing attempts
-  - Index lifecycle management (ILM) with 30-day hot, 90-day warm, 365-day cold
-
-Topics consumed:
-  paygate.audit.events              → paygate-audit-logs-{YYYY.MM.dd}
-  paygate.transaction.created       → paygate-transactions-{YYYY.MM.dd}
-  paygate.fraud.alert               → paygate-fraud-signals-{YYYY.MM.dd}
-  paygate.insider.threat.events     → paygate-insider-threat-{YYYY.MM.dd}
-  paygate.settlement.confirmed      → paygate-settlements-{YYYY.MM.dd}
-  paygate.kyb.status.change         → paygate-kyb-events-{YYYY.MM.dd}
-  paygate.payout.approved           → paygate-payouts-{YYYY.MM.dd}
+PayGate OpenSearch Indexer Service (Wave 133)
+─────────────────────────────────────────────
+Consumes Kafka topics (transactions, audit_events, fraud_alerts, kyc_events)
+and indexes documents into OpenSearch for full-text search and analytics.
 
 Environment variables:
-  KAFKA_BROKERS          — Kafka bootstrap servers (default: kafka:29092)
-  KAFKA_GROUP_ID         — Consumer group ID (default: paygate-opensearch-indexer)
-  OPENSEARCH_URL         — OpenSearch endpoint (default: http://opensearch:9200)
-  OPENSEARCH_USER        — Basic auth username (default: admin)
-  OPENSEARCH_PASS        — Basic auth password
-  BATCH_SIZE             — Documents per bulk request (default: 100)
-  FLUSH_INTERVAL_SECS    — Max seconds between flushes (default: 5)
-  DLQ_TOPIC              — Dead-letter topic (default: paygate.opensearch.dlq)
-  LOG_LEVEL              — Logging level (default: INFO)
+  KAFKA_BOOTSTRAP_SERVERS  — comma-separated Kafka brokers (default: kafka:9092)
+  OPENSEARCH_URL           — OpenSearch base URL (default: http://opensearch:9200)
+  OPENSEARCH_USER          — basic-auth username (default: admin)
+  OPENSEARCH_PASS          — basic-auth password (default: admin)
+  INTERNAL_API_KEY         — bearer token for /index and /search HTTP endpoints
+  LOG_LEVEL                — DEBUG | INFO | WARNING | ERROR (default: INFO)
 """
-from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-import signal
-import sys
-import threading
 import time
-from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+import uuid
+from contextlib import asynccontextmanager
+from typing import Any
 
-import requests
-from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
+import httpx
+from aiokafka import AIOKafkaConsumer
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
-# ─── Configuration ────────────────────────────────────────────────────────────
-
-KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:29092")
-KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "paygate-opensearch-indexer")
-OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200").rstrip("/")
-OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
-OPENSEARCH_PASS = os.getenv("OPENSEARCH_PASS", "")
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
-FLUSH_INTERVAL_SECS = float(os.getenv("FLUSH_INTERVAL_SECS", "5"))
-DLQ_TOPIC = os.getenv("DLQ_TOPIC", "paygate.opensearch.dlq")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-
+# ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("opensearch-indexer")
+log = logging.getLogger("opensearch-indexer")
 
-# ─── Topic → Index mapping ────────────────────────────────────────────────────
+# ─── Config ───────────────────────────────────────────────────────────────────
+KAFKA_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+OS_URL = os.getenv("OPENSEARCH_URL", "http://opensearch:9200").rstrip("/")
+OS_USER = os.getenv("OPENSEARCH_USER", "admin")
+OS_PASS = os.getenv("OPENSEARCH_PASS", "admin")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
-def daily_index(base: str) -> str:
-    """Returns a date-partitioned index name, e.g. paygate-audit-logs-2026.06.21"""
-    today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-    return f"{base}-{today}"
-
-TOPIC_INDEX_MAP: Dict[str, str] = {
-    "paygate.audit.events":          "paygate-audit-logs",
-    "paygate.transaction.created":   "paygate-transactions",
-    "paygate.fraud.alert":           "paygate-fraud-signals",
-    "paygate.insider.threat.events": "paygate-insider-threat",
-    "paygate.settlement.confirmed":  "paygate-settlements",
-    "paygate.kyb.status.change":     "paygate-kyb-events",
-    "paygate.payout.approved":       "paygate-payouts",
+TOPICS = {
+    "paygate.transactions": "pg_transactions",
+    "paygate.audit_events": "pg_audit_events",
+    "paygate.fraud_alerts": "pg_fraud_alerts",
+    "paygate.kyc_events": "pg_kyc_events",
 }
 
-TOPICS = list(TOPIC_INDEX_MAP.keys())
+# ─── OpenSearch client ────────────────────────────────────────────────────────
+_os_client: httpx.AsyncClient | None = None
 
-# ─── OpenSearch helpers ───────────────────────────────────────────────────────
 
-def _auth() -> Optional[tuple]:
-    if OPENSEARCH_USER and OPENSEARCH_PASS:
-        return (OPENSEARCH_USER, OPENSEARCH_PASS)
-    return None
-
-def ensure_ilm_policy() -> None:
-    """Create a 30/90/365-day ILM policy if it doesn't exist."""
-    policy_name = "paygate-events-policy"
-    url = f"{OPENSEARCH_URL}/_plugins/_ism/policies/{policy_name}"
-    resp = requests.get(url, auth=_auth(), timeout=10)
-    if resp.status_code == 200:
-        return  # already exists
-
-    policy = {
-        "policy": {
-            "description": "PayGate events ILM: hot 30d → warm 90d → cold 365d → delete",
-            "default_state": "hot",
-            "states": [
-                {
-                    "name": "hot",
-                    "actions": [{"rollover": {"min_index_age": "30d"}}],
-                    "transitions": [{"state_name": "warm", "conditions": {"min_index_age": "30d"}}],
-                },
-                {
-                    "name": "warm",
-                    "actions": [{"read_only": {}}],
-                    "transitions": [{"state_name": "cold", "conditions": {"min_index_age": "90d"}}],
-                },
-                {
-                    "name": "cold",
-                    "actions": [],
-                    "transitions": [{"state_name": "delete", "conditions": {"min_index_age": "365d"}}],
-                },
-                {"name": "delete", "actions": [{"delete": {}}], "transitions": []},
-            ],
-        }
-    }
-    try:
-        r = requests.put(url, json=policy, auth=_auth(), timeout=10)
-        if r.status_code in (200, 201):
-            logger.info("ILM policy created: %s", policy_name)
-        else:
-            logger.warning("ILM policy creation: %s %s", r.status_code, r.text[:200])
-    except Exception as e:
-        logger.warning("ILM policy creation failed: %s", e)
-
-def ensure_index_template(base_index: str) -> None:
-    """Create an index template for the base index pattern."""
-    template_name = f"{base_index}-template"
-    url = f"{OPENSEARCH_URL}/_index_template/{template_name}"
-    resp = requests.get(url, auth=_auth(), timeout=10)
-    if resp.status_code == 200:
-        return
-
-    template = {
-        "index_patterns": [f"{base_index}-*"],
-        "template": {
-            "settings": {
-                "number_of_shards": 1,
-                "number_of_replicas": 1,
-                "plugins.index_state_management.policy_id": "paygate-events-policy",
-            },
-            "mappings": {
-                "properties": {
-                    "@timestamp": {"type": "date"},
-                    "id": {"type": "keyword"},
-                    "actor_id": {"type": "keyword"},
-                    "merchant_id": {"type": "keyword"},
-                    "action": {"type": "keyword"},
-                    "status": {"type": "keyword"},
-                    "risk_score": {"type": "integer"},
-                    "amount_kobo": {"type": "long"},
-                    "currency": {"type": "keyword"},
-                    "ip_address": {"type": "ip"},
-                    "message": {"type": "text", "analyzer": "standard"},
-                }
-            },
-        },
-    }
-    try:
-        r = requests.put(url, json=template, auth=_auth(), timeout=10)
-        if r.status_code in (200, 201):
-            logger.info("Index template created: %s", template_name)
-        else:
-            logger.warning("Index template: %s %s", r.status_code, r.text[:200])
-    except Exception as e:
-        logger.warning("Index template creation failed: %s", e)
-
-def bulk_index(docs: List[Dict[str, Any]]) -> List[Dict]:
-    """Send a bulk indexing request to OpenSearch. Returns failed items."""
-    if not docs:
-        return []
-
-    lines = []
-    for doc in docs:
-        index = doc.pop("_index")
-        doc_id = doc.pop("_id", None)
-        meta = {"index": {"_index": index}}
-        if doc_id:
-            meta["index"]["_id"] = doc_id
-        lines.append(json.dumps(meta))
-        # Add @timestamp if missing
-        if "@timestamp" not in doc:
-            doc["@timestamp"] = datetime.now(timezone.utc).isoformat()
-        lines.append(json.dumps(doc))
-
-    body = "\n".join(lines) + "\n"
-    try:
-        resp = requests.post(
-            f"{OPENSEARCH_URL}/_bulk",
-            data=body,
-            headers={"Content-Type": "application/x-ndjson"},
-            auth=_auth(),
-            timeout=30,
+def get_os_client() -> httpx.AsyncClient:
+    global _os_client
+    if _os_client is None or _os_client.is_closed:
+        _os_client = httpx.AsyncClient(
+            base_url=OS_URL,
+            auth=(OS_USER, OS_PASS),
+            timeout=10.0,
+            verify=False,  # allow self-signed certs in dev
         )
-        if resp.status_code >= 400:
-            logger.error("Bulk index HTTP error: %s %s", resp.status_code, resp.text[:500])
-            return docs  # return all as failed
+    return _os_client
 
-        result = resp.json()
-        failed = []
-        if result.get("errors"):
-            for item in result.get("items", []):
-                op = item.get("index", {})
-                if op.get("error"):
-                    logger.warning("Index error: %s", op["error"])
-                    failed.append(item)
-        return failed
-    except Exception as e:
-        logger.error("Bulk index exception: %s", e)
-        return docs
 
-# ─── DLQ Producer ─────────────────────────────────────────────────────────────
+async def ensure_indices() -> None:
+    """Create index templates for all PayGate indices if they don't exist."""
+    client = get_os_client()
+    for index in TOPICS.values():
+        try:
+            r = await client.head(f"/{index}")
+            if r.status_code == 404:
+                await client.put(
+                    f"/{index}",
+                    json={
+                        "settings": {"number_of_shards": 1, "number_of_replicas": 1},
+                        "mappings": {
+                            "properties": {
+                                "timestamp": {"type": "date"},
+                                "merchant_id": {"type": "keyword"},
+                                "user_id": {"type": "keyword"},
+                                "event_type": {"type": "keyword"},
+                                "amount": {"type": "double"},
+                                "currency": {"type": "keyword"},
+                                "status": {"type": "keyword"},
+                                "payload": {"type": "object", "enabled": False},
+                            }
+                        },
+                    },
+                )
+                log.info("Created index %s", index)
+        except Exception as exc:
+            log.warning("Could not ensure index %s: %s", index, exc)
 
-_dlq_producer: Optional[Producer] = None
 
-def get_dlq_producer() -> Producer:
-    global _dlq_producer
-    if _dlq_producer is None:
-        _dlq_producer = Producer({"bootstrap.servers": KAFKA_BROKERS})
-    return _dlq_producer
-
-def send_to_dlq(topic: str, key: str, value: bytes, error: str) -> None:
+async def index_document(index: str, doc_id: str, doc: dict) -> bool:
+    """Index a single document into OpenSearch. Returns True on success."""
+    client = get_os_client()
     try:
-        payload = json.dumps({"original_topic": topic, "key": key, "error": error}).encode()
-        get_dlq_producer().produce(DLQ_TOPIC, key=key.encode(), value=payload)
-        get_dlq_producer().poll(0)
-    except Exception as e:
-        logger.error("DLQ send failed: %s", e)
+        r = await client.put(f"/{index}/_doc/{doc_id}", json=doc)
+        if r.status_code not in (200, 201):
+            log.warning("Index %s doc %s → HTTP %d: %s", index, doc_id, r.status_code, r.text[:200])
+            return False
+        return True
+    except Exception as exc:
+        log.error("Failed to index doc %s in %s: %s", doc_id, index, exc)
+        return False
 
-# ─── Indexer ──────────────────────────────────────────────────────────────────
 
-class BatchIndexer:
-    """Thread-safe batch indexer with time-based and size-based flushing."""
+# ─── Kafka consumer ───────────────────────────────────────────────────────────
+_consumer_task: asyncio.Task | None = None
 
-    def __init__(self) -> None:
-        self._buf: List[Dict] = []
-        self._lock = threading.Lock()
-        self._last_flush = time.monotonic()
 
-    def add(self, doc: Dict) -> None:
-        with self._lock:
-            self._buf.append(doc)
-            should_flush = len(self._buf) >= BATCH_SIZE
-        if should_flush:
-            self.flush()
-
-    def flush(self) -> None:
-        with self._lock:
-            if not self._buf:
-                return
-            batch = self._buf[:]
-            self._buf = []
-            self._last_flush = time.monotonic()
-
-        failed = bulk_index(batch)
-        if failed:
-            logger.warning("Bulk index: %d/%d documents failed", len(failed), len(batch))
-
-    def maybe_flush(self) -> None:
-        """Flush if the flush interval has elapsed."""
-        if time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS:
-            self.flush()
-
-def enrich_document(topic: str, raw: Dict) -> Dict:
-    """Add standard fields to every document before indexing."""
-    base_index = TOPIC_INDEX_MAP.get(topic, "paygate-unknown")
-    today = datetime.now(timezone.utc).strftime("%Y.%m.%d")
-
-    doc = dict(raw)
-    doc["_index"] = f"{base_index}-{today}"
-    doc["_id"] = doc.get("id") or doc.get("transaction_id") or doc.get("event_id")
-    doc["source_topic"] = topic
-    if "@timestamp" not in doc and "timestamp" in doc:
-        doc["@timestamp"] = doc["timestamp"]
-    return doc
-
-# ─── Main consumer loop ───────────────────────────────────────────────────────
-
-_running = True
-
-def shutdown(signum, frame):
-    global _running
-    logger.info("Shutdown signal received")
-    _running = False
-
-signal.signal(signal.SIGTERM, shutdown)
-signal.signal(signal.SIGINT, shutdown)
-
-def main() -> None:
-    logger.info("Starting OpenSearch indexer (brokers=%s, group=%s)", KAFKA_BROKERS, KAFKA_GROUP_ID)
-
-    # Ensure ILM policy and index templates
+async def kafka_consumer_loop() -> None:
+    """Long-running coroutine that consumes all PayGate Kafka topics."""
+    log.info("Starting Kafka consumer on %s, topics: %s", KAFKA_SERVERS, list(TOPICS))
+    consumer = AIOKafkaConsumer(
+        *TOPICS.keys(),
+        bootstrap_servers=KAFKA_SERVERS,
+        group_id="opensearch-indexer",
+        auto_offset_reset="earliest",
+        enable_auto_commit=True,
+        value_deserializer=lambda v: json.loads(v.decode("utf-8", errors="replace")),
+    )
     try:
-        ensure_ilm_policy()
-        for base_index in set(TOPIC_INDEX_MAP.values()):
-            ensure_index_template(base_index)
-    except Exception as e:
-        logger.warning("OpenSearch setup failed (will retry): %s", e)
-
-    consumer = Consumer({
-        "bootstrap.servers": KAFKA_BROKERS,
-        "group.id": KAFKA_GROUP_ID,
-        "auto.offset.reset": "earliest",
-        "enable.auto.commit": False,
-        "max.poll.interval.ms": 300_000,
-        "session.timeout.ms": 30_000,
-    })
-    consumer.subscribe(TOPICS)
-
-    indexer = BatchIndexer()
-    stats: Dict[str, int] = defaultdict(int)
-    last_stats_log = time.monotonic()
-
-    try:
-        while _running:
-            msg = consumer.poll(timeout=1.0)
-
-            if msg is None:
-                indexer.maybe_flush()
-                continue
-
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                logger.error("Kafka error: %s", msg.error())
-                continue
-
-            topic = msg.topic()
-            key = (msg.key() or b"").decode("utf-8", errors="replace")
-
-            try:
-                raw = json.loads(msg.value())
-                doc = enrich_document(topic, raw)
-                indexer.add(doc)
-                stats[topic] += 1
-                consumer.commit(asynchronous=True)
-            except json.JSONDecodeError as e:
-                logger.warning("JSON decode error on %s: %s", topic, e)
-                send_to_dlq(topic, key, msg.value(), str(e))
-                consumer.commit(asynchronous=True)
-            except Exception as e:
-                logger.error("Processing error on %s: %s", topic, e)
-                send_to_dlq(topic, key, msg.value(), str(e))
-
-            # Log stats every 60 seconds
-            if time.monotonic() - last_stats_log >= 60:
-                logger.info("Indexed: %s", dict(stats))
-                stats.clear()
-                last_stats_log = time.monotonic()
-
-    except KafkaException as e:
-        logger.error("Fatal Kafka exception: %s", e)
+        await consumer.start()
+        log.info("Kafka consumer started")
+        async for msg in consumer:
+            index = TOPICS.get(msg.topic, "pg_unknown")
+            doc = msg.value if isinstance(msg.value, dict) else {"raw": msg.value}
+            # Ensure timestamp field
+            if "timestamp" not in doc:
+                doc["timestamp"] = int(time.time() * 1000)
+            doc_id = doc.get("id") or doc.get("transaction_id") or str(uuid.uuid4())
+            ok = await index_document(index, str(doc_id), doc)
+            if ok:
+                log.debug("Indexed %s/%s", index, doc_id)
+    except asyncio.CancelledError:
+        log.info("Kafka consumer loop cancelled")
+    except Exception as exc:
+        log.error("Kafka consumer error: %s", exc, exc_info=True)
     finally:
-        indexer.flush()
-        consumer.close()
-        logger.info("OpenSearch indexer stopped")
+        try:
+            await consumer.stop()
+        except Exception:
+            pass
 
-if __name__ == "__main__":
-    main()
+
+# ─── FastAPI lifespan ─────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _consumer_task
+    await ensure_indices()
+    _consumer_task = asyncio.create_task(kafka_consumer_loop())
+    yield
+    if _consumer_task and not _consumer_task.done():
+        _consumer_task.cancel()
+        try:
+            await _consumer_task
+        except asyncio.CancelledError:
+            pass
+    if _os_client and not _os_client.is_closed:
+        await _os_client.aclose()
+
+
+app = FastAPI(title="PayGate OpenSearch Indexer", version="1.0.0", lifespan=lifespan)
+
+
+# ─── Auth dependency ──────────────────────────────────────────────────────────
+async def require_api_key(request: Request) -> None:
+    if not INTERNAL_API_KEY:
+        return  # auth disabled in dev
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != INTERNAL_API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+
+# ─── Models ───────────────────────────────────────────────────────────────────
+class IndexRequest(BaseModel):
+    index: str
+    doc_id: str | None = None
+    document: dict[str, Any]
+
+
+class SearchRequest(BaseModel):
+    index: str
+    query: str
+    filters: dict[str, Any] | None = None
+    from_: int = 0
+    size: int = 20
+
+
+# ─── Endpoints ────────────────────────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    """Liveness probe."""
+    client = get_os_client()
+    try:
+        r = await client.get("/_cluster/health", timeout=3.0)
+        os_status = r.json().get("status", "unknown") if r.status_code == 200 else "unreachable"
+    except Exception:
+        os_status = "unreachable"
+    return {"status": "ok", "opensearch": os_status}
+
+
+@app.post("/index", dependencies=[Depends(require_api_key)])
+async def index_doc(req: IndexRequest):
+    """Manually index a document."""
+    doc_id = req.doc_id or str(uuid.uuid4())
+    ok = await index_document(req.index, doc_id, req.document)
+    if not ok:
+        raise HTTPException(status_code=502, detail="OpenSearch indexing failed")
+    return {"ok": True, "index": req.index, "doc_id": doc_id}
+
+
+@app.post("/search", dependencies=[Depends(require_api_key)])
+async def search_docs(req: SearchRequest):
+    """Full-text search across a PayGate index."""
+    client = get_os_client()
+    must: list[dict] = [{"multi_match": {"query": req.query, "fields": ["*"]}}]
+    if req.filters:
+        for k, v in req.filters.items():
+            must.append({"term": {k: v}})
+    body = {
+        "from": req.from_,
+        "size": req.size,
+        "query": {"bool": {"must": must}},
+        "sort": [{"timestamp": {"order": "desc"}}],
+    }
+    try:
+        r = await client.post(f"/{req.index}/_search", json=body)
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"OpenSearch error: {r.text[:200]}")
+        data = r.json()
+        hits = data.get("hits", {})
+        return {
+            "total": hits.get("total", {}).get("value", 0),
+            "hits": [h["_source"] for h in hits.get("hits", [])],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/indices", dependencies=[Depends(require_api_key)])
+async def list_indices():
+    """List all PayGate indices and their document counts."""
+    client = get_os_client()
+    try:
+        r = await client.get("/_cat/indices/pg_*?format=json")
+        return r.json() if r.status_code == 200 else []
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))

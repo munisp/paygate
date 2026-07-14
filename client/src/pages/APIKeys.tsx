@@ -36,7 +36,7 @@ export default function APIKeys() {
   const copyKey = (k: string) => { navigator.clipboard.writeText(k); toast.success("Copied to clipboard"); };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6" role="main" aria-label="API Keys management">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "Space Grotesk, sans-serif" }}>API Keys</h1>

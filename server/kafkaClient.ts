@@ -43,6 +43,11 @@ export const KAFKA_TOPICS = {
   WEBHOOKS: "paygate.webhooks",
   ANALYTICS: "paygate.analytics",
   COMPLIANCE: "paygate.compliance",
+  STR: "paygate.str",
+  VELOCITY: "paygate.velocity",
+  INTERCHANGE: "paygate.interchange",
+  CHARGEBACK: "paygate.chargeback",
+  REGULATORY: "paygate.regulatory",
 } as const;
 
 // ─── Lazy Kafka client (avoids import errors when kafkajs not installed) ───────

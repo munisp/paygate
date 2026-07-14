@@ -62,7 +62,7 @@ export default function ComplianceReports() {
   const reports = data?.rows ?? [];
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6" role="main" aria-label="Compliance reports">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="w-6 h-6" /> Compliance Reports</h1>

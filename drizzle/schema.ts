@@ -4769,220 +4769,669 @@ export const userLocalePreferences = pgTable("user_locale_preferences", {
 export type UserLocalePreference = typeof userLocalePreferences.$inferSelect;
 export type InsertUserLocalePreference = typeof userLocalePreferences.$inferInsert;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// NEXTHUB SRBE — Settlement, Reconciliation, and Billing Engine
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const settlementWindows = pgTable("settlement_windows", {
+// ─── Wave 180: Face Embeddings (pgvector-ready) ───────────────────────────────
+// Dedicated table for ArcFace 512-d embeddings stored as JSON arrays.
+// When pgvector extension is available, migrate face_embedding to vector(512).
+export const faceEmbeddings = pgTable("face_embeddings", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  windowType: text("window_type").notNull(),
-  status: text("status").notNull().default("OPEN"),
+  merchantId: text("merchant_id").notNull(),
+  userId: text("user_id"),
+  submissionId: text("submission_id"),               // FK → kyc_submissions
+  embedding: jsonb("embedding").notNull(),            // ArcFace 512-d float array
+  model: text("model").default("ArcFace").notNull(), // ArcFace | Facenet | VGG-Face
+  imageUrl: text("image_url"),                       // S3 URL of source image
+  imageType: text("image_type"),                     // selfie | id_front | id_back
+  qualityScore: real("quality_score"),               // 0.0–1.0 face quality
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("face_embed_merchant_idx").on(t.merchantId),
+  index("face_embed_user_idx").on(t.userId),
+  index("face_embed_submission_idx").on(t.submissionId),
+  index("face_embed_model_idx").on(t.model),
+]);
+export type FaceEmbedding = typeof faceEmbeddings.$inferSelect;
+export type InsertFaceEmbedding = typeof faceEmbeddings.$inferInsert;
+
+// ─── Wave 170: Security Audit Snapshots ──────────────────────────────────────
+export const securityAuditSnapshots = pgTable("security_audit_snapshots", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  overallScore: integer("overall_score").notNull(),
+  findings: jsonb("findings").notNull(),
+  triggeredBy: text("triggered_by").default("heartbeat"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("sec_audit_merchant_idx").on(t.merchantId),
+  index("sec_audit_created_idx").on(t.createdAt),
+]);
+export type SecurityAuditSnapshot = typeof securityAuditSnapshots.$inferSelect;
+export type InsertSecurityAuditSnapshot = typeof securityAuditSnapshots.$inferInsert;
+
+// ─── Wave 170: Keycloak Role Sync Logs ───────────────────────────────────────
+export const keycloakRoleSyncLogs = pgTable("keycloak_role_sync_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull(),
+  action: text("action").notNull(),
+  syncedAt: timestamp("synced_at").defaultNow().notNull(),
+  status: text("status").default("success").notNull(),
+  errorMessage: text("error_message"),
+}, (t) => [
+  index("kc_role_sync_user_idx").on(t.userId),
+  index("kc_role_sync_action_idx").on(t.action),
+]);
+export type KeycloakRoleSyncLog = typeof keycloakRoleSyncLogs.$inferSelect;
+export type InsertKeycloakRoleSyncLog = typeof keycloakRoleSyncLogs.$inferInsert;
+
+// ─── PSP Production: Suspicious Transaction Reports (STR) ────────────────────
+export const strRecords = pgTable("str_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id").notNull(),
+  strType: text("str_type").notNull().default("STR"), // STR | SAR
+  subjectType: text("subject_type").notNull().default("INDIVIDUAL"),
+  subjectData: text("subject_data").notNull(), // JSON
+  transactionData: text("transaction_data").notNull(), // JSON
+  suspicionGrounds: text("suspicion_grounds").notNull(),
+  suspicionType: text("suspicion_type").notNull().default("MONEY_LAUNDERING"),
+  suspicionIndicators: text("suspicion_indicators"), // JSON array
+  narrative: text("narrative").notNull(),
+  actionTaken: text("action_taken"),
+  filedBy: text("filed_by").notNull(),
+  filedAt: timestamp("filed_at").defaultNow().notNull(),
+  nfiuRef: text("nfiu_ref"),
+  nfiuSubmittedAt: timestamp("nfiu_submitted_at"),
+  nfiuAcknowledgedAt: timestamp("nfiu_acknowledged_at"),
+  submissionStatus: text("submission_status").notNull().default("pending"),
+  submissionAttempts: integer("submission_attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  lastError: text("last_error"),
+  deadlineAt: timestamp("deadline_at").notNull(),
+  deadlineBreached: boolean("deadline_breached").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("str_merchant_idx").on(t.merchantId),
+  index("str_transaction_idx").on(t.transactionId),
+  index("str_status_idx").on(t.submissionStatus),
+  index("str_deadline_idx").on(t.deadlineAt),
+  index("str_filed_at_idx").on(t.filedAt),
+]);
+export type STRRecord = typeof strRecords.$inferSelect;
+export type InsertSTRRecord = typeof strRecords.$inferInsert;
+
+// ─── PSP Production: Sub-Merchant Velocity Limits ────────────────────────────
+export const velocityLimitConfigs = pgTable("velocity_limit_configs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  channel: text("channel").notNull().default("all"),
+  limitType: text("limit_type").notNull(), // per_minute | per_hour | per_day | per_month
+  maxCount: integer("max_count"),
+  maxAmountKobo: bigint("max_amount_kobo", { mode: "number" }),
+  singleTxMaxKobo: bigint("single_tx_max_kobo", { mode: "number" }),
   currency: text("currency").notNull().default("NGN"),
-  openedAt: timestamp("opened_at").notNull().defaultNow(),
-  closedAt: timestamp("closed_at"),
-  settledAt: timestamp("settled_at"),
-  totalTransfers: integer("total_transfers").notNull().default(0),
-  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
-  settlementReportUrl: text("settlement_report_url"),
-  railReference: text("rail_reference"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type SettlementWindow = typeof settlementWindows.$inferSelect;
-export type InsertSettlementWindow = typeof settlementWindows.$inferInsert;
-
-export const settlementNetPositions = pgTable("settlement_net_positions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  windowId: text("window_id").notNull().references(() => settlementWindows.id),
-  dfspId: text("dfsp_id").notNull(),
-  dfspName: text("dfsp_name").notNull(),
-  currency: text("currency").notNull().default("NGN"),
-  netPositionKobo: bigint("net_position_kobo", { mode: "number" }).notNull().default(0),
-  totalDebitsKobo: bigint("total_debits_kobo", { mode: "number" }).notNull().default(0),
-  totalCreditsKobo: bigint("total_credits_kobo", { mode: "number" }).notNull().default(0),
-  transferCount: integer("transfer_count").notNull().default(0),
-  tigerBeetleAccountId: text("tigerbeetle_account_id"),
-  settlementInstruction: text("settlement_instruction"),
-  settledAt: timestamp("settled_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-export type SettlementNetPosition = typeof settlementNetPositions.$inferSelect;
-
-export const nexthubDfsps = pgTable("nexthub_dfsps", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  dfspId: text("dfsp_id").notNull().unique(),
-  dfspName: text("dfsp_name").notNull(),
-  dfspType: text("dfsp_type").notNull().default("bank"),
-  country: text("country").notNull().default("NG"),
-  currency: text("currency").notNull().default("NGN"),
-  status: text("status").notNull().default("ACTIVE"),
-  tigerBeetlePositionAccountId: text("tigerbeetle_position_account_id"),
-  tigerBeetleLiquidityAccountId: text("tigerbeetle_liquidity_account_id"),
-  liquidityLimitKobo: bigint("liquidity_limit_kobo", { mode: "number" }).notNull().default(0),
-  callbackUrl: text("callback_url"),
-  clientCertificateThumbprint: text("client_certificate_thumbprint"),
-  certificateExpiresAt: timestamp("certificate_expires_at"),
-  onboardedAt: timestamp("onboarded_at").notNull().defaultNow(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type NexthubDfsp = typeof nexthubDfsps.$inferSelect;
-export type InsertNexthubDfsp = typeof nexthubDfsps.$inferInsert;
-
-export const feePostings = pgTable("fee_postings", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  transferId: text("transfer_id").notNull(),
-  windowId: text("window_id"),
-  dfspId: text("dfsp_id").notNull(),
-  feeType: text("fee_type").notNull(),
-  feeCategory: text("fee_category").notNull().default("DEBIT"),
-  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
-  currency: text("currency").notNull().default("NGN"),
-  tigerBeetleTransferId: text("tigerbeetle_transfer_id"),
-  billedAt: timestamp("billed_at"),
-  invoiceId: text("invoice_id"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-export type FeePosting = typeof feePostings.$inferSelect;
-
-export const dfspFeeTiers = pgTable("dfsp_fee_tiers", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  dfspId: text("dfsp_id").notNull(),
-  feeType: text("fee_type").notNull(),
-  tierModel: text("tier_model").notNull().default("flat"),
-  flatRateBps: integer("flat_rate_bps"),
-  minFeeKobo: integer("min_fee_kobo"),
-  maxFeeKobo: integer("max_fee_kobo"),
-  tierBands: text("tier_bands"),
-  volumeDiscountBands: text("volume_discount_bands"),
-  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  riskTier: text("risk_tier").notNull().default("standard"),
+  isActive: boolean("is_active").notNull().default(true),
+  effectiveFrom: timestamp("effective_from").defaultNow().notNull(),
   effectiveTo: timestamp("effective_to"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-export type DfspFeeTier = typeof dfspFeeTiers.$inferSelect;
+  setBy: text("set_by").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("velocity_merchant_channel_idx").on(t.merchantId, t.channel),
+  index("velocity_merchant_active_idx").on(t.merchantId, t.isActive),
+]);
+export type VelocityLimitConfig = typeof velocityLimitConfigs.$inferSelect;
+export type InsertVelocityLimitConfig = typeof velocityLimitConfigs.$inferInsert;
 
-export const nexthubInvoices = pgTable("nexthub_invoices", {
+export const velocityBreaches = pgTable("velocity_breaches", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  dfspId: text("dfsp_id").notNull(),
-  dfspName: text("dfsp_name").notNull(),
-  billingPeriodStart: timestamp("billing_period_start").notNull(),
-  billingPeriodEnd: timestamp("billing_period_end").notNull(),
-  totalSchemeFeesKobo: bigint("total_scheme_fees_kobo", { mode: "number" }).notNull().default(0),
-  totalInterchangeKobo: bigint("total_interchange_kobo", { mode: "number" }).notNull().default(0),
-  totalFxMarkupKobo: bigint("total_fx_markup_kobo", { mode: "number" }).notNull().default(0),
-  totalPenaltiesKobo: bigint("total_penalties_kobo", { mode: "number" }).notNull().default(0),
-  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }).notNull().default(0),
-  currency: text("currency").notNull().default("NGN"),
-  status: text("status").notNull().default("DRAFT"),
-  pdfUrl: text("pdf_url"),
-  tigerBeetleInvoiceTransferId: text("tigerbeetle_invoice_transfer_id"),
-  issuedAt: timestamp("issued_at"),
-  dueAt: timestamp("due_at"),
-  paidAt: timestamp("paid_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type NexthubInvoice = typeof nexthubInvoices.$inferSelect;
-
-export const reconciliationExceptions = pgTable("reconciliation_exceptions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  windowId: text("window_id").notNull(),
-  transferId: text("transfer_id"),
-  dfspId: text("dfsp_id"),
-  breakType: text("break_type").notNull(),
-  severity: text("severity").notNull().default("MEDIUM"),
-  status: text("status").notNull().default("OPEN"),
-  hubAmountKobo: bigint("hub_amount_kobo", { mode: "number" }),
-  railAmountKobo: bigint("rail_amount_kobo", { mode: "number" }),
-  discrepancyAmountKobo: bigint("discrepancy_amount_kobo", { mode: "number" }),
-  currency: text("currency").notNull().default("NGN"),
-  description: text("description"),
-  resolutionNotes: text("resolution_notes"),
-  autoResolveSlaMinutes: integer("auto_resolve_sla_minutes"),
+  merchantId: text("merchant_id").notNull(),
+  transactionId: text("transaction_id").notNull(),
+  limitConfigId: text("limit_config_id").notNull(),
+  breachType: text("breach_type").notNull(),
+  channel: text("channel").notNull(),
+  currentCount: integer("current_count"),
+  currentAmountKobo: bigint("current_amount_kobo", { mode: "number" }),
+  limitCount: integer("limit_count"),
+  limitAmountKobo: bigint("limit_amount_kobo", { mode: "number" }),
+  transactionAmountKobo: bigint("transaction_amount_kobo", { mode: "number" }),
+  action: text("action").notNull().default("blocked"),
   resolvedAt: timestamp("resolved_at"),
-  escalatedAt: timestamp("escalated_at"),
-  assignedTo: text("assigned_to"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type ReconciliationException = typeof reconciliationExceptions.$inferSelect;
+  resolvedBy: text("resolved_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("breach_merchant_idx").on(t.merchantId),
+  index("breach_tx_idx").on(t.transactionId),
+  index("breach_created_idx").on(t.createdAt),
+]);
+export type VelocityBreach = typeof velocityBreaches.$inferSelect;
+export type InsertVelocityBreach = typeof velocityBreaches.$inferInsert;
 
-export const transferDisputes = pgTable("transfer_disputes", {
+// ─── PSP Production: Interchange Fee Schedule ─────────────────────────────────
+export const interchangeSchedule = pgTable("interchange_schedule", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  transferId: text("transfer_id").notNull(),
-  initiatedByDfspId: text("initiated_by_dfsp_id").notNull(),
-  respondingDfspId: text("responding_dfsp_id"),
-  disputeType: text("dispute_type").notNull(),
-  status: text("status").notNull().default("OPEN"),
-  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
-  currency: text("currency").notNull().default("NGN"),
-  reason: text("reason").notNull(),
-  evidence: text("evidence"),
-  resolution: text("resolution"),
-  resolutionNotes: text("resolution_notes"),
-  penaltyAmountKobo: bigint("penalty_amount_kobo", { mode: "number" }).default(0),
-  reversalTransferId: text("reversal_transfer_id"),
-  tigerBeetlePenaltyTransferId: text("tigerbeetle_penalty_transfer_id"),
-  slaDeadline: timestamp("sla_deadline"),
-  resolvedAt: timestamp("resolved_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type TransferDispute = typeof transferDisputes.$inferSelect;
+  scheme: text("scheme").notNull(),
+  cardType: text("card_type").notNull(),
+  channel: text("channel").notNull(),
+  mcc: text("mcc"),
+  basisPoints: integer("basis_points").notNull(),
+  fixedFeeKobo: bigint("fixed_fee_kobo", { mode: "number" }).notNull().default(0),
+  minFeeKobo: bigint("min_fee_kobo", { mode: "number" }).notNull().default(0),
+  maxFeeKobo: bigint("max_fee_kobo", { mode: "number" }).notNull().default(0),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  isActive: boolean("is_active").notNull().default(true),
+  source: text("source").notNull().default("cbn_schedule"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("interchange_scheme_channel_idx").on(t.scheme, t.channel),
+  index("interchange_scheme_card_idx").on(t.scheme, t.cardType),
+  index("interchange_active_idx").on(t.isActive),
+]);
+export type InterchangeScheduleEntry = typeof interchangeSchedule.$inferSelect;
+export type InsertInterchangeScheduleEntry = typeof interchangeSchedule.$inferInsert;
 
-export const nexthubTransfers = pgTable("nexthub_transfers", {
-  id: text("id").primaryKey(),
-  payerFspId: text("payer_fsp_id").notNull(),
-  payeeFspId: text("payee_fsp_id").notNull(),
-  payerPartyId: text("payer_party_id").notNull(),
-  payeePartyId: text("payee_party_id").notNull(),
-  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
-  currency: text("currency").notNull().default("NGN"),
-  state: text("state").notNull().default("RECEIVED"),
-  ilpPacket: text("ilp_packet"),
-  condition: text("condition"),
-  fulfilment: text("fulfilment"),
-  fraudScore: real("fraud_score"),
-  schemeFeeKobo: bigint("scheme_fee_kobo", { mode: "number" }).default(0),
-  interchangeFeeKobo: bigint("interchange_fee_kobo", { mode: "number" }).default(0),
-  fxRate: real("fx_rate"),
-  tigerBeetleTransferId: text("tigerbeetle_transfer_id"),
-  tigerBeetleFeeId: text("tigerbeetle_fee_id"),
-  windowId: text("window_id"),
-  expirationTime: timestamp("expiration_time"),
-  errorCode: text("error_code"),
-  errorDescription: text("error_description"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type NexthubTransfer = typeof nexthubTransfers.$inferSelect;
-
-export const nexthubSecurityEvents = pgTable("nexthub_security_events", {
+export const interchangeFeeRecords = pgTable("interchange_fee_records", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  eventType: text("event_type").notNull(),
-  severity: text("severity").notNull().default("MEDIUM"),
-  dfspId: text("dfsp_id"),
-  sourceIp: text("source_ip"),
-  description: text("description").notNull(),
-  metadata: text("metadata"),
-  acknowledged: boolean("acknowledged").notNull().default(false),
-  acknowledgedBy: text("acknowledged_by"),
+  transactionId: text("transaction_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  scheduleId: text("schedule_id").notNull(),
+  scheme: text("scheme").notNull(),
+  cardType: text("card_type"),
+  channel: text("channel").notNull(),
+  transactionAmountKobo: bigint("transaction_amount_kobo", { mode: "number" }).notNull(),
+  feeKobo: bigint("fee_kobo", { mode: "number" }).notNull(),
+  percentageFeeKobo: bigint("percentage_fee_kobo", { mode: "number" }).notNull(),
+  fixedFeeKobo: bigint("fixed_fee_kobo", { mode: "number" }).notNull(),
+  basisPoints: integer("basis_points").notNull(),
+  settledAt: timestamp("settled_at"),
+  billingPeriod: text("billing_period"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("interchange_fee_tx_idx").on(t.transactionId),
+  index("interchange_fee_merchant_idx").on(t.merchantId),
+  index("interchange_fee_period_idx").on(t.billingPeriod),
+  index("interchange_fee_scheme_idx").on(t.scheme),
+]);
+export type InterchangeFeeRecord = typeof interchangeFeeRecords.$inferSelect;
+export type InsertInterchangeFeeRecord = typeof interchangeFeeRecords.$inferInsert;
+
+// ─── PSP Production: Scheme Membership ────────────────────────────────────────
+export const schemeMemberships = pgTable("scheme_memberships", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  scheme: text("scheme").notNull(),
+  membershipType: text("membership_type").notNull().default("principal"),
+  memberId: text("member_id").notNull(),
+  status: text("status").notNull().default("active"),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  renewalDate: timestamp("renewal_date"),
+  contactEmail: text("contact_email"),
+  complianceOfficer: text("compliance_officer"),
+  binRanges: text("bin_ranges"), // JSON array
+  sponsoredMerchants: text("sponsored_merchants"), // JSON array
+  annualFeeUsd: integer("annual_fee_usd"),
+  lastRenewalAt: timestamp("last_renewal_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("scheme_membership_scheme_idx").on(t.scheme),
+  index("scheme_membership_status_idx").on(t.status),
+]);
+export type SchemeMembership = typeof schemeMemberships.$inferSelect;
+export type InsertSchemeMembership = typeof schemeMemberships.$inferInsert;
+
+// ─── PSP Production: Chargeback Evidence Packages ────────────────────────────
+export const chargebackEvidencePackages = pgTable("chargeback_evidence_packages", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  chargebackId: text("chargeback_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  evidenceType: text("evidence_type").notNull(),
+  fileName: text("file_name").notNull(),
+  fileKey: text("file_key").notNull(),
+  fileUrl: text("file_url").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSizeBytes: integer("file_size_bytes"),
+  uploadedBy: text("uploaded_by").notNull(),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  submittedToScheme: boolean("submitted_to_scheme").notNull().default(false),
+  submittedAt: timestamp("submitted_at"),
+}, (t) => [
+  index("cb_evidence_chargeback_idx").on(t.chargebackId),
+  index("cb_evidence_merchant_idx").on(t.merchantId),
+]);
+export type ChargebackEvidencePackage = typeof chargebackEvidencePackages.$inferSelect;
+export type InsertChargebackEvidencePackage = typeof chargebackEvidencePackages.$inferInsert;
+
+export const chargebackTimeline = pgTable("chargeback_timeline", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  chargebackId: text("chargeback_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  event: text("event").notNull(),
+  previousState: text("previous_state"),
+  newState: text("new_state").notNull(),
+  actorId: text("actor_id"),
+  actorType: text("actor_type").notNull().default("system"),
+  notes: text("notes"),
+  schemeRef: text("scheme_ref"),
+  deadlineAt: timestamp("deadline_at"),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+}, (t) => [
+  index("cb_timeline_chargeback_idx").on(t.chargebackId),
+  index("cb_timeline_merchant_idx").on(t.merchantId),
+  index("cb_timeline_occurred_idx").on(t.occurredAt),
+]);
+export type ChargebackTimelineEntry = typeof chargebackTimeline.$inferSelect;
+export type InsertChargebackTimelineEntry = typeof chargebackTimeline.$inferInsert;
+
+// ─── PSP Production: Regulatory Report Submissions ───────────────────────────
+export const regulatoryReportSubmissions = pgTable("regulatory_report_submissions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  reportId: text("report_id").notNull(),
+  merchantId: text("merchant_id").notNull(),
+  formType: text("form_type").notNull(),
+  period: text("period").notNull(),
+  submissionMethod: text("submission_method").notNull().default("api"),
+  submissionEndpoint: text("submission_endpoint"),
+  httpStatus: integer("http_status"),
+  responseBody: text("response_body"),
+  regulatorRef: text("regulator_ref"),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
   acknowledgedAt: timestamp("acknowledged_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-export type NexthubSecurityEvent = typeof nexthubSecurityEvents.$inferSelect;
+  status: text("status").notNull().default("submitted"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  fileKey: text("file_key"),
+  fileUrl: text("file_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("reg_submission_report_idx").on(t.reportId),
+  index("reg_submission_merchant_idx").on(t.merchantId),
+  index("reg_submission_form_idx").on(t.formType),
+  index("reg_submission_period_idx").on(t.period),
+  index("reg_submission_status_idx").on(t.status),
+]);
+export type RegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferSelect;
+export type InsertRegulatoryReportSubmission = typeof regulatoryReportSubmissions.$inferInsert;
 
-export const amlRules = pgTable("aml_rules", {
+// ─── E-Commerce: Enums ────────────────────────────────────────────────────────
+export const productStatusEnum = pgEnum("product_status", ["draft", "active", "archived"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]);
+export const fulfilmentStatusEnum = pgEnum("fulfilment_status", ["unfulfilled", "partial", "fulfilled", "returned"]);
+export const checkoutSessionStatusEnum = pgEnum("checkout_session_status", ["pending", "completed", "expired", "failed"]);
+export const paymentMethodEnum = pgEnum("payment_method_type", ["card", "bank_transfer", "ussd", "bnpl", "usdc"]);
+
+// ─── E-Commerce: Products ─────────────────────────────────────────────────────
+export const products = pgTable("products", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  ruleName: text("rule_name").notNull().unique(),
-  ruleCategory: text("rule_category").notNull(),
-  isEnabled: boolean("is_enabled").notNull().default(true),
-  parameters: text("parameters").notNull(),
-  action: text("action").notNull().default("FLAG"),
-  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
-  effectiveTo: timestamp("effective_to"),
-  createdBy: text("created_by"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-export type AmlRule = typeof amlRules.$inferSelect;
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  description: text("description"),
+  status: productStatusEnum("status").default("draft").notNull(),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  comparePriceKobo: bigint("compare_price_kobo", { mode: "number" }),
+  currency: text("currency").default("NGN").notNull(),
+  sku: text("sku"),
+  barcode: text("barcode"),
+  trackInventory: boolean("track_inventory").default(false).notNull(),
+  inventoryQty: integer("inventory_qty").default(0).notNull(),
+  weight: real("weight"),
+  weightUnit: text("weight_unit").default("kg"),
+  imageUrls: jsonb("image_urls").$type<string[]>().default([]),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  category: text("category"),
+  taxable: boolean("taxable").default(true).notNull(),
+  taxCode: text("tax_code"),
+  requiresShipping: boolean("requires_shipping").default(true).notNull(),
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("products_merchant_idx").on(t.merchantId),
+  index("products_tenant_idx").on(t.tenantId),
+  index("products_status_idx").on(t.status),
+  index("products_slug_idx").on(t.slug),
+  index("products_category_idx").on(t.category),
+]);
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = typeof products.$inferInsert;
+
+// ─── E-Commerce: Product Variants ────────────────────────────────────────────
+export const productVariants = pgTable("product_variants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  sku: text("sku"),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  comparePriceKobo: bigint("compare_price_kobo", { mode: "number" }),
+  inventoryQty: integer("inventory_qty").default(0).notNull(),
+  imageUrl: text("image_url"),
+  options: jsonb("options").$type<Record<string, string>>().default({}),
+  weight: real("weight"),
+  barcode: text("barcode"),
+  position: integer("position").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("variants_product_idx").on(t.productId),
+]);
+export type ProductVariant = typeof productVariants.$inferSelect;
+export type InsertProductVariant = typeof productVariants.$inferInsert;
+
+// ─── E-Commerce: Carts ────────────────────────────────────────────────────────
+export const carts = pgTable("carts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  consumerId: text("consumer_id"),
+  sessionToken: text("session_token"),
+  currency: text("currency").default("NGN").notNull(),
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }).default(0).notNull(),
+  discountKobo: bigint("discount_kobo", { mode: "number" }).default(0).notNull(),
+  shippingKobo: bigint("shipping_kobo", { mode: "number" }).default(0).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0).notNull(),
+  totalKobo: bigint("total_kobo", { mode: "number" }).default(0).notNull(),
+  couponCode: text("coupon_code"),
+  notes: text("notes"),
+  expiresAt: timestamp("expires_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("carts_merchant_idx").on(t.merchantId),
+  index("carts_consumer_idx").on(t.consumerId),
+  index("carts_session_idx").on(t.sessionToken),
+]);
+export type Cart = typeof carts.$inferSelect;
+export type InsertCart = typeof carts.$inferInsert;
+
+// ─── E-Commerce: Cart Items ───────────────────────────────────────────────────
+export const cartItems = pgTable("cart_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cartId: text("cart_id").notNull().references(() => carts.id, { onDelete: "cascade" }),
+  productId: text("product_id").notNull().references(() => products.id),
+  variantId: text("variant_id").references(() => productVariants.id),
+  quantity: integer("quantity").notNull().default(1),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }).notNull(),
+  totalPriceKobo: bigint("total_price_kobo", { mode: "number" }).notNull(),
+  productSnapshot: jsonb("product_snapshot").$type<{ name: string; imageUrl?: string; sku?: string }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cart_items_cart_idx").on(t.cartId),
+  index("cart_items_product_idx").on(t.productId),
+]);
+export type CartItem = typeof cartItems.$inferSelect;
+export type InsertCartItem = typeof cartItems.$inferInsert;
+
+// ─── E-Commerce: Checkout Sessions ───────────────────────────────────────────
+export const checkoutSessions = pgTable("checkout_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cartId: text("cart_id").notNull().references(() => carts.id),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  consumerId: text("consumer_id"),
+  status: checkoutSessionStatusEnum("status").default("pending").notNull(),
+  paymentMethod: paymentMethodEnum("payment_method"),
+  paymentIntentId: text("payment_intent_id"),   // Stripe PaymentIntent ID
+  stripeClientSecret: text("stripe_client_secret"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  // Shipping address
+  shippingName: text("shipping_name"),
+  shippingPhone: text("shipping_phone"),
+  shippingEmail: text("shipping_email"),
+  shippingLine1: text("shipping_line1"),
+  shippingLine2: text("shipping_line2"),
+  shippingCity: text("shipping_city"),
+  shippingState: text("shipping_state"),
+  shippingCountry: text("shipping_country").default("NG"),
+  shippingPostalCode: text("shipping_postal_code"),
+  // Billing address (may differ)
+  billingName: text("billing_name"),
+  billingLine1: text("billing_line1"),
+  billingCity: text("billing_city"),
+  billingState: text("billing_state"),
+  billingCountry: text("billing_country").default("NG"),
+  // Metadata
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}),
+  temporalWorkflowId: text("temporal_workflow_id"),
+  kafkaEventId: text("kafka_event_id"),
+  tigerBeetleTransferId: bigint("tigerbeetle_transfer_id", { mode: "number" }),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("checkout_sessions_cart_idx").on(t.cartId),
+  index("checkout_sessions_merchant_idx").on(t.merchantId),
+  index("checkout_sessions_status_idx").on(t.status),
+  index("checkout_sessions_payment_intent_idx").on(t.paymentIntentId),
+]);
+export type CheckoutSession = typeof checkoutSessions.$inferSelect;
+export type InsertCheckoutSession = typeof checkoutSessions.$inferInsert;
+
+// ─── E-Commerce: Orders ───────────────────────────────────────────────────────
+export const orders = pgTable("orders", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderNumber: text("order_number").notNull().unique(),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  consumerId: text("consumer_id"),
+  checkoutSessionId: text("checkout_session_id").references(() => checkoutSessions.id),
+  status: orderStatusEnum("status").default("pending").notNull(),
+  fulfilmentStatus: fulfilmentStatusEnum("fulfilment_status").default("unfulfilled").notNull(),
+  paymentMethod: paymentMethodEnum("payment_method"),
+  paymentIntentId: text("payment_intent_id"),
+  paidAt: timestamp("paid_at"),
+  // Amounts
+  subtotalKobo: bigint("subtotal_kobo", { mode: "number" }).notNull(),
+  discountKobo: bigint("discount_kobo", { mode: "number" }).default(0).notNull(),
+  shippingKobo: bigint("shipping_kobo", { mode: "number" }).default(0).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0).notNull(),
+  totalKobo: bigint("total_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  refundedKobo: bigint("refunded_kobo", { mode: "number" }).default(0).notNull(),
+  // Shipping
+  shippingName: text("shipping_name"),
+  shippingPhone: text("shipping_phone"),
+  shippingEmail: text("shipping_email"),
+  shippingLine1: text("shipping_line1"),
+  shippingLine2: text("shipping_line2"),
+  shippingCity: text("shipping_city"),
+  shippingState: text("shipping_state"),
+  shippingCountry: text("shipping_country").default("NG"),
+  shippingPostalCode: text("shipping_postal_code"),
+  // Tracking
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"),
+  shippedAt: timestamp("shipped_at"),
+  deliveredAt: timestamp("delivered_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelReason: text("cancel_reason"),
+  // Middleware
+  temporalWorkflowId: text("temporal_workflow_id"),
+  kafkaEventId: text("kafka_event_id"),
+  tigerBeetleTransferId: bigint("tigerbeetle_transfer_id", { mode: "number" }),
+  notes: text("notes"),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("orders_merchant_idx").on(t.merchantId),
+  index("orders_tenant_idx").on(t.tenantId),
+  index("orders_status_idx").on(t.status),
+  index("orders_consumer_idx").on(t.consumerId),
+  index("orders_payment_intent_idx").on(t.paymentIntentId),
+  index("orders_order_number_idx").on(t.orderNumber),
+]);
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = typeof orders.$inferInsert;
+
+// ─── E-Commerce: Order Items ──────────────────────────────────────────────────
+export const orderItems = pgTable("order_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  productId: text("product_id").notNull().references(() => products.id),
+  variantId: text("variant_id").references(() => productVariants.id),
+  quantity: integer("quantity").notNull(),
+  unitPriceKobo: bigint("unit_price_kobo", { mode: "number" }).notNull(),
+  totalPriceKobo: bigint("total_price_kobo", { mode: "number" }).notNull(),
+  discountKobo: bigint("discount_kobo", { mode: "number" }).default(0).notNull(),
+  taxKobo: bigint("tax_kobo", { mode: "number" }).default(0).notNull(),
+  fulfilmentStatus: fulfilmentStatusEnum("fulfilment_status").default("unfulfilled").notNull(),
+  productSnapshot: jsonb("product_snapshot").$type<{
+    name: string; sku?: string; imageUrl?: string; variantTitle?: string;
+  }>(),
+  refundedQty: integer("refunded_qty").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("order_items_order_idx").on(t.orderId),
+  index("order_items_product_idx").on(t.productId),
+]);
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = typeof orderItems.$inferInsert;
+
+// ─── E-Commerce: Fulfilment Events ───────────────────────────────────────────
+export const fulfilmentEvents = pgTable("fulfilment_events", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  merchantId: text("merchant_id").notNull(),
+  eventType: text("event_type").notNull(), // "payment_received" | "confirmed" | "shipped" | "delivered" | "cancelled" | "refunded"
+  status: text("status").notNull(),
+  message: text("message"),
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"),
+  trackingUrl: text("tracking_url"),
+  actorId: text("actor_id"),               // user/system that triggered the event
+  actorType: text("actor_type"),           // "merchant" | "system" | "webhook"
+  webhookSource: text("webhook_source"),   // "stripe" | "temporal" | "manual"
+  kafkaOffset: bigint("kafka_offset", { mode: "number" }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("fulfilment_events_order_idx").on(t.orderId),
+  index("fulfilment_events_merchant_idx").on(t.merchantId),
+  index("fulfilment_events_type_idx").on(t.eventType),
+]);
+export type FulfilmentEvent = typeof fulfilmentEvents.$inferSelect;
+export type InsertFulfilmentEvent = typeof fulfilmentEvents.$inferInsert;
+
+// ─── Checkout Themes ──────────────────────────────────────────────────────────
+// Per-merchant branding for the hosted payment page.
+export const checkoutThemes = pgTable("checkout_themes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  merchantId: text("merchant_id").notNull().unique(),
+  tenantId: text("tenant_id").notNull(),
+  // Branding
+  logoUrl: text("logo_url"),
+  primaryColor: text("primary_color").default("#4F46E5").notNull(),
+  backgroundColor: text("background_color").default("#ffffff").notNull(),
+  textColor: text("text_color").default("#111827").notNull(),
+  accentColor: text("accent_color").default("#10B981").notNull(),
+  fontFamily: text("font_family").default("Inter").notNull(),
+  borderRadius: text("border_radius").default("12").notNull(), // px
+  // Content
+  businessName: text("business_name"),
+  tagline: text("tagline"),
+  supportEmail: text("support_email"),
+  supportPhone: text("support_phone"),
+  customDomain: text("custom_domain"),
+  // Feature flags
+  showPaymentMethods: jsonb("show_payment_methods").$type<string[]>().default(["card", "bank_transfer", "ussd", "bnpl"]),
+  showOrderSummary: boolean("show_order_summary").default(true).notNull(),
+  showSecurityBadge: boolean("show_security_badge").default(true).notNull(),
+  requireBillingAddress: boolean("require_billing_address").default(false).notNull(),
+  // Custom CSS override (sanitised)
+  customCss: text("custom_css"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("checkout_themes_merchant_idx").on(t.merchantId),
+  index("checkout_themes_tenant_idx").on(t.tenantId),
+]);
+export type CheckoutTheme = typeof checkoutThemes.$inferSelect;
+export type InsertCheckoutTheme = typeof checkoutThemes.$inferInsert;
+
+// ─── Hosted Payment Sessions ──────────────────────────────────────────────────
+// A hosted payment session is created when a customer opens a payment link.
+// It tracks the full lifecycle: method selection → payment initiation → confirmation.
+export const hostedPaymentSessions = pgTable("hosted_payment_sessions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  // Reference
+  paymentLinkId: text("payment_link_id"),
+  merchantId: text("merchant_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  // Customer
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  // Amount
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  currency: text("currency").default("NGN").notNull(),
+  description: text("description"),
+  reference: text("reference").notNull().unique(), // merchant-supplied or auto-generated
+  // Status
+  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | expired | abandoned
+  paymentMethod: text("payment_method"),              // card | bank_transfer | ussd | bnpl | usdc
+  // Card (Stripe)
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeClientSecret: text("stripe_client_secret"),
+  // Bank Transfer (NIBSS NIP virtual account)
+  nipVirtualAccountNumber: text("nip_virtual_account_number"),
+  nipBankCode: text("nip_bank_code"),
+  nipBankName: text("nip_bank_name"),
+  nipSessionId: text("nip_session_id"),
+  nipExpiresAt: timestamp("nip_expires_at"),
+  // USSD
+  ussdCode: text("ussd_code"),                        // e.g. *737*000*123456#
+  ussdReference: text("ussd_reference"),
+  ussdBankCode: text("ussd_bank_code"),
+  // BNPL
+  bnplProvider: text("bnpl_provider"),                // "carbon" | "fairmoney" | "creditcorp"
+  bnplInstallmentKobo: bigint("bnpl_installment_kobo", { mode: "number" }),
+  bnplInstallmentCount: integer("bnpl_installment_count"),
+  bnplPlanId: text("bnpl_plan_id"),
+  bnplApprovalUrl: text("bnpl_approval_url"),
+  // USDC
+  usdcWalletAddress: text("usdc_wallet_address"),
+  usdcAmountUsdc: real("usdc_amount_usdc"),
+  usdcNetwork: text("usdc_network").default("ethereum"),
+  // Confirmation
+  paidAt: timestamp("paid_at"),
+  failedAt: timestamp("failed_at"),
+  failureReason: text("failure_reason"),
+  // Middleware
+  tigerBeetleTransferId: bigint("tigerbeetle_transfer_id", { mode: "number" }),
+  temporalWorkflowId: text("temporal_workflow_id"),
+  kafkaEventId: text("kafka_event_id"),
+  // Webhook delivery
+  webhookDeliveredAt: timestamp("webhook_delivered_at"),
+  webhookAttempts: integer("webhook_attempts").default(0).notNull(),
+  receiptEmailSentAt: timestamp("receipt_email_sent_at"),
+  // Metadata
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("hps_merchant_idx").on(t.merchantId),
+  index("hps_status_idx").on(t.status),
+  index("hps_reference_idx").on(t.reference),
+  index("hps_payment_link_idx").on(t.paymentLinkId),
+  index("hps_stripe_pi_idx").on(t.stripePaymentIntentId),
+  index("hps_nip_va_idx").on(t.nipVirtualAccountNumber),
+]);
+export type HostedPaymentSession = typeof hostedPaymentSessions.$inferSelect;
+export type InsertHostedPaymentSession = typeof hostedPaymentSessions.$inferInsert;
