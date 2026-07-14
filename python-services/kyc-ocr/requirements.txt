@@ -1,16 +1,16 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+fastapi==0.139.0
+uvicorn[standard]==0.32.1
 pydantic==2.9.2
-httpx==0.27.2
-pillow==10.4.0
+httpx==0.28.1
+pillow==12.3.0
 opencv-python-headless==4.10.0.84
 numpy==1.26.4
 boto3==1.35.0
-confluent-kafka==2.5.0
+confluent-kafka==2.15.0
 # PaddleOCR (install separately with GPU support if available)
-paddlepaddle==2.6.2
-paddleocr==2.8.1
+paddlepaddle==3.3.1
+paddleocr==3.7.0
 # Docling (IBM Research document understanding)
-docling==2.5.0
+docling==2.112.0
 # Optional: for VLM integration
 # openai==1.40.0  # if using GPT-4V

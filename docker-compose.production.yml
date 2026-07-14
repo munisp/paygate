@@ -161,6 +161,43 @@ services:
       retries: 5
     networks: [paygate]
 
+  # ─── PgBouncer ────────────────────────────────────────────────────────────────
+  # Connection pooler — sits between the application servers and PostgreSQL.
+  # Reduces connection overhead under high concurrency by multiplexing connections.
+  # All services that previously connected directly to postgres:5432 should use
+  # pgbouncer:6432 instead in production.
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1
+    container_name: paygate_pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-paygate}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      DB_NAME: ${POSTGRES_DB:-paygate_prod}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "25"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "5"
+      RESERVE_POOL_TIMEOUT: "3"
+      SERVER_IDLE_TIMEOUT: "600"
+      CLIENT_IDLE_TIMEOUT: "0"
+      LOG_CONNECTIONS: "0"
+      LOG_DISCONNECTIONS: "0"
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U ${POSTGRES_USER:-paygate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [paygate]
   # ─── Redis ────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine

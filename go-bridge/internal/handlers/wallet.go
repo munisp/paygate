@@ -8,6 +8,9 @@ import (
 	"net/http"
 
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	"github.com/google/uuid"
+	"github.com/paygate/go-bridge/internal/fluvio"
+	"time"
 	"github.com/paygate/go-bridge/pkg/types"
 )
 
@@ -86,6 +89,20 @@ func Debit(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("GetBalance after debit", "err", err)
 	}
 
+
+	// Stream to Fluvio (non-blocking, best-effort)
+	go func() {
+		_ = fluvio.Get().ProduceWalletEvent(r.Context(), fluvio.WalletFundFlowEvent{
+			EventID:    uuid.NewString(),
+			WalletID:   req.WalletID,
+			EventType:  "debit",
+			Amount:     int64(req.Amount),
+			Currency:   req.Currency,
+			Reference:  req.Reference,
+			OccurredAt: time.Now().UTC(),
+		})
+	}()
+
 	slog.Info("wallet debited",
 		"wallet_id", req.WalletID,
 		"amount", req.Amount,
@@ -155,6 +172,20 @@ func Credit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("GetBalance after credit", "err", err)
 	}
+
+
+	// Stream to Fluvio (non-blocking, best-effort)
+	go func() {
+		_ = fluvio.Get().ProduceWalletEvent(r.Context(), fluvio.WalletFundFlowEvent{
+			EventID:    uuid.NewString(),
+			WalletID:   req.WalletID,
+			EventType:  "credit",
+			Amount:     int64(req.Amount),
+			Currency:   req.Currency,
+			Reference:  req.Reference,
+			OccurredAt: time.Now().UTC(),
+		})
+	}()
 
 	slog.Info("wallet credited",
 		"wallet_id", req.WalletID,
@@ -261,6 +292,31 @@ func P2PTransfer(w http.ResponseWriter, r *http.Request) {
 
 	senderBal, _ := client.GetBalance(senderID)
 	receiverBal, _ := client.GetBalance(receiverID)
+
+
+	// Stream both sides to Fluvio (non-blocking, best-effort)
+	go func() {
+		now := time.Now().UTC()
+		fp := fluvio.Get()
+		_ = fp.ProduceWalletEvent(r.Context(), fluvio.WalletFundFlowEvent{
+			EventID:    uuid.NewString(),
+			WalletID:   req.SenderWalletID,
+			EventType:  "p2p_sent",
+			Amount:     int64(req.Amount),
+			Currency:   req.Currency,
+			Reference:  req.Reference,
+			OccurredAt: now,
+		})
+		_ = fp.ProduceWalletEvent(r.Context(), fluvio.WalletFundFlowEvent{
+			EventID:    uuid.NewString(),
+			WalletID:   req.ReceiverWalletID,
+			EventType:  "p2p_received",
+			Amount:     int64(req.Amount),
+			Currency:   req.Currency,
+			Reference:  req.Reference,
+			OccurredAt: now,
+		})
+	}()
 
 	slog.Info("p2p transfer completed",
 		"sender", req.SenderWalletID,

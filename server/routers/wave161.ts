@@ -78,7 +78,7 @@ export const wave161Router = router({
       .input(z.object({
         merchantId: z.string(),
         operationType: z.string(),
-        payload: z.record(z.unknown()),
+        payload: z.record(z.string(), z.unknown()),
         priority: z.enum(["critical", "high", "normal", "low"]).default("normal"),
         deviceId: z.string().optional(),
         networkType: z.string().optional(),

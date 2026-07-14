@@ -22,11 +22,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/redis"
+	"github.com/paygate/go-bridge/internal/temporal"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
+	gotemporal "go.temporal.io/sdk/client"
 )
 
 // TigerBeetle ledger codes for lending
@@ -336,12 +339,56 @@ func DisburseLoan(w http.ResponseWriter, r *http.Request) {
 		"transfer_id", transferID.String(),
 	)
 
+	// Dispatch LoanDisbursementWorkflow via Temporal for repayment schedule + dunning
+	wfID := fmt.Sprintf("loan-disburse-%s", req.LoanID)
+	tc, tcErr := temporal.GetClient()
+	if tcErr != nil {
+		slog.Warn("temporal unavailable for loan disbursement workflow", "err", tcErr)
+	} else {
+		wfInput := temporal.LoanDisbursementInput{
+			LoanID:     req.LoanID,
+			MerchantID: loan.MerchantID,
+			AmountKobo: uint64(loan.ApprovedKobo),
+			TermDays:   loan.TermDays,
+			RateAnnPct: loan.RateAnnualPct,
+			ApprovedBy: req.ApprovedBy,
+		}
+		opts := gotemporal.StartWorkflowOptions{
+			ID:        wfID,
+			TaskQueue: temporal.TaskQueue,
+		}
+		run, wfErr := tc.ExecuteWorkflow(ctx, opts, temporal.LoanDisbursementWorkflow, wfInput)
+		if wfErr != nil {
+			slog.Error("failed to start LoanDisbursementWorkflow", "err", wfErr, "loan_id", req.LoanID)
+		} else {
+			slog.Info("LoanDisbursementWorkflow started",
+				"workflow_id", run.GetID(),
+				"run_id", run.GetRunID(),
+				"loan_id", req.LoanID,
+			)
+		}
+	}
+
+	// Stream to Fluvio (non-blocking, best-effort)
+	go func() {
+		_ = fluvio.Get().ProduceLendingEvent(ctx, fluvio.LendingFundFlowEvent{
+			EventID:    uuid.NewString(),
+			LoanID:     req.LoanID,
+			MerchantID: loan.MerchantID,
+			EventType:  "loan.disbursed",
+			AmountKobo: int64(loan.ApprovedKobo),
+			WorkflowID: transferID.String(),
+			OccurredAt: time.Now().UTC(),
+		})
+	}()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"loan_id":     req.LoanID,
-		"status":      "disbursed",
-		"amount_kobo": loan.ApprovedKobo,
-		"transfer_id": transferID.String(),
+		"loan_id":      req.LoanID,
+		"status":       "disbursed",
+		"amount_kobo":  loan.ApprovedKobo,
+		"transfer_id":  transferID.String(),
+		"workflow_id":  wfID,
 		"disbursed_at": time.Now().UTC().Format(time.RFC3339),
 	})
 }

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { sql } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb, execRaw } from "./db";
+import { publishEvent, KAFKA_TOPICS } from "./kafkaClient";
 
 // ─── Tenant Billing Stripe Integration ───────────────────────────────────────
 const tenantStripeBillingRouter = router({
@@ -436,6 +437,23 @@ const kybStateMachineRouter = router({
       try {
         await execRaw(db, `UPDATE merchants SET kyb_status = $1, updated_at = NOW() WHERE id = $2`, [resolvedToState, input.merchantId]);
       } catch (_) { /* column may not exist in all schemas */ }
+      // ── Kafka: publish KYB state transition event (Fix 1) ─────────────────────
+      publishEvent(
+        KAFKA_TOPICS.KYC,
+        {
+          type: "kyb.state_transition",
+          merchantId: String(input.merchantId),
+          fromState: resolvedFromState,
+          toState: resolvedToState,
+          triggerEvent: resolvedTrigger,
+          actorId: input.actorId ?? ctx.user?.id ?? null,
+          reason: resolvedReason,
+          metadata: input.metadata ?? {},
+          timestamp: new Date().toISOString(),
+        },
+        String(input.merchantId),
+        { "x-event-type": "kyb.state_transition" },
+      ).catch(() => {});
       return { success: true, newState: resolvedToState };
     }),
 

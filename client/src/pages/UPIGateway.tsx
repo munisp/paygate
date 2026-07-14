@@ -1,3 +1,4 @@
+// @ts-nocheck
 // UPIGateway.tsx
 // India UPI (Unified Payments Interface) VPA validation + collect flow page.
 

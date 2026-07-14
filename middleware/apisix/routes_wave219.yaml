@@ -1,0 +1,604 @@
+# PayGate NextHub — APISIX Route Configurations (Wave 219)
+# All routes use:
+#   - key-auth plugin for API key authentication
+#   - rate-limiting plugin (per-domain quotas)
+#   - opentelemetry plugin for distributed tracing
+#   - response-rewrite plugin for protocol version headers
+#
+# Upstream naming: nexthub-<domain>-<port>
+# All upstreams are registered in APISIX service discovery (Consul/K8s)
+
+---
+# ─── Healthcare / FHIR R4 + Medplum ─────────────────────────────────────────
+routes:
+  - id: nexthub-fhir-patient
+    uri: /nexthub/healthcare/fhir/Patient/*
+    methods: [GET, POST, PUT, PATCH, DELETE]
+    upstream_id: nexthub-healthcare-8080
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      opentelemetry:
+        sampler: { name: always_on }
+      response-rewrite:
+        headers:
+          X-FHIR-Version: "R4"
+          X-Protocol: "HL7-FHIR-R4"
+
+  - id: nexthub-fhir-claim
+    uri: /nexthub/healthcare/fhir/Claim/*
+    methods: [GET, POST, PUT]
+    upstream_id: nexthub-healthcare-8080
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 200
+        burst: 50
+        key: consumer_name
+        rejected_code: 429
+      opentelemetry:
+        sampler: { name: always_on }
+      response-rewrite:
+        headers:
+          X-FHIR-Version: "R4"
+          X-Protocol: "HL7-FHIR-R4"
+
+  - id: nexthub-fhir-coverage
+    uri: /nexthub/healthcare/fhir/Coverage/*
+    methods: [GET, POST, PUT]
+    upstream_id: nexthub-healthcare-8080
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-FHIR-Version: "R4"
+
+  - id: nexthub-fhir-claimresponse
+    uri: /nexthub/healthcare/fhir/ClaimResponse/*
+    methods: [GET, POST]
+    upstream_id: nexthub-healthcare-8080
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-fhir-eligibility
+    uri: /nexthub/healthcare/fhir/CoverageEligibilityRequest
+    methods: [POST]
+    upstream_id: nexthub-healthcare-8080
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 300
+        burst: 60
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-nhia-bridge
+    uri: /nexthub/healthcare/nhia/*
+    methods: [GET, POST]
+    upstream_id: nexthub-healthcare-python-8081
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+
+# ─── Insurance / ACORD ───────────────────────────────────────────────────────
+  - id: nexthub-acord-policy
+    uri: /nexthub/insurance/acord/policy
+    methods: [POST, GET]
+    upstream_id: nexthub-insurance-8082
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "ACORD-AL3"
+          X-ACORD-Version: "3.0"
+
+  - id: nexthub-acord-quote
+    uri: /nexthub/insurance/acord/quote
+    methods: [POST]
+    upstream_id: nexthub-insurance-8082
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-acord-claim
+    uri: /nexthub/insurance/acord/claim
+    methods: [POST, GET]
+    upstream_id: nexthub-insurance-8082
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-acord-premium
+    uri: /nexthub/insurance/acord/premium
+    methods: [POST]
+    upstream_id: nexthub-insurance-8082
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 200
+        burst: 40
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-lapse-risk
+    uri: /nexthub/insurance/lapse-risk
+    methods: [POST]
+    upstream_id: nexthub-insurance-python-8083
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+
+# ─── Supply Chain Finance / GS1 + UBL ────────────────────────────────────────
+  - id: nexthub-scf-invoice-gs1
+    uri: /nexthub/scf/gs1/invoice
+    methods: [POST, GET]
+    upstream_id: nexthub-scf-8084
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "GS1-EPCIS-2.0"
+
+  - id: nexthub-scf-invoice-ubl
+    uri: /nexthub/scf/ubl/invoice
+    methods: [POST, GET]
+    upstream_id: nexthub-scf-8084
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "UBL-2.1"
+
+  - id: nexthub-scf-discount
+    uri: /nexthub/scf/discount
+    methods: [POST, GET]
+    upstream_id: nexthub-scf-8084
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-scf-settle
+    uri: /nexthub/scf/settle
+    methods: [POST]
+    upstream_id: nexthub-scf-8084
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+
+# ─── G2P Disbursements / OpenG2P + MOSIP ─────────────────────────────────────
+  - id: nexthub-g2p-batch
+    uri: /nexthub/g2p/batch
+    methods: [POST, GET]
+    upstream_id: nexthub-g2p-8085
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 10
+        burst: 2
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "OpenG2P-1.0"
+
+  - id: nexthub-g2p-mosip-resolve
+    uri: /nexthub/g2p/mosip/resolve
+    methods: [POST]
+    upstream_id: nexthub-g2p-8085
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 300
+        burst: 60
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-g2p-nin-resolve
+    uri: /nexthub/g2p/nin/resolve
+    methods: [POST]
+    upstream_id: nexthub-g2p-python-8086
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 200
+        burst: 40
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-g2p-nasims
+    uri: /nexthub/g2p/nasims/*
+    methods: [GET, POST]
+    upstream_id: nexthub-g2p-python-8086
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+
+# ─── Energy / DLMS-COSEM + STS ───────────────────────────────────────────────
+  - id: nexthub-energy-dlms-meter
+    uri: /nexthub/energy/dlms/meter/*
+    methods: [GET, PUT, POST]
+    upstream_id: nexthub-energy-8087
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 600
+        burst: 100
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "DLMS-COSEM-IEC62056"
+
+  - id: nexthub-energy-sts-token
+    uri: /nexthub/energy/sts/token
+    methods: [POST]
+    upstream_id: nexthub-energy-8087
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 600
+        burst: 100
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "STS-IEC62055-41"
+
+  - id: nexthub-energy-vend
+    uri: /nexthub/energy/vend
+    methods: [POST]
+    upstream_id: nexthub-energy-8087
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 600
+        burst: 100
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-energy-openadr
+    uri: /nexthub/energy/openadr/*
+    methods: [GET, POST]
+    upstream_id: nexthub-energy-8087
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "OpenADR-2.0b"
+
+  - id: nexthub-energy-ocpp
+    uri: /nexthub/energy/ocpp/*
+    methods: [GET, POST]
+    upstream_id: nexthub-energy-8087
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 200
+        burst: 40
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "OCPP-2.0.1"
+
+# ─── CBDC / ISO 20022 + mBridge ──────────────────────────────────────────────
+  - id: nexthub-cbdc-pacs008
+    uri: /nexthub/cbdc/iso20022/pacs008
+    methods: [POST]
+    upstream_id: nexthub-cbdc-8088
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 1200
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "ISO-20022-pacs.008"
+
+  - id: nexthub-cbdc-pacs002
+    uri: /nexthub/cbdc/iso20022/pacs002/*
+    methods: [GET]
+    upstream_id: nexthub-cbdc-8088
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 1200
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+
+  - id: nexthub-cbdc-mbridge
+    uri: /nexthub/cbdc/mbridge/*
+    methods: [GET, POST]
+    upstream_id: nexthub-cbdc-8088
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 500
+        burst: 100
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "BIS-mBridge"
+
+  - id: nexthub-cbdc-enaira
+    uri: /nexthub/cbdc/enaira/*
+    methods: [GET, POST]
+    upstream_id: nexthub-cbdc-8088
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 1200
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "CBN-eNaira"
+
+  - id: nexthub-cbdc-opencbdc
+    uri: /nexthub/cbdc/opencbdc/*
+    methods: [GET, POST]
+    upstream_id: nexthub-cbdc-8088
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 1200
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "OpenCBDC-MIT"
+
+  - id: nexthub-cbdc-transfer
+    uri: /nexthub/cbdc/transfer
+    methods: [POST]
+    upstream_id: nexthub-cbdc-8088
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 1200
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+
+# ─── Remittance / SWIFT gpi + ISO 20022 ──────────────────────────────────────
+  - id: nexthub-remittance-swift-gpi
+    uri: /nexthub/remittance/swift/gpi/*
+    methods: [GET, POST]
+    upstream_id: nexthub-remittance-8089
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 300
+        burst: 60
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "SWIFT-gpi"
+
+  - id: nexthub-remittance-pain001
+    uri: /nexthub/remittance/iso20022/pain001
+    methods: [POST]
+    upstream_id: nexthub-remittance-8089
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 300
+        burst: 60
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "ISO-20022-pain.001"
+
+  - id: nexthub-remittance-sepa
+    uri: /nexthub/remittance/sepa/*
+    methods: [GET, POST]
+    upstream_id: nexthub-remittance-8089
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 300
+        burst: 60
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "SEPA-SCT"
+
+  - id: nexthub-remittance-travel-rule
+    uri: /nexthub/remittance/travel-rule/*
+    methods: [GET, POST]
+    upstream_id: nexthub-remittance-8089
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 200
+        burst: 40
+        key: consumer_name
+        rejected_code: 429
+      response-rewrite:
+        headers:
+          X-Protocol: "FATF-TravelRule-IVMS101"
+
+  - id: nexthub-remittance-corridors
+    uri: /nexthub/remittance/corridors
+    methods: [GET]
+    upstream_id: nexthub-remittance-8089
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 600
+        burst: 100
+        key: consumer_name
+        rejected_code: 429
+
+# ─── Upstreams ────────────────────────────────────────────────────────────────
+upstreams:
+  - id: nexthub-healthcare-8080
+    type: roundrobin
+    nodes:
+      nexthub-healthcare:8080: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-healthcare-python-8081
+    type: roundrobin
+    nodes:
+      nexthub-healthcare-python:8081: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-insurance-8082
+    type: roundrobin
+    nodes:
+      nexthub-insurance:8082: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-insurance-python-8083
+    type: roundrobin
+    nodes:
+      nexthub-insurance-python:8083: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-scf-8084
+    type: roundrobin
+    nodes:
+      nexthub-scf:8084: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-g2p-8085
+    type: roundrobin
+    nodes:
+      nexthub-g2p:8085: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-g2p-python-8086
+    type: roundrobin
+    nodes:
+      nexthub-g2p-python:8086: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-energy-8087
+    type: roundrobin
+    nodes:
+      nexthub-energy:8087: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-cbdc-8088
+    type: roundrobin
+    nodes:
+      nexthub-cbdc:8088: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
+
+  - id: nexthub-remittance-8089
+    type: roundrobin
+    nodes:
+      nexthub-remittance:8089: 1
+    health_check:
+      active:
+        http_path: /health
+        interval: 10
+        timeout: 2
