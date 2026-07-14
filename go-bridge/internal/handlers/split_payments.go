@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/paygate/go-bridge/internal/fluvio"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
@@ -244,6 +245,18 @@ func ExecuteSplitPayment(w http.ResponseWriter, r *http.Request) {
 		Status:          "completed",
 		ExecutedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
+
+	// Stream to Fluvio (non-blocking)
+	go func() {
+		_ = fluvio.Get().ProduceSplitPayEvent(r.Context(), fluvio.SplitPaymentFundFlowEvent{
+			EventID:     uuid.NewString(),
+			SplitID:     splitPaymentID,
+			MerchantID:  req.SourceAccountID, // use source account as merchant identifier
+			EventType:   "split_executed",
+			TotalAmount: int64(req.TotalAmountKobo),
+			OccurredAt:  time.Now().UTC(),
+		})
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

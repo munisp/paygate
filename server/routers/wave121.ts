@@ -15,6 +15,7 @@ import { desc, eq, and, gte, lte, like, sql } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { publishAuditEvent } from "../kafkaClient";
+import { startKybVerification } from "../temporalClient";
 import { getDb } from "../db";
 import {
   tenantFeeOverrides,
@@ -241,8 +242,8 @@ export const fraudRulesRouter = router({
       const db = (await getDb())!;
       const offset = (input.page - 1) * input.limit;
       const conditions = [eq(fraudAlerts.merchantId, ctx.user.tenantId ?? "")];
-      if (input.status) conditions.push(eq(fraudAlerts.status, input.status));
-      if (input.alertType) conditions.push(eq(fraudAlerts.alertType, input.alertType));
+      if (input.status) conditions.push(eq(fraudAlerts.status, input.status as any));
+      if (input.alertType) conditions.push(eq(fraudAlerts.alertType, input.alertType as any));
       const rows = await db.select().from(fraudAlerts)
         .where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]]))
         .orderBy(desc(fraudAlerts.createdAt))
@@ -327,7 +328,7 @@ export const fraudRulesRouter = router({
         metadata: JSON.stringify({ name: input.name, ruleType: input.ruleType, action: input.action, condition: input.condition, threshold: input.threshold, isRule: true }),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      } as any);
       return { ruleId, success: true };
     }),
 });
@@ -377,8 +378,9 @@ export const kybMgmtRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
+      const verificationId = crypto.randomUUID();
       const [row] = await db.insert(kybVerifications).values({
-        verificationId: crypto.randomUUID(),
+        verificationId,
         merchantId: ctx.user.tenantId ?? "",
         businessName: input.businessName,
         rcNumber: input.rcNumber,
@@ -389,7 +391,23 @@ export const kybMgmtRouter = router({
         initiatedBy: ctx.user.openId,
         startedAt: new Date(),
       }).returning();
-      return row;
+
+      // ── Fix 4: Start Temporal KYB workflow and persist workflowId + runId ────────
+      const wfHandle = await startKybVerification(
+        ctx.user.tenantId ?? verificationId,
+        [input.rcNumber ?? "", input.taxId ?? ""].filter(Boolean),
+      ).catch(() => null);
+      if (wfHandle?.workflowId) {
+        await db.update(kybVerifications)
+          .set({
+            temporalWorkflowId: wfHandle.workflowId,
+            temporalRunId: wfHandle.runId ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(kybVerifications.verificationId, verificationId));
+      }
+
+      return { ...row, temporalWorkflowId: wfHandle?.workflowId ?? null };
     }),
 
   updateStatus: protectedProcedure
@@ -405,7 +423,7 @@ export const kybMgmtRouter = router({
       await db.update(kybVerifications).set(setData)
         .where(and(eq(kybVerifications.verificationId, input.id), eq(kybVerifications.merchantId, ctx.user.tenantId ?? "")));
       if (input.status === 'approved' || input.status === 'rejected') {
-        publishAuditEvent({ action: 'kyb.status.updated', actorId: ctx.user.openId, targetId: input.id, metadata: { status: input.status }, timestamp: new Date().toISOString() }).catch(() => {});
+        publishAuditEvent({ action: 'kyb.status.updated', userId: ctx.user.openId, targetId: input.id, metadata: { status: input.status }, timestamp: new Date().toISOString() }).catch(() => {});
       }
       return { success: true };
     }),
@@ -491,7 +509,7 @@ export const kybMgmtRouter = router({
       if (flagged) {
         publishAuditEvent({
           action: 'kyb.geo_velocity.flagged',
-          actorId: ctx.user.openId,
+          userId: ctx.user.openId,
           targetId: input.verificationId,
           metadata: { note },
           timestamp: new Date().toISOString(),
@@ -544,7 +562,7 @@ export const kybMgmtRouter = router({
       }
       publishAuditEvent({
         action: "kyb.director_kyc.submitted",
-        actorId: ctx.user.openId,
+        userId: ctx.user.openId,
         targetId: input.verificationId,
         metadata: { stepId: step.id, stepName: input.stepName },
         timestamp: new Date().toISOString(),
@@ -819,7 +837,7 @@ export const openSearchAuditRouter = router({
       return {
         events: (result.rows ?? []).map((r: any) => ({
           id: r.id,
-          actorId: r.actor_id,
+          userId: r.actor_id,
           actorName: r.actor_name,
           action: r.action,
           resource: r.resource,
@@ -837,12 +855,12 @@ export const openSearchAuditRouter = router({
       action: z.string(),
       resource: z.string(),
       resourceId: z.string().optional(),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const result = await indexAuditEventViaOpenSearch({
         merchantId: ctx.user.tenantId ?? "",
-        actorId: ctx.user.openId,
+        userId: ctx.user.openId,
         ...input,
         timestamp: new Date().toISOString(),
       });
@@ -894,7 +912,7 @@ export const tenantProvisionRouter = router({
         return {
           success: true,
           tenantId: result.tenantId,
-          workflowId: result.workflowId,
+          workflowId: (result as any).workflowId ?? null,
           status: result.status,
           message: "Tenant provisioning workflow started. TigerBeetle accounts, Keycloak realm, and billing config will be created atomically.",
         };

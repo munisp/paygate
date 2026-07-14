@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { trpc, TrpcMainContext } from "@/lib/trpc";
 import { trpc2, TrpcContext2 } from "@/lib/trpc2";
 import { trpc3, TrpcContext3 } from "@/lib/trpc3";

@@ -1632,3 +1632,70 @@ export async function invalidateCacheViaMiddleware(
 ): Promise<{ deleted: number } | null> {
   return safe("DELETE", "/v1/cache/invalidate", { pattern });
 }
+
+// ─── Insider Threat Bridge ────────────────────────────────────────────────────
+
+export async function bindSessionViaMiddleware(payload: {
+  actorId: string; merchantId: string; sessionId: string;
+  ipAddress: string; deviceHash: string; userAgent?: string;
+}): Promise<{ bound: boolean } | null> {
+  return safe("POST", "/v1/insider/session/bind", payload);
+}
+
+export async function validateSessionViaMiddleware(payload: {
+  actorId: string; sessionId: string; ipAddress: string; deviceHash: string;
+}): Promise<{ valid: boolean; reason?: string } | null> {
+  return safe("POST", "/v1/insider/session/validate", payload);
+}
+
+export async function gateActionViaMiddleware(payload: {
+  actorId: string; merchantId: string; action: string; resourceId?: string;
+  sessionId: string; ipAddress: string; deviceHash: string; geoCountry?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<{
+  verdict: "allow" | "flag" | "require_approval" | "block";
+  riskScore: number; riskLevel: string; riskFactors: string[];
+  approvalId?: string; alertId?: string;
+} | null> {
+  return safe("POST", "/v1/insider/action/gate", payload);
+}
+
+export async function createApprovalRequestViaMiddleware(payload: {
+  merchantId: string; initiatorId: string; action: string;
+  resourceId?: string; payload?: unknown; ttlSeconds?: number;
+}): Promise<{ id: string; expiresAt: number } | null> {
+  return safe("POST", "/v1/insider/approval/create", payload);
+}
+
+export async function resolveApprovalViaMiddleware(payload: {
+  id: string; approverId: string; decision: "approve" | "reject"; note?: string;
+}): Promise<{ resolved: boolean; status: string } | null> {
+  return safe("POST", "/v1/insider/approval/resolve", payload);
+}
+
+export async function getApprovalStatusViaMiddleware(
+  id: string
+): Promise<{ id: string; status: string; approverId?: string; resolvedAt?: number } | null> {
+  return safe("GET", `/v1/insider/approval/status?id=${encodeURIComponent(id)}`);
+}
+
+export async function listInsiderAlertsViaMiddleware(params: {
+  merchantId: string; status?: string; riskLevel?: string; limit?: number; offset?: number;
+}): Promise<{ alerts: unknown[]; total: number } | null> {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
+  ).toString();
+  return safe("GET", `/v1/insider/alerts?${qs}`);
+}
+
+export async function resolveInsiderAlertViaMiddleware(payload: {
+  id: string; resolverId: string; status: "resolved" | "false_positive" | "acknowledged"; note?: string;
+}): Promise<{ resolved: boolean } | null> {
+  return safe("POST", "/v1/insider/alert/resolve", payload);
+}
+
+export async function getInsiderRiskScoreViaMiddleware(payload: {
+  actorId: string; merchantId: string; action: string; ipAddress?: string; geoCountry?: string;
+}): Promise<{ riskScore: number; riskLevel: string; riskFactors: string[] } | null> {
+  return safe("POST", "/v1/insider/score", payload);
+}

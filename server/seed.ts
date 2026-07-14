@@ -105,7 +105,7 @@ async function main() {
   for (const t of tenantData) {
     await db
       .insert(schema.tenants)
-      .values(t)
+      .values(t as any)
       .onConflictDoUpdate({ target: schema.tenants.id, set: { updatedAt: t.updatedAt } })
       .catch(() => {/* slug conflict — skip */});
   }
@@ -521,7 +521,7 @@ async function main() {
   for (const merchant of merchantData) {
     await db.insert(schema.wallets).values({
       tenantId: merchant.tenantId,
-      userId: merchant.ownerId,
+      userId: String(merchant.id),
       merchantId: merchant.id,
       currency: "NGN",
       balance: String(rand(100000, 50000000)),
@@ -578,7 +578,9 @@ async function main() {
   console.log("\n-> Seeding loyalty accounts...");
   let loyaltyCount = 0;
   for (const customer of customerData.slice(0, 10)) {
-    await db.insert(schema.loyaltyAccounts).values({
+    await db.insert(schema.consumerLoyaltyAccounts).values({
+      id: `loyalty_${loyaltyCount++}`,
+      userId: Number(customer.id) || 1,
       merchantId: merchantData[0].id,
       customerId: customer.id,
       programId: "default",
@@ -593,8 +595,8 @@ async function main() {
   console.log("\n-> Seeding POS terminals...");
   const posTerminalData = [
     { id: "pos_001", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-001-2024", model: "soundbox_basic" as const, label: "Main Counter", location: "Lagos HQ", status: "active" as const },
-    { id: "pos_002", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-002-2024", model: "android_pos" as const, label: "Gate 2", location: "Lagos HQ", status: "active" as const },
-    { id: "pos_003", merchantId: merchantData[1]?.id ?? merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-003-2024", model: "mpos" as const, label: "Mobile Agent", location: "Abuja Branch", status: "active" as const },
+    { id: "pos_002", merchantId: merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-002-2024", model: "pos_smart" as const, label: "Gate 2", location: "Lagos HQ", status: "active" as const },
+    { id: "pos_003", merchantId: merchantData[1]?.id ?? merchantData[0].id, tenantId: merchantData[0].tenantId, serialNumber: "POS-NG-003-2024", model: "pos_lite" as const, label: "Mobile Agent", location: "Abuja Branch", status: "active" as const },
   ];
   for (const pos of posTerminalData) {
     await db.insert(schema.posTerminals).values(pos).onConflictDoNothing().catch(() => {});

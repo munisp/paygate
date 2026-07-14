@@ -159,11 +159,13 @@ export async function publishPayoutEvent(payload: {
  * Publish a fraud alert event.
  */
 export async function publishFraudEvent(payload: {
-  type: "alert_raised" | "alert_resolved" | "rule_triggered";
+  type?: "alert_raised" | "alert_resolved" | "rule_triggered";
+  alertType?: string;
   merchantId: string;
   transactionId?: string;
   riskScore: number;
-  reason: string;
+  reason?: string;
+  description?: string;
 }) {
   return publishEvent(KAFKA_TOPICS.FRAUD, payload, payload.merchantId);
 }
@@ -175,12 +177,14 @@ export async function publishAuditEvent(payload: {
   userId: string;
   merchantId?: string;
   action: string;
-  resource: string;
+  resource?: string;
   resourceId?: string;
+  targetId?: string;
   ipAddress?: string;
   userAgent?: string;
-  result: "success" | "failure";
+  result?: "success" | "failure";
   metadata?: Record<string, unknown>;
+  timestamp?: string;
 }) {
   return publishEvent(KAFKA_TOPICS.AUDIT, {
     ...payload,

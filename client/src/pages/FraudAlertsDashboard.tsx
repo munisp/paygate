@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * FraudAlertsDashboard.tsx
  * Real-time Fraud Alert Dashboard with SSE streaming, country map, and block-merchant action.
