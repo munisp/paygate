@@ -227,6 +227,7 @@ import 'screens/ussd_menu_builder/ussd_menu_builder_screen.dart';
 import 'screens/vendors_screen/vendors_screen.dart';
 import 'screens/voice_payments/voice_payments_screen.dart';
 import 'screens/waf_alert_dashboard/w_a_f_alert_dashboard_screen.dart';
+import 'screens/insider_threat/insider_threat_screen.dart';
 import 'screens/wealth_management/wealth_management_screen.dart';
 import 'screens/webhook_deliveries/webhook_deliveries_screen.dart';
 import 'screens/webhook_events_page/webhook_events_page_screen.dart';
@@ -476,6 +477,7 @@ class PayGateApp extends StatelessWidget {
           '/vendors': (_) => const MainShell(child: VendorsScreen()),
           '/voice-payments': (_) => const MainShell(child: VoicePaymentsScreen()),
           '/w-a-f-alert-dashboard': (_) => const MainShell(child: WAFAlertDashboardScreen()),
+          '/insider-threat': (_) => const MainShell(child: InsiderThreatScreen()),
           '/wealth-management': (_) => const MainShell(child: WealthManagementScreen()),
           '/webhook-deliveries': (_) => const MainShell(child: WebhookDeliveriesScreen()),
           '/webhook-events-page': (_) => const MainShell(child: WebhookEventsPageScreen()),

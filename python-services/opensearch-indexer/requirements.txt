@@ -1,5 +1,2 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
-httpx==0.28.1
-aiokafka==0.11.0
-pydantic==2.10.3
+confluent-kafka==2.6.1
+requests==2.32.3

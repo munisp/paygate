@@ -25,7 +25,7 @@ export default function AuditLogViewer() {
   const [actionFilter, setActionFilter] = useState("all");
   const [selectedLog, setSelectedLog] = useState<any>(null);
 
-  const { data: logs, refetch, isLoading } = trpc.wave223.auditLogs.list.useQuery({
+  const { data: logs, refetch, isLoading, isError, error} = trpc.wave223.auditLogs.list.useQuery({
     search,
     action: actionFilter === "all" ? undefined : actionFilter,
     limit: 100,
@@ -45,6 +45,8 @@ export default function AuditLogViewer() {
     a.href = url; a.download = `audit-log-${Date.now()}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
+
+  if (isError) return <div className="text-red-500">Error: {error?.message}</div>;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

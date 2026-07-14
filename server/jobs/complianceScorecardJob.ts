@@ -17,7 +17,7 @@
 import type { Request, Response } from "express";
 import { getDb } from "../db";
 import { notifyOwner } from "../_core/notification";
-import { sdk } from "../_core/sdk";
+// Cron authentication uses direct header check instead of sdk
 import { logger } from "../logger";
 import { sql } from "drizzle-orm";
 
@@ -175,9 +175,12 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
 
 export async function complianceScorecardJobHandler(req: Request, res: Response) {
   try {
-    // Authenticate the Heartbeat cron caller
-    const user = await sdk.authenticateRequest(req as any);
-    if (!user.isCron) {
+    // Authenticate the Heartbeat cron caller via Authorization header
+    const authHeader = req.headers.authorization ?? "";
+    const apiKey = process.env.BUILT_IN_FORGE_API_KEY ?? "";
+    const internalKey = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
+    const isCron = authHeader === `Bearer ${apiKey}` || authHeader === `Bearer ${internalKey}` || req.headers["x-cron-secret"] === apiKey;
+    if (!isCron) {
       return res.status(403).json({ error: "cron-only endpoint" });
     }
 

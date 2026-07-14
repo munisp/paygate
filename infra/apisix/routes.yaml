@@ -1018,3 +1018,107 @@ global_rules:
       key: consumer_name
       rejected_code: 429
     prometheus: {}
+
+# ─── Insider Threat Engine (Rust) ─────────────────────────────────────────────
+- id: insider-threat-engine
+  uri: /api/v1/insider/*
+  name: insider-threat-engine
+  upstream:
+    type: roundrobin
+    nodes:
+      insider-threat-engine:8200: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/v1/insider/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 100
+      burst: 30
+      key: consumer_name
+      rejected_code: 429
+    prometheus:
+      prefer_name: true
+    opentelemetry:
+      sampler:
+        name: always_on
+
+# ─── UEBA Service (Python) ────────────────────────────────────────────────────
+- id: ueba-service
+  uri: /api/v1/ueba/*
+  name: ueba-service
+  upstream:
+    type: roundrobin
+    nodes:
+      ueba-service:8300: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/v1/ueba/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 50
+      burst: 20
+      key: consumer_name
+      rejected_code: 429
+    prometheus:
+      prefer_name: true
+
+# ─── OpenSearch Indexer (Python) ──────────────────────────────────────────────
+- id: opensearch-indexer
+  uri: /api/v1/opensearch/*
+  name: opensearch-indexer
+  upstream:
+    type: roundrobin
+    nodes:
+      opensearch-indexer:8400: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/v1/opensearch/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 200
+      burst: 50
+      key: consumer_name
+      rejected_code: 429
+    prometheus:
+      prefer_name: true
+
+# ─── OpenAppSec WAF Manager (Python) ──────────────────────────────────────────
+- id: openappsec-waf-mgmt
+  uri: /api/v1/waf/*
+  name: openappsec-waf-mgmt
+  upstream:
+    type: roundrobin
+    nodes:
+      openappsec-waf:8500: 1
+  plugins:
+    proxy-rewrite:
+      regex_uri: ["^/api/v1/waf/(.*)", "/$1"]
+    jwt-auth: {}
+    limit-req:
+      rate: 30
+      burst: 10
+      key: consumer_name
+      rejected_code: 429
+    prometheus:
+      prefer_name: true
+
+# ─── Go Bridge — Insider Threat endpoints ─────────────────────────────────────
+- id: go-bridge-insider
+  uri: /v1/insider/*
+  name: go-bridge-insider
+  upstream:
+    type: roundrobin
+    nodes:
+      go-bridge:8080: 1
+  plugins:
+    jwt-auth: {}
+    limit-req:
+      rate: 200
+      burst: 60
+      key: consumer_name
+      rejected_code: 429
+    prometheus:
+      prefer_name: true
+    opentelemetry:
+      sampler:
+        name: always_on
