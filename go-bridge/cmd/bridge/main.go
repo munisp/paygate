@@ -30,6 +30,7 @@ import (
 	"github.com/paygate/go-bridge/internal/keycloak"
 	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
+	"github.com/paygate/go-bridge/internal/insider"
 	"github.com/paygate/go-bridge/internal/kafka"
 	"github.com/paygate/go-bridge/internal/permify"
 	"github.com/paygate/go-bridge/internal/redis"
@@ -210,6 +211,12 @@ slog.Info("env var validation complete")
 
 	// Auth / role sync
 	mux.HandleFunc("POST /v1/auth/sync-roles", authMiddleware(handlers.SyncRolesToPermify))
+	// Biometric token exchange (no authMiddleware — caller presents refresh_token, not access_token)
+	mux.HandleFunc("POST /v1/auth/biometric-token", keycloak.HandleBiometricToken)
+	// Alias with slash separator for Flutter SDK compatibility
+	mux.HandleFunc("POST /v1/auth/biometric/token", keycloak.HandleBiometricToken)
+	mux.HandleFunc("POST /v1/auth/biometric-revoke", authMiddleware(keycloak.HandleBiometricRevoke))
+	mux.HandleFunc("POST /v1/auth/biometric/revoke", authMiddleware(keycloak.HandleBiometricRevoke))
 
 	// ── Fluvio SSE stream endpoint ──────────────────────────────────────────────
 	// Clients subscribe to GET /v1/stream/events for real-time SSE updates
@@ -235,6 +242,8 @@ slog.Info("env var validation complete")
 
 	// NIP / NIBSS name enquiry
 	mux.HandleFunc("POST /v1/nibss/name-enquiry", authMiddleware(handlers.NIPNameEnquiry))
+	// NIP 3.0 Instant Debit (dual-message authorisation)
+	mux.HandleFunc("POST /v1/nip/instant-debit", authMiddleware(handlers.NIPInstantDebit))
 	// USDC payout operations (native Solana engine)
 	mux.HandleFunc("POST /v1/usdc/payout", authMiddleware(handlers.InitiateUSDCPayout))
 	mux.HandleFunc("POST /v1/usdc/wallet/validate", authMiddleware(handlers.ValidateUSDCWallet))
@@ -632,6 +641,9 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/insurance/quote", handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/v1/quote"))
 	mux.HandleFunc("/v1/iso20022/health", handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/health"))
 	mux.HandleFunc("/v1/iso20022/parse", handlers.ProxyToService("ISO20022_PARSER_URL", "http://localhost:8229", "/v1/parse"))
+	// ISO 20022 XSD validation (native Go — no sidecar required)
+	mux.HandleFunc("POST /v1/iso20022/validate", authMiddleware(handlers.ValidateISO20022))
+	mux.HandleFunc("POST /v1/iso20022/validate/batch", authMiddleware(handlers.ValidateISO20022Batch))
 	mux.HandleFunc("/v1/kiosk/health", handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/health"))
 	mux.HandleFunc("/v1/kiosk/status", handlers.ProxyToService("KIOSK_HEALTH_URL", "http://localhost:8230", "/v1/status"))
 	mux.HandleFunc("/v1/kyc-ocr-py/health", handlers.ProxyToService("KYC_OCR_PY_URL", "http://localhost:8231", "/health"))
@@ -684,6 +696,18 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 	mux.HandleFunc("/v1/bandwidth/probe", handlers.ProbeBandwidth)
 	mux.HandleFunc("/v1/bandwidth/report", handlers.ProbeReport)
 	mux.HandleFunc("/v1/bandwidth/stats", handlers.ProbeStats)
+
+	// ─── Insider Threat Prevention ─────────────────────────────────────────────
+	insider.Init(insider.DefaultConfig())
+	mux.HandleFunc("/v1/insider/session/bind", handlers.BindInsiderSession)
+	mux.HandleFunc("/v1/insider/session/validate", handlers.GatePrivilegedAction)
+	mux.HandleFunc("/v1/insider/action/gate", handlers.GatePrivilegedAction)
+	mux.HandleFunc("/v1/insider/approval/create", handlers.ApproveDualControl)
+	mux.HandleFunc("/v1/insider/approval/resolve", handlers.RejectDualControl)
+	mux.HandleFunc("/v1/insider/approval/status", handlers.GetDualControlRequestHandler)
+	mux.HandleFunc("/v1/insider/alerts", handlers.ListInsiderThreatAlerts)
+	mux.HandleFunc("/v1/insider/alert/resolve", handlers.InsiderThreatHealth)
+	mux.HandleFunc("/v1/insider/score", handlers.InsiderThreatHealth)
 
 	srv := &http.Server{
 		Addr:              ":" + port,

@@ -2745,3 +2745,130 @@ networks:
       config:
         - subnet: 172.20.0.0/16
 
+
+  # ─── Insider Threat Engine (Rust) ─────────────────────────────────────────
+  insider-threat-engine:
+    build:
+      context: ./rust-services/insider-threat-engine
+      dockerfile: Dockerfile
+    image: paygate/insider-threat-engine:latest
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      RUST_LOG: info
+    depends_on:
+      - redis
+      - kafka
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── UEBA Service (Python) ────────────────────────────────────────────────
+  ueba-service:
+    build:
+      context: ./python-services/ueba-service
+      dockerfile: Dockerfile
+    image: paygate/ueba-service:latest
+    restart: unless-stopped
+    ports:
+      - "8300:8300"
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - redis
+      - kafka
+      - opensearch
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── OpenSearch Indexer (Python) ──────────────────────────────────────────
+  opensearch-indexer:
+    build:
+      context: ./python-services/opensearch-indexer
+      dockerfile: Dockerfile
+    image: paygate/opensearch-indexer:latest
+    restart: unless-stopped
+    ports:
+      - "8400:8400"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      OPENSEARCH_USER: ${OPENSEARCH_USER:-admin}
+      OPENSEARCH_PASS: ${OPENSEARCH_PASS:-admin}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - kafka
+      - opensearch
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8400/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── OpenAppSec WAF Manager (Python) ──────────────────────────────────────
+  openappsec-waf:
+    build:
+      context: ./python-services/openappsec-waf
+      dockerfile: Dockerfile
+    image: paygate/openappsec-waf:latest
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+    environment:
+      OPENAPPSEC_API_URL: ${OPENAPPSEC_API_URL:-http://open-appsec-agent:8088}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - kafka
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── OpenSearch ───────────────────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASS:-Admin@PayGate1}
+      DISABLE_SECURITY_PLUGIN: "false"
+      plugins.security.ssl.http.enabled: "true"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  opensearch-data:
