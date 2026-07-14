@@ -1268,6 +1268,103 @@ services:
       retries: 3
       start_period: 60s
 
+  # ─── FATF/Sanctions Automated Sync ──────────────────────────────────
+  fatf-sanctions-sync:
+    build:
+      context: ./python-services/fatf-sanctions-sync
+      dockerfile: Dockerfile
+    container_name: paygate_fatf_sanctions_sync
+    restart: unless-stopped
+    ports:
+      - "${FATF_SYNC_PORT:-8600}:8600"
+    environment:
+      DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      SYNC_INTERVAL_SECONDS: "21600"
+      PORT: "8600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8600/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── UEBA Anomaly Detection Service ─────────────────────────────────
+  ueba-service:
+    build:
+      context: ./python-services/ueba-service
+      dockerfile: Dockerfile
+    container_name: paygate_ueba_service
+    restart: unless-stopped
+    ports:
+      - "${UEBA_PORT:-8500}:8500"
+    environment:
+      DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      PORT: "8500"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── OpenSearch Indexer (Kafka → OpenSearch) ─────────────────────────
+  opensearch-indexer:
+    build:
+      context: ./python-services/opensearch-indexer
+      dockerfile: Dockerfile
+    container_name: paygate_opensearch_indexer
+    restart: unless-stopped
+    ports:
+      - "${OPENSEARCH_INDEXER_PORT:-8510}:8510"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      PORT: "8510"
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8510/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── Insider Threat Engine (Rust/Actix-Web) ──────────────────────────
+  insider-threat-engine:
+    build:
+      context: ./rust-services/insider-threat-engine
+      dockerfile: Dockerfile
+    container_name: paygate_insider_threat_engine
+    restart: unless-stopped
+    ports:
+      - "${INSIDER_THREAT_PORT:-8700}:8700"
+    environment:
+      DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      PORT: "8700"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   nifi_data:
   nifi_logs:

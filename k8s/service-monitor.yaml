@@ -89,3 +89,131 @@ spec:
           annotations:
             summary: "Database connection pool exhausted"
             description: "{{ $value }} connections waiting for a DB pool slot."
+
+---
+# ─── Insider Threat & Security Alerting Rules ─────────────────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: paygate-insider-threat-alerts
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+    release: prometheus
+spec:
+  groups:
+    - name: insider_threat
+      interval: 30s
+      rules:
+        - alert: InsiderThreatHighRiskScore
+          expr: |
+            insider_threat_risk_score > 80
+          for: 1m
+          labels:
+            severity: critical
+            team: security
+          annotations:
+            summary: "High insider threat risk score detected"
+            description: "Actor {{ $labels.actor_id }} has risk score {{ $value }} (threshold 80) on action {{ $labels.action }}"
+
+        - alert: InsiderThreatVelocityBreach
+          expr: |
+            rate(insider_threat_velocity_breaches_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "Insider threat velocity limit breached"
+            description: "Actor {{ $labels.actor_id }} exceeded velocity limit for action {{ $labels.action }}"
+
+        - alert: InsiderThreatApprovalQueueDepth
+          expr: |
+            insider_threat_pending_approvals > 20
+          for: 5m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "Insider threat approval queue is backing up"
+            description: "{{ $value }} pending dual-control approvals — queue may be stalling"
+
+        - alert: InsiderThreatSessionBindingViolation
+          expr: |
+            rate(insider_threat_session_violations_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: security
+          annotations:
+            summary: "Session binding violation detected"
+            description: "Session fingerprint mismatch for actor {{ $labels.actor_id }} — possible credential theft"
+
+        - alert: UEBAServiceDown
+          expr: |
+            up{job="ueba-service"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "UEBA service is down"
+            description: "The Python UEBA behavioural analytics service has been unreachable for 2 minutes"
+
+        - alert: InsiderThreatEngineDown
+          expr: |
+            up{job="insider-threat-engine"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Insider threat Rust engine is down"
+            description: "The Rust insider threat scoring engine has been unreachable for 2 minutes"
+
+        - alert: OpenSearchIndexerLag
+          expr: |
+            opensearch_indexer_kafka_consumer_lag > 10000
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "OpenSearch indexer Kafka consumer lag is high"
+            description: "Consumer lag is {{ $value }} messages — audit log indexing is falling behind"
+
+        - alert: WAFBlockRateSpike
+          expr: |
+            rate(openappsec_blocked_requests_total[5m]) > 10
+          for: 2m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "WAF block rate spike detected"
+            description: "OpenAppSec is blocking {{ $value }} req/s — possible active attack"
+
+    - name: ueba_anomaly
+      interval: 60s
+      rules:
+        - alert: UEBAAnomalyScoreHigh
+          expr: |
+            ueba_anomaly_score > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "UEBA anomaly score elevated"
+            description: "User {{ $labels.user_id }} has anomaly score {{ $value }} — behavioural deviation detected"
+
+        - alert: UEBANewGeoCountry
+          expr: |
+            ueba_new_country_access_total > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: security
+          annotations:
+            summary: "Access from new country detected"
+            description: "User {{ $labels.user_id }} accessed from new country {{ $labels.country }}"

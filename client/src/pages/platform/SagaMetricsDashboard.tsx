@@ -6,6 +6,8 @@ import { Activity, Zap, Clock, TrendingUp } from "lucide-react";
 
 function MiniBar({ value, max, color = "bg-primary" }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  if (isError) return <div className="text-red-500">Error: {error?.message}</div>;
+
   return (
     <div className="h-2 bg-muted rounded-full overflow-hidden">
       <div className={`h-full ${color} rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
@@ -14,7 +16,7 @@ function MiniBar({ value, max, color = "bg-primary" }: { value: number; max: num
 }
 
 export default function SagaMetricsDashboard() {
-  const { data: metrics } = trpc.wave221.sagas.getMetrics.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: metrics, isError, error} = trpc.wave221.sagas.getMetrics.useQuery(undefined, { refetchInterval: 10000 });
   const { data: recent } = trpc.wave221.sagas.getRecent.useQuery({ limit: 20 });
 
   const allMetrics = metrics ?? [];

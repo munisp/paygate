@@ -9,6 +9,8 @@ function ScoreGauge({ score }: { score: number }) {
   const ringColor = score >= 90 ? "stroke-green-500" : score >= 70 ? "stroke-yellow-500" : "stroke-destructive";
   const circumference = 2 * Math.PI * 40;
   const offset = circumference - (score / 100) * circumference;
+  if (isError) return <div className="text-red-500">Error: {error?.message}</div>;
+
   return (
     <div className="relative w-28 h-28 mx-auto">
       <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
@@ -24,7 +26,7 @@ function ScoreGauge({ score }: { score: number }) {
 }
 
 export default function ComplianceScorecard() {
-  const { data: scorecard, refetch, isLoading } = trpc.wave221.compliance.getScorecard.useQuery();
+  const { data: scorecard, refetch, isLoading, isError, error} = trpc.wave221.compliance.getScorecard.useQuery();
   const { data: checks } = trpc.wave221.compliance.getChecks.useQuery();
 
   const overallScore = scorecard?.overallScore ?? 0;
