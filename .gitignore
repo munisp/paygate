@@ -109,15 +109,6 @@ temp/
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 
-# Rust build artifacts
-rust-services/*/target/
-rust/*/target/
-
-# mTLS certificates (generated, not committed)
-infra/certs/*.key
-infra/certs/*.crt
-infra/certs/*.csr
-infra/certs/*.srl
-infra/certs/server-ext.cnf
-*.pem
+# Manus version file (auto-generated, not part of source)
+client/public/__manus__/version.json
 .project-config.json

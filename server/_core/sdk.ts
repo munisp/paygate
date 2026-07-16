@@ -1,4 +1,4 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS, decodeOAuthState } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
@@ -30,8 +30,8 @@ const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserI
 
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.keycloakUrl);
-    if (!ENV.keycloakUrl) {
+    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
+    if (!ENV.oAuthServerUrl) {
       console.error(
         "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
       );
@@ -39,8 +39,7 @@ class OAuthService {
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    return decodeOAuthState(state).redirectUri;
   }
 
   async getTokenByCode(
@@ -48,7 +47,7 @@ class OAuthService {
     state: string
   ): Promise<ExchangeTokenResponse> {
     const payload: ExchangeTokenRequest = {
-      clientId: ENV.middlewareInternalKey,
+      clientId: ENV.appId,
       grantType: "authorization_code",
       code,
       redirectUri: this.decodeState(state),
@@ -78,34 +77,9 @@ class OAuthService {
 
 const createOAuthHttpClient = (): AxiosInstance =>
   axios.create({
-    baseURL: ENV.keycloakUrl,
+    baseURL: ENV.oAuthServerUrl,
     timeout: AXIOS_TIMEOUT_MS,
   });
-
-
-const CRON_OPEN_ID_PREFIX = "cron_";
-
-export type AuthenticatedUser = import("../../drizzle/schema").User & {
-  taskUid?: string;
-  isCron?: boolean;
-};
-
-function buildCronUser(userInfo: GetUserInfoWithJwtResponse): AuthenticatedUser {
-  const now = new Date();
-  return {
-    id: -1,
-    openId: userInfo.openId,
-    name: userInfo.name || "Manus Scheduled Task",
-    email: null,
-    loginMethod: null,
-    role: "user",
-    createdAt: now,
-    updatedAt: now,
-    lastSignedIn: now,
-    taskUid: userInfo.taskUid ?? undefined,
-    isCron: true,
-  } as AuthenticatedUser;
-}
 
 class SDKServer {
   private readonly client: AxiosInstance;
@@ -196,7 +170,7 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.middlewareInternalKey,
+        appId: ENV.appId,
         name: options.name || "",
       },
       options
@@ -262,7 +236,7 @@ class SDKServer {
   ): Promise<GetUserInfoWithJwtResponse> {
     const payload: GetUserInfoWithJwtRequest = {
       jwtToken,
-      projectId: ENV.middlewareInternalKey,
+      projectId: ENV.appId,
     };
 
     const { data } = await this.client.post<GetUserInfoWithJwtResponse>(
@@ -282,20 +256,33 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
-    // Regular authentication flow
+    // 1. Prefer the session cookie (regular OAuth login).
     const cookies = this.parseCookies(req.headers.cookie);
-    const sessionCookie = cookies.get(COOKIE_NAME);
-    const session = await this.verifySession(sessionCookie);
+    let sessionToken = cookies.get(COOKIE_NAME);
+
+    // 2. Fallback to the Authorization header (Preview auto-login via
+    //    sessionStorage), used when the browser blocks iframe cookies such as
+    //    Safari ITP, private browsing, or iOS/Android WebView.
+    if (!sessionToken) {
+      const authHeader = req.headers.authorization;
+      if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+        sessionToken = authHeader.slice(7);
+      }
+    }
+
+    const session = await this.verifySession(sessionToken);
 
     if (!session) {
       throw ForbiddenError("Invalid session cookie");
     }
 
-    // === Cron short-circuit ===
     if (session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
-      const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
-      if (!userInfo.taskUid) throw ForbiddenError("Cron session missing task_uid");
-      return buildCronUser(userInfo) as any;
+      const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+      const taskUid = userInfo.taskUid ?? null;
+      if (!taskUid) {
+        throw ForbiddenError("Cron session missing task_uid");
+      }
+      return buildCronUser(userInfo);
     }
 
     const sessionUserId = session.openId;
@@ -305,7 +292,7 @@ class SDKServer {
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
       try {
-        const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
+        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
         await db.upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,
@@ -331,6 +318,33 @@ class SDKServer {
 
     return user;
   }
+}
+
+const CRON_OPEN_ID_PREFIX = "cron_";
+
+/** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `/home/ubuntu/skills/webdev-periodic-updates/SKILL.md`. */
+export type AuthenticatedUser = User & {
+  taskUid?: string;
+  isCron?: boolean;
+};
+
+function buildCronUser(
+  userInfo: GetUserInfoWithJwtResponse
+): AuthenticatedUser {
+  const now = new Date();
+  return {
+    id: -1,
+    openId: userInfo.openId,
+    name: userInfo.name || "Manus Scheduled Task",
+    email: null,
+    loginMethod: null,
+    role: "user",
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now,
+    taskUid: userInfo.taskUid ?? undefined,
+    isCron: true,
+  } as AuthenticatedUser;
 }
 
 export const sdk = new SDKServer();
