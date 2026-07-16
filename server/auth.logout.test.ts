@@ -30,14 +30,7 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     req: {
       protocol: "https",
       headers: {},
-      // Express req.get() returns a specific header by name.
-      // The logout procedure calls req.get("host") as a fallback when no origin
-      // is passed by the client.
-      get: (name: string) => {
-        if (name === "host") return "localhost:5432";
-        return undefined;
-      },
-    } as unknown as TrpcContext["req"],
+    } as TrpcContext["req"],
     res: {
       clearCookie: (name: string, options: Record<string, unknown>) => {
         clearedCookies.push({ name, options });
@@ -55,14 +48,8 @@ describe("auth.logout", () => {
 
     const result = await caller.auth.logout();
 
-    // When KEYCLOAK_URL is not set in the test environment, ssoLogoutUrl is null.
-    // The cookie must still be cleared regardless.
-    expect(result).toMatchObject({ success: true });
-    // auth.logout now clears 3 cookies:
-    //   1. session cookie (COOKIE_NAME)
-    //   2. id_token cookie (ID_TOKEN_COOKIE_NAME) — used as id_token_hint
-    //   3. refresh_token cookie (REFRESH_TOKEN_COOKIE_NAME) — long-lived, path=/api/auth
-    expect(clearedCookies).toHaveLength(3);
+    expect(result).toEqual({ success: true });
+    expect(clearedCookies).toHaveLength(1);
     expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
     expect(clearedCookies[0]?.options).toMatchObject({
       maxAge: -1,

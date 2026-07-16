@@ -172,7 +172,6 @@ import {
 import { useState } from "react";
 import { toast as sonnerToast } from "sonner";
 import { AIChatBox, type Message } from "@/components/AIChatBox";
-import { BridgeEmptyState } from "@/components/BridgeEmptyState";
 
 export default function ComponentsShowcase() {
   const { theme, toggleTheme } = useTheme();
@@ -396,9 +395,9 @@ export default function ComponentsShowcase() {
                   <Button variant="link">Link</Button>
                   <Button size="sm">Small</Button>
                   <Button size="lg">Large</Button>
-                  <Button size="icon" aria-label="Confirm">
-                <Check className="h-4 w-4" />
-              </Button>
+                  <Button size="icon">
+                    <Check className="h-4 w-4" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -1039,7 +1038,7 @@ export default function ComponentsShowcase() {
                             id="dialog-input"
                             placeholder="Type something..."
                             value={dialogInput}
-                            onChange={(e: any) => setDialogInput(e.target.value)}
+                            onChange={(e) => setDialogInput(e.target.value)}
                             onKeyDown={handleDialogKeyDown}
                             autoFocus
                           />

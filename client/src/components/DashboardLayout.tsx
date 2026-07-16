@@ -1,270 +1,463 @@
-import { useAuth } from "@/_core/hooks/useAuth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+// Obsidian Operations — DashboardLayout v3
+// Fixed left sidebar + live operational top bar with interval selector + scrollable main content
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
-import { getLoginUrl } from "@/const";
-import { useIsMobile } from "@/hooks/useMobile";
-import { Code2, LayoutDashboard, LogOut, PanelLeft, Users, Shield, FileWarning, FileText } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { NetworkQualityBanner } from './NetworkQualityBanner';
-import { Button } from "./ui/button";
+  Activity,
+  Server,
+  GitBranch,
+  Database,
+  LayoutDashboard,
+  Menu,
+  X,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  Radio,
+  ChevronDown,
+} from "lucide-react";
+import { Settings, Bell, CreditCard } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { mockRoutes, mockWorkflows } from "@/lib/mockData";
+import { useRefresh, type RefreshInterval } from "@/contexts/RefreshContext";
+import { trpc } from "@/lib/trpc";
+import { FlaskConical, Wifi } from "lucide-react";
+import { toast } from "sonner";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-  { icon: Users, label: "Customers", path: "/customers" },
-  { icon: Code2, label: "White-Label SDK", path: "/sdk" },
-  { icon: Shield, label: "PSP Management", path: "/psp-management" },
-  { icon: FileWarning, label: "Dispute Lifecycle", path: "/dispute-lifecycle" },
-  { icon: FileText, label: "CBN Reports", path: "/cbn-reports" },
+const NAV_ITEMS = [
+  { path: "/", label: "Overview", icon: LayoutDashboard },
+  { path: "/gateway", label: "API Gateway", icon: Server },
+  { path: "/workflows", label: "Workflows", icon: GitBranch },
+  { path: "/pool", label: "Connection Pool", icon: Database },
+  { path: "/infra", label: "Kafka / Redis", icon: Activity },
+  { path: "/psp", label: "PSP Health", icon: CreditCard },
+  { path: "/alerts", label: "Alerts", icon: Bell },
+  { path: "/settings", label: "Settings", icon: Settings },
 ];
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
+const INTERVAL_OPTIONS: { label: string; value: RefreshInterval }[] = [
+  { label: "10s", value: 10 },
+  { label: "30s", value: 30 },
+  { label: "1m", value: 60 },
+  { label: "5m", value: 300 },
+  { label: "Off", value: 0 },
+];
 
-export default function DashboardLayout({
-  children,
+function NavItem({
+  path,
+  label,
+  icon: Icon,
+  collapsed,
+  badge,
 }: {
-  children: React.ReactNode;
+  path: string;
+  label: string;
+  icon: React.ElementType;
+  collapsed: boolean;
+  badge?: number;
 }) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
-  const { loading, user } = useAuth();
-
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
-
-  if (loading) {
-    return <DashboardLayoutSkeleton />
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
-            </p>
-          </div>
-          <Button
-            onClick={() => {
-              window.location.href = getLoginUrl();
-            }}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
+  const [location] = useLocation();
+  const active = location === path;
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": `${sidebarWidth}px`,
-        } as CSSProperties
-      }
-    >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
-    </SidebarProvider>
+    <Link href={path}>
+      <div
+        className={cn(
+          "flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 group relative",
+          active
+            ? "bg-primary/10 text-primary border-l-2 border-primary pl-[10px]"
+            : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+        )}
+      >
+        <Icon size={18} className={cn("shrink-0", active && "text-primary")} />
+        {!collapsed && (
+          <span className={cn("text-sm font-medium truncate flex-1", active && "text-primary")}>
+            {label}
+          </span>
+        )}
+        {!collapsed && badge !== undefined && badge > 0 && (
+          <span className="ml-auto min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold font-mono px-1 shrink-0">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+        {collapsed && badge !== undefined && badge > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold px-0.5">
+            {badge > 9 ? "9+" : badge}
+          </span>
+        )}
+        {collapsed && (
+          <div className="absolute left-full ml-2 px-2 py-1 bg-card border border-border rounded text-xs text-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150">
+            {label}
+          </div>
+        )}
+      </div>
+    </Link>
   );
 }
 
-type DashboardLayoutContentProps = {
-  children: React.ReactNode;
-  setSidebarWidth: (width: number) => void;
-};
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [showIntervalMenu, setShowIntervalMenu] = useState(false);
+  const { interval, setInterval, secondsUntilRefresh, triggerRefresh, forceMock, setForceMock } = useRefresh();
+  const pingQuery = trpc.paygate.ping.useQuery({ forceMock }, { refetchInterval: 30_000 });
+  const connected = pingQuery.data?.connected ?? false;
+  const unacknowledgedQuery = trpc.paygate.unacknowledgedCount.useQuery(undefined, {
+    refetchInterval: 30_000,
+  });
+  const unacknowledgedCount = unacknowledgedQuery.data?.count ?? 0;
+  const [, setLocation] = useLocation();
+  const acknowledgeBreachesMutation = trpc.paygate.acknowledgeBreaches.useMutation({
+    onSuccess: (result) => {
+      toast.success(`${result.acknowledged} breach${result.acknowledged !== 1 ? "es" : ""} acknowledged`);
+    },
+  });
 
-function DashboardLayoutContent({
-  children,
-  setSidebarWidth,
-}: DashboardLayoutContentProps) {
-  const { user, logout } = useAuth();
-  const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
-  const isCollapsed = state === "collapsed";
-  const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
-  const isMobile = useIsMobile();
+  const checkBreachesMutation = trpc.paygate.checkBreaches.useMutation({
+    onSuccess: (data) => {
+      const criticalBreaches = data.breaches.filter((b: { severity: string }) => b.severity === "critical");
+      const warnBreaches = data.breaches.filter((b: { severity: string }) => b.severity === "warn");
 
-  useEffect(() => {
-    if (isCollapsed) {
-      setIsResizing(false);
-    }
-  }, [isCollapsed]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-
-      const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
-      const newWidth = e.clientX - sidebarLeft;
-      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
-        setSidebarWidth(newWidth);
+      if (criticalBreaches.length > 0) {
+        // Show one persistent interactive toast per critical breach
+        criticalBreaches.forEach((breach: { metric: string; message: string; value: number; threshold: number }) => {
+          const toastId = `breach-${breach.metric}-${Date.now()}`;
+          toast.error(
+            breach.metric === "kafka_lag" ? "Kafka Lag Critical" : "Redis Memory Critical",
+            {
+              id: toastId,
+              description: breach.message,
+              duration: Infinity,
+              action: {
+                label: "View Alerts",
+                onClick: () => setLocation("/alerts"),
+              },
+              cancel: {
+                label: "Dismiss",
+                onClick: () => toast.dismiss(toastId),
+              },
+            }
+          );
+        });
       }
-    };
 
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
+      if (warnBreaches.length > 0) {
+        toast.warning(`${warnBreaches.length} warning threshold${warnBreaches.length > 1 ? "s" : ""} crossed`, {
+          description: warnBreaches.map((b: { message: string }) => b.message).join(" · "),
+          duration: 6000,
+          action: {
+            label: "View Alerts",
+            onClick: () => setLocation("/alerts"),
+          },
+        });
+      }
 
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    }
+      if (data.breaches.length === 0) {
+        toast.success("All systems nominal", {
+          description: "No threshold breaches detected",
+          duration: 2500,
+        });
+      }
+    },
+  });
 
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing, setSidebarWidth]);
+  // Compute global health from mock data (will be replaced by live data in pages)
+  const degradedRoutes = mockRoutes.filter(r => r.status === "degraded" || r.status === "critical").length;
+  const failedWorkflows = mockWorkflows.filter(w => w.status === "failed" || w.status === "timed_out").length;
+  const runningWorkflows = mockWorkflows.filter(w => w.status === "running").length;
+  const totalAlerts = degradedRoutes + failedWorkflows;
+  const globalStatus = totalAlerts > 0 ? "degraded" : "nominal";
+
+  const sidebarWidth = collapsed ? "w-16" : "w-56";
+
+  const intervalLabel =
+    interval === 0 ? "Off" : interval < 60 ? `${interval}s` : `${interval / 60}m`;
 
   return (
-    <>
-      <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r-0"
-          disableTransition={isResizing}
-        >
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </SidebarHeader>
-
-          <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
-                const isActive = location === item.path;
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarContent>
-
-          <SidebarFooter className="p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
+    <div className="flex h-screen bg-background overflow-hidden">
+      {/* Mobile overlay */}
+      {mobileOpen && (
         <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => {
-            if (isCollapsed) return;
-            setIsResizing(true);
-          }}
-          style={{ zIndex: 50 }}
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
         />
-      </div>
+      )}
 
-      <SidebarInset>
-        {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed md:relative z-50 md:z-auto h-full flex flex-col border-r transition-all duration-200",
+          "bg-sidebar border-sidebar-border",
+          sidebarWidth,
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+        style={{ boxShadow: "inset -1px 0 0 oklch(0.72 0.18 200 / 0.08)" }}
+      >
+        {/* Logo */}
+        <div
+          className={cn(
+            "flex items-center gap-2.5 px-3 py-4 border-b border-sidebar-border",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <div className="relative">
+            <img
+              src="/manus-storage/paygate-ops-logo_71c2030f.png"
+              alt="PayGate Ops"
+              className="w-8 h-8 shrink-0"
+            />
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400">
+              <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-60" />
+            </span>
+          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-primary tracking-widest uppercase font-mono">
+                PayGate
               </div>
+              <div className="text-[10px] text-muted-foreground tracking-wider uppercase">
+                Ops Monitor
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+          {NAV_ITEMS.map(item => (
+            <NavItem
+              key={item.path}
+              {...item}
+              collapsed={collapsed}
+              badge={item.path === "/alerts" ? unacknowledgedCount : undefined}
+            />
+          ))}
+        </nav>
+
+        {/* System status summary */}
+        {!collapsed && (
+          <div className="px-3 py-3 border-t border-sidebar-border space-y-1.5">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-widest font-mono mb-2">
+              System State
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-mono">Gateway</span>
+              <span
+                className={
+                  degradedRoutes > 0 ? "text-amber-400 font-mono" : "text-emerald-400 font-mono"
+                }
+              >
+                {degradedRoutes > 0 ? `${degradedRoutes} degraded` : "nominal"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-mono">Workflows</span>
+              <span className="text-primary font-mono">{runningWorkflows} running</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-mono">Incidents</span>
+              <span
+                className={
+                  failedWorkflows > 0 ? "text-red-400 font-mono" : "text-emerald-400 font-mono"
+                }
+              >
+                {failedWorkflows > 0 ? `${failedWorkflows} open` : "none"}
+              </span>
+            </div>
+            {/* Backend connectivity */}
+            <div className="flex items-center justify-between text-xs mt-1 pt-1 border-t border-sidebar-border">
+              <span className="text-muted-foreground font-mono">Backend</span>
+              <span
+                className={cn(
+                  "font-mono flex items-center gap-1",
+                  connected ? "text-emerald-400" : "text-muted-foreground"
+                )}
+              >
+                <span
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full",
+                    connected ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
+                  )}
+                />
+                {connected ? "live" : "mock"}
+              </span>
             </div>
           </div>
         )}
-        <NetworkQualityBanner />
-        <main className="flex-1 p-4">{children}</main>
-      </SidebarInset>
-    </>
+
+        {/* Collapse toggle */}
+        <div className="px-2 py-3 border-t border-sidebar-border">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors text-xs"
+          >
+            <Menu size={16} />
+            {!collapsed && <span>Collapse</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Operational top bar */}
+        <header
+          className="flex items-center justify-between px-4 md:px-6 py-0 border-b border-border shrink-0"
+          style={{
+            background:
+              "linear-gradient(90deg, oklch(0.15 0.009 265) 0%, oklch(0.17 0.010 265) 100%)",
+            boxShadow:
+              "0 1px 0 oklch(0.28 0.012 265), 0 0 0 1px oklch(0.72 0.18 200 / 0.04) inset",
+          }}
+        >
+          {/* Left: mobile menu + page identity */}
+          <div className="flex items-center gap-3 py-3">
+            <button
+              className="md:hidden text-muted-foreground hover:text-foreground"
+              onClick={() => setMobileOpen(!mobileOpen)}
+            >
+              {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+            <div className="flex items-center gap-2">
+              <Radio size={14} className="text-primary" />
+              <span className="text-sm font-bold text-foreground font-mono tracking-tight">
+                PAYGATE OPS
+              </span>
+              <span className="text-muted-foreground/40 hidden sm:inline">·</span>
+              <span className="text-xs text-muted-foreground hidden sm:inline">
+                Gateway &amp; Workflow Monitor
+              </span>
+            </div>
+          </div>
+
+          {/* Center: live status pills */}
+          <div className="hidden md:flex items-center gap-3">
+            <div
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium border",
+                globalStatus === "nominal"
+                  ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20"
+                  : "bg-amber-400/10 text-amber-400 border-amber-400/20"
+              )}
+            >
+              {globalStatus === "nominal" ? (
+                <>
+                  <CheckCircle size={11} /> ALL SYSTEMS NOMINAL
+                </>
+              ) : (
+                <>
+                  <AlertTriangle size={11} /> {totalAlerts} ALERT
+                  {totalAlerts !== 1 ? "S" : ""} ACTIVE
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono bg-primary/10 text-primary border border-primary/20">
+              <Activity size={11} className="animate-pulse" />
+              {runningWorkflows} WORKFLOW{runningWorkflows !== 1 ? "S" : ""} LIVE
+            </div>
+          </div>
+
+          {/* Right: backend status + interval selector + refresh */}
+          <div className="flex items-center gap-2 py-3">
+            {/* Backend connectivity indicator */}
+            <div
+              className={cn(
+                "hidden lg:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border",
+                connected
+                  ? "text-emerald-400 border-emerald-400/20 bg-emerald-400/5"
+                  : "text-muted-foreground border-border/50 bg-secondary/50"
+              )}
+            >
+              <span
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  connected ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"
+                )}
+              />
+              {connected ? "LIVE" : "MOCK"}
+            </div>
+
+            {/* Mock/Live toggle */}
+            <button
+              onClick={() => {
+                const next = !forceMock;
+                setForceMock(next);
+                checkBreachesMutation.mutate({ forceMock: next });
+                toast.success(next ? "Switched to MOCK mode" : "Switched to LIVE mode", {
+                  description: next ? "All panels now use mock data" : "All panels now use live data (with mock fallback)",
+                  duration: 2500,
+                });
+              }}
+              title={forceMock ? "Currently forcing MOCK data — click to try LIVE" : "Currently using LIVE data (with mock fallback) — click to force MOCK"}
+              className={cn(
+                "hidden md:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
+                forceMock
+                  ? "text-amber-400 border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/20"
+                  : "text-primary border-primary/20 bg-primary/5 hover:bg-primary/10"
+              )}
+            >
+              {forceMock ? <FlaskConical size={10} /> : <Wifi size={10} />}
+              {forceMock ? "MOCK" : "LIVE"}
+            </button>
+
+            {/* Countdown */}
+            {interval > 0 && (
+              <span className="text-[11px] text-muted-foreground font-mono hidden md:block tabular-nums w-6 text-right">
+                {secondsUntilRefresh}s
+              </span>
+            )}
+
+            {/* Interval selector */}
+            <div className="relative">
+              <button
+                onClick={() => setShowIntervalMenu(v => !v)}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-secondary hover:bg-secondary/80 text-xs text-muted-foreground transition-colors border border-border/50 font-mono"
+              >
+                <span>{intervalLabel}</span>
+                <ChevronDown size={10} />
+              </button>
+              {showIntervalMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-md shadow-lg z-50 overflow-hidden min-w-[64px]">
+                  {INTERVAL_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setInterval(opt.value);
+                        setShowIntervalMenu(false);
+                      }}
+                      className={cn(
+                        "w-full px-4 py-2 text-xs font-mono text-left hover:bg-secondary transition-colors",
+                        interval === opt.value
+                          ? "text-primary bg-primary/10"
+                          : "text-foreground"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Manual refresh */}
+            <button
+              onClick={() => {
+                triggerRefresh();
+                checkBreachesMutation.mutate({ forceMock });
+                toast.success("Data refreshed", {
+                  description: "All panels updated",
+                  duration: 2000,
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/80 text-xs text-foreground transition-colors border border-border/50 font-mono active:scale-95"
+            >
+              <RefreshCw size={12} />
+              <span className="hidden sm:inline">REFRESH</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
+      </div>
+    </div>
   );
 }
