@@ -203,6 +203,7 @@ import {
 } from './routers/psp-production';
 import { ecommerceRouter } from './routers/ecommerce';
 import { hostedCheckoutRouter } from './routers/hostedCheckout';
+import { pdfExportRouter, cashbackRewardsRouter, apiDocsRouter } from './routers/wave228';
 import {
   rustListInventoryItems, rustGetRecipeCost, rustGetCOGS, rustAdjustStock,
   rustEarnPoints, rustRedeemPoints, rustGetLoyaltyBalance, rustGetLoyaltyHistory,
@@ -9470,6 +9471,10 @@ export const appRouter = router({
   ecommerce: ecommerceRouter,
   // Hosted Checkout Payment Page
   hostedCheckout: hostedCheckoutRouter,
+  // Wave 228 — PDF Export, Cashback/Rewards, API Docs
+  pdfExport: pdfExportRouter,
+  cashbackRewards: cashbackRewardsRouter,
+  apiDocs: apiDocsRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };
