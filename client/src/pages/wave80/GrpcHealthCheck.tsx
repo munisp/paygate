@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
+import { toast } from "sonner";
 
 export default function GrpcHealthCheck() {
   const grpchealthcheck_30s = useAdaptiveInterval(30_000);

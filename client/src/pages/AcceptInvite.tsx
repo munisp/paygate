@@ -3,8 +3,10 @@ import { useLocation } from "wouter";
 import { CheckCircle2, XCircle, Loader2, Shield, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function AcceptInvite() {
+  const [isLoading, setIsLoading] = React.useState(false);
   const [, navigate] = useLocation();
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -44,6 +46,7 @@ export default function AcceptInvite() {
     acceptInvite.mutate({ token, email });
   };
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">

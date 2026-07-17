@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { RefreshCw, Users, TrendingUp, DollarSign, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { BridgeEmptyState } from "@/components/BridgeEmptyState";
+import { toast } from "sonner";
 
 export default function CohortAnalytics() {
   const { user } = useAuth();

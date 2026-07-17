@@ -26,7 +26,7 @@ export default function DomainSagas() {
     onError: (e) => toast.error(e.message),
   });
 
-  const { data: recentSagas, refetch } = trpc.wave223.sagas.listRecent.useQuery({ limit: 10 });
+  const { data: recentSagas, refetch, isLoading } = trpc.wave223.sagas.listRecent.useQuery({ limit: 10 });
 
   const handleLaunch = () => {
     launchMutation.mutate({
@@ -41,6 +41,7 @@ export default function DomainSagas() {
     return <Activity className="h-4 w-4 text-blue-500 animate-pulse" />;
   };
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">

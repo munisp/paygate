@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+import { toast } from "sonner";
   Activity, CheckCircle2, AlertTriangle, XCircle,
   RefreshCw, Globe, Zap, Clock, TrendingUp, ArrowLeft,
 } from "lucide-react";

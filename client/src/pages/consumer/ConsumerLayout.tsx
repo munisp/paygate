@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import {
+import { toast } from "sonner";
   Wallet, Zap, Compass, Clock, User, Globe, Bell,
   CreditCard, FileText, Users, Gift, Tag, QrCode,
   ArrowDownLeft, RefreshCw, Shield, BarChart2,

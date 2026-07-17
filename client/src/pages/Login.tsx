@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function Login() {
   const [, navigate] = useLocation();
@@ -29,7 +30,7 @@ export default function Login() {
     onSuccess: () => {
       navigate("/dashboard");
     },
-    onError: (err) => {
+    onError: (err) => { toast.error(err.message || "An error occurred"); 
       setError(err.message ?? "Login failed. Please try again.");
     },
   });

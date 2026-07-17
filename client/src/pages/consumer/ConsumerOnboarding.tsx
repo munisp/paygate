@@ -20,6 +20,7 @@ const STEPS = [
 
 function StepIndicator({ current }: { current: Step }) {
   const stepIndex = current === "otp" ? 0 : current === "pin" ? 1 : current === "kyc" ? 2 : current === "done" ? 3 : 0;
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="flex items-center gap-2 justify-center mb-8">
       {STEPS.map((s: any, i: any) => {
@@ -46,6 +47,7 @@ function StepIndicator({ current }: { current: Step }) {
 }
 
 export default function ConsumerOnboarding() {
+  const [isLoading, setIsLoading] = React.useState(false);
   const [, navigate] = useLocation();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");

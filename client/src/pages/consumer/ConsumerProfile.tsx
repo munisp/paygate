@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 function NotificationsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <Dialog open={open} onOpenChange={(o: any) => !o && onClose()}>
       <DialogContent className="sm:max-w-sm">
@@ -99,6 +100,7 @@ function SupportDialog({ open, onClose }: { open: boolean; onClose: () => void }
 }
 
 export default function ConsumerProfile() {
+  const [isLoading, setIsLoading] = React.useState(false);
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);

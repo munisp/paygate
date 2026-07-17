@@ -39,7 +39,7 @@ export default function Insurance() {
     startDate: "", endDate: "", gracePeriodDays: "30",
   });
 
-  const { data: policies, refetch } = trpc.insurance.listPolicies.useQuery({ page: 1, pageSize: 200 });
+  const { data: policies, refetch, isLoading } = trpc.insurance.listPolicies.useQuery({ page: 1, pageSize: 200 });
   const allPolicies = policies?.policies ?? [];
   const {
     filters, setFilter, sortKey, sortDir, toggleSort,
@@ -51,12 +51,12 @@ export default function Insurance() {
     { key: "premium_amount", label: "Premium" }, { key: "status", label: "Status" },
     { key: "created_at", label: "Date" },
   ];
-  const { data: stats } = trpc.insurance.getPolicyStats.useQuery();
+  const { data: stats, isLoading } = trpc.insurance.getPolicyStats.useQuery();
   const createMut = trpc.insurance.createPolicy.useMutation({
     onSuccess: (d) => { toast.success(`Policy created: ${d.policyNumber}`); setShowCreateDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const { data: lapseRisk, refetch: checkLapse } = trpc.insurance.scoreLapseRisk.useQuery(
+  const { data: lapseRisk, refetch: checkLapse, isLoading } = trpc.insurance.scoreLapseRisk.useQuery(
     { policyId: lapseCheckId },
     { enabled: false }
   );
@@ -77,6 +77,7 @@ export default function Insurance() {
   const activePolicies = stats?.filter((s: Record<string, unknown>) => s.status === "ACTIVE").reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.count), 0) ?? 0;
   const totalPremium = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.total_premium), 0) ?? 0;
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
           <DomainProtocolBanner domain="insurance" />

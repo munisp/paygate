@@ -19,7 +19,7 @@ export default function SettlementBankOnboarding() {
     nipEnabled: true, rtgsEnabled: false,
   });
 
-  const { data: banks, refetch } = trpc.wave223.settlementBanks.list.useQuery();
+  const { data: banks, refetch, isLoading } = trpc.wave223.settlementBanks.list.useQuery();
 
   const createMutation = trpc.wave223.settlementBanks.create.useMutation({
     onSuccess: () => { toast.success("Settlement bank registered."); setOpen(false); setForm({ nipEnabled: true, rtgsEnabled: false }); refetch(); },
@@ -49,6 +49,7 @@ export default function SettlementBankOnboarding() {
     });
   };
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">

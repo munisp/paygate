@@ -38,8 +38,8 @@ export default function Remittance() {
     beneficiaryCountry: "GB", amount: "", currency: "NGN",
   });
 
-  const { data: corridors } = trpc.remittance.listCorridors.useQuery();
-  const { data: transfers, refetch } = trpc.remittance.listTransfers.useQuery({ page: 1, pageSize: 200 });
+  const { data: corridors, isLoading } = trpc.remittance.listCorridors.useQuery();
+  const { data: transfers, refetch, isLoading } = trpc.remittance.listTransfers.useQuery({ page: 1, pageSize: 200 });
 
   const allTransfers = transfers?.transfers ?? [];
   const {
@@ -85,6 +85,7 @@ export default function Remittance() {
     travelRuleMut.mutate({ ...trForm, amount: parseFloat(trForm.amount) });
   };
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
           <DomainProtocolBanner domain="remittance" />

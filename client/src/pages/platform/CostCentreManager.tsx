@@ -13,6 +13,7 @@ import { format } from "date-fns";
 
 function BudgetBar({ spent, budget }: { spent: number; budget: number }) {
   const pct = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div>
       <div className="flex justify-between text-xs text-muted-foreground mb-1">
@@ -31,8 +32,8 @@ export default function CostCentreManager() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", code: "", currency: "NGN", monthlyBudget: "" });
 
-  const { data: centres, refetch } = trpc.wave221.costCentres.list.useQuery();
-  const { data: summary } = trpc.wave221.costCentres.getSummary.useQuery();
+  const { data: centres, refetch, isLoading } = trpc.wave221.costCentres.list.useQuery();
+  const { data: summary, isLoading } = trpc.wave221.costCentres.getSummary.useQuery();
   const create = trpc.wave221.costCentres.create.useMutation({
     onSuccess: () => { refetch(); setShowCreate(false); setForm({ name: "", code: "", currency: "NGN", monthlyBudget: "" }); toast.success("Cost centre created"); },
     onError: (e) => toast.error(e.message),

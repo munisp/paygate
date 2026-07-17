@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle, Clock, RefreshCw, TrendingDown, TrendingUp,
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
+import { toast } from "sonner";
 
 export default function AdminSlaMonitor() {
   const adminSlaInterval = useAdaptiveInterval(30000);

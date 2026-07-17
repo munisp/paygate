@@ -39,7 +39,7 @@ export default function Healthcare() {
   });
   const [eligForm, setEligForm] = useState({ policyNumber: "", beneficiaryId: "" });
 
-  const { data: claims, refetch } = trpc.healthcare.listClaims.useQuery({ page: 1, pageSize: 200 });
+  const { data: claims, refetch, isLoading } = trpc.healthcare.listClaims.useQuery({ page: 1, pageSize: 200 });
   const allClaims = claims?.claims ?? [];
   const {
     filters, setFilter, sortKey, sortDir, toggleSort,
@@ -51,12 +51,12 @@ export default function Healthcare() {
     { key: "claim_amount", label: "Amount" }, { key: "status", label: "Status" },
     { key: "created_at", label: "Date" },
   ];
-  const { data: stats } = trpc.healthcare.getClaimStats.useQuery();
+  const { data: stats, isLoading } = trpc.healthcare.getClaimStats.useQuery();
   const submitMut = trpc.healthcare.submitClaim.useMutation({
     onSuccess: (d) => { toast.success(`Claim submitted: ${d.nhiaClaimRef}`); setShowClaimDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const { data: eligResult, refetch: checkElig } = trpc.healthcare.checkEligibility.useQuery(
+  const { data: eligResult, refetch: checkElig, isLoading } = trpc.healthcare.checkEligibility.useQuery(
     { policyNumber: eligForm.policyNumber, beneficiaryId: eligForm.beneficiaryId },
     { enabled: false }
   );
@@ -77,6 +77,7 @@ export default function Healthcare() {
   const approvedClaims = stats?.find((s: Record<string, unknown>) => s.status === "APPROVED");
   const pendingClaims = stats?.find((s: Record<string, unknown>) => s.status === "SUBMITTED");
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
           <DomainProtocolBanner domain="healthcare" />

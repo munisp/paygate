@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Shield, CheckCircle2, XCircle, AlertTriangle, RefreshCw, TrendingUp } from "lucide-react";
+import { toast } from "sonner";
 
 function ScoreGauge({ score }: { score: number }) {
   const color = score >= 90 ? "text-green-500" : score >= 70 ? "text-yellow-500" : "text-destructive";
