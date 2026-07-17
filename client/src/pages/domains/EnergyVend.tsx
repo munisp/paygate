@@ -37,7 +37,7 @@ export default function EnergyVend() {
     customerPhone: "", customerFsp: "", customerAccount: "",
   });
 
-  const { data: transactions, refetch } = trpc.energy.listVendTransactions.useQuery({ page: 1, pageSize: 200 });
+  const { data: transactions, refetch, isLoading } = trpc.energy.listVendTransactions.useQuery({ page: 1, pageSize: 200 });
   const allTransactions = transactions?.transactions ?? [];
   const {
     filters, setFilter, sortKey, sortDir, toggleSort,
@@ -49,7 +49,7 @@ export default function EnergyVend() {
     { key: "amount", label: "Amount" }, { key: "units_kwh", label: "kWh" },
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
-  const { data: stats } = trpc.energy.getVendStats.useQuery();
+  const { data: stats, isLoading } = trpc.energy.getVendStats.useQuery();
   const vendMut = trpc.energy.initiateVend.useMutation({
     onSuccess: (d) => {
       if (d.token) {
@@ -62,7 +62,7 @@ export default function EnergyVend() {
     },
     onError: (e) => toast.error(e.message),
   });
-  const { data: meterInfo, refetch: lookupMeter } = trpc.energy.lookupMeter.useQuery(
+  const { data: meterInfo, refetch: lookupMeter, isLoading } = trpc.energy.lookupMeter.useQuery(
     { meterNumber: meterInput, disco: meterDisco },
     { enabled: false }
   );
@@ -77,6 +77,7 @@ export default function EnergyVend() {
   const totalVended = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.total_amount), 0) ?? 0;
   const successCount = stats?.find((s: Record<string, unknown>) => s.status === "VENDED")?.count ?? 0;
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
           <DomainProtocolBanner domain="energy" />

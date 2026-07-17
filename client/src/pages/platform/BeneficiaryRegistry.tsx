@@ -16,7 +16,7 @@ export default function BeneficiaryRegistry() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", accountNumber: "", bankCode: "", currency: "NGN", accountType: "personal", dfspId: "" });
 
-  const { data: beneficiaries, refetch } = trpc.wave221.beneficiaryRegistry.list.useQuery({ search: search || undefined });
+  const { data: beneficiaries, refetch, isLoading } = trpc.wave221.beneficiaryRegistry.list.useQuery({ search: search || undefined });
   const create = trpc.wave221.beneficiaryRegistry.create.useMutation({
     onSuccess: () => { refetch(); setShowCreate(false); setForm({ name: "", accountNumber: "", bankCode: "", currency: "NGN", accountType: "personal", dfspId: "" }); toast.success("Beneficiary registered"); },
     onError: (e) => toast.error(e.message),
@@ -30,6 +30,7 @@ export default function BeneficiaryRegistry() {
     onError: (e) => toast.error(e.message),
   });
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">

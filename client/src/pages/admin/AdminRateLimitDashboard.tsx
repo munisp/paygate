@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Gauge, Search, RefreshCw, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 
 export default function AdminRateLimitDashboard() {
   const [search, setSearch] = useState("");

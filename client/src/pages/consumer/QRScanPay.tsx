@@ -19,6 +19,7 @@ function PinDialog({ open, onClose, onConfirm, isPending, amount, merchantName }
   isPending: boolean; amount: number; merchantName: string;
 }) {
   const [pin, setPin] = useState("");
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">
@@ -45,6 +46,7 @@ function PinDialog({ open, onClose, onConfirm, isPending, amount, merchantName }
 }
 
 export default function QRScanPay() {
+  const [isLoading, setIsLoading] = React.useState(false);
   useOnboardingGate();
   const [, navigate] = useLocation();
   const [mode, setMode] = useState<"scan" | "manual">("scan");

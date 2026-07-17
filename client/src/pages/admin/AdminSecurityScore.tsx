@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Shield, CheckCircle, XCircle, AlertTriangle, Lock, Eye } from "lucide-react";
+import { toast } from "sonner";
 
 const VULN_FIXES = [
   { id: "VULN-001", title: "Password Hashing", description: "bcrypt with cost factor 12 + SHA-256 migration path", severity: "critical", status: "fixed" },

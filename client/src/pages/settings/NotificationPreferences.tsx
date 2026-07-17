@@ -59,7 +59,7 @@ export default function NotificationPreferences() {
   const [emailAddress, setEmailAddress] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
 
-  const { data: savedPrefs, refetch } = trpc.wave223.notificationPreferences.get.useQuery();
+  const { data: savedPrefs, refetch, isLoading } = trpc.wave223.notificationPreferences.get.useQuery();
   const saveMutation = trpc.wave223.notificationPreferences.save.useMutation({
     onSuccess: () => { toast.success("Preferences saved."); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -84,6 +84,7 @@ export default function NotificationPreferences() {
     saveMutation.mutate({ preferences: prefs, emailAddress, phoneNumber });
   };
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">

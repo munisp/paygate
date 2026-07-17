@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle2, XCircle, RefreshCw, Database, Code2, TestTube, Rocket, FileText } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ProductionReadinessDashboard() {
   const { data: schemaData, isLoading: schemaLoading, isError: schemaError, refetch } =

@@ -45,6 +45,7 @@ const PROTOCOL_SAMPLES: Record<string, string> = {
 };
 
 export default function ProtocolValidator() {
+  const [isLoading, setIsLoading] = React.useState(false);
   const [protocol, setProtocol] = useState("ISO 20022 pacs.008");
   const [payload, setPayload] = useState(PROTOCOL_SAMPLES["ISO 20022 pacs.008"]);
   const [result, setResult] = useState<{ valid: boolean; errors: string[]; warnings: string[]; info: string[] } | null>(null);
@@ -54,6 +55,7 @@ export default function ProtocolValidator() {
     onError: (e) => toast.error(e.message),
   });
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
       <div>

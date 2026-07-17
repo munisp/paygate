@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, TrendingDown, RefreshCw, DollarSign, BarChart2, Gem } from "lucide-react";
+import { toast } from "sonner";
 
 export default function MarketDataDashboard() {
   const { data: gold, isLoading: goldLoading, isError: goldError, refetch: refetchGold } = trpc.marketData.goldPrice.useQuery();

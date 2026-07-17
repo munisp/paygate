@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Shield, Search, Download, RefreshCw, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import { toast } from "sonner";
 
 export default function AdminAuditLog() {
   const [page, setPage] = useState(1);

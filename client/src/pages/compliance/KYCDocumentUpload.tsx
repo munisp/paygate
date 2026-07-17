@@ -35,7 +35,7 @@ export default function KYCDocumentUpload() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { data: docs, refetch } = trpc.wave223.kycDocuments.list.useQuery();
+  const { data: docs, refetch, isLoading } = trpc.wave223.kycDocuments.list.useQuery();
 
   const uploadMutation = trpc.wave223.kycDocuments.upload.useMutation({
     onSuccess: () => { toast.success("Document uploaded for review."); setDocType(""); setDocName(""); refetch(); },
@@ -80,6 +80,7 @@ export default function KYCDocumentUpload() {
   const approvedCount = docs?.filter((d) => d.status === "approved").length ?? 0;
   const rejectedCount = docs?.filter((d) => d.status === "rejected").length ?? 0;
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>

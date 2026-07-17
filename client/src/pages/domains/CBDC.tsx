@@ -45,7 +45,7 @@ export default function CBDC() {
     ownerType: "INDIVIDUAL", currency: "eNGN",
   });
 
-  const { data: transfers, refetch } = trpc.cbdc.listTransfers.useQuery({ page: 1, pageSize: 200 });
+  const { data: transfers, refetch, isLoading } = trpc.cbdc.listTransfers.useQuery({ page: 1, pageSize: 200 });
   const allTransfers = transfers?.transfers ?? [];
   const {
     filters, setFilter, sortKey, sortDir, toggleSort,
@@ -57,8 +57,8 @@ export default function CBDC() {
     { key: "amount", label: "Amount" }, { key: "currency", label: "Currency" },
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
-  const { data: accounts } = trpc.cbdc.listAccounts.useQuery({ rail: railFilter });
-  const { data: stats } = trpc.cbdc.getCBDCStats.useQuery();
+  const { data: accounts, isLoading } = trpc.cbdc.listAccounts.useQuery({ rail: railFilter });
+  const { data: stats, isLoading } = trpc.cbdc.getCBDCStats.useQuery();
   const transferMut = trpc.cbdc.initiateTransfer.useMutation({
     onSuccess: (d) => { toast.success(`CBDC transfer initiated: ${d.id}`); setShowTransferDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -78,6 +78,7 @@ export default function CBDC() {
   const totalTransfers = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.count), 0) ?? 0;
   const totalVolume = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.total_amount), 0) ?? 0;
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
           <DomainProtocolBanner domain="cbdc" />

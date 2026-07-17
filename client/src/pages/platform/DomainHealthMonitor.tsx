@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Activity, CheckCircle2, XCircle, AlertTriangle, Clock } from "lucide-react";
+import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, { badge: string; dot: string }> = {
   healthy: { badge: "text-green-600 border-green-500/30 bg-green-500/5", dot: "bg-green-500" },

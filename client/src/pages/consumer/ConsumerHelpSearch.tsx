@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Search, BookOpen, ChevronDown, ChevronUp, ArrowLeft, Lightbulb } from "lucide-react";
 import { Link } from "wouter";
 import { useDebounce } from "@/hooks/useDebounce";
+import { toast } from "sonner";
 
 const CATEGORIES = [
   { id: "getting-started", label: "Getting Started", icon: "🚀" },
@@ -64,6 +65,7 @@ const FAQ_DATA: Record<string, { q: string; a: string }[]> = {
 };
 
 export default function ConsumerHelpSearch() {
+  const [isLoading, setIsLoading] = React.useState(false);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expandedFaq, setExpandedFaq] = useState<string | null>(null);
@@ -95,6 +97,7 @@ export default function ConsumerHelpSearch() {
 
   const activeFaqs = activeCategory ? FAQ_DATA[activeCategory] ?? [] : [];
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}

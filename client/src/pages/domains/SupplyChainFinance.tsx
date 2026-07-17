@@ -32,7 +32,7 @@ export default function SupplyChainFinance() {
   });
   const [discountForm, setDiscountForm] = useState({ invoiceId: "", discountRate: "", paymentDate: "" });
 
-  const { data: invoices, refetch } = trpc.scf.listInvoices.useQuery({ page: 1, pageSize: 200 });
+  const { data: invoices, refetch, isLoading } = trpc.scf.listInvoices.useQuery({ page: 1, pageSize: 200 });
   const allInvoices = invoices?.invoices ?? [];
   const {
     filters, setFilter, sortKey, sortDir, toggleSort,
@@ -44,7 +44,7 @@ export default function SupplyChainFinance() {
     { key: "invoice_amount", label: "Amount" }, { key: "currency", label: "Currency" },
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
-  const { data: stats } = trpc.scf.getSCFStats.useQuery();
+  const { data: stats, isLoading } = trpc.scf.getSCFStats.useQuery();
   const submitMut = trpc.scf.submitInvoice.useMutation({
     onSuccess: (d) => { toast.success(`Invoice tokenized: ${d.tokenId}`); setShowInvoiceDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -60,6 +60,7 @@ export default function SupplyChainFinance() {
   const totalValue = stats?.reduce((sum: number, s: Record<string, unknown>) => sum + Number(s.total_amount), 0) ?? 0;
   const paidCount = stats?.find((s: Record<string, unknown>) => s.status === "PAID")?.count ?? 0;
 
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="p-6 space-y-6">
           <DomainProtocolBanner domain="scf" />

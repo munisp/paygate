@@ -68,6 +68,7 @@ const ENV_CONFIG: Record<DevEnvironment, {
 
 function EnvironmentSwitcher() {
   const { env, setEnv } = useDevEnvironment();
+  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
@@ -111,7 +112,7 @@ function ApiKeysTab() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
 
-  const { data: keys, refetch } = trpc.wave221.apiKeys.list.useQuery();
+  const { data: keys, refetch, isLoading } = trpc.wave221.apiKeys.list.useQuery();
   const createKey = trpc.wave221.apiKeys.create.useMutation({
     onSuccess: (data) => {
       setRevealedKey(data.raw);
@@ -281,7 +282,7 @@ function WebhooksTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ url: "", description: "", events: [] as string[], retryPolicy: "exponential" as const });
 
-  const { data: webhooks, refetch } = trpc.wave221.webhooks.list.useQuery();
+  const { data: webhooks, refetch, isLoading } = trpc.wave221.webhooks.list.useQuery();
   const createWh = trpc.wave221.webhooks.create.useMutation({
     onSuccess: () => { refetch(); setShowCreate(false); setForm({ url: "", description: "", events: [], retryPolicy: "exponential" }); toast.success("Webhook created"); },
     onError: (e) => toast.error(e.message),
@@ -414,11 +415,11 @@ function DeliveryLogsTab() {
   const { env } = useDevEnvironment();
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  const { data: logs, refetch } = trpc.wave221.deliveryLogs.list.useQuery({
+  const { data: logs, refetch, isLoading } = trpc.wave221.deliveryLogs.list.useQuery({
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 50,
   });
-  const { data: stats } = trpc.wave221.deliveryLogs.stats.useQuery({});
+  const { data: stats, isLoading } = trpc.wave221.deliveryLogs.stats.useQuery({});
   const retry = trpc.wave221.deliveryLogs.retry.useMutation({
     onSuccess: () => { refetch(); toast.success("Retry queued"); },
     onError: (e) => toast.error(e.message),

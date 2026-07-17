@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Search, TrendingUp, AlertCircle, BarChart2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function AdminHelpAnalytics() {
   const [userType, setUserType] = useState<"all" | "merchant" | "consumer" | "admin">("all");

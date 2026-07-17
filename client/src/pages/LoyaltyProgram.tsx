@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Star, Gift, TrendingUp, Users, RefreshCw, Award } from "lucide-react";
+import { toast } from "sonner";
 
 const TIER_COLORS: Record<string, string> = {
   bronze: "bg-amber-100 text-amber-800",
