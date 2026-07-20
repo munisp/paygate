@@ -15,6 +15,6 @@ h3==3.7.7
 confluent-kafka==2.5.0
 redis==8.0.1
 prometheus-client==0.21.0
-opentelemetry-api==1.27.0
+opentelemetry-api==1.44.0
 opentelemetry-sdk==1.27.0
 opentelemetry-exporter-otlp==1.27.0
