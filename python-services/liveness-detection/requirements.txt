@@ -7,7 +7,7 @@ opencv-python-headless==4.10.0.84
 numpy==1.26.4
 confluent-kafka==2.5.0
 # MediaPipe (Google) — face mesh, pose estimation
-mediapipe==0.10.14
+mediapipe==0.10.35
 # InsightFace — ArcFace face recognition + quality
 insightface==0.7.3
 onnxruntime==1.27.0  # CPU; use onnxruntime-gpu for GPU
