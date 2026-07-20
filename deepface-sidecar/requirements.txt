@@ -5,7 +5,7 @@ deepface==0.0.100
 numpy>=2.5.1
 opencv-python-headless>=4.8.0
 scipy>=1.18.0
-tf-keras>=2.16.0
+tf-keras>=2.21.0
 # Optional: for pgvector backend
 # psycopg2-binary>=2.9.9
 # pgvector>=0.3.0
