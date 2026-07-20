@@ -140,8 +140,8 @@ importers:
         specifier: ^17.4.2
         version: 17.4.2
       drizzle-orm:
-        specifier: ^0.44.5
-        version: 0.44.7(mysql2@3.22.6(@types/node@24.7.0))(postgres@3.4.9)
+        specifier: ^0.45.2
+        version: 0.45.2(mysql2@3.22.6(@types/node@24.7.0))(postgres@3.4.9)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.1)
@@ -2715,8 +2715,8 @@ packages:
     resolution: {integrity: sha512-7OZcmQUrdGI+DUNNsKBn1aW8qSoKuTH7d0mYgSP8bAzdFzKoovxEFnoGQp2dVs82EOJeYycqRtciopszwUf8bw==}
     hasBin: true
 
-  drizzle-orm@0.44.7:
-    resolution: {integrity: sha512-quIpnYznjU9lHshEOAYLoZ9s3jweleHlZIAWR/jX9gAWNg/JhQ1wj0KGRf7/Zm+obRrYd9GjPVJg790QY9N5AQ==}
+  drizzle-orm@0.45.2:
+    resolution: {integrity: sha512-kY0BSaTNYWnoDMVoyY8uxmyHjpJW1geOmBMdSSicKo9CIIWkSxMIj2rkeSR51b8KAPB7m+qysjuHme5nKP+E5Q==}
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
       '@cloudflare/workers-types': '>=4'
@@ -3896,8 +3896,8 @@ packages:
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
 
-  sql-escaper@1.5.0:
-    resolution: {integrity: sha512-JCY91/D1lVq7p6RzuHg9XFQH9vT9L22bljsk+uTdMWke4ZqPCCE+iIMNPmJPUUTywn6eW2nncaWc+MizKZgF4A==}
+  sql-escaper@1.5.1:
+    resolution: {integrity: sha512-4toX5E1fQbBrpfXidaHnF0669nkAdETeIPTs2SUjxxD7RRIs9ICG4gtpmfc68JCEKehsdwLFqBu9VlQqZ1P1gg==}
     engines: {bun: '>=1.0.0', deno: '>=2.0.0', node: '>=12.0.0'}
 
   stackback@0.0.2:
@@ -6607,7 +6607,7 @@ snapshots:
       esbuild: 0.25.10
       tsx: 4.23.0
 
-  drizzle-orm@0.44.7(mysql2@3.22.6(@types/node@24.7.0))(postgres@3.4.9):
+  drizzle-orm@0.45.2(mysql2@3.22.6(@types/node@24.7.0))(postgres@3.4.9):
     optionalDependencies:
       mysql2: 3.22.6(@types/node@24.7.0)
       postgres: 3.4.9
@@ -7690,7 +7690,7 @@ snapshots:
       long: 5.3.2
       lru.min: 1.1.4
       named-placeholders: 1.1.6
-      sql-escaper: 1.5.0
+      sql-escaper: 1.5.1
     optional: true
 
   named-placeholders@1.1.6:
@@ -8166,7 +8166,7 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  sql-escaper@1.5.0:
+  sql-escaper@1.5.1:
     optional: true
 
   stackback@0.0.2: {}
