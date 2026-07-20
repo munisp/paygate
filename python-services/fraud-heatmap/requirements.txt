@@ -4,7 +4,7 @@ httpx==0.28.1
 pydantic==2.8.2
 numpy==2.5.1
 scikit-learn==1.5.2
-pandas==2.2.2
+pandas==3.0.3
 asyncpg==0.31.0
 # Apache Sedona geospatial analytics (requires PySpark)
 apache-sedona==1.6.1
