@@ -1,6 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.51.0
-pydantic==2.9.2
+pydantic==2.13.4
 httpx==0.28.1
 pillow==12.3.0
 opencv-python-headless==4.10.0.84
