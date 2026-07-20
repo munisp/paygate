@@ -15,4 +15,4 @@ onnxruntime==1.27.0  # CPU; use onnxruntime-gpu for GPU
 torch==2.13.0
 torchvision==0.28.0
 # Docling (IBM Research) — document layout understanding
-docling==2.112.0
+docling==2.113.0
