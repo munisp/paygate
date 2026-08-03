@@ -497,8 +497,9 @@ const DefaultVersion Version = internal.DefaultVersion
 // It is not allowed to update workflow code while there are workflows running as it is going to break
 // determinism. The solution is to have both old code that is used to replay existing workflows
 // as well as the new one that is used when it is executed for the first time.
-// GetVersion returns maxSupported version when is executed for the first time. This version is recorded into the
-// workflow history as a marker event. Even if maxSupported version is changed the version that was recorded is
+// GetVersion returns its maxSupported argument when executed for the first time, unless the worker configures a
+// [go.temporal.io/sdk/worker.Options.PreferredVersionProvider]. The returned version is recorded into
+// the workflow history as a marker event. Even if maxSupported version is changed, the version that was recorded is
 // returned on replay. DefaultVersion constant contains version of code that wasn't versioned before.
 // For example initially workflow has the following code:
 //
@@ -675,8 +676,6 @@ func SetUpdateHandlerWithOptions(ctx Context, updateName string, handler interfa
 // GetCurrentDetails gets the current details for this workflow. This is simply
 // the value set by [SetCurrentDetails] or empty if never set. See that function
 // for more details.
-//
-// NOTE: Experimental
 func GetCurrentDetails(ctx Context) string {
 	return internal.GetCurrentDetails(ctx)
 }
@@ -684,8 +683,6 @@ func GetCurrentDetails(ctx Context) string {
 // SetCurrentDetails sets the current details for this workflow. This is
 // typically an arbitrary string in Temporal markdown format may be displayed in
 // the UI or CLI.
-//
-// NOTE: Experimental
 func SetCurrentDetails(ctx Context, details string) {
 	internal.SetCurrentDetails(ctx, details)
 }

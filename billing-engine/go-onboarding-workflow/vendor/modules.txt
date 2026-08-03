@@ -47,7 +47,7 @@ github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
 github.com/stretchr/testify/mock
 github.com/stretchr/testify/require
-# go.temporal.io/api v1.63.0
+# go.temporal.io/api v1.63.4
 ## explicit; go 1.25.4
 go.temporal.io/api/activity/v1
 go.temporal.io/api/batch/v1
@@ -84,6 +84,7 @@ go.temporal.io/api/schedule/v1
 go.temporal.io/api/sdk/v1
 go.temporal.io/api/serviceerror
 go.temporal.io/api/taskqueue/v1
+go.temporal.io/api/temporalnexus
 go.temporal.io/api/temporalproto
 go.temporal.io/api/update/v1
 go.temporal.io/api/version/v1
@@ -91,7 +92,7 @@ go.temporal.io/api/worker/v1
 go.temporal.io/api/workflow/v1
 go.temporal.io/api/workflowservice/v1
 go.temporal.io/api/workflowservicemock/v1
-# go.temporal.io/sdk v1.46.0
+# go.temporal.io/sdk v1.47.0
 ## explicit; go 1.25.4
 go.temporal.io/sdk/converter
 go.temporal.io/sdk/internal
@@ -142,7 +143,7 @@ google.golang.org/genproto/googleapis/api/httpbody
 # google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.82.0
+# google.golang.org/grpc v1.82.1
 ## explicit; go 1.25.0
 google.golang.org/grpc
 google.golang.org/grpc/attributes

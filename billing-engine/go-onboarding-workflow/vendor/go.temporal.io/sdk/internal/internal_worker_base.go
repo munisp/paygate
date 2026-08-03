@@ -115,6 +115,7 @@ type (
 		ExecuteChildWorkflow(params ExecuteWorkflowParams, callback ResultHandler, startedHandler func(r WorkflowExecution, e error))
 		ExecuteNexusOperation(params ExecuteNexusOperationParams, callback func(*commonpb.Payload, error), startedHandler func(token string, e error)) int64
 		RequestCancelNexusOperation(seq int64)
+		AbandonNexusOperation(seq int64)
 		GetLogger() log.Logger
 		GetMetricsHandler() metrics.Handler
 		// Must be called before WorkflowDefinition.Execute returns
@@ -413,6 +414,20 @@ func newBaseWorker(
 	return bw
 }
 
+// initializeTaskPollers must be called at most once and before Start().
+func (bw *baseWorker) initializeTaskPollers(taskPollers []scalableTaskPoller) {
+	if bw.options.taskPollers != nil {
+		panic("task pollers already initialized")
+	}
+	bw.options.taskPollers = taskPollers
+	if len(taskPollers) > 1 {
+		bw.pollerBalancer = &pollerBalancer{
+			pollerCount:   make(map[string]int),
+			pollerBarrier: make(map[string]barrier),
+		}
+	}
+}
+
 // Start starts a fixed set of routines to do the work.
 func (bw *baseWorker) Start() {
 	if bw.isWorkerStarted {
@@ -518,8 +533,9 @@ func (bw *baseWorker) runPoller(taskWorker scalableTaskPoller) {
 				}
 				continue
 			}
-			if bw.sessionTokenBucket != nil {
-				bw.sessionTokenBucket.waitForAvailableToken()
+			if bw.sessionTokenBucket != nil && !bw.sessionTokenBucket.waitForAvailableToken() {
+				bw.releaseSlot(permit, SlotReleaseReasonUnused)
+				return
 			}
 			if bw.pollerBalancer != nil {
 				bw.pollerBalancer.incrementPoller(taskWorker.taskPollerType)
@@ -583,8 +599,10 @@ func (bw *baseWorker) runAutoscalingPoller(taskWorker scalableTaskPoller) {
 			continue
 		}
 
-		if bw.sessionTokenBucket != nil {
-			bw.sessionTokenBucket.waitForAvailableToken()
+		if bw.sessionTokenBucket != nil && !bw.sessionTokenBucket.waitForAvailableToken() {
+			bw.releaseSlot(permit, SlotReleaseReasonUnused)
+			releaseActive()
+			return
 		}
 		if bw.pollerBalancer != nil {
 			bw.pollerBalancer.incrementPoller(taskWorker.taskPollerType)
@@ -891,6 +909,9 @@ func (bw *baseWorker) Stop() {
 	}
 	close(bw.stopCh)
 	bw.limiterContextCancel()
+	if bw.sessionTokenBucket != nil {
+		bw.sessionTokenBucket.close()
+	}
 
 	// Wait for pollers, task dispatch, and task processing to complete, or until stopTimeout elapses.
 	// The task dispatcher drains taskQueueCh after the closer goroutine
