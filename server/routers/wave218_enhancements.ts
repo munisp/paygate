@@ -77,7 +77,9 @@ const domainHealthRouter = router({
       } catch { /* table may not exist in dev */ }
       const errorRate = txCount > 0 ? (errCount / txCount) * 100 : 0;
       const status = errorRate > 10 ? "degraded" : errorRate > 2 ? "warning" : "healthy";
-      avgLatencyMs = Math.floor(Math.random() * 80) + 20; // TODO: real latency from OTEL
+      // avgLatencyMs: requires OTEL/Prometheus span data (PAYGATE-OTEL-001).
+      // Returning null until the integration is live — the UI must render "N/A".
+      avgLatencyMs = null as unknown as number;
       return { ...d, txCount, errCount, errorRate: parseFloat(errorRate.toFixed(2)), avgLatencyMs, status, checkedAt: new Date().toISOString() };
     }));
     return results;
@@ -122,15 +124,37 @@ const domainSLARouter = router({
         remittance: 30_000, healthcare: 60_000, insurance: 45_000,
         scf: 20_000, g2p: 120_000, energy: 10_000, cbdc: 5_000,
       };
-      // In production: query OTEL spans. Here we return domain-level summary.
-      const domains = input.domain ? [input.domain] : Object.keys(SLA_THRESHOLDS);
-      return domains.map(d => ({
-        domain: d, slaThresholdMs: SLA_THRESHOLDS[d] ?? 30_000,
-        breachCount: 0, // TODO: query from OTEL/Prometheus
-        p95LatencyMs: 0,
-        p99LatencyMs: 0,
-        windowHours: input.hours,
+      // Query real SLA breach counts from the domain transaction tables.
+      // p95/p99 latency requires OTEL integration (PAYGATE-OTEL-001) — returned as null.
+      const domainList = input.domain ? [input.domain] : Object.keys(SLA_THRESHOLDS);
+      const tableMap: Record<string, string> = {
+        remittance: "remittance_transfers", healthcare: "healthcare_claims",
+        insurance: "insurance_policies", scf: "scf_invoices",
+        g2p: "g2p_disbursement_batches", energy: "energy_vend_transactions",
+        cbdc: "cbdc_transfers",
+      };
+      const results = await Promise.all(domainList.map(async (d) => {
+        const table = tableMap[d];
+        let breachCount = 0;
+        if (table) {
+          try {
+            const r = await db.execute(sql.raw(
+              `SELECT COUNT(*) as cnt FROM ${table} WHERE sla_breached = true AND created_at > NOW() - INTERVAL '${input.hours} hours'`
+            ));
+            breachCount = Number((r.rows[0] as any)?.cnt ?? 0);
+          } catch { /* table may not have sla_breached column — breach count stays 0 */ }
+        }
+        return {
+          domain: d,
+          slaThresholdMs: SLA_THRESHOLDS[d] ?? 30_000,
+          breachCount,
+          // p95/p99 latency: null until OTEL integration is live (PAYGATE-OTEL-001)
+          p95LatencyMs: null as unknown as number,
+          p99LatencyMs: null as unknown as number,
+          windowHours: input.hours,
+        };
       }));
+      return results;
     }),
 });
 
@@ -375,11 +399,15 @@ const apisixHealthRouter = router({
     ];
     return routes.map(r => ({
       ...r,
-      status: "healthy" as const,
-      requestsPerMin: Math.floor(Math.random() * 500),
-      errorRatePct: parseFloat((Math.random() * 0.5).toFixed(2)),
-      p95LatencyMs: Math.floor(Math.random() * 100) + 10,
+      // Real metrics require APISIX Admin API + Prometheus integration (PAYGATE-APISIX-METRICS-001).
+      // Returning null for all metric fields until that integration is live.
+      // The UI MUST render "N/A" for null metric fields — never substitute random values.
+      status: null as unknown as "healthy" | "degraded" | "down",
+      requestsPerMin: null as unknown as number,
+      errorRatePct: null as unknown as number,
+      p95LatencyMs: null as unknown as number,
       checkedAt: new Date().toISOString(),
+      dataSource: "pending_apisix_integration" as const,
     }));
   }),
 });

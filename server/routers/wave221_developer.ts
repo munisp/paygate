@@ -362,39 +362,84 @@ const sagaRouter = router({
 // ── Domain Health Sub-router ──────────────────────────────────────────────────
 const domainHealthRouter = router({
   getAll: protectedProcedure.query(async () => {
-    const domains = ["Remittance", "Healthcare", "Insurance", "Supply Chain Finance", "G2P", "Energy VEND", "CBDC"];
-    return domains.map((domainName, i) => ({
-      id: `domain-${i}`,
-      domainName,
-      status: Math.random() > 0.85 ? (Math.random() > 0.5 ? "degraded" : "down") : "healthy",
-      latencyMs: Math.floor(Math.random() * 80 + 20),
-      errorRate: Math.random() * 0.03,
-      throughput: Math.floor(Math.random() * 500 + 50),
-      uptimePct: 99.5 + Math.random() * 0.5,
-      lastIncident: Math.random() > 0.7 ? `${Math.floor(Math.random() * 7 + 1)} days ago` : null,
-    }));
+    // Read the latest snapshot per domain from domain_health_snapshots.
+    // Snapshots are written by the wave218 domain health heartbeat job.
+    const domainIds = ["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"];
+    const domainLabels: Record<string, string> = {
+      remittance: "Remittance", healthcare: "Healthcare", insurance: "Insurance",
+      scf: "Supply Chain Finance", g2p: "G2P", energy: "Energy VEND", cbdc: "CBDC",
+    };
+    const snapshots = await db
+      .select()
+      .from(domainHealthSnapshots)
+      .orderBy(desc(domainHealthSnapshots.snapshotAt));
+    const latestByDomain = new Map<string, typeof snapshots[0]>();
+    for (const s of snapshots) {
+      if (!latestByDomain.has(s.domain)) latestByDomain.set(s.domain, s);
+    }
+    return domainIds.map((domain, i) => {
+      const snap = latestByDomain.get(domain);
+      return {
+        id: snap?.id ?? `domain-${i}`,
+        domainName: domainLabels[domain] ?? domain,
+        // null means "no snapshot yet" — the UI must render "N/A", not a fabricated value
+        status: snap?.status ?? "unknown",
+        latencyMs: snap?.p95LatencyMs ?? null,
+        errorRate: snap?.errorRate ?? null,
+        throughput: snap?.tps ?? null,
+        uptimePct: snap?.uptime ?? null,
+        lastIncident: null,
+        snapshotAt: snap?.snapshotAt?.toISOString() ?? null,
+      };
+    });
   }),
 
   getSummary: protectedProcedure.query(async () => {
-    return { healthy: 5, degraded: 1, down: 0, avgUptime: 99.7 };
+    const snapshots = await db
+      .select()
+      .from(domainHealthSnapshots)
+      .orderBy(desc(domainHealthSnapshots.snapshotAt));
+    const latestByDomain = new Map<string, typeof snapshots[0]>();
+    for (const s of snapshots) {
+      if (!latestByDomain.has(s.domain)) latestByDomain.set(s.domain, s);
+    }
+    const statuses = Array.from(latestByDomain.values()).map(s => s.status);
+    const healthy = statuses.filter(s => s === "healthy").length;
+    const degraded = statuses.filter(s => s === "degraded" || s === "warning").length;
+    const down = statuses.filter(s => s === "down" || s === "error").length;
+    const uptimes = Array.from(latestByDomain.values()).map(s => s.uptime ?? 100);
+    const avgUptime = uptimes.length > 0 ? uptimes.reduce((a, b) => a + b, 0) / uptimes.length : null;
+    return { healthy, degraded, down, avgUptime, totalDomains: latestByDomain.size };
   }),
 
   getLatest: protectedProcedure.query(async () => {
-    const domains = ["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"];
-    // Return synthetic real-time metrics (in production, read from domainHealthSnapshots)
-    return domains.map((domain) => ({
-      domain,
-      tps: Math.random() * 500 + 50,
-      errorRate: Math.random() * 2,
-      p50LatencyMs: Math.floor(Math.random() * 80 + 20),
-      p95LatencyMs: Math.floor(Math.random() * 200 + 80),
-      p99LatencyMs: Math.floor(Math.random() * 500 + 200),
-      uptime: 99.5 + Math.random() * 0.5,
-      activeConnections: Math.floor(Math.random() * 200 + 10),
-      queueDepth: Math.floor(Math.random() * 50),
-      status: Math.random() > 0.9 ? "degraded" : "healthy",
-      snapshotAt: new Date().toISOString(),
-    }));
+    // Read from domain_health_snapshots — the most recent row per domain.
+    const domainIds = ["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"];
+    const snapshots = await db
+      .select()
+      .from(domainHealthSnapshots)
+      .orderBy(desc(domainHealthSnapshots.snapshotAt));
+    const latestByDomain = new Map<string, typeof snapshots[0]>();
+    for (const s of snapshots) {
+      if (!latestByDomain.has(s.domain)) latestByDomain.set(s.domain, s);
+    }
+    return domainIds.map((domain) => {
+      const snap = latestByDomain.get(domain);
+      return {
+        domain,
+        // null means "no snapshot yet" — the UI must render "N/A", not a fabricated value
+        tps: snap?.tps ?? null,
+        errorRate: snap?.errorRate ?? null,
+        p50LatencyMs: snap?.p50LatencyMs ?? null,
+        p95LatencyMs: snap?.p95LatencyMs ?? null,
+        p99LatencyMs: snap?.p99LatencyMs ?? null,
+        uptime: snap?.uptime ?? null,
+        activeConnections: snap?.activeConnections ?? null,
+        queueDepth: snap?.queueDepth ?? null,
+        status: snap?.status ?? "unknown",
+        snapshotAt: snap?.snapshotAt?.toISOString() ?? null,
+      };
+    });
   }),
 
   getHistory: protectedProcedure
@@ -552,17 +597,47 @@ const beneficiaryRegistryRouter = router({
 
 // ── Compliance Scorecard Sub-router ──────────────────────────────────────────
 const complianceScorecardRouter = router({
-  getScorecard: protectedProcedure.query(async () => {
-    const categories = [
-      { name: "AML/CFT", score: Math.floor(Math.random() * 10 + 88), passedChecks: 9, totalChecks: 10 },
-      { name: "KYC/KYB", score: Math.floor(Math.random() * 10 + 85), passedChecks: 8, totalChecks: 9 },
-      { name: "PCI-DSS", score: Math.floor(Math.random() * 10 + 82), passedChecks: 11, totalChecks: 12 },
-      { name: "ISO 27001", score: Math.floor(Math.random() * 10 + 80), passedChecks: 7, totalChecks: 8 },
-      { name: "NDPR", score: Math.floor(Math.random() * 10 + 90), passedChecks: 6, totalChecks: 6 },
-      { name: "FATF Travel Rule", score: Math.floor(Math.random() * 10 + 78), passedChecks: 5, totalChecks: 7 },
-    ];
-    const overallScore = Math.round(categories.reduce((a, c) => a + c.score, 0) / categories.length);
-    return { overallScore, categories, lastAssessed: new Date().toISOString() };
+  getScorecard: protectedProcedure.query(async ({ ctx }) => {
+    // Read from compliance_check_results table — real scores written by the compliance job.
+    // Returns null scores when no checks have been run yet (never fabricate a score).
+    try {
+      const rows = await db.execute(sql`
+        SELECT check_type, check_name, score, max_score, status, findings, evaluated_at
+        FROM compliance_check_results
+        WHERE merchant_id = ${ctx.user.id}
+        ORDER BY evaluated_at DESC
+      `);
+      const checks = rows.rows as any[];
+      // Group by check_type (framework)
+      const byFramework = new Map<string, { scores: number[]; passed: number; total: number; lastAt: string }>();
+      for (const c of checks) {
+        const fw = c.check_type ?? "Unknown";
+        if (!byFramework.has(fw)) byFramework.set(fw, { scores: [], passed: 0, total: 0, lastAt: c.evaluated_at });
+        const entry = byFramework.get(fw)!;
+        entry.total++;
+        if (c.status === "pass") { entry.passed++; entry.scores.push(Number(c.score ?? 0)); }
+        if (c.evaluated_at > entry.lastAt) entry.lastAt = c.evaluated_at;
+      }
+      const categories = Array.from(byFramework.entries()).map(([name, v]) => ({
+        name,
+        score: v.scores.length > 0 ? Math.round(v.scores.reduce((a, b) => a + b, 0) / v.scores.length) : null,
+        passedChecks: v.passed,
+        totalChecks: v.total,
+        lastAssessed: v.lastAt,
+      }));
+      const scoredCategories = categories.filter(c => c.score !== null);
+      const overallScore = scoredCategories.length > 0
+        ? Math.round(scoredCategories.reduce((a, c) => a + (c.score ?? 0), 0) / scoredCategories.length)
+        : null;
+      return {
+        overallScore,
+        categories,
+        lastAssessed: checks[0]?.evaluated_at ?? null,
+        // null values mean "no compliance checks have been run yet" — never substitute random numbers
+      };
+    } catch {
+      return { overallScore: null, categories: [], lastAssessed: null };
+    }
   }),
 
   getChecks: protectedProcedure.query(async () => {
@@ -577,20 +652,56 @@ const complianceScorecardRouter = router({
     ];
   }),
 
-  getScores: protectedProcedure.query(async () => {
-    const domains = ["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"];
-    return domains.map((domain) => ({
-      domain,
-      amlScore: Math.floor(Math.random() * 20 + 80),
-      kycScore: Math.floor(Math.random() * 15 + 85),
-      travelRuleScore: Math.floor(Math.random() * 25 + 75),
-      fhirScore: domain === "healthcare" ? Math.floor(Math.random() * 10 + 90) : null,
-      acordScore: domain === "insurance" ? Math.floor(Math.random() * 10 + 90) : null,
-      overallScore: Math.floor(Math.random() * 15 + 82),
-      lastAssessed: new Date(Date.now() - Math.random() * 86400000 * 3).toISOString(),
-      findings: Math.floor(Math.random() * 5),
-      criticalFindings: Math.floor(Math.random() * 2),
-    }));
+  getScores: protectedProcedure.query(async ({ ctx }) => {
+    // Read per-domain compliance scores from compliance_check_results.
+    // Scores are null when no checks have been run for that domain.
+    // NEVER substitute random numbers for missing compliance data.
+    const domainIds = ["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"];
+    try {
+      const rows = await db.execute(sql`
+        SELECT check_type, score, status, findings, evaluated_at,
+               metadata->>'domain' as domain
+        FROM compliance_check_results
+        WHERE merchant_id = ${ctx.user.id}
+          AND metadata->>'domain' IS NOT NULL
+        ORDER BY evaluated_at DESC
+      `);
+      const byDomain = new Map<string, any>();
+      for (const r of rows.rows as any[]) {
+        const d = r.domain;
+        if (!byDomain.has(d)) byDomain.set(d, { aml: [], kyc: [], travel: [], fhir: [], acord: [], findings: 0, critical: 0, lastAt: r.evaluated_at });
+        const entry = byDomain.get(d)!;
+        if (r.check_type === "AML") entry.aml.push(Number(r.score ?? 0));
+        if (r.check_type === "KYC") entry.kyc.push(Number(r.score ?? 0));
+        if (r.check_type === "TRAVEL_RULE") entry.travel.push(Number(r.score ?? 0));
+        if (r.check_type === "FHIR") entry.fhir.push(Number(r.score ?? 0));
+        if (r.check_type === "ACORD") entry.acord.push(Number(r.score ?? 0));
+        if (r.findings) entry.findings += Number(r.findings);
+        if (r.evaluated_at > entry.lastAt) entry.lastAt = r.evaluated_at;
+      }
+      const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+      return domainIds.map((domain) => {
+        const e = byDomain.get(domain);
+        return {
+          domain,
+          amlScore: e ? avg(e.aml) : null,
+          kycScore: e ? avg(e.kyc) : null,
+          travelRuleScore: e ? avg(e.travel) : null,
+          fhirScore: domain === "healthcare" && e ? avg(e.fhir) : null,
+          acordScore: domain === "insurance" && e ? avg(e.acord) : null,
+          overallScore: null, // computed server-side only when all required checks are present
+          lastAssessed: e?.lastAt ?? null,
+          findings: e?.findings ?? null,
+          criticalFindings: null, // requires severity tagging in compliance_check_results
+        };
+      });
+    } catch {
+      return domainIds.map((domain) => ({
+        domain, amlScore: null, kycScore: null, travelRuleScore: null,
+        fhirScore: null, acordScore: null, overallScore: null,
+        lastAssessed: null, findings: null, criticalFindings: null,
+      }));
+    }
   }),
 });
 
