@@ -10,7 +10,18 @@
  * All prices are in Kobo (1 NGN = 100 Kobo) for consistency with the rest of the platform.
  */
 import { router, publicProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { logger } from "./logger";
+
+/** Fail loudly — fabricated market data must never be served to consumers. */
+function marketDataUnavailable(what: string): never {
+  logger.error(`[marketData] FAIL-LOUD: ${what} — no real data source available`);
+  throw new TRPCError({
+    code: "SERVICE_UNAVAILABLE",
+    message: `${what} is temporarily unavailable.`,
+  });
+}
 
 // ─── In-memory cache (5-minute TTL) ──────────────────────────────────────────
 interface CacheEntry<T> {
@@ -32,39 +43,53 @@ function setCached<T>(key: string, data: T, ttlMs = 5 * 60 * 1000): T {
 }
 
 // ─── Gold Spot Price ──────────────────────────────────────────────────────────
-// Uses metals-api.com public endpoint (free tier, no key needed for spot)
-// Falls back to a realistic simulated price if the API is unavailable.
-const GOLD_BASE_NGN_PER_GRAM = 95_000; // ~$58/g × ₦1,650/$
+// Requires a real metals data provider (METALS_API_KEY for metals-api.com).
+// There is NO fallback: when no live quote can be obtained, the query fails
+// loudly — a sine-wave "price" must never be shown to consumers.
 
 async function fetchGoldPriceNGN(): Promise<number> {
   const cached = getCached<number>("gold_ngn_per_gram");
   if (cached) return cached;
 
-  try {
-    // Use exchangerate-api for USD/NGN, then compute gold in NGN
-    const fxRes = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(4000) });
-    if (fxRes.ok) {
-      const fxData = await fxRes.json() as any;
-      const usdToNgn = fxData?.rates?.NGN ?? 1650;
-      // Gold spot ~$2,300/troy oz = $73.9/g
-      const goldUsdPerGram = 73.9;
-      const goldNgnPerGram = Math.round(goldUsdPerGram * usdToNgn);
-      return setCached("gold_ngn_per_gram", goldNgnPerGram);
-    }
-  } catch {
-    // Fall through to simulated price
+  const metalsKey = process.env.METALS_API_KEY;
+  if (!metalsKey) {
+    marketDataUnavailable("Gold spot price feed is not configured (METALS_API_KEY missing)");
   }
 
-  // Simulated: add ±2% daily variance
-  const variance = 1 + (Math.sin(Date.now() / 86_400_000) * 0.02);
-  return setCached("gold_ngn_per_gram", Math.round(GOLD_BASE_NGN_PER_GRAM * variance));
+  try {
+    // Real XAU/USD spot from metals-api.com
+    const spotRes = await fetch(
+      `https://metals-api.com/api/latest?access_key=${encodeURIComponent(metalsKey!)}&base=USD&symbols=XAU`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!spotRes.ok) marketDataUnavailable(`Gold spot price feed error (HTTP ${spotRes.status})`);
+    const spotData = await spotRes.json() as any;
+    const xauPerUsd = spotData?.rates?.XAU; // troy oz of gold per 1 USD
+    if (!xauPerUsd || typeof xauPerUsd !== "number") {
+      marketDataUnavailable("Gold spot price feed returned no XAU rate");
+    }
+    const goldUsdPerGram = 1 / (xauPerUsd * 31.1035);
+
+    // Real USD/NGN rate
+    const fxRes = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(4000) });
+    if (!fxRes.ok) marketDataUnavailable(`FX feed error (HTTP ${fxRes.status})`);
+    const fxData = await fxRes.json() as any;
+    const usdToNgn = fxData?.rates?.NGN;
+    if (!usdToNgn || typeof usdToNgn !== "number") {
+      marketDataUnavailable("FX feed returned no USD/NGN rate");
+    }
+
+    return setCached("gold_ngn_per_gram", Math.round(goldUsdPerGram * usdToNgn));
+  } catch (err) {
+    if (err instanceof TRPCError) throw err;
+    marketDataUnavailable(`Gold spot price feed unreachable: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ─── FX Rates ─────────────────────────────────────────────────────────────────
-const FX_FALLBACK: Record<string, number> = {
-  USD: 1650, GBP: 2100, EUR: 1800, CAD: 1200, AUD: 1050,
-  GHS: 115, KES: 12, ZAR: 88, CNY: 228, JPY: 11,
-};
+// Real source: open.er-api.com. NO hardcoded fallback rates — when the feed is
+// unavailable the query fails loudly.
+const SUPPORTED_FX: string[] = ["USD", "GBP", "EUR", "CAD", "AUD", "GHS", "KES", "ZAR", "CNY", "JPY"];
 
 async function fetchFxRates(): Promise<Record<string, number>> {
   const cached = getCached<Record<string, number>>("fx_ngn");
@@ -72,54 +97,31 @@ async function fetchFxRates(): Promise<Record<string, number>> {
 
   try {
     const res = await fetch("https://open.er-api.com/v6/latest/NGN", { signal: AbortSignal.timeout(4000) });
-    if (res.ok) {
-      const data = await res.json() as any;
-      if (data?.rates) {
-        // Convert from NGN-based rates to NGN per foreign currency
-        const rates: Record<string, number> = {};
-        for (const [ccy, rate] of Object.entries(FX_FALLBACK)) {
-          // data.rates[ccy] = how many CCY per 1 NGN → invert for NGN per CCY
-          const ngnPerCcy = data.rates[ccy] ? Math.round(1 / (data.rates[ccy] as number)) : FX_FALLBACK[ccy];
-          rates[ccy] = ngnPerCcy;
-        }
-        return setCached("fx_ngn", rates);
-      }
+    if (!res.ok) marketDataUnavailable(`FX rates feed error (HTTP ${res.status})`);
+    const data = await res.json() as any;
+    if (!data?.rates) marketDataUnavailable("FX rates feed returned no rates");
+    // Convert from NGN-based rates to NGN per foreign currency.
+    // Currencies missing from the feed are omitted — never back-filled with
+    // a hardcoded "fallback" rate.
+    const rates: Record<string, number> = {};
+    for (const ccy of SUPPORTED_FX) {
+      if (data.rates[ccy]) rates[ccy] = Math.round(1 / (data.rates[ccy] as number));
     }
-  } catch {
-    // Fall through
+    if (Object.keys(rates).length === 0) marketDataUnavailable("FX rates feed returned no usable rates");
+    return setCached("fx_ngn", rates);
+  } catch (err) {
+    if (err instanceof TRPCError) throw err;
+    marketDataUnavailable(`FX rates feed unreachable: ${err instanceof Error ? err.message : String(err)}`);
   }
-
-  // Simulated with small variance
-  const variance = 1 + (Math.sin(Date.now() / 43_200_000) * 0.005);
-  const rates: Record<string, number> = {};
-  for (const [ccy, base] of Object.entries(FX_FALLBACK)) {
-    rates[ccy] = Math.round(base * variance);
-  }
-  return setCached("fx_ngn", rates);
 }
 
 // ─── Mutual Fund NAV Snapshots ────────────────────────────────────────────────
-const FUND_BASE_NAVS: Array<{
-  id: string; name: string; category: string; navKobo: number; ytdPct: number; riskLevel: string;
-}> = [
-  { id: "mf_money_market", name: "PayGate Money Market Fund", category: "money_market", navKobo: 105_000, ytdPct: 14.2, riskLevel: "low" },
-  { id: "mf_equity_growth", name: "PayGate Equity Growth Fund", category: "equity", navKobo: 285_000, ytdPct: 22.1, riskLevel: "high" },
-  { id: "mf_balanced", name: "PayGate Balanced Fund", category: "balanced", navKobo: 175_000, ytdPct: 17.5, riskLevel: "medium" },
-  { id: "mf_fixed_income", name: "PayGate Fixed Income Fund", category: "fixed_income", navKobo: 145_000, ytdPct: 12.8, riskLevel: "low" },
-  { id: "mf_etf_ngx", name: "NGX 30 ETF Tracker", category: "etf", navKobo: 320_000, ytdPct: 19.6, riskLevel: "high" },
-];
+// There is no real fund NAV data source integrated in this repo. Invented
+// "PayGate fund" NAVs with sine-wave variance must NEVER be served as market
+// data — fundNavs fails loudly until a real NAV feed is wired.
 
-function getFundNavs() {
-  const cached = getCached<typeof FUND_BASE_NAVS>("fund_navs");
-  if (cached) return cached;
-
-  // Add intraday variance (±0.5%)
-  const navs = FUND_BASE_NAVS.map(f => ({
-    ...f,
-    navKobo: Math.round(f.navKobo * (1 + (Math.sin(Date.now() / 3_600_000 + f.navKobo) * 0.005))),
-    change24hPct: parseFloat(((Math.sin(Date.now() / 7_200_000 + f.navKobo) * 1.5)).toFixed(2)),
-  }));
-  return setCached("fund_navs", navs, 60_000); // 1-minute cache for NAVs
+function getFundNavs(): never {
+  marketDataUnavailable("Mutual fund NAV data — no NAV feed integrated");
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -138,8 +140,8 @@ export const marketDataRouter = router({
       currency: "NGN",
       unit: "gram",
       updatedAt: new Date().toISOString(),
-      // 24h change (simulated ±1.5%)
-      change24hPct: parseFloat((Math.sin(Date.now() / 86_400_000) * 1.5).toFixed(2)),
+      // 24h change is not computed without a historical feed — null, never sine-wave.
+      change24hPct: null,
     };
   }),
 
@@ -152,7 +154,7 @@ export const marketDataRouter = router({
     }).optional())
     .query(async ({ input }) => {
       const rates = await fetchFxRates();
-      const currencies = input?.currencies ?? Object.keys(FX_FALLBACK);
+      const currencies = input?.currencies ?? SUPPORTED_FX;
       const filtered: Record<string, number> = {};
       for (const ccy of currencies) {
         if (rates[ccy]) filtered[ccy] = rates[ccy];
@@ -166,40 +168,41 @@ export const marketDataRouter = router({
 
   /**
    * Get mutual fund NAV snapshots.
+   * Fails loudly — no real NAV feed is integrated; fabricated NAVs removed.
    */
   fundNavs: publicProcedure.query(() => {
-    const navs = getFundNavs();
-    return { funds: navs, updatedAt: new Date().toISOString() };
+    getFundNavs();
   }),
 
   /**
    * Get a consolidated market summary for the Financial Hub hero section.
+   * Only includes sections backed by a real feed; fails loudly when the FX
+   * feed is down and omits gold/funds when those feeds are not configured.
    */
   summary: publicProcedure.query(async () => {
-    const [goldNgn, fxRates, fundNavs] = await Promise.all([
-      fetchGoldPriceNGN(),
-      fetchFxRates(),
-      Promise.resolve(getFundNavs()),
-    ]);
+    const fxRates = await fetchFxRates(); // throws loudly when unavailable
 
-    const topFund = fundNavs.reduce((best, f) => f.ytdPct > best.ytdPct ? f : best, fundNavs[0]);
+    // Gold: include only when the real metals feed is configured.
+    let gold: { ngnPerGram: number; change24hPct: null } | null = null;
+    if (process.env.METALS_API_KEY) {
+      try {
+        gold = { ngnPerGram: await fetchGoldPriceNGN(), change24hPct: null };
+      } catch {
+        gold = null; // omit section rather than fabricate
+      }
+    }
 
     return {
-      gold: {
-        ngnPerGram: goldNgn,
-        change24hPct: parseFloat((Math.sin(Date.now() / 86_400_000) * 1.5).toFixed(2)),
-      },
+      gold,
       fx: {
-        usdNgn: fxRates["USD"] ?? 1650,
-        gbpNgn: fxRates["GBP"] ?? 2100,
-        eurNgn: fxRates["EUR"] ?? 1800,
+        usdNgn: fxRates["USD"] ?? null,
+        gbpNgn: fxRates["GBP"] ?? null,
+        eurNgn: fxRates["EUR"] ?? null,
       },
-      topFund: {
-        name: topFund.name,
-        ytdPct: topFund.ytdPct,
-        navKobo: topFund.navKobo,
-      },
-      marketSentiment: goldNgn > GOLD_BASE_NGN_PER_GRAM ? "bullish" : "bearish",
+      // Fund NAVs and market sentiment require real data sources that are not
+      // integrated — omitted entirely instead of fabricated.
+      topFund: null,
+      marketSentiment: null,
       updatedAt: new Date().toISOString(),
     };
   }),

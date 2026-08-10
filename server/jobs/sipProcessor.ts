@@ -43,7 +43,7 @@ export interface SIPProcessorResult {
 
 // ─── Gold Price Oracle ────────────────────────────────────────────────────────
 
-let _cachedGoldPriceNGN: number = 98_500; // Updated by fetchAndCacheGoldPrice()
+let _cachedGoldPriceNGN: number = 0; // 0 = no real price fetched yet — must never trade on a seed value
 let _goldPriceLastFetched = 0;
 const GOLD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -75,10 +75,13 @@ export async function fetchAndCacheGoldPrice(): Promise<number> {
   return _cachedGoldPriceNGN;
 }
 
+/**
+ * Returns the last real cached gold price. NO random jitter — an execution
+ * price must be a real quote. Returns 0 when no real price has been fetched;
+ * callers MUST treat 0 as "no price available" and refuse to execute.
+ */
 export function getGoldPriceNGN(): number {
-  // Returns the cached price with a small random variation (±0.5%) to simulate live market data
-  const variation = 1 + (Math.random() - 0.5) * 0.01; // ±0.5% variation
-  return Math.round(_cachedGoldPriceNGN * variation);
+  return _cachedGoldPriceNGN;
 }
 
 // ─── SIP Due Date Calculator ──────────────────────────────────────────────────
@@ -117,31 +120,38 @@ export function isSIPDueToday(plan: Pick<SIPPlan, "nextDebitAt">): boolean {
 
 // ─── SIP Execution ────────────────────────────────────────────────────────────
 
+/**
+ * Execute one SIP plan. FAILS LOUD when the gold provider is unavailable or
+ * returns an incomplete fill — grams and txId are only ever returned from a
+ * real confirmed purchase. Callers must record the failure and alert.
+ */
 export async function executeSIPPlan(
   plan: SIPPlan,
   goldPriceNGN: number
 ): Promise<{ grams: number; amountNGN: number; txId: string }> {
   const amountNGN = plan.monthlyAmountNGN;
-  const grams = amountNGN / goldPriceNGN;
-
-  if (isBridgeAvailable()) {
-    const result = await buyDigitalGoldViaMiddleware(
-      plan.userId,
-      plan.merchantId,
-      amountNGN
-    );
-    if (result) {
-      return {
-        grams: result.grams ?? grams,
-        amountNGN,
-        txId: result.txId ?? `sip_${plan.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      };
-    }
+  if (!goldPriceNGN || goldPriceNGN <= 0) {
+    throw new Error("No real gold price available — SIP execution refused");
   }
 
-  // Fallback: direct calculation without middleware
-  const txId = `sip_${plan.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  return { grams, amountNGN, txId };
+  if (!isBridgeAvailable()) {
+    throw new Error("Gold provider bridge is not configured — SIP purchase NOT executed");
+  }
+
+  const result = await buyDigitalGoldViaMiddleware(
+    plan.userId,
+    plan.merchantId,
+    amountNGN
+  );
+  if (!result || !result.txId) {
+    throw new Error("Gold provider bridge returned no confirmed fill — SIP purchase NOT executed");
+  }
+
+  return {
+    grams: result.grams ?? amountNGN / goldPriceNGN,
+    amountNGN,
+    txId: result.txId,
+  };
 }
 
 // ─── Main Processor ───────────────────────────────────────────────────────────
@@ -162,7 +172,19 @@ export async function processDueSIPs(): Promise<SIPProcessorResult> {
     return result;
   }
 
-  const goldPrice = getGoldPriceNGN();
+  // Refresh the real gold price before executing; abort the run loudly when
+  // no real quote can be obtained rather than trading on a fabricated price.
+  const goldPrice = await fetchAndCacheGoldPrice();
+  if (!goldPrice || goldPrice <= 0) {
+    const msg = "SIP Processor: ABORTING run — no real gold price available from the provider bridge";
+    logger.error(msg);
+    await notifyOwner({
+      title: "Gold SIP Run Aborted: No Price Feed",
+      content: `${msg}. ${result.processed} plan(s) were NOT executed. Manual intervention required.`,
+    }).catch(() => {});
+    result.errors.push({ planId: "*", error: msg });
+    return result;
+  }
   logger.info(`SIP Processor: Starting run. Gold price: ₦${goldPrice.toLocaleString()}/g`);
 
   try {

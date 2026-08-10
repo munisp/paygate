@@ -60,6 +60,8 @@ export interface VTpassPayResult {
   providerRef: string;
   message: string;
   transactionDate?: string;
+  /** true only when PAYGATE_SIMULATION_MODE=true produced a fake result (dev only) */
+  simulation?: boolean;
 }
 
 export interface VTpassVerifyInput {
@@ -72,35 +74,54 @@ export interface VTpassVerifyResult {
   customerName?: string;
   address?: string;
   message: string;
+  /** true only when PAYGATE_SIMULATION_MODE=true produced a fake result (dev only) */
+  simulation?: boolean;
 }
 
-// ─── Simulation Mode ──────────────────────────────────────────────────────────
+// ─── Simulation Mode (dev only, explicitly gated) ────────────────────────────
 
+/**
+ * Simulation is ONLY allowed when PAYGATE_SIMULATION_MODE=true is explicitly
+ * set (local dev). It is never enabled implicitly by missing credentials, and
+ * must never be enabled in production.
+ */
 function isSimulationMode(): boolean {
-  const apiKey = process.env.VTPASS_API_KEY;
-  const secretKey = process.env.VTPASS_SECRET_KEY;
-  return !apiKey || !secretKey;
+  if (process.env.NODE_ENV === "production") return false;
+  return process.env.PAYGATE_SIMULATION_MODE === "true";
+}
+
+function hasLiveCredentials(): boolean {
+  return Boolean(process.env.VTPASS_API_KEY && process.env.VTPASS_SECRET_KEY);
 }
 
 function simulatePay(input: VTpassPayInput): VTpassPayResult {
-  logger.info(`[VTpass] Simulation mode — billerCode=${input.billerCode} amount=${input.amountNaira}`);
+  logger.warn(
+    `[VTpass] SIMULATION MODE (PAYGATE_SIMULATION_MODE=true) — NO REAL PAYMENT. billerCode=${input.billerCode} amount=${input.amountNaira}`
+  );
   return {
     success: true,
     status: "completed",
     providerRef: `sim_${input.requestId}_${Date.now()}`,
-    message: "Simulated payment (no VTpass credentials configured)",
+    message: "SIMULATED payment — PAYGATE_SIMULATION_MODE=true, no real bill was paid",
     transactionDate: new Date().toISOString(),
+    simulation: true,
   };
 }
 
 function simulateVerify(input: VTpassVerifyInput): VTpassVerifyResult {
-  logger.info(`[VTpass] Simulation verify — billerCode=${input.billerCode} ref=${input.customerReference}`);
+  logger.warn(
+    `[VTpass] SIMULATION MODE (PAYGATE_SIMULATION_MODE=true) — NO REAL VERIFICATION. billerCode=${input.billerCode} ref=${input.customerReference}`
+  );
   return {
     valid: true,
-    customerName: "Simulated Customer",
-    message: "Simulated verification (no VTpass credentials configured)",
+    customerName: "SIMULATED CUSTOMER (not verified)",
+    message: "SIMULATED verification — PAYGATE_SIMULATION_MODE=true",
+    simulation: true,
   };
 }
+
+const NOT_CONFIGURED_MSG =
+  "VTpass bill payment is not configured (missing VTPASS_API_KEY/VTPASS_SECRET_KEY). Payment NOT processed.";
 
 // ─── Live API ─────────────────────────────────────────────────────────────────
 
@@ -143,13 +164,25 @@ async function vtpassRequest<T>(
 
 /**
  * Execute a bill payment via VTpass.
- * Falls back to simulation mode when credentials are not configured.
+ * FAILS LOUD (success:false) when credentials are missing or the provider
+ * errors — callers MUST NOT debit wallets unless success is true. Simulation
+ * only occurs when PAYGATE_SIMULATION_MODE=true is explicitly set for dev.
  */
 export async function vtpassPay(
   input: VTpassPayInput
 ): Promise<VTpassPayResult> {
   if (isSimulationMode()) {
     return simulatePay(input);
+  }
+
+  if (!hasLiveCredentials()) {
+    logger.error(`[VTpass] NOT CONFIGURED — refusing to process payment billerCode=${input.billerCode} amount=${input.amountNaira}`);
+    return {
+      success: false,
+      status: "failed",
+      providerRef: "",
+      message: NOT_CONFIGURED_MSG,
+    };
   }
 
   const serviceID = BILLER_TO_SERVICE[input.billerCode] ?? input.billerCode;
@@ -211,22 +244,32 @@ export async function vtpassPay(
       transactionDate,
     };
   } catch (err) {
-    logger.error("[VTpass] Pay error:", err);
-    // Graceful fallback to simulation on network/timeout errors
-    logger.warn("[VTpass] Falling back to simulation due to API error");
-    return simulatePay(input);
+    // Upstream failure MUST surface as an error — never fabricate success.
+    logger.error("[VTpass] Pay error — returning failure to caller:", err);
+    return {
+      success: false,
+      status: "failed",
+      providerRef: "",
+      message: `VTpass provider unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }
 
 /**
  * Verify a customer reference before payment (e.g. meter number, smart card).
- * Falls back to simulation mode when credentials are not configured.
+ * FAILS LOUD (valid:false) when unconfigured or the provider errors — a
+ * fabricated "valid" result must never be returned.
  */
 export async function vtpassVerify(
   input: VTpassVerifyInput
 ): Promise<VTpassVerifyResult> {
   if (isSimulationMode()) {
     return simulateVerify(input);
+  }
+
+  if (!hasLiveCredentials()) {
+    logger.error(`[VTpass] NOT CONFIGURED — refusing to verify billerCode=${input.billerCode}`);
+    return { valid: false, message: NOT_CONFIGURED_MSG };
   }
 
   const serviceID = BILLER_TO_SERVICE[input.billerCode] ?? input.billerCode;
@@ -262,8 +305,11 @@ export async function vtpassVerify(
         "Customer reference could not be verified",
     };
   } catch (err) {
-    logger.error("[VTpass] Verify error:", err);
-    // Graceful fallback
-    return simulateVerify(input);
+    // Upstream failure MUST surface as an error — never fabricate a valid lookup.
+    logger.error("[VTpass] Verify error — returning invalid to caller:", err);
+    return {
+      valid: false,
+      message: `VTpass provider unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }

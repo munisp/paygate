@@ -18,17 +18,15 @@ import {
 // ─── Gold Price Oracle ────────────────────────────────────────────────────────
 
 describe("Gold Price Oracle", () => {
-  it("returns a positive NGN price per gram", () => {
+  it("returns 0 (no price) before any real quote is fetched — never a seed/fabricated value", () => {
     const price = getGoldPriceNGN();
-    expect(price).toBeGreaterThan(0);
-    expect(price).toBeGreaterThan(90_000); // Realistic floor
-    expect(price).toBeLessThan(110_000);   // Realistic ceiling
+    expect(price).toBe(0);
   });
 
-  it("returns different prices on consecutive calls (variation)", () => {
+  it("never jitters the price (consecutive calls are identical)", () => {
     const prices = Array.from({ length: 20 }, () => getGoldPriceNGN());
     const unique = new Set(prices);
-    expect(unique.size).toBeGreaterThan(1); // Should have variation
+    expect(unique.size).toBe(1); // NO random variation — execution price must be a real quote
   });
 });
 
@@ -111,29 +109,18 @@ describe("executeSIPPlan", () => {
     createdAt: new Date(),
   };
 
-  it("calculates correct grams from NGN amount and gold price", async () => {
-    const goldPrice = 100_000; // ₦100,000/g
-    const result = await executeSIPPlan(mockPlan, goldPrice);
-    // 50,000 / 100,000 = 0.5 grams
-    expect(result.grams).toBeCloseTo(0.5, 4);
-    expect(result.amountNGN).toBe(50_000);
-    expect(result.txId).toContain("sip_sip_test_001");
+  it("refuses to execute without a real gold price", async () => {
+    await expect(executeSIPPlan(mockPlan, 0)).rejects.toThrow(/gold price/i);
   });
 
-  it("generates a unique txId for each execution", async () => {
-    const goldPrice = 98_500;
-    const [r1, r2] = await Promise.all([
-      executeSIPPlan(mockPlan, goldPrice),
-      executeSIPPlan(mockPlan, goldPrice),
-    ]);
-    expect(r1.txId).not.toBe(r2.txId);
+  it("fails loud when the gold provider bridge is not configured — never fabricates a fill", async () => {
+    // No MIDDLEWARE_BRIDGE_URL in test env → must throw, not return fake grams/txId
+    await expect(executeSIPPlan(mockPlan, 100_000)).rejects.toThrow(/bridge|provider|NOT executed/i);
   });
 
-  it("returns grams proportional to investment amount", async () => {
-    const goldPrice = 50_000;
+  it("fails loud for any amount when the provider is unreachable", async () => {
     const largePlan = { ...mockPlan, monthlyAmountNGN: 500_000 };
-    const result = await executeSIPPlan(largePlan, goldPrice);
-    expect(result.grams).toBeCloseTo(10, 2); // 500k / 50k = 10g
+    await expect(executeSIPPlan(largePlan, 50_000)).rejects.toThrow();
   });
 });
 

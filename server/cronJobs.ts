@@ -14,6 +14,7 @@ import { logger } from "./logger";
 import { sendEmail } from "./emailService";
 import { notifyOwner } from "./_core/notification";
 import { isSuppressedWorkerError } from './workerErrorFilter';
+import { buyDigitalGoldViaMiddleware, isBridgeAvailable } from "./middlewareBridge";
 
 // ─── SIP Executor ─────────────────────────────────────────────────────────────
 
@@ -48,7 +49,29 @@ async function executeDueSipPlans() {
         : plan.asset_type;
 
       try {
-        // Record execution
+        // REAL EXECUTION REQUIRED — a SIP execution must actually debit the
+        // wallet and purchase the asset via the provider bridge BEFORE anything
+        // is recorded as completed. If the provider path is unavailable, throw
+        // so the catch path records a FAILED execution, alerts, and emails a
+        // failure notice — never email success without a real purchase.
+        if (plan.asset_type === "gold") {
+          if (!isBridgeAvailable()) {
+            throw new Error("Gold provider bridge is not configured — SIP purchase NOT executed");
+          }
+          const purchase = await buyDigitalGoldViaMiddleware(
+            String(plan.user_id),
+            String(plan.user_id),
+            plan.amount_kobo / 100
+          );
+          if (!purchase) {
+            throw new Error("Gold provider bridge returned no result — SIP purchase NOT executed");
+          }
+        } else {
+          // mutual_fund / pension SIP executions have no provider integration.
+          throw new Error(`No purchase provider integrated for asset_type '${plan.asset_type}' — SIP purchase NOT executed`);
+        }
+
+        // Record execution ONLY after the real purchase succeeded
         await db.execute(sql`
           INSERT INTO sip_executions (id, plan_id, amount_kobo, status, executed_at)
           VALUES (${execId}, ${plan.id}, ${plan.amount_kobo}, 'completed', NOW())

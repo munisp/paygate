@@ -23,17 +23,29 @@ import { sql } from "drizzle-orm";
 
 // ─── Compliance Check Definitions ─────────────────────────────────────────────
 
+interface CheckResult {
+  /** null when the check cannot be evaluated against real evidence */
+  score: number | null;
+  status: "pass" | "warn" | "fail" | "not_evaluated";
+  detail: string;
+}
+
 interface CheckDefinition {
   id: string;
   name: string;
   category: "kyc" | "aml" | "pci" | "iso20022" | "gdpr" | "cbn" | "fhir" | "cbdc";
   description: string;
   threshold: number; // Score below this triggers an alert (0–100)
-  evaluate: (merchantId: string, db: Awaited<ReturnType<typeof getDb>>) => Promise<{
-    score: number;
-    status: "pass" | "warn" | "fail";
-    detail: string;
-  }>;
+  evaluate: (merchantId: string, db: Awaited<ReturnType<typeof getDb>>) => Promise<CheckResult>;
+}
+
+/**
+ * A check with no real, queryable control evidence MUST be reported as
+ * not_evaluated. Persisting an invented (e.g. random) number as a compliance
+ * score is a regulatory fabrication.
+ */
+function notEvaluated(detail: string): CheckResult {
+  return { score: null, status: "not_evaluated", detail };
 }
 
 const COMPLIANCE_CHECKS: CheckDefinition[] = [
@@ -58,8 +70,9 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
           status: score >= 80 ? "pass" : score >= 50 ? "warn" : "fail",
           detail: `${row.verified}/${row.total} documents verified`,
         };
-      } catch {
-        return { score: 50, status: "warn", detail: "Could not evaluate — using default" };
+      } catch (err) {
+        // Never persist a default/fabricated score on evaluation failure.
+        return notEvaluated(`Could not evaluate: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   },
@@ -69,14 +82,28 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     category: "aml",
     description: "Anti-money laundering screening checks are current",
     threshold: 90,
-    evaluate: async (merchantId, _db) => {
-      // Simulate AML check — in production this would query the AML screening service
-      const score = 85 + Math.floor(Math.random() * 15);
-      return {
-        score,
-        status: score >= 90 ? "pass" : "warn",
-        detail: `AML screening score: ${score}/100. Last screened: ${new Date().toLocaleDateString()}`,
-      };
+    evaluate: async (merchantId, db) => {
+      // Real evidence: adverse-media / AML screening records for this merchant.
+      try {
+        const result = await db!.execute(
+          sql`SELECT COUNT(*) as total,
+                     SUM(CASE WHEN flagged = 1 OR flagged = true THEN 1 ELSE 0 END) as flagged,
+                     MAX(created_at) as last_screened
+              FROM adverse_media_screenings WHERE merchant_id = ${merchantId} LIMIT 1`
+        );
+        const row = (result as unknown as Array<{ total: number; flagged: number; last_screened: string | null }>)?.[0];
+        if (!row || Number(row.total) === 0) {
+          return notEvaluated("No AML screening records found — screening provider not integrated");
+        }
+        const score = Number(row.flagged) > 0 ? 0 : 100;
+        return {
+          score,
+          status: Number(row.flagged) > 0 ? "fail" : "pass",
+          detail: `${row.total} screening(s) on record, ${row.flagged} flagged. Last screened: ${row.last_screened ?? "unknown"}`,
+        };
+      } catch (err) {
+        return notEvaluated(`AML screening evidence unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
   },
   {
@@ -86,12 +113,8 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     description: "Payment Card Industry Data Security Standard compliance",
     threshold: 85,
     evaluate: async (_merchantId, _db) => {
-      const score = 88 + Math.floor(Math.random() * 12);
-      return {
-        score,
-        status: score >= 85 ? "pass" : "warn",
-        detail: `PCI DSS Level ${score >= 95 ? 1 : score >= 85 ? 2 : 3} compliance`,
-      };
+      // No PCI attestation evidence is queryable in-repo — never fabricate a score.
+      return notEvaluated("No PCI DSS attestation/ASV scan evidence source integrated");
     },
   },
   {
@@ -101,12 +124,7 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     description: "ISO 20022 message format compliance for cross-border payments",
     threshold: 75,
     evaluate: async (_merchantId, _db) => {
-      const score = 78 + Math.floor(Math.random() * 20);
-      return {
-        score,
-        status: score >= 75 ? "pass" : "warn",
-        detail: `ISO 20022 migration: ${score}% complete. pacs.008, pacs.009, camt.054 validated`,
-      };
+      return notEvaluated("No ISO 20022 message-validation evidence source integrated");
     },
   },
   {
@@ -116,12 +134,7 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     description: "EU General Data Protection Regulation compliance",
     threshold: 80,
     evaluate: async (_merchantId, _db) => {
-      const score = 82 + Math.floor(Math.random() * 15);
-      return {
-        score,
-        status: score >= 80 ? "pass" : "warn",
-        detail: `Data protection score: ${score}/100. DPA registered, consent management active`,
-      };
+      return notEvaluated("No GDPR control-evidence source integrated");
     },
   },
   {
@@ -131,12 +144,7 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     description: "Central Bank of Nigeria reporting requirements",
     threshold: 90,
     evaluate: async (_merchantId, _db) => {
-      const score = 91 + Math.floor(Math.random() * 9);
-      return {
-        score,
-        status: score >= 90 ? "pass" : "warn",
-        detail: `CBN returns submitted on time. Compliance score: ${score}/100`,
-      };
+      return notEvaluated("No CBN returns-submission evidence source integrated");
     },
   },
   {
@@ -146,12 +154,7 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     description: "FHIR R4 resource conformance for healthcare payment flows",
     threshold: 85,
     evaluate: async (_merchantId, _db) => {
-      const score = 87 + Math.floor(Math.random() * 13);
-      return {
-        score,
-        status: score >= 85 ? "pass" : "warn",
-        detail: `FHIR R4 conformance: ${score}%. Coverage, Claim, ClaimResponse resources validated`,
-      };
+      return notEvaluated("No FHIR R4 conformance-validation evidence source integrated");
     },
   },
   {
@@ -161,12 +164,7 @@ const COMPLIANCE_CHECKS: CheckDefinition[] = [
     description: "eNaira/mBridge CBDC protocol compliance",
     threshold: 80,
     evaluate: async (_merchantId, _db) => {
-      const score = 80 + Math.floor(Math.random() * 20);
-      return {
-        score,
-        status: score >= 80 ? "pass" : "warn",
-        detail: `CBDC protocol compliance: ${score}/100. ILP, IVMS-101, mBridge interop validated`,
-      };
+      return notEvaluated("No CBDC protocol-validation evidence source integrated");
     },
   },
 ];
@@ -216,12 +214,27 @@ export async function complianceScorecardJobHandler(req: Request, res: Response)
 
     let totalChecks = 0;
     let failedChecks = 0;
+    let notEvaluatedChecks = 0;
 
     // Evaluate all checks for each merchant
     for (const merchantId of merchantIds.slice(0, 50)) { // Cap at 50 to stay within 2-min timeout
       for (const check of COMPLIANCE_CHECKS) {
         try {
           const result = await check.evaluate(merchantId, db!);
+
+          // Checks without real evidence are marked not_evaluated: they are
+          // neither persisted as scores nor alerted on — a missing integration
+          // must never masquerade as a compliance number.
+          if (result.status === "not_evaluated" || result.score === null) {
+            notEvaluatedChecks++;
+            logger.info("compliance_check_not_evaluated", {
+              merchantId,
+              checkId: check.id,
+              detail: result.detail,
+            });
+            continue;
+          }
+
           totalChecks++;
 
           if (result.status === "fail") failedChecks++;
@@ -291,6 +304,7 @@ export async function complianceScorecardJobHandler(req: Request, res: Response)
       merchantsEvaluated: merchantIds.length,
       totalChecks,
       failedChecks,
+      notEvaluatedChecks,
       alertsSent: alerts.length,
     });
   } catch (err) {
