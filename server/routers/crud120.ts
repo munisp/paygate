@@ -868,6 +868,11 @@ const featureFlagsRouter = router({
         continue;
       }
       // Rollout percentage
+      // NOTE: Math.random() here is intentional for percentage-based feature flag rollout.
+      // However, this is non-deterministic per request — the same user may see different
+      // flag values on different page loads. For consistent per-user rollout, replace with:
+      //   const hash = parseInt(crypto.createHash('sha256').update(userId + row.key).digest('hex').slice(0,8), 16);
+      //   result[row.key] = row.rolloutPercentage >= 100 || (hash % 100) < row.rolloutPercentage;
       result[row.key] = row.rolloutPercentage >= 100 || Math.random() * 100 < row.rolloutPercentage;
     }
     return { flags: result };

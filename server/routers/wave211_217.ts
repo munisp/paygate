@@ -715,11 +715,14 @@ export const energyRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const id = genId("VND");
-      // Stub token generation — in production: Rust NEPA STS engine via gRPC
-      const token = input.amount >= 500
-        ? `${Math.floor(Math.random() * 9e9 + 1e9)}-${Math.floor(Math.random() * 9e9 + 1e9)}-${Math.floor(Math.random() * 9000 + 1000)}`
-        : null;
-      const units = token ? Math.round((input.amount / 100) * 10) / 10 : null; // 1 kWh per ₦100
+      // Token generation requires the Rust NEPA STS engine via gRPC (PAYGATE-ENERGY-STS-001).
+      // Until that integration is live, the transaction is recorded as PENDING_TOKEN
+      // and the token field is null. The caller must poll for the token via getVendStatus.
+      // NEVER return a random/fabricated token — a customer who receives a fake token
+      // and attempts to load it into their meter will lose money with no recourse.
+      const token: string | null = null;
+      const units: number | null = null;
+      const status = "PENDING_TOKEN";
 
       await db.execute(sql`
         INSERT INTO energy_vend_transactions
@@ -728,10 +731,16 @@ export const energyRouter = router({
         VALUES
           (${id}, ${input.meterNumber}, ${input.disco}, ${input.amount}, ${input.currency},
            ${input.customerPhone}, ${input.customerFsp}, ${input.customerAccount},
-           ${token}, ${units}, ${token ? "VENDED" : "TOKENIZING"},
-           ${ctx.user.openId}, NOW(), ${token ? sql`NOW()` : sql`NULL`})
+           ${token}, ${units}, ${status},
+           ${ctx.user.openId}, NOW(), NULL)
       `);
-      return { id, token, units, status: token ? "VENDED" : "TOKENIZING" };
+      return {
+        id,
+        token: null,
+        units: null,
+        status,
+        message: "Vend request queued. Token will be delivered via webhook once the DISCO STS responds.",
+      };
     }),
 });
 
