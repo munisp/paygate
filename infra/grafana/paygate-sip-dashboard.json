@@ -1,0 +1,37 @@
+{
+  "description": "PayGate Gold SIP Processor Dashboard",
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "SIP Plans Active",
+      "type": "stat",
+      "targets": [{ "expr": "paygate_sip_active_plans", "legendFormat": "Active Plans" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Total Gold Purchased (grams)",
+      "type": "stat",
+      "targets": [{ "expr": "sum(paygate_sip_gold_grams_total)", "legendFormat": "Grams" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "id": 3,
+      "title": "Daily SIP Execution Timeline",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(paygate_sip_executions_total[1d])", "legendFormat": "Executions/day" },
+        { "expr": "rate(paygate_sip_failures_total[1d])", "legendFormat": "Failures/day" }
+      ]
+    }
+  ],
+  "refresh": "5m",
+  "tags": ["paygate", "sip", "gold"],
+  "title": "PayGate Gold SIP Dashboard",
+  "uid": "paygate-sip-v95",
+  "version": 1
+}

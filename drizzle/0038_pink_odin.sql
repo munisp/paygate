@@ -1,0 +1,9 @@
+ALTER TABLE "kyc_submissions" ADD COLUMN "liveness_score" real;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "liveness_mode" text;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "liveness_challenge_type" text;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "liveness_passed_at" timestamp;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "liveness_session_id" text;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "ocr_extracted_data" jsonb;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "ocr_confidence" real;--> statement-breakpoint
+ALTER TABLE "kyc_submissions" ADD COLUMN "ocr_processed_at" timestamp;--> statement-breakpoint
+CREATE INDEX "kyc_liveness_idx" ON "kyc_submissions" USING btree ("liveness_score");

@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+httpx==0.28.1
+pydantic==2.9.2
+python-dotenv==1.0.1
+pyarrow==19.0.0
+boto3==1.35.0
+kafka-python==2.0.2
+numpy==1.26.4
+pandas==2.2.3

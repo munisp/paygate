@@ -1,0 +1,140 @@
+# PayGate KYC Services — docker-compose.kyc.yml
+# ================================================
+# Extends docker-compose.prod.yml with KYC-specific microservices.
+# Usage: docker compose -f docker-compose.prod.yml -f docker-compose.kyc.yml up -d
+
+version: "3.9"
+
+services:
+
+  # ─── PaddleOCR + Docling + VLM Document Extraction ──────────────────────────
+  kyc-ocr:
+    build:
+      context: ../python-services/kyc-ocr
+      dockerfile: Dockerfile
+    container_name: paygate-kyc-ocr
+    restart: unless-stopped
+    ports:
+      - "8011:8011"
+    environment:
+      PADDLE_OCR_LANG: "en"
+      VLM_API_URL: "${VLM_API_URL:-http://llava-service:8080/v1}"
+      VLM_API_KEY: "${VLM_API_KEY:-}"
+      VLM_ENABLED: "${VLM_ENABLED:-true}"
+      DOCLING_ENABLED: "${DOCLING_ENABLED:-true}"
+      S3_BUCKET: "${S3_BUCKET:-paygate-kyc-documents}"
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
+      CONFIDENCE_THRESHOLD: "0.7"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    networks: [paygate-net]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kyc-ocr.rule=Host(`kyc-ocr.internal`)"
+
+  # ─── Rust OCR Engine (high-throughput bulk processing) ───────────────────────
+  kyc-ocr-rust:
+    build:
+      context: ../rust-services/kyc-ocr-engine
+      dockerfile: Dockerfile
+    container_name: paygate-kyc-ocr-rust
+    restart: unless-stopped
+    ports:
+      - "8012:8012"
+    environment:
+      PORT: "8012"
+      RUST_LOG: "info"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8012/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks: [paygate-net]
+
+  # ─── Liveness Detection (MediaPipe + InsightFace + SilentFace) ───────────────
+  liveness-detection:
+    build:
+      context: ../python-services/liveness-detection
+      dockerfile: Dockerfile
+    container_name: paygate-liveness
+    restart: unless-stopped
+    ports:
+      - "8013:8013"
+    environment:
+      LIVENESS_THRESHOLD: "0.7"
+      QUALITY_THRESHOLD: "0.5"
+      INSIGHTFACE_MODEL: "${INSIGHTFACE_MODEL:-buffalo_l}"
+      SILENT_FACE_MODEL_PATH: "/models/silent_face.pth"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY:-}"
+    volumes:
+      - liveness-models:/models
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8013/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    networks: [paygate-net]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.liveness.rule=Host(`liveness.internal`)"
+
+  # ─── LLaVA VLM Service (optional, for complex document understanding) ────────
+  # Uncomment to enable local VLM (requires 16GB+ RAM or GPU)
+  # llava-service:
+  #   image: ollama/ollama:latest
+  #   container_name: paygate-llava
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - llava-models:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 16G
+  #   networks: [paygate-net]
+  #   command: ["ollama", "run", "llava:13b"]
+
+volumes:
+  liveness-models:
+  # llava-models:
+
+networks:
+  paygate-net:
+    external: true

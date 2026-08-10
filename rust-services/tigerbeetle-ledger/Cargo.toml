@@ -1,0 +1,26 @@
+[package]
+name = "tigerbeetle-ledger"
+version = "0.97.0"
+edition = "2021"
+description = "PayGate TigerBeetle double-entry ledger service for cross-border rails"
+
+[[bin]]
+name = "tigerbeetle-ledger"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

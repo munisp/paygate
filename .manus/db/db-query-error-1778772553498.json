@@ -1,0 +1,8 @@
+{
+  "query": "\nALTER TABLE tenants \n  ADD COLUMN IF NOT EXISTS favicon_url TEXT,\n  ADD COLUMN IF NOT EXISTS secondary_color TEXT DEFAULT '#a78bfa',\n  ADD COLUMN IF NOT EXISTS footer_text TEXT,\n  ADD COLUMN IF NOT EXISTS support_email TEXT;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2t5rixfHAYLQmtB.7eb00fb93a2d --database cmub7FPkYZGWin9HgyNbPk --execute \nALTER TABLE tenants \n  ADD COLUMN IF NOT EXISTS favicon_url TEXT,\n  ADD COLUMN IF NOT EXISTS secondary_color TEXT DEFAULT '#a78bfa',\n  ADD COLUMN IF NOT EXISTS footer_text TEXT,\n  ADD COLUMN IF NOT EXISTS support_email TEXT;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 2: Table 'cmub7fpkyzgwin9hgynbpk.tenants' doesn't exist"
+  ]
+}

@@ -1,0 +1,91 @@
+version: 2
+
+sources:
+  - name: paygate_raw
+    description: "Raw PayGate PostgreSQL tables — source of truth for all dbt transformations"
+    database: "{{ env_var('DBT_DATABASE', 'paygate') }}"
+    schema: public
+    loader: paygate-app
+    loaded_at_field: created_at
+    freshness:
+      warn_after: {count: 6, period: hour}
+      error_after: {count: 24, period: hour}
+
+    tables:
+      - name: transactions
+        description: "All payment transactions processed through PayGate"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: merchant_id
+            tests: [not_null]
+          - name: amount
+            tests: [not_null]
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['pending', 'success', 'failed', 'reversed', 'flagged']
+
+      - name: merchants
+        description: "Registered merchants on the PayGate platform"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: email
+            tests: [unique, not_null]
+
+      - name: payouts
+        description: "Merchant payout requests and settlements"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: merchant_id
+            tests:
+              - not_null
+              - relationships:
+                  to: source('paygate_raw', 'merchants')
+                  field: id
+
+      - name: disputes
+        description: "Transaction disputes and chargebacks"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: transaction_id
+            tests: [not_null]
+
+      - name: customers
+        description: "End customers who transact through PayGate merchants"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+
+      - name: kyc_verifications
+        description: "KYC/KYB verification records"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+
+      - name: fraud_alerts
+        description: "Fraud detection alerts and decisions"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+
+      - name: webhooks
+        description: "Webhook delivery attempts and statuses"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+
+      - name: api_keys
+        description: "Merchant API key records"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+
+      - name: settlements
+        description: "Settlement batches and reconciliation records"
+        columns:
+          - name: id
+            tests: [unique, not_null]

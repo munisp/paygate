@@ -1,0 +1,29 @@
+# =============================================================================
+# APISIX Dashboard Configuration — PayGate
+# =============================================================================
+conf:
+  listen:
+    host: 0.0.0.0
+    port: 9000
+  etcd:
+    endpoints:
+      - "apisix:2379"
+  log:
+    error_log:
+      level: warn
+      file_path: /dev/stderr
+    access_log:
+      file_path: /dev/stdout
+  security:
+    content_security_policy: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+    x_frame_options: DENY
+    x_xss_protection: "1; mode=block"
+    x_content_type_options: nosniff
+    referrer_policy: strict-origin-when-cross-origin
+
+authentication:
+  secret: ${APISIX_DASHBOARD_SECRET:-paygate-dashboard-secret-change-in-prod}
+  expire_time: 3600
+  users:
+    - username: ${APISIX_DASHBOARD_USER:-admin}
+      password: ${APISIX_DASHBOARD_PASS:-PayGate@Admin2026!}

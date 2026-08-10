@@ -1,0 +1,208 @@
+{
+  "id": null,
+  "uid": "paygate-wave32",
+  "title": "PayGate Wave 32 — GNN Fraud & AI Services",
+  "tags": ["paygate", "wave32", "gnn", "fraud", "ai"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "GNN Fraud Service Status",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "up{job=\"paygate-gnn-fraud\"}",
+          "legendFormat": "GNN Fraud"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Fraud Detections / min",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "rate(paygate_gnn_fraud_detections_total[1m]) * 60",
+          "legendFormat": "Detections/min"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Fraud Rings Detected",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "paygate_gnn_fraud_rings_detected_total",
+          "legendFormat": "Rings"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avg GNN Inference Latency (ms)",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(paygate_gnn_inference_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p95 latency"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "GNN Fraud Score Distribution",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(paygate_gnn_fraud_detections_total{score_bucket=\"low\"}[5m])",
+          "legendFormat": "Low Risk (< 0.3)"
+        },
+        {
+          "expr": "rate(paygate_gnn_fraud_detections_total{score_bucket=\"medium\"}[5m])",
+          "legendFormat": "Medium Risk (0.3-0.7)"
+        },
+        {
+          "expr": "rate(paygate_gnn_fraud_detections_total{score_bucket=\"high\"}[5m])",
+          "legendFormat": "High Risk (> 0.7)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "AI Service Uptime",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "up{job=~\"paygate-gnn-fraud|paygate-vector-store|paygate-knowledge-graph|paygate-lakehouse-ai\"}",
+          "legendFormat": "{{ job }}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Wave 32 Service Health",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "up{job=~\"paygate-gnn-fraud|paygate-vector-store|paygate-knowledge-graph|paygate-art-reasoning|paygate-cocoindex|paygate-lakehouse-ai|paygate-fraud-heatmap|paygate-lakehouse-v2\"}",
+          "legendFormat": "{{ job }}",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        { "id": "labelsToFields", "options": { "mode": "columns" } }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Vector Store Status",
+      "gridPos": { "x": 0, "y": 20, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "up{job=\"paygate-vector-store\"}",
+          "legendFormat": "Vector Store"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Knowledge Graph Status",
+      "gridPos": { "x": 4, "y": 20, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "up{job=\"paygate-knowledge-graph\"}",
+          "legendFormat": "Knowledge Graph"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Lakehouse AI Status",
+      "gridPos": { "x": 8, "y": 20, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "up{job=\"paygate-lakehouse-ai\"}",
+          "legendFormat": "Lakehouse AI"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "GNN Training Jobs — Duration",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "paygate_gnn_training_duration_seconds",
+          "legendFormat": "{{ job_id }}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Invite Code Usage Rate",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(paygate_invite_codes_redeemed_total[5m])",
+          "legendFormat": "Redemptions/s"
+        }
+      ]
+    }
+  ]
+}

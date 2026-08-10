@@ -1,0 +1,717 @@
+---
+# ─── PayGate Middleware Stack — Kubernetes Manifests ─────────────────────────
+# Covers all 13 middleware services:
+# Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis,
+# PostgreSQL, OpenSearch, APISIX, TigerBeetle, Lakehouse, Go-Bridge
+#
+# Apply: kubectl apply -f middleware-stack.yaml
+# Namespace: paygate-middleware
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paygate-middleware
+  labels:
+    app.kubernetes.io/part-of: paygate
+---
+# ─── ConfigMap — shared environment ──────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paygate-middleware-config
+  namespace: paygate-middleware
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"
+  TEMPORAL_HOST_PORT: "temporal-service:7233"
+  TEMPORAL_NAMESPACE: "paygate"
+  KEYCLOAK_URL: "http://keycloak-service:8080"
+  KEYCLOAK_REALM: "paygate"
+  KEYCLOAK_CLIENT_ID: "paygate-portal"
+  PERMIFY_URL: "http://permify-service:3476"
+  REDIS_URL: "redis://redis-service:6379"
+  POSTGRES_URL: "postgresql://paygate:$(POSTGRES_PASSWORD)@postgres-service:5432/paygate"
+  OPENSEARCH_URL: "http://opensearch-service:9200"
+  TIGERBEETLE_ADDRESS: "tigerbeetle-service:3000"
+  LAKEHOUSE_URL: "http://lakehouse-service:8125"
+  LOG_LEVEL: "info"
+---
+# ─── Secret — credentials ─────────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paygate-middleware-secrets
+  namespace: paygate-middleware
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "paygate_secret"
+  REDIS_PASSWORD: "redis_secret"
+  KEYCLOAK_ADMIN_PASSWORD: "admin_secret"
+  KEYCLOAK_CLIENT_SECRET: "keycloak_client_secret"
+  PERMIFY_API_KEY: "permify_api_key"
+  MIDDLEWARE_INTERNAL_KEY: "paygate-internal-key"
+  JWT_SECRET: "paygate-jwt-secret-change-in-production"
+---
+# ─── 1. Kafka ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: paygate-middleware
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.0
+          ports:
+            - containerPort: 9092
+            - containerPort: 29092
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "zookeeper-service:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka-service:9092,PLAINTEXT_INTERNAL://kafka-headless:29092"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: kafka-storage
+              mountPath: /var/lib/kafka/data
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: kafka
+  ports:
+    - name: external
+      port: 9092
+      targetPort: 9092
+    - name: internal
+      port: 29092
+      targetPort: 29092
+---
+# ─── 2. Redis ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          ports:
+            - containerPort: 6379
+          command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: paygate-middleware
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# ─── 3. PostgreSQL ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: paygate-middleware
+spec:
+  serviceName: postgres-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: paygate
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: paygate
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# ─── 4. OpenSearch ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  namespace: paygate-middleware
+spec:
+  serviceName: opensearch-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      initContainers:
+        - name: sysctl
+          image: busybox
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.13.0
+          ports:
+            - containerPort: 9200
+            - containerPort: 9600
+          env:
+            - name: cluster.name
+              value: paygate-cluster
+            - name: node.name
+              value: paygate-node-1
+            - name: discovery.type
+              value: single-node
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: opensearch-storage
+              mountPath: /usr/share/opensearch/data
+  volumeClaimTemplates:
+    - metadata:
+        name: opensearch-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 30Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: perf
+      port: 9600
+      targetPort: 9600
+---
+# ─── 5. Keycloak ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:24.0.3
+          ports:
+            - containerPort: 8080
+          args: ["start-dev"]
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://postgres-service:5432/keycloak
+            - name: KC_DB_USERNAME
+              value: paygate
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: POSTGRES_PASSWORD
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: KEYCLOAK_ADMIN_PASSWORD
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# ─── 6. Permify ───────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: permify
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: permify
+  template:
+    metadata:
+      labels:
+        app: permify
+    spec:
+      containers:
+        - name: permify
+          image: ghcr.io/permify/permify:v0.9.6
+          ports:
+            - containerPort: 3476
+            - containerPort: 3478
+          args: ["serve"]
+          env:
+            - name: PERMIFY_DATABASE_ENGINE
+              value: postgres
+            - name: PERMIFY_DATABASE_URI
+              value: postgres://paygate:$(POSTGRES_PASSWORD)@postgres-service:5432/permify
+            - name: PERMIFY_SERVER_HTTP_PORT
+              value: "3476"
+            - name: PERMIFY_SERVER_GRPC_PORT
+              value: "3478"
+          envFrom:
+            - secretRef:
+                name: paygate-middleware-secrets
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: permify-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: permify
+  ports:
+    - name: http
+      port: 3476
+      targetPort: 3476
+    - name: grpc
+      port: 3478
+      targetPort: 3478
+---
+# ─── 7. Temporal ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal
+  template:
+    metadata:
+      labels:
+        app: temporal
+    spec:
+      containers:
+        - name: temporal
+          image: temporalio/auto-setup:1.24.2
+          ports:
+            - containerPort: 7233
+          env:
+            - name: DB
+              value: postgresql
+            - name: DB_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: paygate
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-middleware-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_SEEDS
+              value: postgres-service
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: temporal
+  ports:
+    - port: 7233
+      targetPort: 7233
+---
+# ─── 8. TigerBeetle Ledger (Rust HTTP wrapper) ────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tigerbeetle-ledger
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tigerbeetle-ledger
+  template:
+    metadata:
+      labels:
+        app: tigerbeetle-ledger
+    spec:
+      containers:
+        - name: tigerbeetle-ledger
+          image: paygate/tigerbeetle-ledger:latest
+          ports:
+            - containerPort: 8200
+          env:
+            - name: PORT
+              value: "8200"
+            - name: RUST_LOG
+              value: info
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tigerbeetle-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: tigerbeetle-ledger
+  ports:
+    - port: 8200
+      targetPort: 8200
+---
+# ─── 9. Lakehouse (Python) ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lakehouse
+  namespace: paygate-middleware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lakehouse
+  template:
+    metadata:
+      labels:
+        app: lakehouse
+    spec:
+      containers:
+        - name: lakehouse
+          image: paygate/lakehouse-v2:latest
+          ports:
+            - containerPort: 8125
+          envFrom:
+            - configMapRef:
+                name: paygate-middleware-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakehouse-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: lakehouse
+  ports:
+    - port: 8125
+      targetPort: 8125
+---
+# ─── 10. Go Bridge ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-bridge
+  namespace: paygate-middleware
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: go-bridge
+  template:
+    metadata:
+      labels:
+        app: go-bridge
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "go-bridge"
+        dapr.io/app-port: "8080"
+    spec:
+      containers:
+        - name: go-bridge
+          image: paygate/go-bridge:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: paygate-middleware-config
+            - secretRef:
+                name: paygate-middleware-secrets
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-bridge-service
+  namespace: paygate-middleware
+spec:
+  selector:
+    app: go-bridge
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# ─── HorizontalPodAutoscaler for Go Bridge ────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: go-bridge-hpa
+  namespace: paygate-middleware
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: go-bridge
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# ─── NetworkPolicy — restrict inter-service traffic ──────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paygate-middleware-netpol
+  namespace: paygate-middleware
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paygate-middleware
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paygate-app
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paygate-middleware
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 443
+          protocol: TCP

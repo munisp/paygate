@@ -1,0 +1,107 @@
+---
+# Redis State Store for session and cache
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: paygate-statestore
+  namespace: paygate
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "redis:6379"
+    - name: redisPassword
+      secretKeyRef:
+        name: paygate-secrets
+        key: REDIS_PASSWORD
+    - name: enableTLS
+      value: "false"
+    - name: maxRetries
+      value: "3"
+    - name: maxRetryBackoff
+      value: "2s"
+    - name: ttlInSeconds
+      value: "3600"
+    - name: keyPrefix
+      value: "paygate"
+auth:
+  secretStore: paygate-secret-store
+---
+# Redis State Store for distributed locks
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: paygate-lockstore
+  namespace: paygate
+spec:
+  type: lock.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "redis:6379"
+    - name: redisPassword
+      secretKeyRef:
+        name: paygate-secrets
+        key: REDIS_PASSWORD
+---
+# Kubernetes Secret Store
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: paygate-secret-store
+  namespace: paygate
+spec:
+  type: secretstores.kubernetes
+  version: v1
+  metadata: []
+---
+# Bindings: Kafka output binding for publishing events
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: paygate-kafka-binding
+  namespace: paygate
+spec:
+  type: bindings.kafka
+  version: v1
+  metadata:
+    - name: brokers
+      value: "kafka:9092"
+    - name: publishTopic
+      value: "paygate.events.outbound"
+    - name: authType
+      value: "none"
+    - name: maxMessageBytes
+      value: "1048576"
+---
+# Bindings: SMTP for email notifications
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: paygate-smtp-binding
+  namespace: paygate
+spec:
+  type: bindings.smtp
+  version: v1
+  metadata:
+    - name: host
+      secretKeyRef:
+        name: paygate-secrets
+        key: SMTP_HOST
+    - name: port
+      secretKeyRef:
+        name: paygate-secrets
+        key: SMTP_PORT
+    - name: user
+      secretKeyRef:
+        name: paygate-secrets
+        key: SMTP_USER
+    - name: password
+      secretKeyRef:
+        name: paygate-secrets
+        key: SMTP_PASS
+    - name: skipTLSVerify
+      value: "false"
+auth:
+  secretStore: paygate-secret-store

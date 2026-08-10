@@ -1,0 +1,220 @@
+{
+  "id": null,
+  "uid": "paygate-system-overview",
+  "title": "PayGate — System Overview",
+  "description": "High-level health and throughput for all PayGate services",
+  "tags": ["paygate", "system", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Services Up",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 80 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * count(up == 1) / count(up)",
+          "legendFormat": "% Services Up"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Portal RPS",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"paygate-portal\"}[1m]))",
+          "legendFormat": "Requests/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Go Bridge RPS",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"paygate-go-bridge\"}[1m]))",
+          "legendFormat": "Requests/s"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Error Rate",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+          "legendFormat": "Error %"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Fraud Score Avg",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 0.75 }
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      },
+      "targets": [
+        {
+          "expr": "avg(paygate_fraud_score_avg)",
+          "legendFormat": "Avg Fraud Score"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "MinIO Disk Used",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "options": { "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * minio_disk_storage_used_bytes / minio_disk_storage_total_bytes",
+          "legendFormat": "Disk Used %"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Request Rate by Service",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "expr": "sum by (job) (rate(http_requests_total[1m]))",
+          "legendFormat": "{{ job }}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "P95 Latency by Service",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{ job }}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "CPU Usage by Service",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "targets": [
+        {
+          "expr": "100 * rate(process_cpu_seconds_total[1m])",
+          "legendFormat": "{{ job }}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Memory Usage by Service",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "{{ job }}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Service Health Status",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "options": { "sortBy": [{ "displayName": "Status", "desc": false }] },
+      "targets": [
+        {
+          "expr": "up",
+          "legendFormat": "{{ job }}",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "renameByName": { "Value": "Status", "job": "Service" } } }
+      ]
+    }
+  ]
+}

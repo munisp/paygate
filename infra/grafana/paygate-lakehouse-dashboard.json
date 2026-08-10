@@ -1,0 +1,428 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "PayGate Lakehouse Stack — MinIO, Spark, Trino, DuckDB, Sedona, DataFusion",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "MinIO Object Storage",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 70 },
+            { "color": "red", "value": 90 }
+          ]},
+          "unit": "percent",
+          "mappings": []
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "id": 101,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "title": "MinIO Disk Usage %",
+      "type": "gauge",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "100 * (1 - (minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes))",
+        "legendFormat": "Disk Used %",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes" }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "id": 102,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "value" },
+      "title": "MinIO Total Storage",
+      "type": "stat",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "minio_cluster_capacity_usable_total_bytes",
+        "legendFormat": "Total",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 1 },
+      "id": 103,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "MinIO Request Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "rate(minio_s3_requests_total[5m])",
+          "legendFormat": "{{api}} {{type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "id": 200,
+      "title": "Apache Spark",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null },
+          { "color": "green", "value": 1 }
+        ]}, "unit": "short" }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 8 },
+      "id": 201,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "title": "Spark Workers",
+      "type": "stat",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "spark_worker_count",
+        "legendFormat": "Workers",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 8 },
+      "id": 202,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "title": "Active Spark Jobs",
+      "type": "stat",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "spark_active_jobs_count",
+        "legendFormat": "Active Jobs",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes" }
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 8 },
+      "id": 203,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Spark Memory Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "spark_memory_used_bytes",
+          "legendFormat": "Used",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "spark_memory_total_bytes",
+          "legendFormat": "Total",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 8 },
+      "id": 204,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Delta Compaction Duration",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "paygate_delta_compaction_duration_seconds",
+        "legendFormat": "Compaction Duration",
+        "refId": "A"
+      }]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "id": 300,
+      "title": "Trino Distributed SQL",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 13 },
+      "id": 301,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "title": "Trino Active Queries",
+      "type": "stat",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "trino_active_queries",
+        "legendFormat": "Active",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "ms" }
+      },
+      "gridPos": { "h": 4, "w": 10, "x": 4, "y": 13 },
+      "id": 302,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Trino Query Latency P95",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "histogram_quantile(0.95, rate(trino_query_duration_ms_bucket[5m]))",
+        "legendFormat": "p95",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "gridPos": { "h": 4, "w": 10, "x": 14, "y": 13 },
+      "id": 303,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Trino Query Failures",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "rate(trino_failed_queries_total[5m])",
+        "legendFormat": "Failures/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "id": 400,
+      "title": "DuckDB Lakehouse V2",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "ms" }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 18 },
+      "id": 401,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Lakehouse V2 Query Latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.50, rate(paygate_lakehouse_query_duration_ms_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, rate(paygate_lakehouse_query_duration_ms_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.99, rate(paygate_lakehouse_query_duration_ms_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 18 },
+      "id": 402,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Lakehouse V2 Query Rate",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "rate(paygate_lakehouse_queries_total[5m])",
+        "legendFormat": "Queries/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 500,
+      "title": "Apache Sedona — Fraud Heatmap",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 25 },
+      "id": 501,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "title": "High-Risk Clusters",
+      "type": "stat",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "paygate_fraud_heatmap_high_risk_clusters",
+        "legendFormat": "High Risk",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "ms" }
+      },
+      "gridPos": { "h": 4, "w": 10, "x": 4, "y": 25 },
+      "id": 502,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Sedona Heatmap Compute Time",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "histogram_quantile(0.95, rate(paygate_fraud_heatmap_duration_ms_bucket[5m]))",
+        "legendFormat": "p95 Compute",
+        "refId": "A"
+      }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "gridPos": { "h": 4, "w": 10, "x": 14, "y": 25 },
+      "id": 503,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "H3 Cells Processed",
+      "type": "timeseries",
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "expr": "rate(paygate_fraud_heatmap_cells_processed_total[5m])",
+        "legendFormat": "Cells/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "id": 600,
+      "title": "Apache DataFusion — Credit Scoring",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "ms" }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 30 },
+      "id": 601,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "DataFusion Credit Score Latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.50, rate(paygate_credit_score_duration_ms_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, rate(paygate_credit_score_duration_ms_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 30 },
+      "id": 602,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Credit Score Distribution",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "paygate_credit_score_avg",
+          "legendFormat": "Avg Score",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "paygate_credit_score_p10",
+          "legendFormat": "P10 Score",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "paygate_credit_score_p90",
+          "legendFormat": "P90 Score",
+          "refId": "C"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["paygate", "lakehouse", "sedona", "datafusion", "spark", "trino", "minio"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "PayGate Lakehouse Stack",
+  "uid": "paygate-lakehouse",
+  "version": 1
+}

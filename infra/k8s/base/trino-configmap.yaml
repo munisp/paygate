@@ -1,0 +1,49 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-config
+  namespace: paygate
+data:
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=false
+    http-server.http.port=8080
+    discovery.uri=http://paygate-trino:8080
+    query.max-memory=4GB
+    query.max-memory-per-node=1GB
+    query.max-total-memory-per-node=2GB
+  node.properties: |
+    node.environment=production
+    node.id=paygate-trino-coordinator
+    node.data-dir=/data/trino
+  jvm.config: |
+    -server
+    -Xmx4G
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+UseGCOverheadLimit
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+    -Djdk.attach.allowAttachSelf=true
+    -XX:-UseBiasedLocking
+    -XX:ReservedCodeCacheSize=512M
+    -XX:PerMethodRecompilationCutoff=10000
+    -XX:PerBytecodeRecompilationCutoff=10000
+    -Djdk.nio.maxCachedBufferSize=2000000
+    -XX:+UnlockDiagnosticVMOptions
+    -XX:+UseAESCTRIntrinsics
+  catalog/lakehouse.properties: |
+    connector.name=delta_lake
+    hive.metastore=file
+    hive.metastore.catalog.dir=s3://paygate-lakehouse/
+    delta.metadata.live-files.cache-size=10000
+    hive.s3.endpoint=http://paygate-minio:9000
+    hive.s3.path-style-access=true
+    hive.s3.aws-access-key=minioadmin
+    hive.s3.aws-secret-key=minioadmin123
+    hive.s3.ssl.enabled=false
+  catalog/tpch.properties: |
+    connector.name=tpch
+    tpch.splits-per-node=4

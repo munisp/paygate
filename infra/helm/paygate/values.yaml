@@ -1,0 +1,287 @@
+# =============================================================================
+# PayGate Helm Chart — Default Values
+# Override with: helm install paygate ./infra/helm/paygate -f values.prod.yaml
+# =============================================================================
+
+# ─── Global ──────────────────────────────────────────────────────────────────
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# ─── Namespace ───────────────────────────────────────────────────────────────
+namespace: paygate
+
+# ─── Portal (Node.js / React) ────────────────────────────────────────────────
+portal:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: paygate/portal
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  env:
+    NODE_ENV: production
+    LOG_LEVEL: info
+
+# ─── Go Bridge ───────────────────────────────────────────────────────────────
+bridge:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: paygate/go-bridge
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 800m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+# ─── PostgreSQL ───────────────────────────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    username: paygate
+    password: ""  # Override in values.prod.yaml or use existing secret
+    database: paygate
+    existingSecret: paygate-secrets
+    secretKeys:
+      adminPasswordKey: POSTGRES_PASSWORD
+      userPasswordKey: POSTGRES_PASSWORD
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  metrics:
+    enabled: true
+
+# ─── Redis ───────────────────────────────────────────────────────────────────
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    existingSecret: paygate-secrets
+    existingSecretPasswordKey: REDIS_PASSWORD
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  metrics:
+    enabled: true
+
+# ─── Ingress ─────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: portal.paygate.ng
+      paths:
+        - path: /
+          pathType: Prefix
+          service: portal
+          port: 3000
+    - host: api.paygate.ng
+      paths:
+        - path: /v1
+          pathType: Prefix
+          service: bridge
+          port: 8080
+  tls:
+    - secretName: paygate-tls
+      hosts:
+        - portal.paygate.ng
+        - api.paygate.ng
+
+# ─── Python Services ─────────────────────────────────────────────────────────
+pythonServices:
+  fraudScoring:
+    enabled: true
+    replicaCount: 2
+    image: paygate/fraud-scoring:latest
+    port: 8001
+  taxEngine:
+    enabled: true
+    replicaCount: 1
+    image: paygate/tax-engine:latest
+    port: 8002
+  settlementForecast:
+    enabled: true
+    replicaCount: 1
+    image: paygate/settlement-forecast:latest
+    port: 8003
+  isoParser:
+    enabled: true
+    replicaCount: 1
+    image: paygate/iso20022-parser:latest
+    port: 8004
+  insurancePricing:
+    enabled: true
+    replicaCount: 1
+    image: paygate/insurance-pricing:latest
+    port: 8005
+  cohortAnalytics:
+    enabled: true
+    replicaCount: 1
+    image: paygate/cohort-analytics:latest
+    port: 8006
+  carbonOracle:
+    enabled: true
+    replicaCount: 1
+    image: paygate/carbon-oracle:latest
+    port: 8007
+  bulkCollections:
+    enabled: true
+    replicaCount: 2
+    image: paygate/bulk-collections:latest
+    port: 8008
+  cashbackRewards:
+    enabled: true
+    replicaCount: 1
+    image: paygate/cashback-rewards:latest
+    port: 8009
+  emiService:
+    enabled: true
+    replicaCount: 1
+    image: paygate/emi-service:latest
+    port: 8010
+  intlRemittance:
+    enabled: true
+    replicaCount: 2
+    image: paygate/intl-remittance:latest
+    port: 8011
+  mutualFunds:
+    enabled: true
+    replicaCount: 1
+    image: paygate/mutual-funds:latest
+    port: 8012
+  pensionNps:
+    enabled: true
+    replicaCount: 1
+    image: paygate/pension-nps:latest
+    port: 8013
+  salaryAccounts:
+    enabled: true
+    replicaCount: 1
+    image: paygate/salary-accounts:latest
+    port: 8014
+  soundbox:
+    enabled: true
+    replicaCount: 2
+    image: paygate/soundbox:latest
+    port: 8015
+  wealthManagement:
+    enabled: true
+    replicaCount: 1
+    image: paygate/wealth-management:latest
+    port: 8016
+
+# ─── Rust Services ───────────────────────────────────────────────────────────
+rustServices:
+  billingEngine:
+    enabled: true
+    replicaCount: 2
+    image: paygate/billing-engine:latest
+    port: 8200
+  creditScoring:
+    enabled: true
+    replicaCount: 2
+    image: paygate/credit-scoring:latest
+    port: 8201
+  inventoryEngine:
+    enabled: true
+    replicaCount: 1
+    image: paygate/inventory-engine:latest
+    port: 8202
+  loyaltyLedger:
+    enabled: true
+    replicaCount: 2
+    image: paygate/loyalty-ledger:latest
+    port: 8203
+  tigerbeetleRecon:
+    enabled: true
+    replicaCount: 1
+    image: paygate/tigerbeetle-recon:latest
+    port: 8204
+  walletFfi:
+    enabled: true
+    replicaCount: 2
+    image: paygate/wallet-ffi:latest
+    port: 8205
+
+# ─── Monitoring ──────────────────────────────────────────────────────────────
+monitoring:
+  prometheus:
+    enabled: true
+    retention: 15d
+    storageSize: 20Gi
+  grafana:
+    enabled: true
+    adminPassword: ""  # Override in values.prod.yaml
+    persistence:
+      enabled: true
+      size: 5Gi
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+secrets:
+  existingSecret: paygate-secrets
+
+# ─── Service Account ─────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: paygate-sa
+  annotations: {}
+
+# ─── Pod Disruption Budget ───────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ─── Network Policy ──────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
