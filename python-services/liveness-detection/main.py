@@ -75,7 +75,10 @@ try:
     INSIGHTFACE_AVAILABLE = True
 except ImportError:
     INSIGHTFACE_AVAILABLE = False
-    logging.warning("insightface not available — using fallback embeddings")
+    logging.warning(
+        "insightface not available — /liveness/extract will return 503 "
+        "(no fabricated fallback embeddings)"
+    )
 
 try:
     from PIL import Image as PILImage
@@ -297,7 +300,9 @@ def detect_deepfake(img: np.ndarray) -> tuple[float, bool]:
     Returns (deepfake_probability, is_deepfake) where probability in [0,1].
     """
     if not CV2_AVAILABLE:
-        return 0.0, False
+        # Fail closed: an unavailable deepfake check is "uncertain", NEVER
+        # "not a deepfake" — (0.0, False) would silently pass the screen.
+        raise RuntimeError("Deepfake detection unavailable: OpenCV not installed")
     try:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # Compute DFT magnitude spectrum
@@ -334,8 +339,11 @@ def detect_deepfake(img: np.ndarray) -> tuple[float, bool]:
         )
         is_deepfake = deepfake_prob > 0.65
         return float(deepfake_prob), is_deepfake
-    except Exception:
-        return 0.0, False
+    except RuntimeError:
+        raise
+    except Exception as e:
+        # Propagate as an error ("uncertain") — never as "not a deepfake".
+        raise RuntimeError(f"Deepfake detection failed: {e}") from e
 
 
 # ─── Face detection ───────────────────────────────────────────────────────────
@@ -442,14 +450,18 @@ def extract_landmarks_68(img: np.ndarray) -> list[dict]:
 # ─── ArcFace embedding extraction ────────────────────────────────────────────
 
 def extract_embedding(img: np.ndarray) -> list[float]:
-    """Extract ArcFace 512-dim face embedding."""
+    """Extract ArcFace 512-dim face embedding.
+
+    FAIL CLOSED: when the InsightFace/ArcFace model is unavailable this raises
+    RuntimeError. Raw pixel statistics are NOT a face embedding — returning
+    them as one poisons every downstream identity comparison.
+    """
     app = get_face_app()
     if app is None:
-        # Return a deterministic fallback embedding based on image statistics
-        gray = img.mean(axis=2) if len(img.shape) == 3 else img
-        flat = gray.flatten()[:512]
-        norm = np.linalg.norm(flat)
-        return (flat / (norm + 1e-6)).tolist()
+        raise RuntimeError(
+            "ArcFace embedding model (InsightFace) is unavailable — "
+            "refusing to fabricate an embedding from raw pixels"
+        )
 
     try:
         rgb = bgr_to_rgb(img)
@@ -461,8 +473,8 @@ def extract_embedding(img: np.ndarray) -> list[float]:
         emb = largest.normed_embedding
         return emb.tolist() if emb is not None else []
     except Exception as e:
-        logger.warning(f"Embedding extraction failed: {e}")
-        return []
+        logger.error(f"Embedding extraction failed: {e}")
+        raise RuntimeError(f"ArcFace embedding extraction failed: {e}") from e
 
 
 # ─── Active liveness (challenge-response) ────────────────────────────────────
@@ -843,7 +855,13 @@ async def face_extract(req: LivenessRequest, x_internal_key: str = Header(defaul
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
-    embedding = extract_embedding(img)
+    try:
+        embedding = extract_embedding(img)
+    except RuntimeError as e:
+        # Model unavailable / inference failed — fail closed with 503.
+        raise HTTPException(status_code=503, detail=str(e))
+    if not embedding:
+        raise HTTPException(status_code=422, detail="No face detected — embedding not produced")
     faces = detect_faces(img)
 
     return {
@@ -851,6 +869,7 @@ async def face_extract(req: LivenessRequest, x_internal_key: str = Header(defaul
         "face_detected": len(faces) > 0,
         "embedding": embedding,
         "embedding_dim": len(embedding),
+        "model": "InsightFace-ArcFace",
         "processing_ms": int((time.time() - start) * 1000),
     }
 
