@@ -7,44 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
-  Database, GitBranch, Wind, Activity, Play, RefreshCw, CheckCircle,
-  XCircle, Clock, AlertTriangle, BarChart2, Layers, Workflow, Zap
+  GitBranch, Wind, Activity, Play, RefreshCw, CheckCircle,
+  AlertTriangle, Layers, Workflow, Zap
 } from "lucide-react";
-
-// ─── Static pipeline metadata (reflects infra/airflow/dags + infra/dbt) ──────
-const AIRFLOW_DAGS = [
-  { id: "paygate_daily_pipeline", name: "Daily ETL Pipeline", schedule: "0 2 * * *", lastRun: "2026-04-20 02:00", status: "success", duration: "4m 12s", tasks: 12, owner: "data-team" },
-  { id: "paygate_fraud_realtime", name: "Fraud Alert Processor", schedule: "*/5 * * * *", lastRun: "2026-04-20 14:55", status: "success", duration: "0m 48s", tasks: 5, owner: "fraud-team" },
-  { id: "paygate_settlement_reconciliation", name: "Settlement Reconciliation", schedule: "0 6 * * *", lastRun: "2026-04-20 06:00", status: "success", duration: "2m 31s", tasks: 8, owner: "finance-team" },
-  { id: "paygate_dbt_transform", name: "dbt Transformation Run", schedule: "0 3 * * *", lastRun: "2026-04-20 03:00", status: "success", duration: "6m 44s", tasks: 4, owner: "analytics-team" },
-  { id: "paygate_merchant_digest", name: "Merchant Daily Digest", schedule: "0 8 * * *", lastRun: "2026-04-20 08:00", status: "running", duration: "1m 22s", tasks: 6, owner: "merchant-team" },
-  { id: "paygate_aml_batch", name: "AML Batch Scoring", schedule: "0 1 * * *", lastRun: "2026-04-20 01:00", status: "failed", duration: "3m 05s", tasks: 9, owner: "compliance-team" },
-];
-
-const DBT_MODELS = [
-  { name: "stg_transactions", schema: "staging", rows: "2.4M", lastRun: "2026-04-20 03:00", status: "success", duration: "12s" },
-  { name: "stg_merchants", schema: "staging", rows: "18.2K", lastRun: "2026-04-20 03:00", status: "success", duration: "2s" },
-  { name: "stg_payouts", schema: "staging", rows: "142K", lastRun: "2026-04-20 03:00", status: "success", duration: "4s" },
-  { name: "stg_disputes", schema: "staging", rows: "8.9K", lastRun: "2026-04-20 03:00", status: "success", duration: "1s" },
-  { name: "fct_merchant_revenue", schema: "marts/finance", rows: "18.2K", lastRun: "2026-04-20 03:01", status: "success", duration: "8s" },
-  { name: "fct_fraud_signals", schema: "marts/fraud", rows: "48.3K", lastRun: "2026-04-20 03:01", status: "success", duration: "15s" },
-  { name: "dim_merchant_health", schema: "marts/merchant", rows: "18.2K", lastRun: "2026-04-20 03:02", status: "success", duration: "6s" },
-  { name: "fct_aml_signals", schema: "marts/compliance", rows: "12.1K", lastRun: "2026-04-20 03:02", status: "success", duration: "9s" },
-];
-
-const NIFI_FLOWS = [
-  { id: "kafka-ingestion", name: "Kafka Transaction Ingestion", status: "running", throughput: "1,240 msg/s", backpressure: false, processors: 8 },
-  { id: "nibss-inbound", name: "NIBSS Inbound NIP Parser", status: "running", throughput: "320 msg/s", backpressure: false, processors: 6 },
-  { id: "mojaloop-sync", name: "Mojaloop DFSP Sync", status: "running", throughput: "88 msg/s", backpressure: false, processors: 5 },
-  { id: "fraud-enrichment", name: "Fraud Feature Enrichment", status: "running", throughput: "1,240 msg/s", backpressure: false, processors: 7 },
-  { id: "lakehouse-writer", name: "Parquet Lakehouse Writer", status: "running", throughput: "420 msg/s", backpressure: true, processors: 4 },
-  { id: "webhook-dispatcher", name: "Webhook Event Dispatcher", status: "stopped", throughput: "0 msg/s", backpressure: false, processors: 3 },
-];
-
-// PIPELINE_METRICS are computed live from DAG/dbt/NiFi queries (see component body)
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
@@ -57,14 +24,32 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
 }
 
+function LoadingRows({ cols }: { cols: number }) {
+  return (
+    <TableRow>
+      <TableCell colSpan={cols} className="text-center py-8 text-muted-foreground">
+        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />Loading…
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function EmptyRows({ cols, message }: { cols: number; message: string }) {
+  return (
+    <TableRow>
+      <TableCell colSpan={cols} className="text-center py-8 text-muted-foreground">{message}</TableCell>
+    </TableRow>
+  );
+}
+
 export default function AdminDataPipeline() {
   const [activeTab, setActiveTab] = useState("overview");
   const [triggeringDag, setTriggeringDag] = useState<string | null>(null);
 
-  // Real tRPC data
-  const { data: liveDags, isLoading: dagsLoading, refetch: refetchDags } = trpc.adminDataPipeline.listDags.useQuery();
-  const { data: liveDbtRuns, isLoading: dbtLoading, refetch: refetchDbt } = trpc.adminDataPipeline.listDbtRuns.useQuery();
-  const { data: liveNifiFlows, isLoading: nifiLoading, refetch: refetchNifi } = trpc.adminDataPipeline.listNifiFlows.useQuery();
+  // Real tRPC data only — no static DAG/dbt/NiFi fallbacks.
+  const { data: liveDags, isLoading: dagsLoading, isError: dagsError, error: dagsErrorObj, refetch: refetchDags } = trpc.adminDataPipeline.listDags.useQuery();
+  const { data: liveDbtRuns, isLoading: dbtLoading, isError: dbtError, error: dbtErrorObj, refetch: refetchDbt } = trpc.adminDataPipeline.listDbtRuns.useQuery();
+  const { data: liveNifiFlows, isLoading: nifiLoading, isError: nifiError, error: nifiErrorObj, refetch: refetchNifi } = trpc.adminDataPipeline.listNifiFlows.useQuery();
 
   const triggerDagMutation = trpc.adminDataPipeline.triggerDag.useMutation({
     onSuccess: (r) => {
@@ -81,15 +66,26 @@ export default function AdminDataPipeline() {
     triggerDagMutation.mutate({ dagId });
   };
 
-  const handleDbtRun = () => {
-    toast.info("dbt run queued — transformations will complete in ~7 minutes");
-    refetchDbt();
-  };
+  const dags = (liveDags as any)?.dags ?? [];
+  const dbtModels = (liveDbtRuns as any)?.runs ?? [];
+  const nifi = (liveNifiFlows as any)?.flows ?? [];
 
-  const handleNiFiRestart = (flowId: string) => {
-    toast.success(`NiFi flow "${flowId}" restarted`);
-    refetchNifi();
-  };
+  const activeDagRuns = dags.filter((d: any) => d.status === "running").length;
+  const nifiRunning = nifi.filter((f: any) => f.status === "running").length;
+  const totalThroughput = nifi.reduce((acc: number, f: any) => {
+    const match = String(f.throughput ?? "").match(/([\d,]+)/);
+    return acc + (match ? parseInt(match[1].replace(/,/g, "")) : 0);
+  }, 0);
+  const throughputStr = totalThroughput >= 1000 ? `${(totalThroughput / 1000).toFixed(1)}K msg/s` : `${totalThroughput} msg/s`;
+  const dbtPassing = dbtModels.filter((m: any) => m.status === "success").length;
+  const dagsPassing = dags.filter((d: any) => d.status === "success").length;
+
+  const metrics = [
+    { label: "Active DAG Runs", value: dagsLoading ? "…" : dagsError ? "—" : String(activeDagRuns), icon: Workflow, color: "text-emerald-500" },
+    { label: "NiFi Flows Running", value: nifiLoading ? "…" : nifiError ? "—" : `${nifiRunning}/${nifi.length}`, icon: Zap, color: "text-amber-500" },
+    { label: "NiFi Throughput", value: nifiLoading ? "…" : nifiError ? "—" : throughputStr, icon: Activity, color: "text-indigo-500" },
+    { label: "dbt Models Passing", value: dbtLoading ? "…" : dbtError ? "—" : `${dbtPassing}/${dbtModels.length}`, icon: CheckCircle, color: "text-green-500" },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -100,53 +96,39 @@ export default function AdminDataPipeline() {
             Apache NiFi · dbt · Airflow · Trino — unified data orchestration for PayGate
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetchDags(); refetchDbt(); refetchNifi(); toast.success("Pipeline status refreshed"); }}><RefreshCw/> Refresh
-          </Button>
-          <Button size="sm" onClick={handleDbtRun}>
-            <Play className="w-4 h-4 mr-2" /> Run dbt Now
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" aria-label="Refresh" onClick={() => { refetchDags(); refetchDbt(); refetchNifi(); toast.success("Pipeline status refreshed"); }}><RefreshCw/> Refresh
+        </Button>
       </div>
 
-      {/* KPI Cards — computed from live data */}
-      {(() => {
-        const dags = (liveDags as any)?.dags ?? AIRFLOW_DAGS;
-        const dbtModels = (liveDbtRuns as any)?.runs ?? DBT_MODELS;
-        const nifi = (liveNifiFlows as any)?.flows ?? NIFI_FLOWS;
-        const activeDagRuns = dags.filter((d: any) => d.status === "running").length;
-        const nifiRunning = nifi.filter((f: any) => f.status === "running").length;
-        const nifiTotal = nifi.length;
-        const totalThroughput = nifi.reduce((acc: number, f: any) => {
-          const match = String(f.throughput ?? "").match(/([\d,]+)/);
-          return acc + (match ? parseInt(match[1].replace(/,/g, "")) : 0);
-        }, 0);
-        const throughputStr = totalThroughput >= 1000 ? `${(totalThroughput / 1000).toFixed(1)}K msg/s` : `${totalThroughput} msg/s`;
-        const dbtPassing = dbtModels.filter((m: any) => m.status === "success").length;
-        const metrics = [
-          { label: "Active DAG Runs", value: dagsLoading ? "…" : String(activeDagRuns), icon: Workflow, color: "text-emerald-500" },
-          { label: "NiFi Flows Running", value: nifiLoading ? "…" : `${nifiRunning}/${nifiTotal}`, icon: Zap, color: "text-amber-500" },
-          { label: "NiFi Throughput", value: nifiLoading ? "…" : throughputStr, icon: Activity, color: "text-indigo-500" },
-          { label: "dbt Models Passing", value: dbtLoading ? "…" : `${dbtPassing}/${dbtModels.length}`, icon: CheckCircle, color: "text-green-500" },
-        ];
-        return (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {metrics.map((m) => (
-              <Card key={m.label}>
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-center gap-3">
-                    <m.icon className={`w-8 h-8 ${m.color}`} />
-                    <div>
-                      <p className="text-2xl font-bold">{m.value}</p>
-                      <p className="text-xs text-muted-foreground">{m.label}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+      {(dagsError || dbtError || nifiError) && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-amber-800">Some pipeline data is unavailable</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {[dagsError && `Airflow: ${dagsErrorObj?.message}`, dbtError && `dbt: ${dbtErrorObj?.message}`, nifiError && `NiFi: ${nifiErrorObj?.message}`].filter(Boolean).join(" · ")}
+            </p>
           </div>
-        );
-      })()}
+          <Button size="sm" variant="outline" onClick={() => { refetchDags(); refetchDbt(); refetchNifi(); }}>Retry</Button>
+        </div>
+      )}
+
+      {/* KPI Cards — computed from live data only */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {metrics.map((m) => (
+          <Card key={m.label}>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-3">
+                <m.icon className={`w-8 h-8 ${m.color}`} />
+                <div>
+                  <p className="text-2xl font-bold">{m.value}</p>
+                  <p className="text-xs text-muted-foreground">{m.label}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-4 w-full max-w-xl">
@@ -161,15 +143,22 @@ export default function AdminDataPipeline() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Pipeline Health</CardTitle>
+                <CardTitle className="text-base">Pipeline Health (live)</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex justify-between text-sm"><span>Airflow DAGs (passing)</span><span className="font-medium">5/6</span></div>
-                <Progress value={83} className="h-2" />
-                <div className="flex justify-between text-sm"><span>dbt Models (passing)</span><span className="font-medium">8/8</span></div>
-                <Progress value={100} className="h-2" />
-                <div className="flex justify-between text-sm"><span>NiFi Flows (running)</span><span className="font-medium">5/6</span></div>
-                <Progress value={83} className="h-2" />
+                {[
+                  { label: "Airflow DAGs (passing)", done: dagsPassing, total: dags.length, loading: dagsLoading, error: dagsError },
+                  { label: "dbt Models (passing)", done: dbtPassing, total: dbtModels.length, loading: dbtLoading, error: dbtError },
+                  { label: "NiFi Flows (running)", done: nifiRunning, total: nifi.length, loading: nifiLoading, error: nifiError },
+                ].map(row => (
+                  <div key={row.label}>
+                    <div className="flex justify-between text-sm">
+                      <span>{row.label}</span>
+                      <span className="font-medium">{row.loading ? "…" : row.error ? "unavailable" : `${row.done}/${row.total}`}</span>
+                    </div>
+                    {!row.loading && !row.error && <Progress value={row.total > 0 ? (row.done / row.total) * 100 : 0} className="h-2 mt-1" />}
+                  </div>
+                ))}
               </CardContent>
             </Card>
             <Card>
@@ -177,21 +166,21 @@ export default function AdminDataPipeline() {
                 <CardTitle className="text-base">Data Freshness</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                {[
-                  { table: "stg_transactions", lag: "< 1 min", ok: true },
-                  { table: "fct_merchant_revenue", lag: "< 1 hr", ok: true },
-                  { table: "fct_fraud_signals", lag: "< 1 hr", ok: true },
-                  { table: "dim_merchant_health", lag: "< 1 hr", ok: true },
-                  { table: "fct_aml_signals", lag: "< 1 hr", ok: true },
-                ].map((row) => (
-                  <div key={row.table} className="flex justify-between items-center py-1 border-b last:border-0">
-                    <span className="font-mono text-xs">{row.table}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">{row.lag}</span>
-                      {row.ok ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertTriangle className="w-4 h-4 text-red-500" />}
+                {dbtLoading ? (
+                  <p className="text-muted-foreground py-4 text-center"><RefreshCw className="w-4 h-4 animate-spin inline mr-2" />Loading…</p>
+                ) : dbtModels.length === 0 ? (
+                  <p className="text-muted-foreground py-4 text-center">No dbt run data available — freshness cannot be assessed.</p>
+                ) : (
+                  dbtModels.map((m: any) => (
+                    <div key={m.name} className="flex justify-between items-center py-1 border-b last:border-0">
+                      <span className="font-mono text-xs">{m.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">{m.lastRun ?? m.last_run ?? "—"}</span>
+                        {m.status === "success" ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertTriangle className="w-4 h-4 text-amber-500" />}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </CardContent>
             </Card>
           </div>
@@ -204,9 +193,9 @@ export default function AdminDataPipeline() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
                 {[
-                  { tool: "Apache NiFi", role: "Real-time ingestion", desc: "Kafka → Parquet streaming, NIBSS/Mojaloop event parsing, fraud feature enrichment at 3.3K msg/s", color: "bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800" },
-                  { tool: "Apache Airflow", role: "Batch orchestration", desc: "Daily ETL, settlement reconciliation, AML batch scoring, merchant digest emails — 6 production DAGs", color: "bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800" },
-                  { tool: "dbt", role: "SQL transformations", desc: "8 models across staging + 4 marts (finance, fraud, merchant, compliance). Runs nightly at 03:00 UTC", color: "bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800" },
+                  { tool: "Apache NiFi", role: "Real-time ingestion", desc: "Kafka → Parquet streaming, NIBSS/Mojaloop event parsing, fraud feature enrichment", color: "bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800" },
+                  { tool: "Apache Airflow", role: "Batch orchestration", desc: "Daily ETL, settlement reconciliation, AML batch scoring, merchant digest emails", color: "bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800" },
+                  { tool: "dbt", role: "SQL transformations", desc: "Staging + marts models (finance, fraud, merchant, compliance). Runs nightly at 03:00 UTC", color: "bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800" },
                   { tool: "Trino", role: "Ad-hoc analytics", desc: "Federated SQL over Parquet (MinIO), PostgreSQL, and Kafka. Powers LakehouseAI dashboard queries", color: "bg-purple-50 border-purple-200 dark:bg-purple-950 dark:border-purple-800" },
                 ].map((item) => (
                   <div key={item.tool} className={`rounded-lg border p-3 ${item.color}`}>
@@ -227,7 +216,7 @@ export default function AdminDataPipeline() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">Airflow DAGs</CardTitle>
-                  <CardDescription>6 production DAGs — managed by Apache Airflow 2.10.4 (CeleryExecutor)</CardDescription>
+                  <CardDescription>Production DAGs reported by the data bridge</CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => window.open("http://localhost:8090", "_blank")}>
                   Open Airflow UI
@@ -248,31 +237,33 @@ export default function AdminDataPipeline() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {AIRFLOW_DAGS.map((dag) => (
-                    <TableRow key={dag.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-sm">{dag.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{dag.id}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{dag.schedule}</TableCell>
-                      <TableCell className="text-xs">{dag.lastRun}</TableCell>
-                      <TableCell className="text-xs">{dag.duration}</TableCell>
-                      <TableCell>{dag.tasks}</TableCell>
-                      <TableCell><StatusBadge status={dag.status} /></TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={triggeringDag === dag.id}
-                          onClick={() => handleTriggerDag(dag.id)}
-                        >
-                          {triggeringDag === dag.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {dagsLoading ? <LoadingRows cols={7} /> :
+                    dags.length === 0 ? <EmptyRows cols={7} message={dagsError ? "Could not load DAGs — see banner above." : "No DAGs reported by the data bridge."} /> :
+                    dags.map((dag: any) => (
+                      <TableRow key={dag.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium text-sm">{dag.name ?? dag.id}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{dag.id}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{dag.schedule ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{dag.lastRun ?? dag.last_run ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{dag.duration ?? "—"}</TableCell>
+                        <TableCell>{dag.tasks ?? "—"}</TableCell>
+                        <TableCell><StatusBadge status={dag.status ?? "unknown"} /></TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={triggeringDag === dag.id}
+                            onClick={() => handleTriggerDag(dag.id)}
+                          >
+                            {triggeringDag === dag.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </CardContent>
@@ -283,15 +274,8 @@ export default function AdminDataPipeline() {
         <TabsContent value="dbt" className="mt-4">
           <Card>
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">dbt Models</CardTitle>
-                  <CardDescription>8 models across staging + 4 marts — dbt 1.9.4 targeting PostgreSQL</CardDescription>
-                </div>
-                <Button size="sm" onClick={handleDbtRun}>
-                  <Play className="w-4 h-4 mr-2" /> Run dbt
-                </Button>
-              </div>
+              <CardTitle className="text-base">dbt Models</CardTitle>
+              <CardDescription>Model run status reported by the data bridge</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -306,16 +290,18 @@ export default function AdminDataPipeline() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {DBT_MODELS.map((model) => (
-                    <TableRow key={model.name}>
-                      <TableCell className="font-mono text-sm">{model.name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{model.schema}</TableCell>
-                      <TableCell>{model.rows}</TableCell>
-                      <TableCell className="text-xs">{model.lastRun}</TableCell>
-                      <TableCell className="text-xs">{model.duration}</TableCell>
-                      <TableCell><StatusBadge status={model.status} /></TableCell>
-                    </TableRow>
-                  ))}
+                  {dbtLoading ? <LoadingRows cols={6} /> :
+                    dbtModels.length === 0 ? <EmptyRows cols={6} message={dbtError ? "Could not load dbt runs — see banner above." : "No dbt run data reported yet."} /> :
+                    dbtModels.map((model: any) => (
+                      <TableRow key={model.name}>
+                        <TableCell className="font-mono text-sm">{model.name}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{model.schema ?? "—"}</TableCell>
+                        <TableCell>{model.rows ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{model.lastRun ?? model.last_run ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{model.duration ?? "—"}</TableCell>
+                        <TableCell><StatusBadge status={model.status ?? "unknown"} /></TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </CardContent>
@@ -329,7 +315,7 @@ export default function AdminDataPipeline() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">NiFi Data Flows</CardTitle>
-                  <CardDescription>6 production flows — Apache NiFi 1.28.1 (HTTPS :8443)</CardDescription>
+                  <CardDescription>Flow status reported by the data bridge</CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => window.open("https://localhost:8443/nifi/", "_blank")}>
                   Open NiFi UI
@@ -345,32 +331,29 @@ export default function AdminDataPipeline() {
                     <TableHead>Processors</TableHead>
                     <TableHead>Backpressure</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {NIFI_FLOWS.map((flow) => (
-                    <TableRow key={flow.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-sm">{flow.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{flow.id}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{flow.throughput}</TableCell>
-                      <TableCell>{flow.processors}</TableCell>
-                      <TableCell>
-                        {flow.backpressure
-                          ? <Badge variant="destructive" className="text-xs">Active</Badge>
-                          : <Badge variant="outline" className="text-xs">None</Badge>}
-                      </TableCell>
-                      <TableCell><StatusBadge status={flow.status} /></TableCell>
-                      <TableCell>
-                        <Button size="sm" variant="outline" aria-label="Refresh" onClick={() => handleNiFiRestart(flow.id)}><RefreshCw/>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {nifiLoading ? <LoadingRows cols={5} /> :
+                    nifi.length === 0 ? <EmptyRows cols={5} message={nifiError ? "Could not load NiFi flows — see banner above." : "No NiFi flows reported by the data bridge."} /> :
+                    nifi.map((flow: any) => (
+                      <TableRow key={flow.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium text-sm">{flow.name ?? flow.id}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{flow.id}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{flow.throughput ?? "—"}</TableCell>
+                        <TableCell>{flow.processors ?? "—"}</TableCell>
+                        <TableCell>
+                          {flow.backpressure
+                            ? <Badge variant="destructive" className="text-xs">Active</Badge>
+                            : <Badge variant="outline" className="text-xs">None</Badge>}
+                        </TableCell>
+                        <TableCell><StatusBadge status={flow.status ?? "unknown"} /></TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </CardContent>

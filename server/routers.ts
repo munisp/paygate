@@ -2542,14 +2542,14 @@ const merchantAnalyticsRouter = router({
       if (input.groupBy === 'rail') {
         const rows = await db
           .select({
-            rail: interchangeFeeRecords.rail,
-            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            rail: interchangeFeeRecords.scheme,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
             txnCount: drizzleSql<number>`count(*)`,
           })
           .from(interchangeFeeRecords)
           .where(baseWhere)
-          .groupBy(interchangeFeeRecords.rail);
+          .groupBy(interchangeFeeRecords.scheme);
         const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
         const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
         return { groupBy: 'rail', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
@@ -2559,8 +2559,8 @@ const merchantAnalyticsRouter = router({
         const rows = await db
           .select({
             cardType: interchangeFeeRecords.cardType,
-            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
             txnCount: drizzleSql<number>`count(*)`,
           })
           .from(interchangeFeeRecords)
@@ -2571,16 +2571,16 @@ const merchantAnalyticsRouter = router({
         return { groupBy: 'cardType', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
       }
 
-      // day or month grouping — use DATE_FORMAT for MySQL-compatible syntax
+      // day or month grouping — Postgres to_char (not MySQL date_format)
       const truncFn = input.groupBy === 'month'
-        ? drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m')`
-        : drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m-%d')`;
+        ? drizzleSql<string>`to_char(${interchangeFeeRecords.createdAt}, 'YYYY-MM')`
+        : drizzleSql<string>`to_char(${interchangeFeeRecords.createdAt}, 'YYYY-MM-DD')`;
 
       const rows = await db
         .select({
           period: truncFn,
-          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
           txnCount: drizzleSql<number>`count(*)`,
         })
         .from(interchangeFeeRecords)
@@ -2613,13 +2613,13 @@ const merchantAnalyticsRouter = router({
       const [strBacklog, recentBreaches, activeSchemes] = await Promise.all([
         db.select({ count: drizzleSql<number>`count(*)` })
           .from(strRecords)
-          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.status, 'pending'))),
+          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.submissionStatus, 'pending'))),
         db.select({ count: drizzleSql<number>`count(*)` })
           .from(velocityBreaches)
           .where(drizzleAnd(drizzleEq(velocityBreaches.merchantId, merchant.id), drizzleGte(velocityBreaches.createdAt, since24h))),
         db.select({ scheme: schemeMemberships.scheme, status: schemeMemberships.status })
           .from(schemeMemberships)
-          .where(drizzleEq(schemeMemberships.merchantId, merchant.id)),
+          .where(drizzleEq(schemeMemberships.memberId, merchant.id)),
       ]);
 
       return {
@@ -2906,22 +2906,22 @@ const middlewareRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
-        const since = new Date(Date.now() - input.loginAnomalyWindowMinutes * 60 * 1000);
+        const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
         const events = await getKeycloakEvents({
           limit: 1000,
           eventType: "LOGIN_ERROR",
           fromDate: since,
         });
         const count = events.length;
-        const exceeded = count >= input.loginAnomalyThreshold;
+        const exceeded = count >= input.threshold;
         if (exceeded) {
           const { notifyOwner } = await import("./_core/notification");
           await notifyOwner({
             title: "⚠️ Auth Anomaly Detected",
-            content: `${count} login failures in the last ${input.loginAnomalyWindowMinutes} minutes (threshold: ${input.loginAnomalyThreshold}). Check /security/auth-events for details.`,
+            content: `${count} login failures in the last ${input.windowMinutes} minutes (threshold: ${input.threshold}). Check /security/auth-events for details.`,
           });
         }
-        return { count, exceeded, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold, since };
+        return { count, exceeded, windowMinutes: input.windowMinutes, threshold: input.threshold, since };
       }),
 
     // ── Active Keycloak sessions list (admin) ──
@@ -3001,17 +3001,17 @@ const middlewareRouter = router({
         const user = await resolveUser(ctx.user.openId);
         // Get old values for audit log
         const oldConfig = await getAnomalyConfig(user.id);
-        await setAnomalyConfig(user.id, input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
+        await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
         // Record audit entry
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: false,
           oldWindowMinutes: oldConfig.loginAnomalyWindowMinutes,
           oldThreshold: oldConfig.loginAnomalyThreshold,
-          newWindowMinutes: input.loginAnomalyWindowMinutes,
-          newThreshold: input.loginAnomalyThreshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
         });
-        return { ok: true, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold };
+        return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
       }),
 
     // ── Acknowledge a geo-anomaly event (admin dismisses new-country alert) ──
@@ -3045,15 +3045,15 @@ const middlewareRouter = router({
         }
                 // Get old global config for audit log
         const oldGlobal = await getGlobalAnomalyConfig();
-        await setGlobalAnomalyConfig(input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
+        await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
         const user = await resolveUser(ctx.user.openId);
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: true,
           oldWindowMinutes: oldGlobal.loginAnomalyWindowMinutes,
           oldThreshold: oldGlobal.loginAnomalyThreshold,
-          newWindowMinutes: input.loginAnomalyWindowMinutes,
-          newThreshold: input.loginAnomalyThreshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
         });
         return { ok: true };
       }),
@@ -3417,7 +3417,26 @@ const fraudRiskRouter = router({
       let seeded = 0;
       for (const alert of DEMO_ALERTS) {
         try {
-          await db.insert(fraudAlerts).values({ ...alert, merchantId: merchant.id });
+          await db.insert(fraudAlerts).values({
+            merchantId: merchant.id,
+            transactionId: alert.transactionId,
+            alertType: alert.alertType as any,
+            severity: alert.riskLevel,
+            status: alert.status as any,
+            riskScore: alert.riskScore,
+            riskFactors: [alert.alertType],
+            details: {
+              description: alert.description,
+              transactionAmount: alert.transactionAmount,
+              transactionCurrency: alert.transactionCurrency,
+              location: alert.location,
+            },
+            customerEmail: alert.customerEmail,
+            customerIp: alert.customerIp,
+            deviceFingerprint: alert.deviceFingerprint,
+            locationCity: alert.location.split(",")[0]?.trim() ?? null,
+            locationCountry: alert.location.split(",").slice(1).join(",").trim() || null,
+          } as any);
           seeded++;
         } catch { /* skip duplicates */ }
       }
@@ -3596,7 +3615,7 @@ const complianceKycRouter = router({
               signal: AbortSignal.timeout(10000),
             });
             if (bvnResp.ok) {
-              const bvnResult = await bvnResp.json();
+              const bvnResult = await bvnResp.json() as any;
               update.bvnMatchScore = bvnResult.match_score ?? null;
               update.bvnVerifiedAt = new Date();
               update.bvnVerificationStatus = bvnResult.status ?? 'not_found'; // 'matched'|'mismatch'|'not_found'
@@ -3758,7 +3777,7 @@ const complianceKycRouter = router({
           signal: AbortSignal.timeout(60000),
         });
         if (!resp.ok) throw new Error(`OCR service error: ${resp.status}`);
-        const result = await resp.json();
+        const result = await resp.json() as any;
         await updateKycSubmission(input.submissionId, merchant.id, { status: 'under_review' });
         logger.info(`[kyc.extractDocument] sub=${input.submissionId} confidence=${result.overall_confidence ?? result.confidence}`);
         return result;
@@ -3903,7 +3922,7 @@ const complianceKycRouter = router({
             signal: AbortSignal.timeout(30000),
           });
           if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
-          const result = await resp.json();
+          const result = await resp.json() as any;
           livenessScore = result.liveness_score ?? 0;
           adaptedDecision =
             result.decision === 'real' && livenessScore < adaptiveThreshold
@@ -3931,7 +3950,7 @@ const complianceKycRouter = router({
         if (adaptedDecision === 'spoof') {
           await updateKycSubmission(input.submissionId, String(user.id), {
             status: 'rejected',
-            rejectionReason: `Liveness check failed: ${result?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
+            rejectionReason: `Liveness check failed: ${(result as any)?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
         // Persist liveness result to DB regardless of outcome
@@ -4769,7 +4788,7 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const { upsertFxAlert } = await import('./db');
       const pair = `${input.baseCurrency}/${input.targetCurrency}`;
-      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.loginAnomalyThreshold });
+      const alert = await upsertFxAlert({ merchantId: merchant.id, pair, direction: input.direction, threshold: input.threshold });
       return { success: true, alert };
     }),
   convertCurrency: protectedProcedure
@@ -4849,7 +4868,7 @@ const fxRouter = router({
       if (triggered.length > 0) {
         await notifyOwner({
           title: `FX Rate Alert Triggered (${triggered.length})`,
-          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.loginAnomalyThreshold})`).join("\n"),
+          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.threshold})`).join("\n"),
         });
       }
       return { triggered, checkedAt: new Date().toISOString() };
@@ -4949,29 +4968,106 @@ const walletRouter = router({
       idempotencyKey: z.string().min(8).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const { getOrCreateWallet, getWalletByUserId, getWalletTransactionByReference } = await import("./db");
+      const database = await getDb();
       const senderWallet = await getOrCreateWallet(String(ctx.user.id));
       if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
       const execute = async () => {
-        const balance = parseFloat(senderWallet.balance);
-        if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
-        const ref = `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-        const newBalance = (balance - input.amount).toFixed(2);
-        await updateWalletBalance(senderWallet.id, newBalance);
-        const tx = await createWalletTransaction({
-          walletId: senderWallet.id,
-          tenantId: "ten_default",
-          type: "debit",
-          amount: String(input.amount),
-          currency: input.currency,
-          balanceBefore: String(balance),
-          balanceAfter: newBalance,
-          description: input.note ?? `Transfer to ${input.recipientId}`,
-          reference: ref,
-          channel: "p2p",
-          counterpartyId: input.recipientId,
-          status: "completed",
+        const amount = input.amount.toFixed(2);
+        // Idempotent reference: retries with the same idempotency key reuse it.
+        const ref = input.idempotencyKey
+          ? `P2P-${input.idempotencyKey}`
+          : `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+        // Idempotency pre-check: if this reference was already processed, replay.
+        const existing = await getWalletTransactionByReference(senderWallet.tenantId, ref);
+        if (existing) {
+          return { success: true, reference: ref, transaction: existing, idempotentReplay: true };
+        }
+        // Recipient wallet must exist in the same currency (create if first use).
+        const recipientWallet = await getWalletByUserId(input.recipientId, input.currency)
+          ?? await getOrCreateWallet(input.recipientId, senderWallet.tenantId, input.currency);
+        if (!recipientWallet) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Recipient wallet not found" });
+        }
+        if (recipientWallet.id === senderWallet.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot transfer to your own wallet" });
+        }
+        if (recipientWallet.currency !== senderWallet.currency) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Currency mismatch between sender and recipient wallets" });
+        }
+
+        // Single atomic transaction: guarded sender debit (TOCTOU-safe),
+        // recipient credit, and double-entry ledger rows.
+        const result = await database.transaction(async (tx) => {
+          // Guarded debit — the balance check happens under the row lock.
+          const debitRes: any = await tx.execute(sql`
+            UPDATE wallets
+            SET balance = (balance::numeric - ${amount}::numeric)::text, updated_at = now()
+            WHERE id = ${senderWallet.id} AND balance::numeric >= ${amount}::numeric
+            RETURNING balance
+          `);
+          const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+          if (!debitRows[0]) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+          }
+          const senderBalanceAfter = String(debitRows[0].balance);
+
+          const creditRes: any = await tx.execute(sql`
+            UPDATE wallets
+            SET balance = (balance::numeric + ${amount}::numeric)::text, updated_at = now()
+            WHERE id = ${recipientWallet.id}
+            RETURNING balance
+          `);
+          const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+          if (!creditRows[0]) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Recipient wallet credit failed" });
+          }
+          const recipientBalanceAfter = String(creditRows[0].balance);
+
+          // Double-entry ledger: one debit leg + one credit leg, same reference.
+          const { walletTransactions } = await import("../drizzle/schema");
+          const [debitLeg] = await tx.insert(walletTransactions).values({
+            walletId: senderWallet.id,
+            tenantId: senderWallet.tenantId,
+            type: "debit",
+            amount,
+            currency: input.currency,
+            balanceBefore: senderWallet.balance,
+            balanceAfter: senderBalanceAfter,
+            description: input.note ?? `Transfer to ${input.recipientId}`,
+            reference: ref,
+            channel: "p2p",
+            counterpartyId: input.recipientId,
+            status: "completed",
+          }).returning();
+          await tx.insert(walletTransactions).values({
+            walletId: recipientWallet.id,
+            tenantId: recipientWallet.tenantId,
+            type: "credit",
+            amount,
+            currency: input.currency,
+            balanceBefore: recipientWallet.balance,
+            balanceAfter: recipientBalanceAfter,
+            description: input.note ?? `Transfer from ${ctx.user.openId}`,
+            reference: ref,
+            channel: "p2p",
+            counterpartyId: String(ctx.user.id),
+            status: "completed",
+          }).returning();
+          return debitLeg;
+        }).catch(async (err: any) => {
+          // Unique-violation on (tenant_id, reference) → concurrent replay.
+          if (err?.code === "23505") {
+            const prior = await getWalletTransactionByReference(senderWallet.tenantId, ref);
+            if (prior) return { replay: prior } as const;
+          }
+          throw err;
         });
+
+        if ("replay" in (result as any)) {
+          return { success: true, reference: ref, transaction: (result as any).replay, idempotentReplay: true };
+        }
+
         // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse
         if (isBridgeAvailable()) {
           p2pTransferViaMiddleware({
@@ -4985,7 +5081,7 @@ const walletRouter = router({
             narration: input.note ?? '',
           }).catch(e => logger.error('[bridge] p2pTransfer failed (non-fatal):', e));
         }
-        return { success: true, reference: ref, transaction: tx };
+        return { success: true, reference: ref, transaction: result, idempotentReplay: false };
       };
       if (input.idempotencyKey) {
         return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
@@ -4997,28 +5093,115 @@ const walletRouter = router({
       amount: z.number().positive().max(10_000_000),
       currency: z.string().default("NGN"),
       channel: z.enum(["card", "bank_transfer", "ussd"]).default("bank_transfer"),
+      // Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) proving the funds.
+      paymentReference: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const { getOrCreateWallet, getWalletTransactionByReference } = await import("./db");
+      const database = await getDb();
+      const { isStripeConfigured, getStripe } = await import("./stripe");
+
+      // Unbacked minting is impossible: no Stripe → no top-ups.
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Wallet top-up unavailable: card payments (Stripe) are not configured",
+        });
+      }
+      const stripe = getStripe();
+
+      // ── Verify the PSP reference BEFORE crediting anything ──────────────
+      let verifiedAmountMinor: number;
+      let verifiedCurrency: string;
+      try {
+        if (input.paymentReference.startsWith("pi_")) {
+          const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
+          if (pi.status !== "succeeded") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not completed (status: ${pi.status})` });
+          }
+          verifiedAmountMinor = pi.amount;
+          verifiedCurrency = pi.currency;
+        } else if (input.paymentReference.startsWith("cs_")) {
+          const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
+          if (session.payment_status !== "paid") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Checkout session not paid (status: ${session.payment_status})` });
+          }
+          verifiedAmountMinor = session.amount_total ?? 0;
+          verifiedCurrency = session.currency ?? "";
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Unrecognized payment reference — expected a Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) id",
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Stripe rejected the reference (unknown id, API error) → unverified.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Payment reference could not be verified with the payment provider: ${err?.message ?? "unknown error"}`,
+        });
+      }
+
+      // Exact amount/currency match — no partial or cross-currency credits.
+      const expectedMinor = Math.round(input.amount * 100);
+      if (verifiedAmountMinor !== expectedMinor || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${expectedMinor} ${input.currency.toUpperCase()})`,
+        });
+      }
+
       const wallet = await getOrCreateWallet(String(ctx.user.id));
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
-      const ref = `TOPUP-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      const balanceBefore = parseFloat(wallet.balance);
-      const newBalance = (balanceBefore + input.amount).toFixed(2);
-      await updateWalletBalance(wallet.id, newBalance);
-      const tx = await createWalletTransaction({
-        walletId: wallet.id,
-        tenantId: "ten_default",
-        type: "credit",
-        amount: String(input.amount),
-        currency: input.currency,
-        balanceBefore: String(balanceBefore),
-        balanceAfter: newBalance,
-        description: `Top-up via ${input.channel}`,
-        reference: ref,
-        channel: input.channel,
-        status: "completed",
+
+      // Idempotent on the PSP reference: one Stripe payment → one credit.
+      const ref = `TOPUP-${input.paymentReference}`;
+      const existing = await getWalletTransactionByReference(wallet.tenantId, ref);
+      if (existing) {
+        return { success: true, reference: ref, newBalance: null, transaction: existing, idempotentReplay: true };
+      }
+
+      // Atomic credit + ledger row in a single transaction.
+      const result = await database.transaction(async (tx) => {
+        const creditRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric + ${input.amount.toFixed(2)}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id}
+          RETURNING balance
+        `);
+        const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+        if (!creditRows[0]) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet credit failed" });
+        }
+        const newBalance = String(creditRows[0].balance);
+        const { walletTransactions } = await import("../drizzle/schema");
+        const [ledgerRow] = await tx.insert(walletTransactions).values({
+          walletId: wallet.id,
+          tenantId: wallet.tenantId,
+          type: "credit",
+          amount: input.amount.toFixed(2),
+          currency: input.currency,
+          balanceBefore: wallet.balance,
+          balanceAfter: newBalance,
+          description: `Top-up via ${input.channel} (Stripe ${input.paymentReference})`,
+          reference: ref,
+          channel: input.channel,
+          status: "completed",
+        }).returning();
+        return { newBalance, ledgerRow };
+      }).catch(async (err: any) => {
+        if (err?.code === "23505") {
+          const prior = await getWalletTransactionByReference(wallet.tenantId, ref);
+          if (prior) return { replay: prior } as const;
+        }
+        throw err;
       });
+
+      if ("replay" in (result as any)) {
+        return { success: true, reference: ref, newBalance: null, transaction: (result as any).replay, idempotentReplay: true };
+      }
+
       // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse
       if (isBridgeAvailable()) {
         creditWalletViaMiddleware({
@@ -5030,7 +5213,8 @@ const walletRouter = router({
           description: `Top-up via ${input.channel}`,
         }).catch(e => logger.error('[bridge] creditWallet failed (non-fatal):', e));
       }
-      return { success: true, reference: ref, newBalance, transaction: tx };
+      const credited = result as { newBalance: string; ledgerRow: unknown };
+      return { success: true, reference: ref, newBalance: credited.newBalance, transaction: credited.ledgerRow, idempotentReplay: false };
     }),
 });
 // ─── Cross-Border Routerr ──────────────────────────────────────────────────────────
@@ -5162,8 +5346,8 @@ const crossBorderRouter = router({
       });
 
       // If bridge accepted the transfer, update status to submitted
-      if (bridgeResult?.status) {
-        await updateCrossBorderTransferStatusByTransferId(transferId, bridgeResult.status as string);
+      if ((bridgeResult as any)?.status) {
+        await updateCrossBorderTransferStatusByTransferId(transferId, (bridgeResult as any).status as string);
       }
 
       // Notify owner with transfer receipt
@@ -5177,7 +5361,7 @@ const crossBorderRouter = router({
           `Exchange Rate: ${exchangeRate}`,
           `Fee: ${fee} ${input.sourceCurrency}`,
           `Rail: ${input.rail}`,
-          `Bridge Status: ${bridgeResult?.status ?? "pending"}`,
+          `Bridge Status: ${(bridgeResult as any)?.status ?? "pending"}`,
         ].join("\n"),
       }).catch(() => {}); // fire-and-forget
 
@@ -5185,8 +5369,8 @@ const crossBorderRouter = router({
         success: true,
         transferId,
         transfer,
-        bridgeStatus: bridgeResult?.status ?? "pending",
-        bridgeTransferId: bridgeResult?.mojaloop_transfer_id ?? bridgeResult?.brics_transfer_id ?? null,
+        bridgeStatus: (bridgeResult as any)?.status ?? "pending",
+        bridgeTransferId: (bridgeResult as any)?.mojaloop_transfer_id ?? (bridgeResult as any)?.brics_transfer_id ?? null,
       };
       // Store idempotency record for this initiation
       if (input.idempotencyKey) {
@@ -5431,28 +5615,52 @@ const nipRouter = router({
         return { accountName: cached.accountName, bankCode: input.bankCode, accountNumber: input.accountNumber, fromCache: true };
       }
 
-      // In production, call NIBSS NIP gateway via the middleware bridge.
-      // In dev/sandbox, simulate a successful lookup with a plausible name.
-      let accountName: string;
-      let sessionId: string | undefined;
-
-      if (isBridgeAvailable()) {
-        const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
-        if (nipResult) {
-          accountName = nipResult.accountName;
-          sessionId = nipResult.sessionId;
-        } else {
-          // Bridge unavailable — fall through to sandbox simulation
-          accountName = `ACCOUNT ${input.accountNumber.slice(-4)}`;
-        }
-      } else {
-        // Sandbox simulation: derive a deterministic name from account number
-        const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
-        accountName = names[parseInt(input.accountNumber.slice(-1), 10) % names.length];
-        sessionId = `SIM_${Date.now()}`;
+      // Real NIBSS NIP name enquiry via the middleware bridge ONLY.
+      // No simulated names — an unconfigured or failing upstream is a hard
+      // SERVICE_UNAVAILABLE and every failure is logged for audit.
+      if (!isBridgeAvailable()) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 1,
+          errorCode: "BRIDGE_UNCONFIGURED",
+          errorMessage: "Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — NIBSS name enquiry unavailable",
+          errorSource: "bridge",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP name enquiry is unavailable: payment middleware bridge not configured",
+        });
       }
 
-      // Cache for 24 hours
+      const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
+      if (!nipResult || !nipResult.accountName) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 1,
+          errorCode: nipResult ? "EMPTY_UPSTREAM_RESPONSE" : "UPSTREAM_UNAVAILABLE",
+          errorMessage: nipResult
+            ? "NIBSS name enquiry returned an empty account name"
+            : "NIBSS name enquiry failed — bridge unreachable or upstream error",
+          errorSource: "nibss",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP name enquiry failed: upstream NIBSS lookup unavailable or returned no account name",
+        });
+      }
+
+      const accountName = nipResult.accountName;
+      const sessionId = nipResult.sessionId;
+
+      // Cache the REAL NIBSS result for 24 hours
       await cacheNipAccount({
         id: `nip_cache_${nanoid()}`,
         tenantId,
@@ -5488,7 +5696,28 @@ const nipRouter = router({
 
       const errors: Array<{ attempt: number; errorCode: string; errorMessage: string }> = [];
       let accountName: string | null = null;
+      let sessionId: string | undefined;
       const maxAttempts = input.maxAttempts;
+
+      // Real NIBSS name enquiry via the middleware bridge ONLY — no
+      // simulated successes. Unconfigured bridge fails immediately.
+      if (!isBridgeAvailable()) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 0,
+          errorCode: "BRIDGE_UNCONFIGURED",
+          errorMessage: "Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — NIBSS name enquiry unavailable",
+          errorSource: "bridge",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP account resolution unavailable: payment middleware bridge not configured",
+        });
+      }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         // Exponential backoff: 0ms, 500ms, 1500ms for attempts 1, 2, 3
@@ -5497,26 +5726,28 @@ const nipRouter = router({
         }
 
         try {
-          // Attempt NIBSS name enquiry
-          const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
-          // Simulate occasional failures: last digit 9 fails on attempt 1, succeeds on attempt 2
-          const lastDigit = parseInt(input.accountNumber.slice(-1), 10);
-          const shouldFail = (lastDigit === 9 && attempt === 1);
+          // Attempt real NIBSS name enquiry via the bridge
+          const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
 
-          if (shouldFail) {
-            throw new Error("NIBSS_TIMEOUT: Name enquiry service temporarily unavailable");
+          if (!nipResult || !nipResult.accountName) {
+            throw new Error(
+              nipResult
+                ? "EMPTY_UPSTREAM_RESPONSE: NIBSS returned an empty account name"
+                : "UPSTREAM_UNAVAILABLE: NIBSS name enquiry failed — bridge unreachable or upstream error",
+            );
           }
 
-          accountName = names[lastDigit % names.length];
+          accountName = nipResult.accountName;
+          sessionId = nipResult.sessionId;
 
-          // Cache successful result
+          // Cache the REAL successful result for 24 hours
           await cacheNipAccount({
             id: `nip_cache_${nanoid()}`,
             tenantId,
             bankCode: input.bankCode,
             accountNumber: input.accountNumber,
             accountName,
-            sessionId: `SIM_${Date.now()}`,
+            sessionId,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
             createdAt: new Date(),
           });
@@ -6673,7 +6904,7 @@ const posRouter = router({
            COUNT(*) AS transaction_count,
            COALESCE(SUM(amount_kobo), 0) AS total_kobo,
            COUNT(DISTINCT terminal_id) AS terminal_count,
-           GROUP_CONCAT(DISTINCT channel ORDER BY channel SEPARATOR ',') AS channels
+           string_agg(DISTINCT channel, ',' ORDER BY channel) AS channels
          FROM pos_transactions
          WHERE merchant_id = ${merchant.id}
          GROUP BY DATE(created_at)
@@ -7141,7 +7372,7 @@ const restaurantRouter = router({
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
     const id = await createSplitBillSession({
       orderId: input.orderId, merchantId: merchant.id,
-      totalKobo: Number(order.total_kobo), splitCount: input.splitCount,
+      totalKobo: Number(order.totalKobo), splitCount: input.splitCount,
     });
     return getSplitBillSession(id!);
   }),

@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -19,6 +21,11 @@ import (
 	"github.com/segmentio/kafka-go"
 	dapr "github.com/dapr/go-sdk/client"
 )
+
+// ErrGoAMLUnconfigured is a sentinel returned when the NFIU goAML integration
+// has not been configured (missing URL or API key). Regulatory submissions
+// must fail loud — never fabricate a regulator acknowledgement.
+var ErrGoAMLUnconfigured = errors.New("goAML integration not configured (NFIU_GOAML_URL / NFIU_GOAML_API_KEY unset)")
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,7 +115,16 @@ func (h *STRHandler) SubmitToNFIU(c *gin.Context) {
 			"error":      err.Error(),
 			"timestamp":  time.Now().UTC().Format(time.RFC3339),
 		})
-		c.JSON(http.StatusBadGateway, gin.H{"error": "goAML submission failed", "detail": err.Error()})
+		if errors.Is(err, ErrGoAMLUnconfigured) {
+			// Fail loud: the STR was NOT filed with the regulator.
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"code":  "goaml_unconfigured",
+				"filed": false,
+				"error": "STR was NOT filed: goAML integration is not configured on this deployment",
+			})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "goAML submission failed", "detail": err.Error(), "filed": false})
 		return
 	}
 
@@ -153,6 +169,7 @@ func (h *STRHandler) SubmitToNFIU(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
+		"filed":   true,
 		"nfiuRef": goAMLResp.NFIURef,
 		"status":  goAMLResp.Status,
 		"message": goAMLResp.Message,
@@ -182,7 +199,16 @@ func (h *STRHandler) PollNFIUStatus(c *gin.Context) {
 
 	status, err := h.pollGoAML(ctx, req.NFIURef)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		if errors.Is(err, ErrGoAMLUnconfigured) {
+			// Fail loud: filing status cannot be verified without a configured goAML integration.
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"code":  "goaml_unconfigured",
+				"filed": false,
+				"error": "STR filing status unavailable: goAML integration is not configured on this deployment",
+			})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "filed": false})
 		return
 	}
 
@@ -203,7 +229,7 @@ func (h *STRHandler) PollNFIUStatus(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": status, "nfiuRef": req.NFIURef})
+	c.JSON(http.StatusOK, gin.H{"status": status, "nfiuRef": req.NFIURef, "filed": true})
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -211,7 +237,9 @@ func (h *STRHandler) PollNFIUStatus(c *gin.Context) {
 func (h *STRHandler) checkPermify(ctx context.Context, merchantID, entity, permission string) bool {
 	permifyURL := os.Getenv("PERMIFY_URL")
 	if permifyURL == "" {
-		return true // permissive fallback when Permify not configured
+		// Fail closed: STR endpoints are regulatory — deny when authz is not configured.
+		log.Printf("[str] SECURITY: Permify not configured (PERMIFY_URL unset) — denying %s:%s for merchant %s", entity, permission, merchantID)
+		return false
 	}
 	body, _ := json.Marshal(map[string]interface{}{
 		"tenantId": "t1",
@@ -226,23 +254,27 @@ func (h *STRHandler) checkPermify(ctx context.Context, merchantID, entity, permi
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("PERMIFY_API_KEY"))
 	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
 	if err != nil {
-		return true // fail open
+		// Fail closed on authz errors.
+		log.Printf("[str] SECURITY: Permify check failed (%v) — denying %s:%s for merchant %s", err, entity, permission, merchantID)
+		return false
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[str] SECURITY: Permify returned HTTP %d — denying %s:%s for merchant %s", resp.StatusCode, entity, permission, merchantID)
+		return false
+	}
 	var result struct{ Can string `json:"can"` }
-	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("[str] SECURITY: Permify response undecodable (%v) — denying %s:%s for merchant %s", err, entity, permission, merchantID)
+		return false
+	}
 	return result.Can == "CHECK_RESULT_ALLOWED"
 }
 
 func (h *STRHandler) submitGoAML(ctx context.Context, req STRSubmitRequest) (*GoAMLResponse, error) {
 	if h.goAMLURL == "" || h.goAMLKey == "" {
-		// Sandbox mode: return mock response
-		return &GoAMLResponse{
-			Status:     "received",
-			NFIURef:    fmt.Sprintf("NFIU-%s-%d", req.ReportRef, time.Now().Unix()),
-			Message:    "STR received by NFIU goAML (sandbox)",
-			ReceivedAt: time.Now().UTC().Format(time.RFC3339),
-		}, nil
+		// Fail loud: never fabricate an NFIU regulator acknowledgement.
+		return nil, ErrGoAMLUnconfigured
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
@@ -277,8 +309,8 @@ func (h *STRHandler) submitGoAML(ctx context.Context, req STRSubmitRequest) (*Go
 }
 
 func (h *STRHandler) pollGoAML(ctx context.Context, nfiuRef string) (string, error) {
-	if h.goAMLURL == "" {
-		return "pending", nil
+	if h.goAMLURL == "" || h.goAMLKey == "" {
+		return "", ErrGoAMLUnconfigured
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf("%s/reports/str/%s/status", h.goAMLURL, nfiuRef), nil)

@@ -42,11 +42,25 @@ async function bridgeRequest<T>(
     "Content-Type": "application/json",
     "X-Internal-Key": ENV.middlewareInternalKey,
   };
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Hard 10s timeout — a hung bridge must never stall a payment request.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Bridge ${method} ${path} timed out after 10s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Bridge ${method} ${path} failed: HTTP ${res.status} — ${text}`);
@@ -1683,7 +1697,7 @@ export async function listInsiderAlertsViaMiddleware(params: {
   merchantId: string; status?: string; riskLevel?: string; limit?: number; offset?: number;
 }): Promise<{ alerts: unknown[]; total: number } | null> {
   const qs = new URLSearchParams(
-    Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
+    Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)] as [string, string])
   ).toString();
   return safe("GET", `/v1/insider/alerts?${qs}`);
 }

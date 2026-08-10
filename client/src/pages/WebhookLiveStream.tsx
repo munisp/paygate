@@ -1,12 +1,12 @@
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Activity, Pause, Play, Trash2, Filter, RefreshCw, Copy, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Activity, Pause, Play, Filter, RefreshCw, Copy, CheckCircle, XCircle, Clock, AlertTriangle } from "lucide-react";
 
 interface WebhookEvent {
   id: string;
@@ -19,90 +19,42 @@ interface WebhookEvent {
   latencyMs: number;
 }
 
-const EVENT_TYPES = [
-  "payment.success", "payment.failed", "payment.pending",
-  "subscription.created", "subscription.renewed", "subscription.cancelled",
-  "payout.completed", "payout.failed",
-  "dispute.opened", "dispute.resolved",
-  "kyc.approved", "kyc.rejected",
-  "refund.processed",
-];
-
-const generateMockEvent = (): WebhookEvent => {
-  const type = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
-  const status = Math.random() > 0.15 ? "success" : Math.random() > 0.5 ? "failed" : "pending";
-  return {
-    id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    type,
-    status,
-    timestamp: new Date().toISOString(),
-    source: ["stripe", "paystack", "flutterwave", "nibss", "internal"][Math.floor(Math.random() * 5)],
-    payload: {
-      amount: Math.floor(Math.random() * 500_000) + 1_000,
-      currency: "NGN",
-      reference: `REF-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
-      merchant_id: `MRC-${Math.floor(Math.random() * 1000)}`,
-    },
-    retries: status === "failed" ? Math.floor(Math.random() * 3) : 0,
-    latencyMs: Math.floor(Math.random() * 800) + 50,
-  };
-};
-
 export default function WebhookLiveStream() {
-  // Real webhook deliveries from DB
-  const { data: realDeliveries, isLoading, isError } = trpc.webhookDeliveries.list.useQuery({ limit: 20 }, { staleTime: 30_000 });
-  const [events, setEvents] = useState<WebhookEvent[]>(() =>
-    Array.from({ length: 8 }, generateMockEvent)
-  );
+  // DB-derived webhook deliveries only. "Streaming" = 10s polling; pause disables it.
   const [isStreaming, setIsStreaming] = useState(true);
+  const { data: realDeliveries, isLoading, isError, error: deliveriesErrorObj, refetch } =
+    trpc.webhookDeliveries.list.useQuery({ limit: 50 }, { refetchInterval: isStreaming ? 10_000 : false });
+  const utils = trpc.useUtils();
+  const retryMutation = trpc.webhookDeliveries.retry.useMutation({
+    onSuccess: (r) => {
+      if (r.success) toast.success(`Delivery replayed successfully (${r.latencyMs}ms)`);
+      else toast.error(`Replay delivered but endpoint responded with status ${r.responseStatus ?? "error"}`);
+      utils.webhookDeliveries.list.invalidate();
+    },
+    onError: (e) => toast.error(`Replay failed: ${e.message}`),
+  });
+
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<WebhookEvent | null>(null);
-  const [stats, setStats] = useState({ success: 0, failed: 0, total: 0 });
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const seededRef = useRef(false);
 
-  // Seed initial events from real DB deliveries once loaded
-  useEffect(() => {
-    if (seededRef.current || !realDeliveries?.length) return;
-    seededRef.current = true;
-    const dbEvents: WebhookEvent[] = (realDeliveries as any[]).map((d) => ({
-      id: d.id,
-      type: d.eventType ?? "unknown",
-      status: d.status === "delivered" ? "success" : d.status === "failed" ? "failed" : "pending",
-      timestamp: d.createdAt ? new Date(d.createdAt).toISOString() : new Date().toISOString(),
-      source: d.merchantId ? `merchant:${d.merchantId}` : "internal",
-      payload: (d.payload as Record<string, unknown>) ?? {},
-      retries: d.attemptCount ?? 0,
-      latencyMs: d.latencyMs ?? 0,
-    }));
-    setEvents((prev) => [...dbEvents, ...prev].slice(0, 100));
-    setStats((s) => ({
-      total: s.total + dbEvents.length,
-      success: s.success + dbEvents.filter((e) => e.status === "success").length,
-      failed: s.failed + dbEvents.filter((e) => e.status === "failed").length,
-    }));
-  }, [realDeliveries]);
+  const events: WebhookEvent[] = useMemo(() => ((realDeliveries ?? []) as any[]).map((d) => ({
+    id: d.id,
+    type: d.eventType ?? "unknown",
+    status: d.status === "delivered" || d.status === "success" ? "success" : d.status === "failed" ? "failed" : "pending",
+    timestamp: d.createdAt ? new Date(d.createdAt).toISOString() : new Date().toISOString(),
+    source: d.merchantId ? `merchant:${d.merchantId}` : "internal",
+    payload: (d.payload as Record<string, unknown>) ?? {},
+    retries: d.attemptCount ?? 0,
+    latencyMs: d.latencyMs ?? 0,
+  })), [realDeliveries]);
 
-  const addEvent = useCallback(() => {
-    const evt = generateMockEvent();
-    setEvents((prev) => [evt, ...prev].slice(0, 100));
-    setStats((s) => ({
-      total: s.total + 1,
-      success: s.success + (evt.status === "success" ? 1 : 0),
-      failed: s.failed + (evt.status === "failed" ? 1 : 0),
-    }));
-  }, []);
-
-  useEffect(() => {
-    if (isStreaming) {
-      intervalRef.current = setInterval(addEvent, 2500);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isStreaming, addEvent]);
+  const stats = useMemo(() => ({
+    total: events.length,
+    success: events.filter((e) => e.status === "success").length,
+    failed: events.filter((e) => e.status === "failed").length,
+  }), [events]);
 
   const filteredEvents = events.filter((e) => {
     const matchesFilter = filter === "all" || e.status === filter || e.type.startsWith(filter);
@@ -115,8 +67,9 @@ export default function WebhookLiveStream() {
     toast.success("Payload copied to clipboard");
   };
 
+  // Replay → real webhookDeliveries.retry mutation (actually re-POSTs to the endpoint)
   const replayEvent = (evt: WebhookEvent) => {
-    toast.success(`Replaying event ${evt.id.slice(0, 16)}...`);
+    retryMutation.mutate({ deliveryId: evt.id });
   };
 
   const statusIcon = (status: string) => {
@@ -130,7 +83,7 @@ export default function WebhookLiveStream() {
     return map[status] ?? "";
   };
 
-  const successRate = stats.total > 0 ? ((stats.success / stats.total) * 100).toFixed(1) : "0.0";
+  const successRate = stats.total > 0 ? ((stats.success / stats.total) * 100).toFixed(1) : "—";
 
   if (isLoading) {
     return (
@@ -152,10 +105,11 @@ export default function WebhookLiveStream() {
             Webhook Live Stream
             {isStreaming && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block ml-1" />}
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">Real-time webhook event monitoring</p>
+          <p className="text-muted-foreground text-sm mt-1">Real webhook delivery monitoring (polls every 10s while live)</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" aria-label="Delete" onClick={() => setEvents([])} className="gap-1"><Trash2/> Clear
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </Button>
           <Button
             size="sm"
@@ -168,7 +122,18 @@ export default function WebhookLiveStream() {
         </div>
       </div>
 
-      {/* Stats */}
+      {isError && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+          <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700">Could not load webhook deliveries</p>
+            <p className="text-xs text-red-600 mt-0.5">{deliveriesErrorObj?.message}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+        </div>
+      )}
+
+      {/* Stats — computed from real deliveries */}
       <div className="grid grid-cols-4 gap-3">
         <Card><CardContent className="p-3 text-center">
           <p className="text-2xl font-bold">{stats.total}</p>
@@ -183,7 +148,7 @@ export default function WebhookLiveStream() {
           <p className="text-xs text-muted-foreground">Failed</p>
         </CardContent></Card>
         <Card><CardContent className="p-3 text-center">
-          <p className="text-2xl font-bold text-blue-600">{successRate}%</p>
+          <p className="text-2xl font-bold text-blue-600">{successRate}{stats.total > 0 && "%"}</p>
           <p className="text-xs text-muted-foreground">Success Rate</p>
         </CardContent></Card>
       </div>
@@ -222,7 +187,7 @@ export default function WebhookLiveStream() {
           {filteredEvents.length === 0 && (
             <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
               <Activity className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p>No events match your filter</p>
+              <p>{events.length === 0 ? "No webhook deliveries recorded yet. Deliveries appear here as webhooks fire." : "No events match your filter"}</p>
             </div>
           )}
           {filteredEvents.map((evt) => (
@@ -265,7 +230,7 @@ export default function WebhookLiveStream() {
                     <Button size="sm" variant="outline" onClick={() => copyPayload(selectedEvent)}>
                       <Copy className="w-3.5 h-3.5" />
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => replayEvent(selectedEvent)}>
+                    <Button size="sm" variant="outline" disabled={retryMutation.isPending} onClick={() => replayEvent(selectedEvent)}>
                       <RefreshCw className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -288,8 +253,8 @@ export default function WebhookLiveStream() {
                   </pre>
                 </div>
                 {selectedEvent.status === "failed" && (
-                  <Button size="sm" className="w-full gap-2" onClick={() => replayEvent(selectedEvent)}>
-                    <RefreshCw className="w-3.5 h-3.5" /> Replay Event
+                  <Button size="sm" className="w-full gap-2" disabled={retryMutation.isPending} onClick={() => replayEvent(selectedEvent)}>
+                    <RefreshCw className="w-3.5 h-3.5" /> {retryMutation.isPending ? "Replaying…" : "Replay Event"}
                   </Button>
                 )}
               </CardContent>

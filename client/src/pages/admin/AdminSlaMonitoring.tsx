@@ -7,8 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { toast } from "sonner";
-import { Activity, AlertTriangle, CheckCircle, Clock, Zap } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle, Clock } from "lucide-react";
 import { useAdaptiveInterval } from "@/lib/networkQuality";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -26,11 +25,6 @@ export default function AdminSlaMonitoring() {
 
   const { data: incidents } = trpc.wave29.slaMonitoring.getIncidents.useQuery({ limit: 20 }, { staleTime: 30_000 });
 
-  const recordPing = trpc.wave29.slaMonitoring.recordPing.useMutation({
-    onSuccess: () => { toast.success("Ping recorded"); refetch(); },
-    onError: (err) => toast.error(err.message),
-  });
-
   const breaching = (slaStats ?? []).filter((s: any) => Number(s.uptime_pct) < Number(s.sla_uptime_pct));
 
   return (
@@ -40,13 +34,9 @@ export default function AdminSlaMonitoring() {
           <h1 className="text-2xl font-bold text-gray-900">SLA Monitoring</h1>
           <p className="text-gray-500 mt-1">Track uptime, latency, and SLA compliance per tenant plan</p>
         </div>
-        <Button
-          size="sm"
-          onClick={() => recordPing.mutate({ tenantId: "3", latencyMs: Math.floor(Math.random() * 200) + 50, status: "operational" })}
-          disabled={recordPing.isPending}
-        >
-          <Zap className="w-4 h-4 mr-2" />
-          Record Ping
+        <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isLoading}>
+          <Activity className="w-4 h-4 mr-2" />
+          Refresh
         </Button>
       </div>
 
