@@ -50,6 +50,7 @@ function fmtCurrency(n: number, currency = "NGN") {
 // ─── Domain stat fetchers ─────────────────────────────────────────────────────
 function useRemittanceStats() {
   const transfers = trpc.remittance.listTransfers.useQuery({ page: 1, pageSize: 1 });
+  const isError = transfers.isError;
   const corridors = trpc.remittance.listCorridors.useQuery();
   return {
     total: transfers.data?.total ?? 0,

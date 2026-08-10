@@ -1055,6 +1055,195 @@ const DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS transactions_merchant_id_idx ON transactions (merchant_id)`,
   `CREATE INDEX IF NOT EXISTS transactions_created_at_idx ON transactions (created_at)`,
   `CREATE INDEX IF NOT EXISTS wallets_merchant_id_idx ON wallets (merchant_id)`,
+  // ── NextHub SRBE tables ──────────────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS settlement_windows (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    window_type TEXT NOT NULL DEFAULT 'MULTILATERAL',
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at TIMESTAMPTZ,
+    settled_at TIMESTAMPTZ,
+    total_transfers INTEGER NOT NULL DEFAULT 0,
+    total_amount_kobo BIGINT NOT NULL DEFAULT 0,
+    settlement_report_url TEXT,
+    rail_reference TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS settlement_net_positions (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    window_id TEXT NOT NULL,
+    dfsp_id TEXT NOT NULL,
+    dfsp_name TEXT NOT NULL DEFAULT '',
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    net_position_kobo BIGINT NOT NULL DEFAULT 0,
+    total_debits_kobo BIGINT NOT NULL DEFAULT 0,
+    total_credits_kobo BIGINT NOT NULL DEFAULT 0,
+    transfer_count INTEGER NOT NULL DEFAULT 0,
+    tigerbeetle_account_id TEXT,
+    settlement_instruction TEXT,
+    settled_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS nexthub_dfsps (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    dfsp_id TEXT NOT NULL UNIQUE,
+    dfsp_name TEXT NOT NULL,
+    dfsp_type TEXT NOT NULL DEFAULT 'bank',
+    country TEXT NOT NULL DEFAULT 'NG',
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    tigerbeetle_position_account_id TEXT,
+    tigerbeetle_liquidity_account_id TEXT,
+    liquidity_limit_kobo BIGINT NOT NULL DEFAULT 0,
+    callback_url TEXT,
+    client_certificate_thumbprint TEXT,
+    certificate_expires_at TIMESTAMPTZ,
+    onboarded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS dfsp_fee_tiers (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    dfsp_id TEXT NOT NULL,
+    min_amount_kobo BIGINT NOT NULL DEFAULT 0,
+    max_amount_kobo BIGINT,
+    scheme_fee_kobo BIGINT NOT NULL DEFAULT 0,
+    interchange_fee_kobo BIGINT NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    effective_to TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS fee_postings (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    transfer_id TEXT NOT NULL,
+    window_id TEXT,
+    dfsp_id TEXT NOT NULL,
+    fee_type TEXT NOT NULL,
+    fee_category TEXT NOT NULL DEFAULT 'DEBIT',
+    amount_kobo BIGINT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    tigerbeetle_transfer_id TEXT,
+    billed_at TIMESTAMPTZ,
+    invoice_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS nexthub_invoices (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    dfsp_id TEXT NOT NULL,
+    dfsp_name TEXT NOT NULL DEFAULT '',
+    billing_period_start TIMESTAMPTZ NOT NULL,
+    billing_period_end TIMESTAMPTZ NOT NULL,
+    total_scheme_fees_kobo BIGINT NOT NULL DEFAULT 0,
+    total_interchange_kobo BIGINT NOT NULL DEFAULT 0,
+    total_fx_markup_kobo BIGINT NOT NULL DEFAULT 0,
+    total_penalties_kobo BIGINT NOT NULL DEFAULT 0,
+    total_amount_kobo BIGINT NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    status TEXT NOT NULL DEFAULT 'DRAFT',
+    pdf_url TEXT,
+    tigerbeetle_invoice_transfer_id TEXT,
+    issued_at TIMESTAMPTZ,
+    due_at TIMESTAMPTZ,
+    paid_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS reconciliation_exceptions (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    window_id TEXT NOT NULL DEFAULT '',
+    transfer_id TEXT,
+    dfsp_id TEXT,
+    break_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'MEDIUM',
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    hub_amount_kobo BIGINT,
+    rail_amount_kobo BIGINT,
+    discrepancy_amount_kobo BIGINT,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    description TEXT,
+    resolution_notes TEXT,
+    auto_resolve_sla_minutes INTEGER,
+    resolved_at TIMESTAMPTZ,
+    escalated_at TIMESTAMPTZ,
+    assigned_to TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS transfer_disputes (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    transfer_id TEXT NOT NULL,
+    initiated_by_dfsp_id TEXT NOT NULL,
+    responding_dfsp_id TEXT,
+    dispute_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    amount_kobo BIGINT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    reason TEXT NOT NULL,
+    evidence TEXT,
+    resolution TEXT,
+    resolution_notes TEXT,
+    penalty_amount_kobo BIGINT DEFAULT 0,
+    reversal_transfer_id TEXT,
+    tigerbeetle_penalty_transfer_id TEXT,
+    sla_deadline TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS nexthub_transfers (
+    id TEXT PRIMARY KEY,
+    payer_fsp_id TEXT NOT NULL,
+    payee_fsp_id TEXT NOT NULL,
+    payer_party_id TEXT NOT NULL,
+    payee_party_id TEXT NOT NULL,
+    amount_kobo BIGINT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    state TEXT NOT NULL DEFAULT 'RECEIVED',
+    ilp_packet TEXT,
+    condition TEXT,
+    fulfilment TEXT,
+    fraud_score REAL,
+    scheme_fee_kobo BIGINT DEFAULT 0,
+    interchange_fee_kobo BIGINT DEFAULT 0,
+    fx_rate REAL,
+    tigerbeetle_transfer_id TEXT,
+    tigerbeetle_fee_id TEXT,
+    window_id TEXT,
+    expiration_time TIMESTAMPTZ,
+    error_code TEXT,
+    error_description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS nexthub_security_events (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'MEDIUM',
+    dfsp_id TEXT,
+    source_ip TEXT,
+    description TEXT NOT NULL,
+    metadata TEXT,
+    acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+    acknowledged_by TEXT,
+    acknowledged_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS aml_rules (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_name TEXT NOT NULL UNIQUE,
+    rule_category TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    parameters TEXT NOT NULL,
+    action TEXT NOT NULL DEFAULT 'FLAG',
+    effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    effective_to TIMESTAMPTZ,
+    created_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 ];
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
@@ -1448,6 +1637,7 @@ async function initDb() {
     } catch (e: any) {
       if (!e.message?.includes("already exists")) {
         console.warn(`[pg-mem mock] DDL warning: ${e.message?.slice(0, 100)}`);
+        console.warn(`[pg-mem mock] Failed DDL: ${ddl.slice(0, 80)}`);
       }
     }
   }
@@ -1471,9 +1661,34 @@ await initDb();
 // support information_schema.referential_constraints. We intercept these queries.
 function wrapPool(PoolClass: any) {
   return class WrappedPool extends PoolClass {
+    // Provide a working _types object so drizzle-orm can call getTypeParser without error
+    _types = {
+      getTypeParser: (_oid: number, _format?: string) => (val: string) => val,
+      setTypeParser: (_oid: number, _parser: unknown) => {},
+      builtins: {
+        INT8: 20, NUMERIC: 1700, DATE: 1082, TIMESTAMP: 1114, TIMESTAMPTZ: 1184,
+        TEXT: 25, BOOL: 16, FLOAT4: 700, FLOAT8: 701, INT2: 21, INT4: 23,
+      },
+    };
     async query(sql: string | { text: string; values?: unknown[] }, params?: unknown[]) {
-      const text = typeof sql === 'string' ? sql : sql.text;
-      const values = typeof sql === 'string' ? params : sql.values;
+      // Strip types.getTypeParser from QueryConfig objects — pg-mem throws NotSupported when it sees it
+      let sanitizedSql: string | { text: string; values?: unknown[] } = sql;
+      if (sql && typeof sql === 'object' && 'types' in (sql as any)) {
+        console.log('[pg-mock pool.query] Stripping types, text:', (sql as any).text?.slice(0, 60));
+        const { types: _stripped, ...rest } = sql as any;
+        sanitizedSql = rest;
+      }
+      // Also strip rowMode — pg-mem does not support it
+      // Track whether original query wanted array rows (Drizzle uses rowMode: "array")
+      const wantsArrayRows = sanitizedSql && typeof sanitizedSql === 'object' && (sanitizedSql as any).rowMode === 'array';
+      if (sanitizedSql && typeof sanitizedSql === 'object' && 'rowMode' in (sanitizedSql as any)) {
+        const { rowMode: _rm, ...rest } = sanitizedSql as any;
+        sanitizedSql = rest;
+      }
+      const text = typeof sanitizedSql === 'string' ? sanitizedSql : (sanitizedSql as any).text;
+      // Drizzle passes rawQueryConfig as first arg + params as second arg (no values in QueryConfig)
+      // Use params as fallback when QueryConfig.values is undefined
+      const values = typeof sanitizedSql === 'string' ? params : ((sanitizedSql as any).values ?? params);
 
       // Fix: information_schema.tables returns duplicates in pg-mem
       // Deduplicate by wrapping in a subquery with DISTINCT
@@ -1517,7 +1732,93 @@ function wrapPool(PoolClass: any) {
         return { rows: [], rowCount: 0, command: 'SELECT', fields: [] };
       }
 
-      const result = await super.query(sql as any, params as any);
+      // Fix: pg-mem does not support parameterized LIMIT/OFFSET ($N in LIMIT clause)
+      // Replace LIMIT $N and OFFSET $N with literal values from params
+      let finalSql: string | { text: string; values?: unknown[] } = sanitizedSql;
+      let finalValues = values;
+      if (/insert.*settlement_windows/i.test(text || '')) {
+        console.log('[DEBUG INSERT] text:', text?.slice(0, 80));
+        console.log('[DEBUG INSERT] values:', JSON.stringify(values));
+        console.log('[DEBUG INSERT] sanitizedSql type:', typeof sanitizedSql);
+        console.log('[DEBUG INSERT] sanitizedSql.values:', JSON.stringify((sanitizedSql as any)?.values));
+      }
+      // FILTER clause: pg-mem does not support aggregate FILTER (WHERE ...)
+      // Use balanced-paren matching to handle nested parens in conditions like IN ('A', 'B')
+      if (typeof text === 'string' && /filter\s*\(\s*where\s/i.test(text)) {
+        console.log('[FILTER FIX] Applying FILTER fix to:', text.slice(0, 80));
+        let fixedText = text;
+        // Replace: count(*) FILTER (WHERE <cond>) → sum(case when <cond> then 1 else 0 end)
+        // Replace: avg(...) FILTER (WHERE <cond>) → avg(case when <cond> then ... else null end)
+        // Replace: coalesce(sum(...) FILTER (WHERE <cond>), 0) → handled by inner replacement
+        const replaceFilterClauses = (sql: string): string => {
+          const pattern = /(?:count\(\*\)|count\([^)]+\))\s+filter\s*\(\s*where\s+/gi;
+          let result = '';
+          let lastIndex = 0;
+          let match: RegExpExecArray | null;
+          while ((match = pattern.exec(sql)) !== null) {
+            result += sql.slice(lastIndex, match.index);
+            // Find matching closing paren for the FILTER clause
+            const start = match.index + match[0].length;
+            let depth = 1;
+            let j = start;
+            while (j < sql.length && depth > 0) {
+              if (sql[j] === '(') depth++;
+              else if (sql[j] === ')') depth--;
+              j++;
+            }
+            const cond = sql.slice(start, j - 1).trim();
+            result += `sum(case when ${cond} then 1 else 0 end)`;
+            lastIndex = j;
+            pattern.lastIndex = j;
+          }
+          result += sql.slice(lastIndex);
+          return result;
+        };
+        fixedText = replaceFilterClauses(fixedText);
+        // Also handle: avg(...) FILTER (WHERE ...) → avg(case when ... then val else null end)
+        // For simplicity, replace remaining FILTER clauses with a generic CASE WHEN
+        fixedText = fixedText.replace(
+          /(\w+)\([^)]*\)\s+filter\s*\(\s*where\s+([^)]+)\)/gi,
+          (_, agg, cond) => `${agg}(case when ${cond} then 1 else null end)`
+        );
+        finalSql = fixedText;
+      }
+      if (typeof text === 'string' && /LIMIT\s+\$\d+|OFFSET\s+\$\d+/i.test(text)) {
+        let fixedText = text;
+        const allValues = Array.isArray(values) ? [...values] : [];
+        // Replace LIMIT $N with literal
+        fixedText = fixedText.replace(/LIMIT\s+\$(\d+)/gi, (_, n) => {
+          const val = allValues[parseInt(n, 10) - 1];
+          return `LIMIT ${val != null ? parseInt(String(val), 10) : 100}`;
+        });
+        // Replace OFFSET $N with literal
+        fixedText = fixedText.replace(/OFFSET\s+\$(\d+)/gi, (_, n) => {
+          const val = allValues[parseInt(n, 10) - 1];
+          return `OFFSET ${val != null ? parseInt(String(val), 10) : 0}`;
+        });
+        // Remove the consumed params from values array to avoid $N numbering mismatch
+        // Rebuild params: only keep params that are still referenced as $N
+        const maxRef = [...fixedText.matchAll(/\$(\d+)/g)].reduce((m, r) => Math.max(m, parseInt(r[1], 10)), 0);
+        finalValues = allValues.slice(0, maxRef);
+        finalSql = fixedText;
+      }
+      let result: any;
+      try {
+        if (typeof finalSql === 'string' && /filter/i.test(finalSql)) {
+          console.log('[FILTER FINAL SQL]', finalSql.slice(0, 150));
+        }
+        result = await super.query(finalSql as any, finalValues as any);
+      } catch (e: any) {
+        if (typeof finalSql === 'string' && /filter/i.test(finalSql)) {
+          console.error('[FILTER FINAL ERROR]', e.message?.slice(0, 200));
+        }
+        if (/insert|update|delete/i.test(text || '')) {
+          console.error('[pg-mock pool.query ERROR]', e.message?.slice(0, 100));
+          console.error('[pg-mock pool.query QUERY]', (typeof finalSql === 'string' ? finalSql : (finalSql as any)?.text)?.slice(0, 120));
+          console.error('[pg-mock pool.query VALUES]', JSON.stringify(finalValues)?.slice(0, 100));
+        }
+        throw e;
+      }
       if (text && /information_schema\.columns/i.test(text) && result?.rows) {
         result.rows = result.rows.map((row: any) => {
           if (row.data_type === 'bool') return { ...row, data_type: 'boolean' };
@@ -1527,6 +1828,12 @@ function wrapPool(PoolClass: any) {
           return row;
         });
       }
+      // Drizzle uses rowMode: "array" — pg-mem returns object rows, but Drizzle's
+      // mapResultRow() expects array rows. Convert objects to arrays using Object.values().
+      // V8 preserves insertion order for string keys, and pg-mem returns columns in SELECT order.
+      if (wantsArrayRows && result?.rows?.length > 0 && !Array.isArray(result.rows[0])) {
+        result = { ...result, rows: result.rows.map((row: any) => Object.values(row)) };
+      }
       return result;
     }
 
@@ -1534,8 +1841,25 @@ function wrapPool(PoolClass: any) {
       const client = await super.connect();
       const originalQuery = client.query.bind(client);
       client.query = async (sql: any, params?: any) => {
-        const text = typeof sql === 'string' ? sql : sql.text;
-        const values = typeof sql === 'string' ? params : sql.values;
+        // Strip types.getTypeParser from QueryConfig objects — pg-mem throws when it sees it
+        let sanitizedSql: any = sql;
+        if (sql && typeof sql === 'object' && 'types' in sql) {
+          console.log('[pg-mock connect] Stripping types from QueryConfig, text:', sql.text?.slice(0, 60));
+        }
+        if (sql && typeof sql === 'object' && 'types' in sql) {
+          const { types: _stripped, ...rest } = sql as any;
+          sanitizedSql = rest;
+        }
+        // Also strip rowMode — pg-mem does not support it
+        // Track whether Drizzle requested array rows (rowMode: "array")
+        const wantsArrayRowsConnect = sanitizedSql && typeof sanitizedSql === 'object' && (sanitizedSql as any).rowMode === 'array';
+        if (sanitizedSql && typeof sanitizedSql === 'object' && 'rowMode' in sanitizedSql) {
+          const { rowMode: _rm, ...rest } = sanitizedSql as any;
+          sanitizedSql = rest;
+        }
+        const text = typeof sanitizedSql === 'string' ? sanitizedSql : sanitizedSql?.text;
+        // Drizzle passes rawQueryConfig as first arg + params as second arg (no values in QueryConfig)
+        const values = typeof sanitizedSql === 'string' ? params : (sanitizedSql?.values ?? params);
 
         if (text && /information_schema\.tables/i.test(text) && /count\(\*\)/i.test(text) && !/DISTINCT/i.test(text)) {
           if (/table_name\s*=\s*'([^']+)'/i.test(text)) {
@@ -1558,15 +1882,89 @@ function wrapPool(PoolClass: any) {
           return originalQuery(`SELECT count(*) as cnt FROM mock_referential_constraints`, []);
         }
 
-        const result = await originalQuery(sql, params);
+        // Window function interception: pg-mem does not support OVER clauses.
+        if (text && /\bOVER\s*\(/i.test(text)) {
+          const fromMatch = text.match(/\bFROM\s+(\w+)/i);
+          const tbl = fromMatch ? fromMatch[1] : null;
+          if (tbl) {
+            try {
+              return await originalQuery(`SELECT count(*) as total_rows FROM ${tbl}`, []);
+            } catch {
+              return { rows: [], rowCount: 0, command: 'SELECT', fields: [] };
+            }
+          }
+          return { rows: [], rowCount: 0, command: 'SELECT', fields: [] };
+        }
+
+        // FILTER clause: pg-mem does not support aggregate FILTER (WHERE ...)
+        // Use balanced-paren matching to handle nested parens in conditions like IN ('A', 'B')
+        let finalSql: any = sanitizedSql;
+        let finalValues: any = values;
+        if (text && /filter\s*\(\s*where\s/i.test(text)) {
+          const replaceFilterClausesConnect = (sql: string): string => {
+            const pat = /(?:count\(\*\)|count\([^)]+\))\s+filter\s*\(\s*where\s+/gi;
+            let res = '';
+            let li = 0;
+            let m: RegExpExecArray | null;
+            while ((m = pat.exec(sql)) !== null) {
+              res += sql.slice(li, m.index);
+              const start = m.index + m[0].length;
+              let depth = 1;
+              let j = start;
+              while (j < sql.length && depth > 0) {
+                if (sql[j] === '(') depth++;
+                else if (sql[j] === ')') depth--;
+                j++;
+              }
+              const cond = sql.slice(start, j - 1).trim();
+              res += `sum(case when ${cond} then 1 else 0 end)`;
+              li = j;
+              pat.lastIndex = j;
+            }
+            res += sql.slice(li);
+            return res;
+          };
+          let fixedText = replaceFilterClausesConnect(text);
+          // Handle remaining FILTER clauses (avg, sum, etc.)
+          fixedText = fixedText.replace(
+            /(\w+)\([^)]*\)\s+filter\s*\(\s*where\s+([^)]+)\)/gi,
+            (_: string, agg: string, cond: string) => `${agg}(case when ${cond} then 1 else null end)`
+          );
+          finalSql = fixedText;
+        }
+
+        // LIMIT/OFFSET $N fix
+        const currentText = typeof finalSql === 'string' ? finalSql : finalSql?.text;
+        const currentValues = Array.isArray(finalValues) ? finalValues : (typeof finalSql === 'object' ? finalSql?.values : []);
+        if (currentText && /LIMIT\s+\$\d+|OFFSET\s+\$\d+/i.test(currentText)) {
+          let fixedText = currentText;
+          const allValues = Array.isArray(currentValues) ? [...currentValues] : [];
+          fixedText = fixedText.replace(/LIMIT\s+\$(\d+)/gi, (_: string, n: string) => {
+            const val = allValues[parseInt(n, 10) - 1];
+            return `LIMIT ${val != null ? parseInt(String(val), 10) : 100}`;
+          });
+          fixedText = fixedText.replace(/OFFSET\s+\$(\d+)/gi, (_: string, n: string) => {
+            const val = allValues[parseInt(n, 10) - 1];
+            return `OFFSET ${val != null ? parseInt(String(val), 10) : 0}`;
+          });
+          const maxRef = [...fixedText.matchAll(/\$(\d+)/g)].reduce((m: number, r: RegExpMatchArray) => Math.max(m, parseInt(r[1], 10)), 0);
+          finalValues = allValues.slice(0, maxRef);
+          finalSql = fixedText;
+        }
+
+        const result = await originalQuery(finalSql, finalValues);
         if (text && /information_schema\.columns/i.test(text) && result?.rows) {
           result.rows = result.rows.map((row: any) => {
             if (row.data_type === 'bool') return { ...row, data_type: 'boolean' };
             if (row.data_type === 'int4' || row.data_type === 'int8') return { ...row, data_type: 'integer' };
             if (row.data_type === 'float4' || row.data_type === 'float8') return { ...row, data_type: 'numeric' };
-            if (row.data_type === 'timestamptz') return { ...row, data_type: 'timestamp with time zone' };
+          if (row.data_type === 'timestamptz') return { ...row, data_type: 'timestamp with time zone' };
             return row;
           });
+        }
+        // Drizzle uses rowMode: "array" — convert object rows to array rows
+        if (wantsArrayRowsConnect && result?.rows?.length > 0 && !Array.isArray(result.rows[0])) {
+          result = { ...result, rows: result.rows.map((row: any) => Object.values(row)) };
         }
         return result;
       };

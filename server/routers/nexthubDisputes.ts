@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server";
 // SLA in hours per dispute type
 const DISPUTE_SLA_HOURS: Record<string, number> = {
   DUPLICATE: 24,
+  DUPLICATE_PAYMENT: 24,
   WRONG_AMOUNT: 48,
   UNAUTHORISED: 24,
   NOT_RECEIVED: 72,
@@ -27,15 +28,15 @@ export const nexthubDisputesRouter = router({
   /** List disputes with filters */
   listDisputes: protectedProcedure
     .input(z.object({
-      page: z.number().int().min(1).default(1),
-      pageSize: z.number().int().min(1).max(100).default(20),
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
       status: z.enum(["OPEN", "UNDER_REVIEW", "UPHELD", "REJECTED", "ESCALATED", "ALL"]).default("ALL"),
-      disputeType: z.enum(["DUPLICATE", "WRONG_AMOUNT", "UNAUTHORISED", "NOT_RECEIVED", "ALL"]).default("ALL"),
+      disputeType: z.enum(["DUPLICATE", "DUPLICATE_PAYMENT", "WRONG_AMOUNT", "UNAUTHORISED", "NOT_RECEIVED", "ALL"]).default("ALL"),
       dfspId: z.string().optional(),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const offset = (input.page - 1) * input.pageSize;
+      
 
       const conditions = [];
       if (input.status !== "ALL") conditions.push(eq(transferDisputes.status, input.status));
@@ -48,8 +49,8 @@ export const nexthubDisputesRouter = router({
         db.select().from(transferDisputes)
           .where(whereClause)
           .orderBy(desc(transferDisputes.createdAt))
-          .limit(input.pageSize)
-          .offset(offset),
+          .limit(input.limit)
+          .offset(input.offset),
         db.select({ count: sql<number>`count(*)::int` })
           .from(transferDisputes)
           .where(whereClause),
@@ -78,7 +79,7 @@ export const nexthubDisputesRouter = router({
       transferId: z.string(),
       initiatedByDfspId: z.string(),
       respondingDfspId: z.string().optional(),
-      disputeType: z.enum(["DUPLICATE", "WRONG_AMOUNT", "UNAUTHORISED", "NOT_RECEIVED"]),
+      disputeType: z.enum(["DUPLICATE", "DUPLICATE_PAYMENT", "WRONG_AMOUNT", "UNAUTHORISED", "NOT_RECEIVED"]),
       amountKobo: z.number().int().positive(),
       currency: z.string().default("NGN"),
       reason: z.string().min(10).max(2000),
@@ -230,15 +231,65 @@ export const nexthubDisputesRouter = router({
       const db = await getDb();
 
       const [stats] = await db.select({
-        totalOpen: sql<number>`count(*) filter (where status = 'OPEN')::int`,
-        underReview: sql<number>`count(*) filter (where status = 'UNDER_REVIEW')::int`,
-        upheldThisMonth: sql<number>`count(*) filter (where status = 'UPHELD' and resolved_at >= date_trunc('month', now()))::int`,
-        rejectedThisMonth: sql<number>`count(*) filter (where status = 'REJECTED' and resolved_at >= date_trunc('month', now()))::int`,
-        escalated: sql<number>`count(*) filter (where status = 'ESCALATED')::int`,
-        totalPenaltiesKobo: sql<number>`coalesce(sum(penalty_amount_kobo) filter (where status = 'REJECTED'), 0)::bigint`,
-        slaBreach: sql<number>`count(*) filter (where status in ('OPEN', 'UNDER_REVIEW') and sla_deadline < now())::int`,
+        totalOpen: sql<number>`sum(case when status = 'OPEN' then 1 else 0 end)::int`,
+        underReview: sql<number>`sum(case when status = 'UNDER_REVIEW' then 1 else 0 end)::int`,
+        upheldThisMonth: sql<number>`sum(case when status = 'UPHELD' and resolved_at >= date_trunc('month', now( then 1 else 0 end)))::int`,
+        rejectedThisMonth: sql<number>`sum(case when status = 'REJECTED' and resolved_at >= date_trunc('month', now( then 1 else 0 end)))::int`,
+        escalated: sql<number>`sum(case when status = 'ESCALATED' then 1 else 0 end)::int`,
+        totalPenaltiesKobo: sql<number>`coalesce(sum(case when status = 'REJECTED' then penalty_amount_kobo else 0 end), 0)::bigint`,
+        slaBreach: sql<number>`sum(case when status in ('OPEN', 'UNDER_REVIEW' then 1 else 0 end) and sla_deadline < now())::int`,
       }).from(transferDisputes);
 
       return stats;
+    }),
+
+  /** Alias for raiseDispute — accepts extended input for API compatibility */
+  createDispute: protectedProcedure
+    .input(z.object({
+      transferId: z.string(),
+      initiatingFspId: z.string(),
+      respondingFspId: z.string(),
+      disputeType: z.enum(["DUPLICATE", "DUPLICATE_PAYMENT", "WRONG_AMOUNT", "UNAUTHORISED", "NOT_RECEIVED"]),
+      claimedAmountMinor: z.number(),
+      currency: z.string().default("NGN"),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const [dispute] = await db.insert(transferDisputes).values({
+        transferId: input.transferId,
+        initiatedByDfspId: input.initiatingFspId,
+        respondingDfspId: input.respondingFspId,
+        disputeType: input.disputeType,
+        amountKobo: input.claimedAmountMinor,
+        currency: input.currency,
+        reason: input.description ?? input.disputeType,
+        status: "OPEN",
+        slaDeadline: new Date(Date.now() + 48 * 3600 * 1000),
+      }).returning();
+      return { ...dispute, outcome: null };
+    }),
+
+  /** resolveDispute — marks a dispute as RESOLVED with an outcome */
+  resolveDispute: protectedProcedure
+    .input(z.object({
+      disputeId: z.string(),
+      outcome: z.enum(["UPHELD", "REJECTED", "WITHDRAWN"]),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const [updated] = await db.update(transferDisputes)
+        .set({
+          status: "RESOLVED",
+          resolution: input.outcome,
+          resolutionNotes: input.notes ?? null,
+          resolvedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(transferDisputes.id, input.disputeId))
+        .returning();
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Dispute not found" });
+      return { ...updated, outcome: updated.resolution };
     }),
 });

@@ -26,14 +26,14 @@ export const nexthubSettlementRouter = router({
   /** List all settlement windows with pagination */
   listWindows: protectedProcedure
     .input(z.object({
-      page: z.number().int().min(1).default(1),
-      pageSize: z.number().int().min(1).max(100).default(20),
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
       status: z.enum(["OPEN", "CLOSED", "SETTLING", "SETTLED", "FAILED", "ALL"]).default("ALL"),
       windowType: z.enum(["RTGS", "DNS_INTRADAY", "DNS_EOD", "ALL"]).default("ALL"),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const offset = (input.page - 1) * input.pageSize;
+      
 
       const conditions = [];
       if (input.status !== "ALL") conditions.push(eq(settlementWindows.status, input.status));
@@ -45,8 +45,8 @@ export const nexthubSettlementRouter = router({
         db.select().from(settlementWindows)
           .where(whereClause)
           .orderBy(desc(settlementWindows.createdAt))
-          .limit(input.pageSize)
-          .offset(offset),
+          .limit(input.limit)
+          .offset(input.offset),
         db.select({ count: sql<number>`count(*)::int` })
           .from(settlementWindows)
           .where(whereClause),
@@ -55,8 +55,8 @@ export const nexthubSettlementRouter = router({
       return {
         windows,
         total: countResult[0]?.count ?? 0,
-        page: input.page,
-        pageSize: input.pageSize,
+        limit: input.limit,
+        offset: input.offset,
       };
     }),
 
@@ -72,7 +72,7 @@ export const nexthubSettlementRouter = router({
         .limit(1);
 
       if (!window) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Settlement window not found" });
+        return null;
       }
 
       const positions = await db.select()
@@ -80,7 +80,7 @@ export const nexthubSettlementRouter = router({
         .where(eq(settlementNetPositions.windowId, input.windowId))
         .orderBy(desc(settlementNetPositions.netPositionKobo));
 
-      return { window, positions };
+      return window;
     }),
 
   /** Open a new settlement window */
@@ -201,7 +201,7 @@ export const nexthubSettlementRouter = router({
         .where(eq(settlementWindows.id, input.windowId))
         .returning();
 
-      return { window: updated, netPositions: netPositionRows };
+      return updated;
     }),
 
   /** Trigger settlement for a closed window (posts to TigerBeetle + CBN rail) */
@@ -244,12 +244,43 @@ export const nexthubSettlementRouter = router({
 
       const [stats] = await db.select({
         totalWindows: sql<number>`count(*)::int`,
-        openWindows: sql<number>`count(*) filter (where status = 'OPEN')::int`,
-        settledToday: sql<number>`count(*) filter (where status = 'SETTLED' and settled_at >= now() - interval '24 hours')::int`,
-        totalSettledKobo: sql<number>`coalesce(sum(total_amount_kobo) filter (where status = 'SETTLED'), 0)::bigint`,
-        pendingSettlementKobo: sql<number>`coalesce(sum(total_amount_kobo) filter (where status in ('CLOSED', 'SETTLING')), 0)::bigint`,
+        openWindows: sql<number>`sum(case when status = 'OPEN' then 1 else 0 end)::int`,
+        settledToday: sql<number>`sum(case when status = 'SETTLED' then 1 else 0 end)::int`,
+        totalSettledKobo: sql<number>`coalesce(sum(case when status = 'SETTLED' then total_amount_kobo else 0 end), 0)::bigint`,
+        pendingSettlementKobo: sql<number>`coalesce(sum(case when status in ('CLOSED', 'SETTLING') then total_amount_kobo else 0 end), 0)::bigint`,
       }).from(settlementWindows);
 
       return stats;
+    }),
+
+  /** createWindow — alias for openWindow with extended input */
+  createWindow: protectedProcedure
+    .input(z.object({
+      windowType: z.enum(["RTGS", "ACH", "INSTANT", "BATCH", "DNS_INTRADAY", "DNS_EOD", "DEFERRED_NET", "GROSS"]),
+      currency: z.string().default("NGN"),
+      settlementModel: z.string().optional(),
+      openedAt: z.number().optional(),
+      scheduledCloseAt: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const [win] = await db.insert(settlementWindows).values({
+        windowType: input.windowType,
+        currency: input.currency,
+        status: "OPEN",
+      }).returning();
+      return win;
+    }),
+
+  /** getNetPositions — list net positions for a settlement window */
+  getNetPositions: protectedProcedure
+    .input(z.object({ windowId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const positions = await db.select()
+        .from(settlementNetPositions)
+        .where(eq(settlementNetPositions.windowId, input.windowId))
+        .orderBy(desc(settlementNetPositions.netPositionKobo));
+      return positions;
     }),
 });

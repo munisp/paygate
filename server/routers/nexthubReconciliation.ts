@@ -24,8 +24,8 @@ export const nexthubReconciliationRouter = router({
   /** List reconciliation exceptions with filters */
   listExceptions: protectedProcedure
     .input(z.object({
-      page: z.number().int().min(1).default(1),
-      pageSize: z.number().int().min(1).max(100).default(20),
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0),
       status: z.enum(["OPEN", "AUTO_RESOLVED", "ESCALATED", "CLOSED", "ALL"]).default("ALL"),
       severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL", "ALL"]).default("ALL"),
       breakType: z.enum(["TIMING", "AMOUNT", "MISSING_DEBIT", "DUPLICATE_CREDIT", "ALL"]).default("ALL"),
@@ -33,7 +33,7 @@ export const nexthubReconciliationRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const offset = (input.page - 1) * input.pageSize;
+      
 
       const conditions = [];
       if (input.status !== "ALL") conditions.push(eq(reconciliationExceptions.status, input.status));
@@ -47,8 +47,8 @@ export const nexthubReconciliationRouter = router({
         db.select().from(reconciliationExceptions)
           .where(whereClause)
           .orderBy(desc(reconciliationExceptions.createdAt))
-          .limit(input.pageSize)
-          .offset(offset),
+          .limit(input.limit)
+          .offset(input.offset),
         db.select({ count: sql<number>`count(*)::int` })
           .from(reconciliationExceptions)
           .where(whereClause),
@@ -57,8 +57,8 @@ export const nexthubReconciliationRouter = router({
       return {
         exceptions,
         total: countResult[0]?.count ?? 0,
-        page: input.page,
-        pageSize: input.pageSize,
+        limit: input.limit,
+        offset: input.offset,
       };
     }),
 
@@ -120,16 +120,20 @@ export const nexthubReconciliationRouter = router({
   resolveException: protectedProcedure
     .input(z.object({
       exceptionId: z.string(),
-      resolutionNotes: z.string(),
-      status: z.enum(["AUTO_RESOLVED", "CLOSED"]).default("CLOSED"),
+      resolutionNotes: z.string().optional(),
+      notes: z.string().optional(),
+      status: z.enum(["AUTO_RESOLVED", "CLOSED"]).optional(),
+      resolution: z.enum(["AUTO_RESOLVED", "CLOSED"]).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
+      const resolvedStatus = input.status ?? input.resolution ?? "CLOSED";
+      const resolvedNotes = input.resolutionNotes ?? input.notes ?? "";
 
       const [updated] = await db.update(reconciliationExceptions)
         .set({
-          status: input.status,
-          resolutionNotes: input.resolutionNotes,
+          status: resolvedStatus,
+          resolutionNotes: resolvedNotes,
           resolvedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -167,16 +171,20 @@ export const nexthubReconciliationRouter = router({
 
   /** Get reconciliation dashboard statistics */
   getStats: protectedProcedure
+    .input(z.object({}).optional())
     .query(async () => {
       const db = await getDb();
 
       const [stats] = await db.select({
-        totalOpen: sql<number>`count(*) filter (where status = 'OPEN')::int`,
-        totalCritical: sql<number>`count(*) filter (where severity = 'CRITICAL' and status = 'OPEN')::int`,
-        totalEscalated: sql<number>`count(*) filter (where status = 'ESCALATED')::int`,
-        resolvedToday: sql<number>`count(*) filter (where status in ('AUTO_RESOLVED', 'CLOSED') and resolved_at >= now() - interval '24 hours')::int`,
-        avgResolutionMinutes: sql<number>`avg(extract(epoch from (resolved_at - created_at)) / 60) filter (where resolved_at is not null)::int`,
-        totalDiscrepancyKobo: sql<number>`coalesce(sum(discrepancy_amount_kobo) filter (where status = 'OPEN'), 0)::bigint`,
+        openCount: sql<number>`coalesce(sum(case when status = 'OPEN' then 1 else 0 end), 0)::int`,
+        totalOpen: sql<number>`coalesce(sum(case when status = 'OPEN' then 1 else 0 end), 0)::int`,
+        totalCritical: sql<number>`coalesce(sum(case when severity = 'CRITICAL' and status = 'OPEN' then 1 else 0 end), 0)::int`,
+        escalatedCount: sql<number>`coalesce(sum(case when status = 'ESCALATED' then 1 else 0 end), 0)::int`,
+        totalEscalated: sql<number>`coalesce(sum(case when status = 'ESCALATED' then 1 else 0 end), 0)::int`,
+        autoResolvedCount: sql<number>`coalesce(sum(case when status = 'AUTO_RESOLVED' then 1 else 0 end), 0)::int`,
+        resolvedToday: sql<number>`coalesce(sum(case when status in ('AUTO_RESOLVED', 'CLOSED') then 1 else 0 end), 0)::int`,
+        avgResolutionMinutes: sql<number>`coalesce(sum(case when resolved_at is not null then 1 else 0 end), 0)::int`,
+        totalDiscrepancyKobo: sql<number>`coalesce(sum(case when status = 'OPEN' then discrepancy_amount_kobo else 0 end), 0)::bigint`,
       }).from(reconciliationExceptions);
 
       const byBreakType = await db.select({
@@ -210,5 +218,47 @@ export const nexthubReconciliationRouter = router({
         .returning();
 
       return { resolved: resolved.length };
+    }),
+
+  /** createException — log a new reconciliation break */
+  createException: protectedProcedure
+    .input(z.object({
+      windowId: z.string(),
+      transferId: z.string().optional(),
+      hubTransferId: z.string().optional(),
+      railReference: z.string().nullable().optional(),
+      dfspId: z.string().optional(),
+      payerFspId: z.string().optional(),
+      payeeFspId: z.string().optional(),
+      breakType: z.enum(["AMOUNT_MISMATCH", "MISSING_TRANSFER", "DUPLICATE", "TIMING", "FX_RATE"]),
+      severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
+      hubAmountKobo: z.number().optional(),
+      railAmountKobo: z.number().optional(),
+      hubAmountMinor: z.number().nullable().optional(),
+      railAmountMinor: z.number().nullable().optional(),
+      currency: z.string().default("NGN"),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const hubAmt = input.hubAmountKobo ?? input.hubAmountMinor ?? undefined;
+      const railAmt = input.railAmountKobo ?? input.railAmountMinor ?? undefined;
+      const discrepancy = (hubAmt != null && railAmt != null)
+        ? Math.abs(hubAmt - railAmt)
+        : undefined;
+      const [ex] = await db.insert(reconciliationExceptions).values({
+        windowId: input.windowId,
+        transferId: input.transferId ?? input.hubTransferId,
+        dfspId: input.dfspId ?? input.payerFspId,
+        breakType: input.breakType,
+        severity: input.severity,
+        hubAmountKobo: hubAmt,
+        railAmountKobo: railAmt,
+        discrepancyAmountKobo: discrepancy,
+        currency: input.currency,
+        description: input.description,
+        status: "OPEN",
+      }).returning();
+      return ex;
     }),
 });
