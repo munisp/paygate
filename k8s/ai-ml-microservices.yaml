@@ -1,0 +1,1531 @@
+---
+# PayGate AI/ML & Fintech Microservices Kubernetes Deployment
+# Covers: vector-store, cocoindex, knowledge-graph, art-reasoning, lakehouse-ai,
+#         lakehouse-v2, cohort-analytics, settlement-forecast, tax-engine,
+#         payroll, pension-nps, salary-accounts, insurance-pricing, cashback-rewards,
+#         carbon-oracle, kyc-ocr, liveness-detection, soundbox, kiosk-health,
+#         iso20022-parser, spark-compaction, usdc-lakehouse-consumer, wealth-management
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paygate-ai
+  labels:
+    app.kubernetes.io/part-of: paygate
+---
+# ─── Vector Store (Qdrant Wrapper) ───────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector-store
+  namespace: paygate
+  labels:
+    app: vector-store
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vector-store
+  template:
+    metadata:
+      labels:
+        app: vector-store
+    spec:
+      containers:
+        - name: vector-store
+          image: paygate/vector-store:latest
+          ports:
+            - containerPort: 8110
+          env:
+            - name: PORT
+              value: "8110"
+            - name: QDRANT_URL
+              value: "http://qdrant:6333"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: INTERNAL_API_KEY
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8110
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8110
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-store
+  namespace: paygate
+spec:
+  selector:
+    app: vector-store
+  ports:
+    - port: 8110
+      targetPort: 8110
+---
+# ─── CocoIndex ETL Pipeline ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cocoindex
+  namespace: paygate
+  labels:
+    app: cocoindex
+    tier: ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cocoindex
+  template:
+    metadata:
+      labels:
+        app: cocoindex
+    spec:
+      containers:
+        - name: cocoindex
+          image: paygate/cocoindex:latest
+          ports:
+            - containerPort: 8111
+          env:
+            - name: PORT
+              value: "8111"
+            - name: QDRANT_URL
+              value: "http://qdrant:6333"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8111
+            initialDelaySeconds: 60
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cocoindex
+  namespace: paygate
+spec:
+  selector:
+    app: cocoindex
+  ports:
+    - port: 8111
+      targetPort: 8111
+---
+# ─── Knowledge Graph (FalkorDB + EPR-KGQA) ───────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-graph
+  namespace: paygate
+  labels:
+    app: knowledge-graph
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: knowledge-graph
+  template:
+    metadata:
+      labels:
+        app: knowledge-graph
+    spec:
+      containers:
+        - name: knowledge-graph
+          image: paygate/knowledge-graph:latest
+          ports:
+            - containerPort: 8112
+          env:
+            - name: PORT
+              value: "8112"
+            - name: FALKORDB_URL
+              value: "redis://falkordb:6379"
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8112
+            initialDelaySeconds: 45
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge-graph
+  namespace: paygate
+spec:
+  selector:
+    app: knowledge-graph
+  ports:
+    - port: 8112
+      targetPort: 8112
+---
+# ─── ART Reasoning Engine ─────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: art-reasoning
+  namespace: paygate
+  labels:
+    app: art-reasoning
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: art-reasoning
+  template:
+    metadata:
+      labels:
+        app: art-reasoning
+    spec:
+      containers:
+        - name: art-reasoning
+          image: paygate/art-reasoning:latest
+          ports:
+            - containerPort: 8113
+          env:
+            - name: PORT
+              value: "8113"
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+            - name: QDRANT_URL
+              value: "http://qdrant:6333"
+            - name: FALKORDB_URL
+              value: "redis://falkordb:6379"
+            - name: VECTOR_STORE_URL
+              value: "http://vector-store:8110"
+            - name: KNOWLEDGE_GRAPH_URL
+              value: "http://knowledge-graph:8112"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8113
+            initialDelaySeconds: 60
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: art-reasoning
+  namespace: paygate
+spec:
+  selector:
+    app: art-reasoning
+  ports:
+    - port: 8113
+      targetPort: 8113
+---
+# ─── Lakehouse AI Orchestrator ────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lakehouse-ai
+  namespace: paygate
+  labels:
+    app: lakehouse-ai
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lakehouse-ai
+  template:
+    metadata:
+      labels:
+        app: lakehouse-ai
+    spec:
+      containers:
+        - name: lakehouse-ai
+          image: paygate/lakehouse-ai:latest
+          ports:
+            - containerPort: 8114
+          env:
+            - name: PORT
+              value: "8114"
+            - name: VECTOR_STORE_URL
+              value: "http://vector-store:8110"
+            - name: KNOWLEDGE_GRAPH_URL
+              value: "http://knowledge-graph:8112"
+            - name: ART_REASONING_URL
+              value: "http://art-reasoning:8113"
+            - name: FRAUD_SCORING_URL
+              value: "http://fraud-scoring:8100"
+            - name: MINIO_ENDPOINT
+              value: "http://minio:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_SECRET_KEY
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8114
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakehouse-ai
+  namespace: paygate
+spec:
+  selector:
+    app: lakehouse-ai
+  ports:
+    - port: 8114
+      targetPort: 8114
+---
+# ─── Lakehouse v2 (Parquet/DeltaLake) ────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lakehouse-v2
+  namespace: paygate
+  labels:
+    app: lakehouse-v2
+    tier: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lakehouse-v2
+  template:
+    metadata:
+      labels:
+        app: lakehouse-v2
+    spec:
+      containers:
+        - name: lakehouse-v2
+          image: paygate/lakehouse-v2:latest
+          ports:
+            - containerPort: 8095
+          env:
+            - name: PORT
+              value: "8095"
+            - name: MINIO_ENDPOINT
+              value: "http://minio:9000"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakehouse-v2
+  namespace: paygate
+spec:
+  selector:
+    app: lakehouse-v2
+  ports:
+    - port: 8095
+      targetPort: 8095
+---
+# ─── Cohort Analytics ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cohort-analytics
+  namespace: paygate
+  labels:
+    app: cohort-analytics
+    tier: analytics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cohort-analytics
+  template:
+    metadata:
+      labels:
+        app: cohort-analytics
+    spec:
+      containers:
+        - name: cohort-analytics
+          image: paygate/cohort-analytics:latest
+          ports:
+            - containerPort: 8096
+          env:
+            - name: PORT
+              value: "8096"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cohort-analytics
+  namespace: paygate
+spec:
+  selector:
+    app: cohort-analytics
+  ports:
+    - port: 8096
+      targetPort: 8096
+---
+# ─── Settlement Forecast ──────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settlement-forecast
+  namespace: paygate
+  labels:
+    app: settlement-forecast
+    tier: analytics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: settlement-forecast
+  template:
+    metadata:
+      labels:
+        app: settlement-forecast
+    spec:
+      containers:
+        - name: settlement-forecast
+          image: paygate/settlement-forecast:latest
+          ports:
+            - containerPort: 8097
+          env:
+            - name: PORT
+              value: "8097"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: settlement-forecast
+  namespace: paygate
+spec:
+  selector:
+    app: settlement-forecast
+  ports:
+    - port: 8097
+      targetPort: 8097
+---
+# ─── Tax Engine ───────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tax-engine
+  namespace: paygate
+  labels:
+    app: tax-engine
+    tier: compliance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tax-engine
+  template:
+    metadata:
+      labels:
+        app: tax-engine
+    spec:
+      containers:
+        - name: tax-engine
+          image: paygate/tax-engine:latest
+          ports:
+            - containerPort: 8098
+          env:
+            - name: PORT
+              value: "8098"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tax-engine
+  namespace: paygate
+spec:
+  selector:
+    app: tax-engine
+  ports:
+    - port: 8098
+      targetPort: 8098
+---
+# ─── Payroll Service ──────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payroll
+  namespace: paygate
+  labels:
+    app: payroll
+    tier: hr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payroll
+  template:
+    metadata:
+      labels:
+        app: payroll
+    spec:
+      containers:
+        - name: payroll
+          image: paygate/payroll:latest
+          ports:
+            - containerPort: 8099
+          env:
+            - name: PORT
+              value: "8099"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: NIBSS_GATEWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: NIBSS_GATEWAY_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payroll
+  namespace: paygate
+spec:
+  selector:
+    app: payroll
+  ports:
+    - port: 8099
+      targetPort: 8099
+---
+# ─── Pension NPS ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pension-nps
+  namespace: paygate
+  labels:
+    app: pension-nps
+    tier: finance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pension-nps
+  template:
+    metadata:
+      labels:
+        app: pension-nps
+    spec:
+      containers:
+        - name: pension-nps
+          image: paygate/pension-nps:latest
+          ports:
+            - containerPort: 8101
+          env:
+            - name: PORT
+              value: "8101"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pension-nps
+  namespace: paygate
+spec:
+  selector:
+    app: pension-nps
+  ports:
+    - port: 8101
+      targetPort: 8101
+---
+# ─── Salary Accounts ──────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: salary-accounts
+  namespace: paygate
+  labels:
+    app: salary-accounts
+    tier: finance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: salary-accounts
+  template:
+    metadata:
+      labels:
+        app: salary-accounts
+    spec:
+      containers:
+        - name: salary-accounts
+          image: paygate/salary-accounts:latest
+          ports:
+            - containerPort: 8102
+          env:
+            - name: PORT
+              value: "8102"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: salary-accounts
+  namespace: paygate
+spec:
+  selector:
+    app: salary-accounts
+  ports:
+    - port: 8102
+      targetPort: 8102
+---
+# ─── Insurance Pricing ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insurance-pricing
+  namespace: paygate
+  labels:
+    app: insurance-pricing
+    tier: finance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insurance-pricing
+  template:
+    metadata:
+      labels:
+        app: insurance-pricing
+    spec:
+      containers:
+        - name: insurance-pricing
+          image: paygate/insurance-pricing:latest
+          ports:
+            - containerPort: 8103
+          env:
+            - name: PORT
+              value: "8103"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: insurance-pricing
+  namespace: paygate
+spec:
+  selector:
+    app: insurance-pricing
+  ports:
+    - port: 8103
+      targetPort: 8103
+---
+# ─── Cashback Rewards ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cashback-rewards
+  namespace: paygate
+  labels:
+    app: cashback-rewards
+    tier: loyalty
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cashback-rewards
+  template:
+    metadata:
+      labels:
+        app: cashback-rewards
+    spec:
+      containers:
+        - name: cashback-rewards
+          image: paygate/cashback-rewards:latest
+          ports:
+            - containerPort: 8104
+          env:
+            - name: PORT
+              value: "8104"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cashback-rewards
+  namespace: paygate
+spec:
+  selector:
+    app: cashback-rewards
+  ports:
+    - port: 8104
+      targetPort: 8104
+---
+# ─── Carbon Oracle ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbon-oracle
+  namespace: paygate
+  labels:
+    app: carbon-oracle
+    tier: sustainability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbon-oracle
+  template:
+    metadata:
+      labels:
+        app: carbon-oracle
+    spec:
+      containers:
+        - name: carbon-oracle
+          image: paygate/carbon-oracle:latest
+          ports:
+            - containerPort: 8105
+          env:
+            - name: PORT
+              value: "8105"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbon-oracle
+  namespace: paygate
+spec:
+  selector:
+    app: carbon-oracle
+  ports:
+    - port: 8105
+      targetPort: 8105
+---
+# ─── KYC OCR ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyc-ocr
+  namespace: paygate
+  labels:
+    app: kyc-ocr
+    tier: compliance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kyc-ocr
+  template:
+    metadata:
+      labels:
+        app: kyc-ocr
+    spec:
+      containers:
+        - name: kyc-ocr
+          image: paygate/kyc-ocr:latest
+          ports:
+            - containerPort: 8106
+          env:
+            - name: PORT
+              value: "8106"
+            - name: YOUVERIFY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: YOUVERIFY_API_KEY
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyc-ocr
+  namespace: paygate
+spec:
+  selector:
+    app: kyc-ocr
+  ports:
+    - port: 8106
+      targetPort: 8106
+---
+# ─── Liveness Detection ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liveness-detection
+  namespace: paygate
+  labels:
+    app: liveness-detection
+    tier: compliance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: liveness-detection
+  template:
+    metadata:
+      labels:
+        app: liveness-detection
+    spec:
+      containers:
+        - name: liveness-detection
+          image: paygate/liveness-detection:latest
+          ports:
+            - containerPort: 8107
+          env:
+            - name: PORT
+              value: "8107"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: liveness-detection
+  namespace: paygate
+spec:
+  selector:
+    app: liveness-detection
+  ports:
+    - port: 8107
+      targetPort: 8107
+---
+# ─── Soundbox ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soundbox
+  namespace: paygate
+  labels:
+    app: soundbox
+    tier: iot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soundbox
+  template:
+    metadata:
+      labels:
+        app: soundbox
+    spec:
+      containers:
+        - name: soundbox
+          image: paygate/soundbox:latest
+          ports:
+            - containerPort: 8108
+          env:
+            - name: PORT
+              value: "8108"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: soundbox
+  namespace: paygate
+spec:
+  selector:
+    app: soundbox
+  ports:
+    - port: 8108
+      targetPort: 8108
+---
+# ─── Kiosk Health ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kiosk-health
+  namespace: paygate
+  labels:
+    app: kiosk-health
+    tier: iot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kiosk-health
+  template:
+    metadata:
+      labels:
+        app: kiosk-health
+    spec:
+      containers:
+        - name: kiosk-health
+          image: paygate/kiosk-health:latest
+          ports:
+            - containerPort: 8109
+          env:
+            - name: PORT
+              value: "8109"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kiosk-health
+  namespace: paygate
+spec:
+  selector:
+    app: kiosk-health
+  ports:
+    - port: 8109
+      targetPort: 8109
+---
+# ─── ISO 20022 Parser ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iso20022-parser
+  namespace: paygate
+  labels:
+    app: iso20022-parser
+    tier: integration
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: iso20022-parser
+  template:
+    metadata:
+      labels:
+        app: iso20022-parser
+    spec:
+      containers:
+        - name: iso20022-parser
+          image: paygate/iso20022-parser:latest
+          ports:
+            - containerPort: 8116
+          env:
+            - name: PORT
+              value: "8116"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iso20022-parser
+  namespace: paygate
+spec:
+  selector:
+    app: iso20022-parser
+  ports:
+    - port: 8116
+      targetPort: 8116
+---
+# ─── Spark Compaction ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-compaction
+  namespace: paygate
+  labels:
+    app: spark-compaction
+    tier: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-compaction
+  template:
+    metadata:
+      labels:
+        app: spark-compaction
+    spec:
+      containers:
+        - name: spark-compaction
+          image: paygate/spark-compaction:latest
+          ports:
+            - containerPort: 8117
+          env:
+            - name: PORT
+              value: "8117"
+            - name: MINIO_ENDPOINT
+              value: "http://minio:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_SECRET_KEY
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-compaction
+  namespace: paygate
+spec:
+  selector:
+    app: spark-compaction
+  ports:
+    - port: 8117
+      targetPort: 8117
+---
+# ─── USDC Lakehouse Consumer ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: usdc-lakehouse-consumer
+  namespace: paygate
+  labels:
+    app: usdc-lakehouse-consumer
+    tier: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: usdc-lakehouse-consumer
+  template:
+    metadata:
+      labels:
+        app: usdc-lakehouse-consumer
+    spec:
+      containers:
+        - name: usdc-lakehouse-consumer
+          image: paygate/usdc-lakehouse-consumer:latest
+          ports:
+            - containerPort: 8118
+          env:
+            - name: PORT
+              value: "8118"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: MINIO_ENDPOINT
+              value: "http://minio:9000"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: usdc-lakehouse-consumer
+  namespace: paygate
+spec:
+  selector:
+    app: usdc-lakehouse-consumer
+  ports:
+    - port: 8118
+      targetPort: 8118
+---
+# ─── Wealth Management ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wealth-management
+  namespace: paygate
+  labels:
+    app: wealth-management
+    tier: finance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wealth-management
+  template:
+    metadata:
+      labels:
+        app: wealth-management
+    spec:
+      containers:
+        - name: wealth-management
+          image: paygate/wealth-management:latest
+          ports:
+            - containerPort: 8119
+          env:
+            - name: PORT
+              value: "8119"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wealth-management
+  namespace: paygate
+spec:
+  selector:
+    app: wealth-management
+  ports:
+    - port: 8119
+      targetPort: 8119
+---
+# ─── Credit Scoring Python ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credit-scoring-py
+  namespace: paygate
+  labels:
+    app: credit-scoring-py
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: credit-scoring-py
+  template:
+    metadata:
+      labels:
+        app: credit-scoring-py
+    spec:
+      containers:
+        - name: credit-scoring-py
+          image: paygate/credit-scoring:latest
+          ports:
+            - containerPort: 8115
+          env:
+            - name: PORT
+              value: "8115"
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: QDRANT_URL
+              value: "http://qdrant:6333"
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: credit-scoring-py
+  namespace: paygate
+spec:
+  selector:
+    app: credit-scoring-py
+  ports:
+    - port: 8115
+      targetPort: 8115
+---
+# ─── Horizontal Pod Autoscalers for AI services ───────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fraud-scoring-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fraud-scoring
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: art-reasoning-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: art-reasoning
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: knowledge-graph-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: knowledge-graph
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# ─── CronJob: GNN Model Retraining ────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gnn-model-retrain
+  namespace: paygate
+spec:
+  schedule: "0 2 * * 0"  # Every Sunday at 2am
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: gnn-retrain
+              image: paygate/lakehouse-ai:latest
+              command: ["python", "-m", "gnn_trainer", "--mode=retrain", "--epochs=50"]
+              env:
+                - name: MINIO_ENDPOINT
+                  value: "http://minio:9000"
+                - name: PG_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PG_DATABASE_URL
+              resources:
+                requests:
+                  memory: "4Gi"
+                  cpu: "2000m"
+                limits:
+                  memory: "8Gi"
+                  cpu: "4000m"
+---
+# ─── CronJob: Parquet Compaction ──────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: parquet-compaction
+  namespace: paygate
+spec:
+  schedule: "0 3 * * *"  # Every day at 3am
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: compaction
+              image: paygate/spark-compaction:latest
+              command: ["python", "-m", "compaction", "--mode=daily"]
+              env:
+                - name: MINIO_ENDPOINT
+                  value: "http://minio:9000"
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MINIO_ACCESS_KEY
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MINIO_SECRET_KEY
+              resources:
+                requests:
+                  memory: "2Gi"
+                  cpu: "1000m"
+                limits:
+                  memory: "8Gi"
+                  cpu: "4000m"
+---
+# ─── CronJob: Scheduled Reports Email ────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scheduled-reports-email
+  namespace: paygate
+spec:
+  schedule: "0 8 1 * *"  # 1st of every month at 8am
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: report-emailer
+              image: paygate/app:latest
+              command: ["node", "scripts/run-scheduled-reports.mjs"]
+              env:
+                - name: PG_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PG_DATABASE_URL
+                - name: SMTP_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: SMTP_HOST
+                - name: SMTP_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: SMTP_USER
+                - name: SMTP_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: SMTP_PASS

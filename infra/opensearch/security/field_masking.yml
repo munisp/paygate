@@ -1,0 +1,91 @@
+# OpenSearch Security Plugin — Field-Level Security & PII Masking
+# Apply via: securityadmin.sh -f field_masking.yml -t rolesmapping
+# Reference: https://opensearch.org/docs/latest/security/access-control/field-level-security/
+
+# ─── PII Field Masking Configuration ─────────────────────────────────────────
+# Fields listed here are SHA-256 hashed before being returned in search results.
+# This applies to all indices matching the pattern.
+
+_meta:
+  type: "rolesmapping"
+  config_version: 2
+
+# Analyst role: can search transactions but PII is masked
+analyst:
+  reserved: false
+  hidden: false
+  description: "Analyst role with PII field masking for compliance"
+  index_permissions:
+    - index_patterns:
+        - "transactions*"
+        - "payments*"
+        - "customers*"
+        - "audit_logs*"
+      allowed_actions:
+        - "read"
+        - "search"
+      fls:
+        # Field-level security: exclude raw PII fields
+        - "~account_number"
+        - "~card_number"
+        - "~ssn"
+        - "~national_id"
+        - "~bvn"
+        - "~nin"
+        - "~passport_number"
+        - "~date_of_birth"
+        - "~phone_number"
+        - "~email"
+      masked_fields:
+        # Mask these fields with SHA-256 hash (first 8 chars shown)
+        - "account_number::SHA256::8"
+        - "card_number::SHA256::4"
+        - "customer_name::SHA256::6"
+        - "recipient_account::SHA256::8"
+        - "sender_account::SHA256::8"
+        - "ip_address::SHA256::6"
+        - "device_fingerprint::SHA256::8"
+
+# Fraud analyst: can see risk scores but not raw PII
+fraud_analyst:
+  reserved: false
+  hidden: false
+  description: "Fraud analyst role — risk data visible, PII masked"
+  index_permissions:
+    - index_patterns:
+        - "fraud_alerts*"
+        - "risk_scores*"
+        - "transactions*"
+      allowed_actions:
+        - "read"
+        - "search"
+      masked_fields:
+        - "account_number::SHA256::8"
+        - "card_number::SHA256::4"
+        - "customer_email::SHA256::6"
+        - "customer_phone::SHA256::6"
+        - "ip_address::SHA256::6"
+
+# Compliance officer: full access but audit trail required
+compliance_officer:
+  reserved: false
+  hidden: false
+  description: "Compliance officer — full read access with audit logging"
+  index_permissions:
+    - index_patterns:
+        - "*"
+      allowed_actions:
+        - "read"
+        - "search"
+        - "indices:data/read/scroll"
+      # No field masking — compliance officers need full PII for investigations
+      # All access is audit-logged via OpenSearch audit plugin
+
+# ─── Audit Logging Configuration ─────────────────────────────────────────────
+# Enable via opensearch.yml:
+#   plugins.security.audit.type: internal_opensearch
+#   plugins.security.audit.config.enable_rest: true
+#   plugins.security.audit.config.enable_transport: true
+#   plugins.security.audit.config.log_request_body: false  # Don't log request bodies (may contain PII)
+#   plugins.security.audit.config.resolve_indices: true
+#   plugins.security.audit.config.exclude_sensitive_headers: true

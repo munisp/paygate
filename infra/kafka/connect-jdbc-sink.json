@@ -1,0 +1,27 @@
+{
+  "name": "paygate-jdbc-sink",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+    "tasks.max": "4",
+    "topics": "paygate.transaction.completed,paygate.transaction.failed,paygate.payout.initiated,paygate.settlement.triggered,paygate.fraud.alert,paygate.audit.events",
+    "connection.url": "${env:LAKEHOUSE_JDBC_URL}",
+    "connection.user": "${env:LAKEHOUSE_JDBC_USER}",
+    "connection.password": "${env:LAKEHOUSE_JDBC_PASSWORD}",
+    "auto.create": "true",
+    "auto.evolve": "true",
+    "insert.mode": "insert",
+    "pk.mode": "record_value",
+    "pk.fields": "event_id",
+    "transforms": "TimestampConverter",
+    "transforms.TimestampConverter.type": "org.apache.kafka.connect.transforms.TimestampConverter$Value",
+    "transforms.TimestampConverter.field": "occurred_at",
+    "transforms.TimestampConverter.target.type": "Timestamp",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "paygate.dlq",
+    "errors.deadletterqueue.topic.replication.factor": "3",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true",
+    "batch.size": "1000",
+    "consumer.override.max.poll.records": "1000"
+  }
+}

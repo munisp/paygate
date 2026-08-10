@@ -1,0 +1,28 @@
+apiVersion: v2
+name: paygate
+description: PayGate — Production-grade Nigerian fintech merchant portal with multi-service architecture
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - fintech
+  - payments
+  - nigeria
+  - merchant-portal
+  - nip
+  - nibss
+home: https://paygate.ng
+sources:
+  - https://github.com/paygate/merchant-portal
+maintainers:
+  - name: PayGate Engineering
+    email: engineering@paygate.ng
+dependencies:
+  - name: postgresql
+    version: "15.5.35"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.6.4"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

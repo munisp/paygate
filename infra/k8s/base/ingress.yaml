@@ -1,0 +1,149 @@
+---
+# APISIX Ingress Controller
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: paygate-portal-route
+  namespace: paygate
+spec:
+  http:
+    - name: portal
+      match:
+        hosts:
+          - portal.paygate.ng
+        paths:
+          - "/*"
+      backends:
+        - serviceName: paygate-portal
+          servicePort: 80
+      plugins:
+        - name: cors
+          enable: true
+          config:
+            allow_origins: "https://portal.paygate.ng,https://pay.paygate.ng"
+            allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
+            allow_headers: "Content-Type,Authorization,X-Request-ID"
+            expose_headers: "X-Request-ID"
+            max_age: 3600
+            allow_credential: true
+        - name: limit-req
+          enable: true
+          config:
+            rate: 100
+            burst: 200
+            key: "remote_addr"
+            rejected_code: 429
+        - name: request-id
+          enable: true
+          config:
+            header_name: "X-Request-ID"
+            include_in_response: true
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: paygate-api-route
+  namespace: paygate
+spec:
+  http:
+    - name: trpc-api
+      match:
+        hosts:
+          - api.paygate.ng
+        paths:
+          - "/api/trpc/*"
+      backends:
+        - serviceName: paygate-portal
+          servicePort: 80
+      plugins:
+        - name: jwt-auth
+          enable: true
+        - name: limit-req
+          enable: true
+          config:
+            rate: 500
+            burst: 1000
+            key: "consumer_name"
+            rejected_code: 429
+    - name: go-bridge-api
+      match:
+        hosts:
+          - api.paygate.ng
+        paths:
+          - "/bridge/*"
+      backends:
+        - serviceName: paygate-go-bridge
+          servicePort: 8080
+      plugins:
+        - name: key-auth
+          enable: true
+          config:
+            header: "X-Bridge-Key"
+        - name: limit-req
+          enable: true
+          config:
+            rate: 1000
+            burst: 2000
+            key: "remote_addr"
+            rejected_code: 429
+---
+# Standard Kubernetes Ingress (fallback for non-APISIX clusters)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paygate-ingress
+  namespace: paygate
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+    - hosts:
+        - portal.paygate.ng
+        - api.paygate.ng
+        - pay.paygate.ng
+      secretName: paygate-tls
+  rules:
+    - host: portal.paygate.ng
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: paygate-portal
+                port:
+                  number: 80
+    - host: api.paygate.ng
+      http:
+        paths:
+          - path: /api/trpc
+            pathType: Prefix
+            backend:
+              service:
+                name: paygate-portal
+                port:
+                  number: 80
+          - path: /bridge
+            pathType: Prefix
+            backend:
+              service:
+                name: paygate-go-bridge
+                port:
+                  number: 8080
+    - host: pay.paygate.ng
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: paygate-portal
+                port:
+                  number: 80

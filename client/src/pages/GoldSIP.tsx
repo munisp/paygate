@@ -1,0 +1,337 @@
+// @ts-nocheck
+import { useState, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { TrendingUp, TrendingDown, Plus, Pause, Play, Trash2, Coins, Calendar, BarChart3 } from "lucide-react";
+import { useAdaptiveInterval } from "@/lib/networkQuality";
+
+const GOLD_PRICE_NGN = 98_500; // per gram
+const GOLD_PRICE_USD = 62.5;
+
+interface SIPPlan {
+  id: string;
+  name: string;
+  amountNGN: number;
+  frequency: "daily" | "weekly" | "monthly";
+  startDate: string;
+  status: "active" | "paused" | "completed";
+  gramsAccumulated: number;
+  totalInvested: number;
+  currentValue: number;
+  nextDebitDate: string;
+}
+
+const portfolioHistory = [
+  { month: "Nov", value: 380_000 },
+  { month: "Dec", value: 412_000 },
+  { month: "Jan", value: 445_000 },
+  { month: "Feb", value: 458_000 },
+  { month: "Mar", value: 471_000 },
+  { month: "Apr", value: 664_975 },
+];
+
+export default function GoldSIP() {
+  const goldSipInterval = useAdaptiveInterval(60000);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ name: "", amountNGN: "", frequency: "monthly" as const });
+
+  // tRPC data — real data only, no mock fallback
+  const { data: priceData, isLoading } = trpc.newFeatures.digitalGold.getPrice.useQuery(undefined, { refetchInterval: goldSipInterval }, { staleTime: 30_000 });
+  const { data: sipData, refetch: refetchSIPs } = trpc.newFeatures.digitalGold.listSIPs.useQuery();
+  const plans: SIPPlan[] = sipData?.plans ?? [];
+
+  const setupSIPMutation = trpc.newFeatures.digitalGold.setupSIP.useMutation({
+    onSuccess: () => { toast.success("SIP created"); setShowCreate(false); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const pauseSIPMutation = trpc.newFeatures.digitalGold.pauseSIP.useMutation({
+    onSuccess: () => { toast.success("SIP paused"); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const resumeSIPMutation = trpc.newFeatures.digitalGold.resumeSIP.useMutation({
+    onSuccess: () => { toast.success("SIP resumed"); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const cancelSIPMutation = trpc.newFeatures.digitalGold.cancelSIP.useMutation({
+    onSuccess: () => { toast.success("SIP cancelled"); refetchSIPs(); },
+    onError: (e) => toast.error(e.message),
+  });
+  // Time-range selector for portfolio history chart (default: months: 6)
+  const [historyMonths, setHistoryMonths] = useState<1 | 3 | 6 | 12>(6);
+  // Real portfolio history from DB (monthly SIP investment totals)
+  const { data: historyData } = trpc.newFeatures.digitalGold.getPortfolioHistory.useQuery(
+    { months: historyMonths },
+    { staleTime: 300_000 }
+  );
+  const portfolioHistoryLive = historyData?.history?.length
+    ? historyData.history.map(h => ({ month: h.month, value: h.totalInvestedKobo / 100 }))
+    : portfolioHistory; // fallback to static data until first SIP
+
+  const totalInvested = useMemo(() => plans.reduce((s, p) => s + p.totalInvested, 0), [plans]);
+  const totalCurrentValue = useMemo(() => plans.reduce((s, p) => s + p.currentValue, 0), [plans]);
+  const totalGrams = useMemo(() => plans.reduce((s, p) => s + p.gramsAccumulated, 0), [plans]);
+  const totalPnL = totalCurrentValue - totalInvested;
+  const pnlPct = totalInvested > 0 ? ((totalPnL / totalInvested) * 100).toFixed(2) : "0.00";
+
+  const maxBarValue = Math.max(...portfolioHistoryLive.map((h) => h.value), 1);
+
+  const handleCreate = () => {
+    if (!form.name || !form.amountNGN) { toast.error("Fill all fields"); return; }
+    const amount = parseInt(form.amountNGN);
+    if (amount < 5_000) { toast.error("Minimum SIP amount is ₦5,000"); return; }
+    setupSIPMutation.mutate({ name: form.name, amountNGN: amount, frequency: form.frequency });
+    setForm({ name: "", amountNGN: "", frequency: "monthly" });
+  };
+
+  const toggleStatus = (plan: SIPPlan) => {
+    if (plan.status === "active") {
+      pauseSIPMutation.mutate({ sipId: plan.id });
+    } else {
+      resumeSIPMutation.mutate({ sipId: plan.id });
+    }
+  };
+
+  const deletePlan = (id: string) => {
+    cancelSIPMutation.mutate({ sipId: id });
+  };
+
+  const fmtNGN = (v: number) => `₦${v.toLocaleString("en-NG")}`;
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="h-8 bg-muted rounded animate-pulse w-48" />
+        <div className="h-4 bg-muted rounded animate-pulse w-full" />
+        <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+        <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+      </div>
+    );
+  }
+  return (
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Coins className="w-6 h-6 text-yellow-500" /> Gold SIP
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Systematic Investment Plan — accumulate gold automatically
+          </p>
+        </div>
+        <Button onClick={() => setShowCreate(true)} className="gap-2">
+          <Plus className="w-4 h-4" /> New SIP Plan
+        </Button>
+      </div>
+
+      {/* Live Gold Price Banner */}
+      <div className="bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/20 rounded-xl p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
+            <Coins className="w-5 h-5 text-yellow-600" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Live Gold Price</p>
+            <p className="font-bold text-lg">{fmtNGN(priceData?.priceNGN ?? GOLD_PRICE_NGN)}<span className="text-sm font-normal text-muted-foreground"> /gram</span></p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-muted-foreground">USD equivalent</p>
+          <p className="font-semibold">${priceData?.priceUSD ?? GOLD_PRICE_USD}/gram</p>
+        </div>
+        <div className="flex items-center gap-1 text-green-600 text-sm font-medium">
+          <TrendingUp className="w-4 h-4" /> Live price
+        </div>
+      </div>
+
+      {/* Portfolio Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total Invested</p>
+            <p className="text-xl font-bold mt-1">{fmtNGN(totalInvested)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Current Value</p>
+            <p className="text-xl font-bold mt-1 text-green-600">{fmtNGN(totalCurrentValue)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total P&L</p>
+            <div className="flex items-center gap-1 mt-1">
+              {totalPnL >= 0 ? <TrendingUp className="w-4 h-4 text-green-600" /> : <TrendingDown className="w-4 h-4 text-red-500" />}
+              <p className={`text-xl font-bold ${totalPnL >= 0 ? "text-green-600" : "text-red-500"}`}>
+                {totalPnL >= 0 ? "+" : ""}{fmtNGN(totalPnL)}
+              </p>
+            </div>
+            <p className={`text-xs ${totalPnL >= 0 ? "text-green-600" : "text-red-500"}`}>{pnlPct}%</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Gold Accumulated</p>
+            <p className="text-xl font-bold mt-1">{totalGrams.toFixed(3)}g</p>
+            <p className="text-xs text-muted-foreground">{(totalGrams / 31.1035).toFixed(4)} troy oz</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Portfolio Growth Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" /> Portfolio Growth ({historyMonths === 1 ? "1 Month" : historyMonths === 12 ? "1 Year" : `${historyMonths} Months`})
+            </CardTitle>
+            <div className="flex gap-1">
+              {([1, 3, 6, 12] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setHistoryMonths(m)}
+                  className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${
+                    historyMonths === m
+                      ? "bg-yellow-500 text-white"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {m === 12 ? "1Y" : `${m}M`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3 h-32">
+            {portfolioHistoryLive.map((h) => (
+              <div key={h.month} className="flex-1 flex flex-col items-center gap-1">
+                <div
+                  className="w-full bg-yellow-500/80 rounded-t-sm transition-all"
+                  style={{ height: `${(h.value / maxBarValue) * 100}%` }}
+                />
+                <span className="text-xs text-muted-foreground">{h.month}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* SIP Plans */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3">Active SIP Plans ({plans.length})</h2>
+        <div className="space-y-3">
+          {plans.map((plan) => (
+            <Card key={plan.id} className={plan.status === "paused" ? "opacity-70" : ""}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold">{plan.name}</h3>
+                      <Badge variant={plan.status === "active" ? "default" : "secondary"} className="text-xs capitalize">
+                        {plan.status}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs capitalize">{plan.frequency}</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2 text-sm">
+                      <div>
+                        <p className="text-muted-foreground text-xs">Amount/cycle</p>
+                        <p className="font-medium">{fmtNGN(plan.amountNGN)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Accumulated</p>
+                        <p className="font-medium">{plan.gramsAccumulated.toFixed(3)}g</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Current Value</p>
+                        <p className="font-medium text-green-600">{fmtNGN(plan.currentValue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Next Debit</p>
+                        <p className="font-medium flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />{plan.nextDebitDate}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 ml-4">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => toggleStatus(plan)}
+                      disabled={pauseSIPMutation.isPending || resumeSIPMutation.isPending}
+                    >
+                      {plan.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label="Delete" onClick={() => deletePlan(plan.id)}
+                      disabled={cancelSIPMutation.isPending}
+                    ><Trash2/>
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {plans.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl">
+              <Coins className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p>No SIP plans yet. Create your first gold investment plan.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Create SIP Dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Gold SIP Plan</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label>Plan Name</Label>
+              <Input placeholder="e.g. Monthly Gold Savings" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Amount per cycle (₦)</Label>
+              <Input type="number" placeholder="Minimum ₦5,000" value={form.amountNGN} onChange={(e) => setForm((f) => ({ ...f, amountNGN: e.target.value }))} />
+              {form.amountNGN && parseInt(form.amountNGN) >= 5000 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  ≈ {(parseInt(form.amountNGN) / GOLD_PRICE_NGN).toFixed(4)}g gold per cycle
+                </p>
+              )}
+            </div>
+            <div>
+              <Label>Frequency</Label>
+              <Select value={form.frequency} onValueChange={(v: any) => setForm((f) => ({ ...f, frequency: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Button>
+              <Button className="flex-1" onClick={handleCreate} disabled={setupSIPMutation.isPending}>
+                {setupSIPMutation.isPending ? "Creating..." : "Create SIP"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

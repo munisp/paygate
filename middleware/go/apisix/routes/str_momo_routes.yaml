@@ -1,0 +1,145 @@
+# middleware/go/apisix/routes/str_momo_routes.yaml
+# APISIX routes for STR goAML bridge and Mobile Money webhook endpoints.
+
+routes:
+  # ── STR goAML Submission ───────────────────────────────────────────────────
+  - id: str-submit
+    name: "STR Submit to NFIU goAML"
+    uri: /api/v1/str/submit
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      jwt-auth:
+        header: Authorization
+      limit-req:
+        rate: 10
+        burst: 5
+        key: consumer_name
+      response-rewrite:
+        headers:
+          X-PayGate-Service: str-goaml-bridge
+
+  - id: str-status
+    name: "STR NFIU Status Poll"
+    uri: /api/v1/str/status
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      jwt-auth:
+        header: Authorization
+      limit-req:
+        rate: 30
+        burst: 10
+        key: consumer_name
+
+  # ── Mobile Money Webhooks ──────────────────────────────────────────────────
+  - id: momo-webhook-mtn
+    name: "MTN MoMo Webhook"
+    uri: /api/v1/momo/webhook/mtn
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      ip-restriction:
+        whitelist:
+          - "196.201.214.0/24"   # MTN MoMo IP range (West Africa)
+          - "196.201.215.0/24"
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+
+  - id: momo-webhook-airtel
+    name: "Airtel Money Webhook"
+    uri: /api/v1/momo/webhook/airtel
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+
+  - id: momo-webhook-mpesa
+    name: "M-Pesa Webhook (Safaricom)"
+    uri: /api/v1/momo/webhook/mpesa
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      ip-restriction:
+        whitelist:
+          - "196.201.214.0/24"   # Safaricom IP range
+      limit-req:
+        rate: 200
+        burst: 100
+        key: remote_addr
+
+  - id: momo-webhook-opay
+    name: "OPay Webhook"
+    uri: /api/v1/momo/webhook/opay
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+
+  - id: momo-webhook-palmpay
+    name: "PalmPay Webhook"
+    uri: /api/v1/momo/webhook/palmpay
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+
+  - id: momo-webhook-wave
+    name: "Wave Webhook (Senegal/Côte d'Ivoire)"
+    uri: /api/v1/momo/webhook/wave
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      limit-req:
+        rate: 50
+        burst: 20
+        key: remote_addr
+
+  - id: momo-webhook-orange
+    name: "Orange Money Webhook"
+    uri: /api/v1/momo/webhook/orange
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        "${MIDDLEWARE_BRIDGE_HOST:-middleware-bridge}:8080": 1
+    plugins:
+      limit-req:
+        rate: 50
+        burst: 20
+        key: remote_addr

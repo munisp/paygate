@@ -1,0 +1,282 @@
+# ─── Ollama LLM Server — K8s Deployment ──────────────────────────────────────
+# Provides a self-hosted Ollama inference endpoint for:
+#   - AI chat assistant (AIChatBox.tsx)
+#   - UEBA model inference
+#   - Fraud scoring explanations
+#   - Merchant analytics summaries
+#
+# GPU nodes: add `nvidia.com/gpu: 1` resource request and the
+# `nvidia.com/gpu` toleration when GPU nodes are available.
+# CPU-only mode works for small models (phi3, gemma:2b, llama3.2:1b).
+#
+# Pull a model after first deploy:
+#   kubectl exec -n paygate deploy/ollama -- ollama pull llama3.2:1b
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paygate
+  labels:
+    app.kubernetes.io/part-of: paygate
+
+---
+# ─── Persistent Volume Claim (model storage) ─────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard   # change to your cloud provider's SSD class
+  resources:
+    requests:
+      storage: 50Gi             # llama3.2:1b ≈ 2 GB; llama3:8b ≈ 5 GB
+
+---
+# ─── Service ──────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ─── Deployment ───────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+    app.kubernetes.io/version: "0.3"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  strategy:
+    type: Recreate   # PVC is RWO — only one pod can mount at a time
+  template:
+    metadata:
+      labels:
+        app: ollama
+        app.kubernetes.io/part-of: paygate
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "11434"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: false   # Ollama needs root for GPU device access
+        fsGroup: 1000
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.3.14
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+              name: http
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            - name: OLLAMA_MODELS
+              value: "/root/.ollama/models"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "5m"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "2"
+            # Uncomment for GPU nodes:
+            # - name: NVIDIA_VISIBLE_DEVICES
+            #   value: "all"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+              # Uncomment for GPU nodes:
+              # nvidia.com/gpu: "1"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12   # 2 minutes for model loading
+      # Uncomment for GPU nodes:
+      # tolerations:
+      #   - key: nvidia.com/gpu
+      #     operator: Exists
+      #     effect: NoSchedule
+      # nodeSelector:
+      #   accelerator: nvidia-tesla-t4
+
+---
+# ─── HorizontalPodAutoscaler ──────────────────────────────────────────────────
+# Ollama uses Recreate strategy (RWO PVC), so maxReplicas=1 until
+# a ReadWriteMany storage class or model-server sharding is configured.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ollama-hpa
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ollama
+  minReplicas: 1
+  maxReplicas: 1   # increase when switching to RWX storage or NFS
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+
+---
+# ─── PodDisruptionBudget ──────────────────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ollama-pdb
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+spec:
+  minAvailable: 0   # allow full eviction during node drain (single replica)
+  selector:
+    matchLabels:
+      app: ollama
+
+---
+# ─── NetworkPolicy ────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ollama-netpol
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+spec:
+  podSelector:
+    matchLabels:
+      app: ollama
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow inbound from paygate services only
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paygate
+      ports:
+        - port: 11434
+          protocol: TCP
+  egress:
+    # Allow DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow outbound to model registry (ollama.com / huggingface.co) for pulls
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+
+---
+# ─── Model Pre-pull Job ───────────────────────────────────────────────────────
+# Runs once after deployment to pull the default model.
+# Delete and re-create to pull a different model.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-model-pull
+  namespace: paygate
+  labels:
+    app: ollama
+    app.kubernetes.io/part-of: paygate
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: model-puller
+          image: ollama/ollama:0.3.14
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Ollama to be ready…"
+              until curl -sf http://ollama:11434/; do sleep 5; done
+              echo "Pulling model: ${OLLAMA_MODEL}"
+              ollama pull "${OLLAMA_MODEL}"
+              echo "Model pull complete."
+          env:
+            - name: OLLAMA_HOST
+              value: "http://ollama:11434"
+            - name: OLLAMA_MODEL
+              value: "llama3.2:1b"   # lightweight default; override via Helm values

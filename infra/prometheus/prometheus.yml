@@ -1,0 +1,119 @@
+# PayGate Prometheus Configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    service: 'paygate'
+
+rule_files:
+  - "paygate-alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # APISIX metrics
+  - job_name: 'apisix'
+    static_configs:
+      - targets: ['apisix:9091']
+    metrics_path: '/apisix/prometheus/metrics'
+    scrape_interval: 10s
+
+  # PayGate app server metrics
+  - job_name: 'paygate-app'
+    static_configs:
+      - targets: ['paygate-app:3000']
+    metrics_path: '/api/metrics'
+    scrape_interval: 15s
+
+  # Node exporter (system metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # MySQL/TiDB metrics
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql-exporter:9104']
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # open-appsec WAF metrics
+  - job_name: 'open-appsec'
+    static_configs:
+      - targets: ['open-appsec:8090']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Wave 78 — Digital Finance Microservices
+  - job_name: 'paygate-digital-gold'
+    static_configs:
+      - targets: ['digital-gold-service:8080']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-mutual-funds'
+    static_configs:
+      - targets: ['mutual-funds-service:8081']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-pension-nps'
+    static_configs:
+      - targets: ['pension-nps-service:8082']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-cashback-rewards'
+    static_configs:
+      - targets: ['cashback-rewards-service:8083']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-soundbox'
+    static_configs:
+      - targets: ['soundbox-service:8084']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-wealth-management'
+    static_configs:
+      - targets: ['wealth-management-service:8085']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-emi-service'
+    static_configs:
+      - targets: ['emi-service:8086']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-bulk-collections'
+    static_configs:
+      - targets: ['bulk-collections-service:8087']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-salary-accounts'
+    static_configs:
+      - targets: ['salary-accounts-service:8088']
+    metrics_path: '/metrics'
+
+  - job_name: 'paygate-intl-remittance'
+    static_configs:
+      - targets: ['intl-remittance-service:8089']
+    metrics_path: '/metrics'
+
+  # Wave 79 — Admin & Observability
+  - job_name: 'digital-gold-service'
+    static_configs:
+      - targets: ['digital-gold-service:8080']
+    metrics_path: '/metrics'
+
+  - job_name: 'mutual-funds-service'
+    static_configs:
+      - targets: ['mutual-funds-service:8081']
+    metrics_path: '/metrics'
+
+  - job_name: 'intl-remittance-service'
+    static_configs:
+      - targets: ['intl-remittance-service:8089']
+    metrics_path: '/metrics'

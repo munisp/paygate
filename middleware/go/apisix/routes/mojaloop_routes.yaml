@@ -1,0 +1,134 @@
+# APISIX routes for Mojaloop FSPIOP callback endpoints
+# These routes receive async callbacks from the Mojaloop Hub and forward them
+# to the PayGate Go bridge handler.
+
+routes:
+  # ─── Party Lookup Callback ─────────────────────────────────────────────────
+  - id: mojaloop-party-callback
+    uri: /parties/*
+    methods: [PUT]
+    upstream:
+      type: roundrobin
+      nodes:
+        - host: paygate-bridge
+          port: 8080
+          weight: 1
+    plugins:
+      proxy-rewrite:
+        uri: /mojaloop/parties/$1
+      request-validation:
+        header_schema:
+          type: object
+          required: [FSPIOP-Source, FSPIOP-Destination, Date]
+          properties:
+            FSPIOP-Source: { type: string }
+            FSPIOP-Destination: { type: string }
+            Date: { type: string }
+      response-rewrite:
+        status_code: 200
+      limit-req:
+        rate: 200
+        burst: 50
+        key: remote_addr
+
+  # ─── Quote Callback ────────────────────────────────────────────────────────
+  - id: mojaloop-quote-callback
+    uri: /quotes/*
+    methods: [PUT]
+    upstream:
+      type: roundrobin
+      nodes:
+        - host: paygate-bridge
+          port: 8080
+          weight: 1
+    plugins:
+      proxy-rewrite:
+        uri: /mojaloop/quotes/$1
+      request-validation:
+        header_schema:
+          type: object
+          required: [FSPIOP-Source, Date]
+          properties:
+            FSPIOP-Source: { type: string }
+            Date: { type: string }
+      limit-req:
+        rate: 200
+        burst: 50
+        key: remote_addr
+
+  # ─── Transfer Callback ─────────────────────────────────────────────────────
+  - id: mojaloop-transfer-callback
+    uri: /transfers/*
+    methods: [PUT]
+    upstream:
+      type: roundrobin
+      nodes:
+        - host: paygate-bridge
+          port: 8080
+          weight: 1
+    plugins:
+      proxy-rewrite:
+        uri: /mojaloop/transfers/$1
+      request-validation:
+        header_schema:
+          type: object
+          required: [FSPIOP-Source, Date]
+          properties:
+            FSPIOP-Source: { type: string }
+            Date: { type: string }
+      limit-req:
+        rate: 500
+        burst: 100
+        key: remote_addr
+
+  # ─── Transfer Error Callback ───────────────────────────────────────────────
+  - id: mojaloop-transfer-error-callback
+    uri: /transfers/*/error
+    methods: [PUT]
+    upstream:
+      type: roundrobin
+      nodes:
+        - host: paygate-bridge
+          port: 8080
+          weight: 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["/transfers/(.*)/error", "/mojaloop/transfers/$1/error"]
+      limit-req:
+        rate: 100
+        burst: 20
+        key: remote_addr
+
+  # ─── Internal: Initiate Party Lookup ──────────────────────────────────────
+  - id: mojaloop-party-lookup-outbound
+    uri: /api/mojaloop/parties/lookup
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        - host: paygate-bridge
+          port: 8080
+          weight: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 50
+        burst: 10
+        key: consumer_name
+
+  # ─── Internal: Initiate Transfer ──────────────────────────────────────────
+  - id: mojaloop-transfer-outbound
+    uri: /api/mojaloop/transfers
+    methods: [POST]
+    upstream:
+      type: roundrobin
+      nodes:
+        - host: paygate-bridge
+          port: 8080
+          weight: 1
+    plugins:
+      jwt-auth: {}
+      limit-req:
+        rate: 100
+        burst: 20
+        key: consumer_name

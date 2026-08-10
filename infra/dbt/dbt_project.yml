@@ -1,0 +1,57 @@
+name: 'paygate'
+version: '1.0.0'
+config-version: 2
+
+profile: 'paygate'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  paygate_schema: "paygate"
+  start_date: "2024-01-01"
+  lookback_days: 90
+
+models:
+  paygate:
+    staging:
+      +schema: staging
+      +materialized: view
+      +tags: ["staging"]
+    intermediate:
+      +schema: intermediate
+      +materialized: ephemeral
+      +tags: ["intermediate"]
+    marts:
+      finance:
+        +schema: finance
+        +materialized: table
+        +tags: ["finance", "mart"]
+      fraud:
+        +schema: fraud
+        +materialized: incremental
+        +unique_key: "transaction_id"
+        +tags: ["fraud", "mart"]
+      merchant:
+        +schema: merchant
+        +materialized: table
+        +tags: ["merchant", "mart"]
+      compliance:
+        +schema: compliance
+        +materialized: table
+        +tags: ["compliance", "mart"]
+
+snapshots:
+  paygate:
+    +target_schema: snapshots
+    +strategy: timestamp
+    +updated_at: updated_at

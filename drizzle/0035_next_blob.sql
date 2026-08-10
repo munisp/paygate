@@ -1,0 +1,1 @@
+ALTER TYPE "public"."bnpl_status" ADD VALUE 'paid' BEFORE 'defaulted';

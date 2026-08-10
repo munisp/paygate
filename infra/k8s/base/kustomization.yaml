@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: paygate
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - trino-configmap.yaml
+  - secrets-template.yaml
+  - portal-deployment.yaml
+  - go-bridge-deployment.yaml
+  - ingress.yaml
+  - ../services/python-services.yaml
+  - ../monitoring/prometheus-rules.yaml
+  - ../services/rust-services.yaml
+  - hpa-pdb.yaml
+  - network-policy.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: paygate
+  app.kubernetes.io/managed-by: kustomize

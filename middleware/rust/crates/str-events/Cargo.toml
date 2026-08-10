@@ -1,0 +1,38 @@
+[package]
+name = "str-events"
+version = "0.1.0"
+edition = "2021"
+description = "STR and Mobile Money event types, serialisation, and Fluvio producer for PayGate"
+authors = ["PayGate Engineering"]
+
+[dependencies]
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# Fluvio native client
+fluvio = "0.22"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# UUID generation
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[lib]
+name = "str_events"
+path = "src/lib.rs"
+
+[[bin]]
+name = "str-events-service"
+path = "src/main.rs"

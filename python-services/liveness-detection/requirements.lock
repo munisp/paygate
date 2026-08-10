@@ -1,0 +1,18 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.9.2
+httpx==0.28.1
+pillow==11.0.0
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+confluent-kafka==2.5.0
+# MediaPipe (Google) — face mesh, pose estimation
+mediapipe==0.10.14
+# InsightFace — ArcFace face recognition + quality
+insightface==0.7.3
+onnxruntime==1.19.2  # CPU; use onnxruntime-gpu for GPU
+# PyTorch — SilentFace anti-spoofing model
+torch==2.6.0
+torchvision==0.21.0
+# Docling (IBM Research) — document layout understanding
+docling==2.5.0

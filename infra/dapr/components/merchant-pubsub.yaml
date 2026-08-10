@@ -1,0 +1,210 @@
+---
+# Merchant Portal Pub/Sub Component
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: merchant-pubsub
+  namespace: paygate
+spec:
+  type: pubsub.kafka
+  version: v1
+  metadata:
+    - name: brokers
+      value: "kafka:9092"
+    - name: consumerGroup
+      value: "paygate-merchant-portal"
+    - name: authType
+      value: "none"
+    - name: initialOffset
+      value: "newest"
+    - name: maxMessageBytes
+      value: "1048576"
+    - name: disableTls
+      value: "false"
+---
+# Settlement events subscription
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: settlement-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.settlement.triggered
+  route: /events/settlement
+---
+# Fraud alert subscription
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: fraud-alerts-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.fraud.alert
+  route: /events/fraud
+---
+# KYB workflow events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: kyb-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.kyb.status.updated
+  route: /events/kyb
+---
+# Lending events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: lending-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.lending.disbursed
+  route: /events/lending
+---
+# Insurance events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: insurance-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.insurance.policy.issued
+  route: /events/insurance
+---
+# Carbon credit events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: carbon-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.carbon.credit.minted
+  route: /events/carbon
+---
+# NFT badge events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: nft-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.nft.badge.minted
+  route: /events/nft
+---
+# BNPL v2 events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: bnpl-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.bnpl.plan.created
+  route: /events/bnpl
+---
+# Escrow events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: escrow-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.escrow.released
+  route: /events/escrow
+---
+# Tax withholding events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: tax-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.tax.withheld
+  route: /events/tax
+---
+# Remittance v2 events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: remittance-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.remittance.completed
+  route: /events/remittance
+---
+# Agent banking events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: agent-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.agent.transaction.completed
+  route: /events/agent
+---
+# Loyalty events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: loyalty-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.loyalty.points.awarded
+  route: /events/loyalty
+---
+# Open banking consent events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: open-banking-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.openbanking.consent.granted
+  route: /events/openbanking
+---
+# DCC conversion events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: dcc-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.dcc.conversion.completed
+  route: /events/dcc
+---
+# Payout events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: payout-events-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.payout.initiated
+  route: /events/payout
+---
+# Transaction completed events
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: transaction-completed-sub
+  namespace: paygate
+spec:
+  pubsubname: merchant-pubsub
+  topic: paygate.transaction.completed
+  route: /events/transaction

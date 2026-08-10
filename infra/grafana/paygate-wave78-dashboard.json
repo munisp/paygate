@@ -1,0 +1,136 @@
+{
+  "title": "PayGate Wave 78 — New Feature Services",
+  "uid": "paygate-wave78",
+  "version": 1,
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "tags": ["paygate", "wave78", "new-features"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Availability — Wave 78",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "up{job=~\"paygate-digital-gold|paygate-mutual-funds|paygate-pension-nps|paygate-cashback-rewards|paygate-soundbox|paygate-wealth-management|paygate-emi-service|paygate-bulk-collections|paygate-salary-accounts|paygate-intl-remittance\"}", "legendFormat": "{{job}}" }
+      ],
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "red", "value": 0 }, { "color": "green", "value": 1 }] }, "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } } ] } }
+    },
+    {
+      "id": 2,
+      "title": "Digital Gold — Price per Gram (₦)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "paygate_gold_price_per_gram_kobo / 100", "legendFormat": "Gold Price (₦)" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Digital Gold — Daily Buy/Sell Volume (₦)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+      "targets": [
+        { "expr": "rate(paygate_gold_buy_volume_kobo_total[1h]) / 100", "legendFormat": "Buy Volume/hr" },
+        { "expr": "rate(paygate_gold_sell_volume_kobo_total[1h]) / 100", "legendFormat": "Sell Volume/hr" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Mutual Funds — AUM (₦M)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 },
+      "targets": [
+        { "expr": "paygate_mutual_funds_aum_kobo / 100000000", "legendFormat": "AUM (₦M)" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Pension NPS — Total Contributions (₦M)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "rate(paygate_pension_contributions_kobo_total[1d]) / 100000000", "legendFormat": "Daily Contributions (₦M)" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Cashback — Earned vs Redeemed (₦)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
+      "targets": [
+        { "expr": "rate(paygate_cashback_earned_kobo_total[1h]) / 100", "legendFormat": "Earned/hr" },
+        { "expr": "rate(paygate_cashback_redeemed_kobo_total[1h]) / 100", "legendFormat": "Redeemed/hr" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Soundbox — Active Devices",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
+      "targets": [
+        { "expr": "paygate_soundbox_active_devices_total", "legendFormat": "Active Devices" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "EMI — Active Plans",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "paygate_emi_active_plans_total", "legendFormat": "Active EMI Plans" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "EMI — Overdue Instalments",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 20 },
+      "targets": [
+        { "expr": "paygate_emi_overdue_instalments", "legendFormat": "Overdue" }
+      ],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] } } }
+    },
+    {
+      "id": 10,
+      "title": "Bulk Collections — Success Rate",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 20 },
+      "targets": [
+        { "expr": "paygate_bulk_collection_success_rate * 100", "legendFormat": "Success %" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent", "thresholds": { "steps": [{ "color": "red", "value": 0 }, { "color": "yellow", "value": 80 }, { "color": "green", "value": 95 }] } } }
+    },
+    {
+      "id": 11,
+      "title": "International Remittance — Transfer Volume (USD)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 20 },
+      "targets": [
+        { "expr": "rate(paygate_remittance_volume_usd_total[1h])", "legendFormat": "Volume/hr (USD)" }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Remittance — Failure Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        { "expr": "rate(paygate_remittance_failures_total[10m]) / rate(paygate_remittance_transfers_total[10m]) * 100", "legendFormat": "Failure Rate %" }
+      ],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] } } }
+    },
+    {
+      "id": 13,
+      "title": "Salary Accounts — Advance Requests",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        { "expr": "rate(paygate_salary_advance_requests_total[1h])", "legendFormat": "Requests/hr" },
+        { "expr": "rate(paygate_salary_advance_rejections_total[1h])", "legendFormat": "Rejections/hr" }
+      ]
+    }
+  ]
+}

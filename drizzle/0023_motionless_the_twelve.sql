@@ -1,0 +1,2 @@
+ALTER TABLE "merchants" ADD COLUMN "recon_alert_badge_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "merchants" ADD COLUMN "recon_alert_threshold" integer DEFAULT 1 NOT NULL;

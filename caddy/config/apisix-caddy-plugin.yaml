@@ -1,0 +1,74 @@
+# =============================================================================
+# APISIX Plugin Configuration for Caddy Integration
+# =============================================================================
+# These APISIX plugins work in conjunction with Caddy:
+#   - caddy-auth-consumer: validates Caddy-issued JWT claims
+#   - caddy-header-forward: maps Caddy auth headers to APISIX consumer context
+#   - ip-restriction: trusts only Caddy's IP (not public internet)
+# =============================================================================
+
+# Global plugin config — applied to all routes when Caddy is the edge proxy
+plugins:
+  # Trust only Caddy as the upstream caller (not direct internet)
+  ip-restriction:
+    whitelist:
+      - "172.16.0.0/12"   # Docker bridge (Caddy container)
+      - "10.0.0.0/8"      # Internal network
+    message: "Direct access denied. Use the API gateway."
+
+  # Extract Caddy auth user/roles and inject as APISIX consumer
+  request-id:
+    header_name: X-Request-Id
+    include_in_response: true
+
+  # Forward Caddy auth claims as consumer context
+  serverless-pre-function:
+    phase: rewrite
+    functions:
+      - |
+        local core = require("apisix.core")
+        local ctx = ngx.ctx
+        -- Read Caddy-injected auth headers
+        local auth_user = core.request.header(ctx, "X-Caddy-Auth-User")
+        local auth_roles = core.request.header(ctx, "X-Caddy-Auth-Roles")
+        if auth_user then
+          -- Set as APISIX consumer for downstream plugins
+          ctx.consumer = { username = auth_user }
+          ngx.req.set_header("X-Consumer-Username", auth_user)
+          ngx.req.set_header("X-Consumer-Groups", auth_roles or "")
+        end
+
+  # Prometheus metrics (APISIX side)
+  prometheus:
+    prefer_name: true
+    metrics:
+      http_status:
+        extra_labels:
+          - upstream_name
+          - caddy_auth_user: "$http_x_caddy_auth_user"
+
+# Per-route overrides for routes that receive Caddy-forwarded traffic
+caddy_trusted_routes:
+  # Portal tRPC API
+  portal-trpc:
+    plugins:
+      # Remove Caddy auth headers before forwarding to app (app uses its own session)
+      response-rewrite:
+        headers:
+          remove:
+            - X-Caddy-Auth-User
+            - X-Caddy-Auth-Roles
+
+  # NextHub API — require admin role
+  nexthub-api:
+    plugins:
+      serverless-pre-function:
+        phase: rewrite
+        functions:
+          - |
+            local roles = ngx.req.get_headers()["X-Caddy-Auth-Roles"] or ""
+            if not string.find(roles, "paygate%-admin") then
+              ngx.status = 403
+              ngx.say('{"error":"admin role required"}')
+              ngx.exit(403)
+            end

@@ -1,0 +1,76 @@
+groups:
+  - name: paygate.security
+    rules:
+      - alert: HighWAFBlockRate
+        expr: sum(rate(apisix_http_status{status="403"}[5m])) > 10
+        for: 2m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "High WAF block rate detected"
+          description: "More than 10 requests/s being blocked by WAF"
+
+      - alert: RateLimitSpike
+        expr: sum(rate(apisix_http_status{status="429"}[5m])) > 50
+        for: 1m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Rate limit spike detected"
+          description: "More than 50 rate-limited requests/s"
+
+      - alert: SuspiciousErrorRate
+        expr: sum(rate(apisix_http_status{status=~"5.."}[5m])) / sum(rate(apisix_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High 5xx error rate"
+          description: "More than 5% of requests returning 5xx errors"
+
+  - name: paygate.business
+    rules:
+      - alert: SIPProcessorFailed
+        expr: increase(paygate_sip_failures_total[1h]) > 5
+        for: 0m
+        labels:
+          severity: critical
+          team: fintech
+        annotations:
+          summary: "SIP processor failures"
+          description: "More than 5 SIP execution failures in the last hour"
+
+      - alert: HighFraudAlertRate
+        expr: increase(paygate_fraud_alerts_total{severity="critical"}[15m]) > 3
+        for: 0m
+        labels:
+          severity: critical
+          team: fraud
+        annotations:
+          summary: "Multiple critical fraud alerts"
+          description: "3+ critical fraud alerts in 15 minutes"
+
+  - name: paygate.infrastructure
+    rules:
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage above 85%"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: paygate_db_pool_waiting > 10
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Database connection pool exhausted"
+          description: "More than 10 queries waiting for DB connections"

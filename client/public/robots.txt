@@ -1,0 +1,15 @@
+# robots.txt for PayGate PWA
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login
+Disallow: /settings
+Disallow: /profile
+
+# Sitemap location
+Sitemap: https://paygate.com/sitemap.xml
+
+# Crawl delay (optional, in seconds)
+Crawl-delay: 1

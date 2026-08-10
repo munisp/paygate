@@ -1,0 +1,518 @@
+---
+# PayGate Rust Services - Kubernetes Deployments & Services
+# Covers: billing-engine, credit-scoring, inventory-engine, loyalty-ledger, tigerbeetle-recon, wallet-ffi
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-billing-engine
+  namespace: paygate
+  labels:
+    app: billing-engine
+    tier: rust-service
+    version: "1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: billing-engine
+  template:
+    metadata:
+      labels:
+        app: billing-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: billing-engine
+          image: paygate/billing-engine:${BILLING_VERSION:-latest}
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: paygate-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_SERVICE_NAME
+              value: paygate-billing-engine
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-billing-engine
+  namespace: paygate
+spec:
+  selector:
+    app: billing-engine
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-credit-scoring
+  namespace: paygate
+  labels:
+    app: credit-scoring
+    tier: rust-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: credit-scoring
+  template:
+    metadata:
+      labels:
+        app: credit-scoring
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: credit-scoring
+          image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_SERVICE_NAME
+              value: paygate-credit-scoring
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+            - name: MODEL_PATH
+              value: "/app/models/credit_score_v2.bin"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-credit-scoring
+  namespace: paygate
+spec:
+  selector:
+    app: credit-scoring
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-inventory-engine
+  namespace: paygate
+  labels:
+    app: inventory-engine
+    tier: rust-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inventory-engine
+  template:
+    metadata:
+      labels:
+        app: inventory-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: inventory-engine
+          image: paygate/inventory-engine:${INVENTORY_VERSION:-latest}
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_SERVICE_NAME
+              value: paygate-inventory-engine
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-inventory-engine
+  namespace: paygate
+spec:
+  selector:
+    app: inventory-engine
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-loyalty-ledger
+  namespace: paygate
+  labels:
+    app: loyalty-ledger
+    tier: rust-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: loyalty-ledger
+  template:
+    metadata:
+      labels:
+        app: loyalty-ledger
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: loyalty-ledger
+          image: paygate/loyalty-ledger:${LOYALTY_VERSION:-latest}
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_SERVICE_NAME
+              value: paygate-loyalty-ledger
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-loyalty-ledger
+  namespace: paygate
+spec:
+  selector:
+    app: loyalty-ledger
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-tigerbeetle-recon
+  namespace: paygate
+  labels:
+    app: tigerbeetle-recon
+    tier: rust-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tigerbeetle-recon
+  template:
+    metadata:
+      labels:
+        app: tigerbeetle-recon
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: tigerbeetle-recon
+          image: paygate/tigerbeetle-recon:${TB_RECON_VERSION:-latest}
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_SERVICE_NAME
+              value: paygate-tigerbeetle-recon
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+            - name: RECON_INTERVAL_SECONDS
+              value: "300"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-tigerbeetle-recon
+  namespace: paygate
+spec:
+  selector:
+    app: tigerbeetle-recon
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-wallet-ffi
+  namespace: paygate
+  labels:
+    app: wallet-ffi
+    tier: rust-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wallet-ffi
+  template:
+    metadata:
+      labels:
+        app: wallet-ffi
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: wallet-ffi
+          image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-latest}
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_SERVICE_NAME
+              value: paygate-wallet-ffi
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-wallet-ffi
+  namespace: paygate
+spec:
+  selector:
+    app: wallet-ffi
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

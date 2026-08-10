@@ -1,0 +1,151 @@
+# APISIX route configuration for POS Terminal endpoints
+# All routes are protected by the paygate-key-auth plugin except:
+#   - /terminal/heartbeat (device-authenticated via serial number)
+#   - /terminal/stream/:mid (SSE — JWT authenticated)
+
+routes:
+  # ── Terminal Provisioning ────────────────────────────────────────────────────
+  - id: terminal-provision
+    uri: /terminal/provision
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 10
+        burst: 20
+        key: consumer_name
+        rejected_code: 429
+      opentelemetry:
+        sampler:
+          name: always_on
+
+  # ── Terminal Heartbeat (device-authenticated) ────────────────────────────────
+  - id: terminal-heartbeat
+    uri: /terminal/heartbeat
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      limit-req:
+        rate: 60
+        burst: 120
+        key: remote_addr
+        rejected_code: 429
+      # No key-auth — terminals authenticate via serial number + HMAC
+      opentelemetry:
+        sampler:
+          name: parent_based
+
+  # ── Terminal Transaction Recording ───────────────────────────────────────────
+  - id: terminal-transaction
+    uri: /terminal/transaction
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 100
+        burst: 200
+        key: consumer_name
+        rejected_code: 429
+      opentelemetry:
+        sampler:
+          name: always_on
+      response-rewrite:
+        headers:
+          set:
+            X-PayGate-Service: terminal
+
+  # ── Terminal Refund ──────────────────────────────────────────────────────────
+  - id: terminal-refund
+    uri: /terminal/refund
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 20
+        burst: 40
+        key: consumer_name
+        rejected_code: 429
+      opentelemetry:
+        sampler:
+          name: always_on
+
+  # ── Terminal Void ────────────────────────────────────────────────────────────
+  - id: terminal-void
+    uri: /terminal/void
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth: {}
+      limit-req:
+        rate: 20
+        burst: 40
+        key: consumer_name
+        rejected_code: 429
+
+  # ── TigerBeetle Settlement (internal only) ───────────────────────────────────
+  - id: terminal-settle
+    uri: /terminal/settle
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      # Internal-only — only accessible from within the cluster
+      ip-restriction:
+        whitelist:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+      limit-req:
+        rate: 200
+        burst: 400
+        key: remote_addr
+        rejected_code: 429
+
+  # ── SSE Terminal Event Stream ────────────────────────────────────────────────
+  - id: terminal-stream
+    uri: /terminal/stream/*
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      jwt-auth: {}
+      proxy-buffering:
+        # Disable buffering for SSE
+        request_buffering: false
+        response_buffering: false
+      limit-conn:
+        conn: 100
+        burst: 50
+        default_conn_delay: 0.1
+        key: consumer_name
+        rejected_code: 503
+      opentelemetry:
+        sampler:
+          name: parent_based
+
+upstreams:
+  - id: paygate-bridge
+    type: roundrobin
+    nodes:
+      - host: paygate-bridge
+        port: 8080
+        weight: 1
+    scheme: http
+    pass_host: pass
+    keepalive_pool:
+      size: 320
+      idle_timeout: 60
+      requests: 1000
+    health_check:
+      active:
+        type: http
+        http_path: /health
+        interval: 5
+        timeout: 2
+        healthy:
+          http_statuses: [200]
+          successes: 2
+        unhealthy:
+          http_statuses: [500, 502, 503]
+          http_failures: 3

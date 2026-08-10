@@ -1,0 +1,168 @@
+# PayGate Observability Stack
+# Prometheus + Grafana + Alertmanager + Node Exporter
+# Usage: docker compose -f docker-compose.yml -f docker-compose.waf.yml -f docker-compose.observability.yml up -d
+
+version: "3.9"
+
+networks:
+  paygate-net:
+    external: true
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+
+services:
+  # ─── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: paygate-prometheus
+    restart: unless-stopped
+    networks: [paygate-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/paygate-alerts.yml:/etc/prometheus/paygate-alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ─── Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: paygate-grafana
+    restart: unless-stopped
+    networks: [paygate-net]
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/paygate-waf-dashboard.json:/var/lib/grafana/dashboards/paygate-waf-dashboard.json:ro
+      - ./grafana/paygate-sip-dashboard.json:/var/lib/grafana/dashboards/paygate-sip-dashboard.json:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=PayGate@Grafana2026
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_COOKIE_SAMESITE=strict
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+      - GF_SECURITY_X_CONTENT_TYPE_OPTIONS=true
+      - GF_SECURITY_X_XSS_PROTECTION=true
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SERVER_ROOT_URL=https://grafana.paygate.internal
+      - GF_SMTP_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on: [prometheus]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ─── Alertmanager ───────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: paygate-alertmanager
+    restart: unless-stopped
+    networks: [paygate-net]
+    ports:
+      - "9093:9093"
+    volumes:
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    configs:
+      - source: alertmanager_config
+        target: /etc/alertmanager/alertmanager.yml
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ─── Node Exporter ──────────────────────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: paygate-node-exporter
+    restart: unless-stopped
+    networks: [paygate-net]
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # ─── Redis Exporter ─────────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: paygate-redis-exporter
+    restart: unless-stopped
+    networks: [paygate-net]
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+configs:
+  alertmanager_config:
+    content: |
+      global:
+        smtp_smarthost: 'smtp.paygate.internal:587'
+        smtp_from: 'alerts@paygate.ng'
+        smtp_auth_username: 'alerts@paygate.ng'
+        smtp_auth_password: '${SMTP_PASS}'
+      route:
+        group_by: ['alertname', 'severity']
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        receiver: 'paygate-ops'
+        routes:
+          - match:
+              severity: critical
+            receiver: 'paygate-critical'
+            repeat_interval: 1h
+      receivers:
+        - name: 'paygate-ops'
+          email_configs:
+            - to: 'ops@paygate.ng'
+              send_resolved: true
+        - name: 'paygate-critical'
+          email_configs:
+            - to: 'cto@paygate.ng,security@paygate.ng'
+              send_resolved: true

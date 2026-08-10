@@ -1,0 +1,59 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: consumer-pubsub
+  namespace: paygate
+spec:
+  type: pubsub.kafka
+  version: v1
+  metadata:
+    - name: brokers
+      value: "kafka:9092"
+    - name: consumerGroup
+      value: "paygate-consumer-portal"
+    - name: authType
+      value: "none"
+    - name: initialOffset
+      value: "newest"
+    - name: maxMessageBytes
+      value: "1048576"
+---
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: consumer-wallet-events-sub
+  namespace: paygate
+spec:
+  pubsubname: consumer-pubsub
+  topic: paygate-consumer-wallet-events
+  route: /events/consumer/wallet
+---
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: consumer-transfer-events-sub
+  namespace: paygate
+spec:
+  pubsubname: consumer-pubsub
+  topic: paygate-consumer-transfer-events
+  route: /events/consumer/transfer
+---
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: consumer-fraud-signals-sub
+  namespace: paygate
+spec:
+  pubsubname: consumer-pubsub
+  topic: paygate-consumer-fraud-signals
+  route: /events/consumer/fraud
+---
+apiVersion: dapr.io/v1alpha1
+kind: Subscription
+metadata:
+  name: consumer-dispute-events-sub
+  namespace: paygate
+spec:
+  pubsubname: consumer-pubsub
+  topic: paygate-consumer-dispute-events
+  route: /events/consumer/dispute

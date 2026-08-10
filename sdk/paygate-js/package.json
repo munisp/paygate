@@ -1,0 +1,29 @@
+{
+  "name": "@paygate/js",
+  "version": "1.0.0",
+  "description": "PayGate JavaScript SDK — embeddable checkout, wallet widget, and payment status",
+  "main": "dist/paygate.cjs.js",
+  "module": "dist/paygate.esm.js",
+  "browser": "dist/paygate.umd.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "rollup -c",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "dev": "rollup -c -w",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": ["paygate", "payment", "checkout", "nigeria", "fintech"],
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.18.0",
+    "tslib": "^2.6.3",
+    "typescript": "^5.4.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paygate-ng/paygate-js"
+  }
+}

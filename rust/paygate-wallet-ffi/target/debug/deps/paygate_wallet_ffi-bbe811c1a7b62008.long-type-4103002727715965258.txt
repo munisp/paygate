@@ -1,0 +1,1 @@
+extern "C" fn(*const i8, *mut i8, usize) -> i32 {paygate_wallet_balance}

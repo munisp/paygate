@@ -1,0 +1,1514 @@
+---
+# Settlement Forecast Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-settlement-forecast
+  namespace: paygate
+  labels:
+    app: paygate-settlement-forecast
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-settlement-forecast
+  template:
+    metadata:
+      labels:
+        app: paygate-settlement-forecast
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9011"
+    spec:
+      containers:
+        - name: settlement-forecast
+          image: paygate/settlement-forecast:latest
+          ports:
+            - containerPort: 9011
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: PORT
+              value: "9011"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-settlement-forecast
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-settlement-forecast
+  ports:
+    - port: 9011
+      targetPort: 9011
+---
+# Cohort Analytics Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-cohort-analytics
+  namespace: paygate
+  labels:
+    app: paygate-cohort-analytics
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-cohort-analytics
+  template:
+    metadata:
+      labels:
+        app: paygate-cohort-analytics
+    spec:
+      containers:
+        - name: cohort-analytics
+          image: paygate/cohort-analytics:latest
+          ports:
+            - containerPort: 9015
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: PORT
+              value: "9015"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-cohort-analytics
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-cohort-analytics
+  ports:
+    - port: 9015
+      targetPort: 9015
+---
+# Carbon Oracle Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-carbon-oracle
+  namespace: paygate
+  labels:
+    app: paygate-carbon-oracle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-carbon-oracle
+  template:
+    metadata:
+      labels:
+        app: paygate-carbon-oracle
+    spec:
+      containers:
+        - name: carbon-oracle
+          image: paygate/carbon-oracle:latest
+          ports:
+            - containerPort: 9012
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: PORT
+              value: "9012"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-carbon-oracle
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-carbon-oracle
+  ports:
+    - port: 9012
+      targetPort: 9012
+---
+# Insurance Pricing Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-insurance-pricing
+  namespace: paygate
+  labels:
+    app: paygate-insurance-pricing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-insurance-pricing
+  template:
+    metadata:
+      labels:
+        app: paygate-insurance-pricing
+    spec:
+      containers:
+        - name: insurance-pricing
+          image: paygate/insurance-pricing:latest
+          ports:
+            - containerPort: 9013
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: PORT
+              value: "9013"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-insurance-pricing
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-insurance-pricing
+  ports:
+    - port: 9013
+      targetPort: 9013
+---
+# Tax Engine Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-tax-engine
+  namespace: paygate
+  labels:
+    app: paygate-tax-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-tax-engine
+  template:
+    metadata:
+      labels:
+        app: paygate-tax-engine
+    spec:
+      containers:
+        - name: tax-engine
+          image: paygate/tax-engine:latest
+          ports:
+            - containerPort: 9014
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: PORT
+              value: "9014"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-tax-engine
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-tax-engine
+  ports:
+    - port: 9014
+      targetPort: 9014
+---
+# ISO 20022 Parser Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-iso20022-parser
+  namespace: paygate
+  labels:
+    app: paygate-iso20022-parser
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-iso20022-parser
+  template:
+    metadata:
+      labels:
+        app: paygate-iso20022-parser
+    spec:
+      containers:
+        - name: iso20022-parser
+          image: paygate/iso20022-parser:latest
+          ports:
+            - containerPort: 9016
+          env:
+            - name: PORT
+              value: "9016"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-iso20022-parser
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-iso20022-parser
+  ports:
+    - port: 9016
+      targetPort: 9016
+---
+# Fraud Scoring Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-fraud-scoring
+  namespace: paygate
+  labels:
+    app: paygate-fraud-scoring
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: paygate-fraud-scoring
+  template:
+    metadata:
+      labels:
+        app: paygate-fraud-scoring
+    spec:
+      containers:
+        - name: fraud-scoring
+          image: paygate/fraud-scoring:latest
+          ports:
+            - containerPort: 9010
+          env:
+            - name: PG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            - name: PORT
+              value: "9010"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-fraud-scoring
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-fraud-scoring
+  ports:
+    - port: 9010
+      targetPort: 9010
+---
+# ─── MinIO Object Store ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: paygate-minio
+  namespace: paygate
+spec:
+  serviceName: paygate-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-minio
+  template:
+    metadata:
+      labels:
+        app: paygate-minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_PASSWORD
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-minio
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+# ─── MinIO Bucket Init Job ─────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paygate-minio-init
+  namespace: paygate
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:RELEASE.2024-11-17T19-35-25Z
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mc alias set local http://paygate-minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD &&
+              mc mb --ignore-existing local/paygate-lakehouse &&
+              mc mb --ignore-existing local/paygate-exports &&
+              mc anonymous set download local/paygate-exports &&
+              echo 'MinIO buckets ready'
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_PASSWORD
+---
+# ─── Lakehouse V2 (DuckDB/Delta Lake) ─────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-lakehouse-v2
+  namespace: paygate
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-lakehouse-v2
+  template:
+    metadata:
+      labels:
+        app: paygate-lakehouse-v2
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8125"
+    spec:
+      containers:
+        - name: lakehouse-v2
+          image: paygate/lakehouse-v2:latest
+          ports:
+            - containerPort: 8125
+          env:
+            - name: PORT
+              value: "8125"
+            - name: S3_ENDPOINT
+              value: "http://paygate-minio:9000"
+            - name: S3_BUCKET
+              value: "paygate-lakehouse"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_USER
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_PASSWORD
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8125
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-lakehouse-v2
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-lakehouse-v2
+  ports:
+    - port: 8125
+      targetPort: 8125
+---
+# ─── Fraud Heatmap (Apache Sedona + H3) ───────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-fraud-heatmap
+  namespace: paygate
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-fraud-heatmap
+  template:
+    metadata:
+      labels:
+        app: paygate-fraud-heatmap
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8120"
+    spec:
+      containers:
+        - name: fraud-heatmap
+          image: paygate/fraud-heatmap:latest
+          ports:
+            - containerPort: 8120
+          env:
+            - name: PORT
+              value: "8120"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PG_DATABASE_URL
+            - name: SEDONA_ENABLED
+              value: "true"
+            - name: H3_RESOLUTION
+              value: "7"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8120
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "6Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-fraud-heatmap
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-fraud-heatmap
+  ports:
+    - port: 8120
+      targetPort: 8120
+---
+# ─── Apache Spark Master ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-spark-master
+  namespace: paygate
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-spark-master
+  template:
+    metadata:
+      labels:
+        app: paygate-spark-master
+    spec:
+      containers:
+        - name: spark-master
+          image: bitnami/spark:3.5.3
+          env:
+            - name: SPARK_MODE
+              value: master
+            - name: SPARK_MASTER_HOST
+              value: paygate-spark-master
+            - name: SPARK_RPC_AUTHENTICATION_ENABLED
+              value: "no"
+            - name: SPARK_RPC_ENCRYPTION_ENABLED
+              value: "no"
+          ports:
+            - containerPort: 8080
+              name: web-ui
+            - containerPort: 7077
+              name: rpc
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-spark-master
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-spark-master
+  ports:
+    - name: web-ui
+      port: 8080
+      targetPort: 8080
+    - name: rpc
+      port: 7077
+      targetPort: 7077
+---
+# ─── Apache Spark Worker ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-spark-worker
+  namespace: paygate
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-spark-worker
+  template:
+    metadata:
+      labels:
+        app: paygate-spark-worker
+    spec:
+      containers:
+        - name: spark-worker
+          image: bitnami/spark:3.5.3
+          env:
+            - name: SPARK_MODE
+              value: worker
+            - name: SPARK_MASTER_URL
+              value: spark://paygate-spark-master:7077
+            - name: SPARK_WORKER_MEMORY
+              value: "4G"
+            - name: SPARK_WORKER_CORES
+              value: "4"
+            - name: SPARK_RPC_AUTHENTICATION_ENABLED
+              value: "no"
+            - name: SPARK_RPC_ENCRYPTION_ENABLED
+              value: "no"
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "4Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+---
+# ─── Trino (Distributed SQL) ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-trino
+  namespace: paygate
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-trino
+  template:
+    metadata:
+      labels:
+        app: paygate-trino
+    spec:
+      containers:
+        - name: trino
+          image: trinodb/trino:457
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: trino-catalog
+              mountPath: /etc/trino/catalog
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /v1/info
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "4Gi"
+            limits:
+              cpu: "4000m"
+              memory: "16Gi"
+      volumes:
+        - name: trino-catalog
+          configMap:
+            name: paygate-trino-catalog
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-trino
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-trino
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paygate-trino-catalog
+  namespace: paygate
+data:
+  lakehouse.properties: |
+    connector.name=hive
+    hive.metastore=file
+    hive.metastore.catalog.dir=s3a://paygate-lakehouse/
+    hive.s3.endpoint=http://paygate-minio:9000
+    hive.s3.path-style-access=true
+    hive.s3.aws-access-key=minioadmin
+    hive.s3.aws-secret-key=minioadmin
+    hive.non-managed-table-writes-enabled=true
+    delta.enable-non-concurrent-writes=true
+  tpch.properties: |
+    connector.name=tpch
+---
+# ─── Delta Lake Compaction CronJob ─────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-delta-compaction
+  namespace: paygate
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: spark-compaction
+              image: paygate/spark-compaction:latest
+              env:
+                - name: S3_BUCKET
+                  value: "paygate-lakehouse"
+                - name: S3_ENDPOINT
+                  value: "http://paygate-minio:9000"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MINIO_ROOT_USER
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: MINIO_ROOT_PASSWORD
+                - name: SPARK_MASTER
+                  value: "spark://paygate-spark-master:7077"
+                - name: VACUUM_RETAIN_HOURS
+                  value: "168"
+                - name: COMPACT_TARGET_SIZE_MB
+                  value: "128"
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "2Gi"
+                limits:
+                  cpu: "2000m"
+                  memory: "8Gi"
+
+---
+# ─── MinIO ────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-minio
+  namespace: paygate
+  labels:
+    app: paygate-minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-minio
+  template:
+    metadata:
+      labels:
+        app: paygate-minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_PASSWORD
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-minio
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data-pvc
+  namespace: paygate
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+---
+# ─── MinIO Init Job ───────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paygate-minio-init
+  namespace: paygate
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-minio
+          image: busybox:1.36
+          command: ['sh', '-c', 'until wget -q -O- http://paygate-minio:9000/minio/health/ready; do echo waiting for minio; sleep 5; done']
+      containers:
+        - name: minio-init
+          image: minio/mc:RELEASE.2024-11-05T11-29-45Z
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MINIO_ROOT_PASSWORD
+          command:
+            - sh
+            - -c
+            - |
+              mc alias set minio http://paygate-minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+              mc mb --ignore-existing minio/paygate-lakehouse
+              mc mb --ignore-existing minio/paygate-exports
+              mc mb --ignore-existing minio/paygate-audit
+              mc anonymous set none minio/paygate-lakehouse
+              mc anonymous set none minio/paygate-exports
+              mc anonymous set none minio/paygate-audit
+              echo "MinIO buckets initialized"
+---
+# ─── Lakehouse V2 ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-lakehouse-v2
+  namespace: paygate
+  labels:
+    app: paygate-lakehouse-v2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-lakehouse-v2
+  template:
+    metadata:
+      labels:
+        app: paygate-lakehouse-v2
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8125"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: lakehouse-v2
+          image: paygate/lakehouse-v2:latest
+          ports:
+            - containerPort: 8125
+          envFrom:
+            - configMapRef:
+                name: paygate-config
+            - secretRef:
+                name: paygate-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8125
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8125
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-lakehouse-v2
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-lakehouse-v2
+  ports:
+    - port: 8125
+      targetPort: 8125
+---
+# ─── Fraud Heatmap (Sedona) ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-fraud-heatmap
+  namespace: paygate
+  labels:
+    app: paygate-fraud-heatmap
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-fraud-heatmap
+  template:
+    metadata:
+      labels:
+        app: paygate-fraud-heatmap
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8120"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: fraud-heatmap
+          image: paygate/fraud-heatmap:latest
+          ports:
+            - containerPort: 8120
+          envFrom:
+            - configMapRef:
+                name: paygate-config
+            - secretRef:
+                name: paygate-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8120
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8120
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-fraud-heatmap
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-fraud-heatmap
+  ports:
+    - port: 8120
+      targetPort: 8120
+---
+# ─── Credit Scoring (DataFusion) ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-credit-scoring
+  namespace: paygate
+  labels:
+    app: paygate-credit-scoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-credit-scoring
+  template:
+    metadata:
+      labels:
+        app: paygate-credit-scoring
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8200"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: credit-scoring
+          image: paygate/credit-scoring:latest
+          ports:
+            - containerPort: 8200
+          envFrom:
+            - configMapRef:
+                name: paygate-config
+            - secretRef:
+                name: paygate-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8200
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8200
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-credit-scoring
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-credit-scoring
+  ports:
+    - port: 8200
+      targetPort: 8200
+---
+# ─── Spark Master ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-spark-master
+  namespace: paygate
+  labels:
+    app: paygate-spark-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-spark-master
+  template:
+    metadata:
+      labels:
+        app: paygate-spark-master
+    spec:
+      containers:
+        - name: spark-master
+          image: bitnami/spark:3.5
+          env:
+            - name: SPARK_MODE
+              value: "master"
+            - name: SPARK_RPC_AUTHENTICATION_ENABLED
+              value: "no"
+            - name: SPARK_RPC_ENCRYPTION_ENABLED
+              value: "no"
+            - name: SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED
+              value: "no"
+            - name: SPARK_SSL_ENABLED
+              value: "no"
+          ports:
+            - containerPort: 7077
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-spark-master
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-spark-master
+  ports:
+    - name: spark
+      port: 7077
+      targetPort: 7077
+    - name: ui
+      port: 8080
+      targetPort: 8080
+---
+# ─── Spark Worker ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-spark-worker
+  namespace: paygate
+  labels:
+    app: paygate-spark-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-spark-worker
+  template:
+    metadata:
+      labels:
+        app: paygate-spark-worker
+    spec:
+      containers:
+        - name: spark-worker
+          image: bitnami/spark:3.5
+          env:
+            - name: SPARK_MODE
+              value: "worker"
+            - name: SPARK_MASTER_URL
+              value: "spark://paygate-spark-master:7077"
+            - name: SPARK_WORKER_MEMORY
+              value: "2G"
+            - name: SPARK_WORKER_CORES
+              value: "2"
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+---
+# ─── Trino ────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-trino
+  namespace: paygate
+  labels:
+    app: paygate-trino
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paygate-trino
+  template:
+    metadata:
+      labels:
+        app: paygate-trino
+    spec:
+      containers:
+        - name: trino
+          image: trinodb/trino:435
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: trino-config
+              mountPath: /etc/trino
+          readinessProbe:
+            httpGet:
+              path: /v1/info
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "8Gi"
+              cpu: "2000m"
+      volumes:
+        - name: trino-config
+          configMap:
+            name: trino-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-trino
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-trino
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# ─── Spark Compaction CronJob ─────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-spark-compaction
+  namespace: paygate
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: spark-compaction
+              image: paygate/spark-compaction:latest
+              envFrom:
+                - configMapRef:
+                    name: paygate-config
+                - secretRef:
+                    name: paygate-secrets
+              resources:
+                requests:
+                  memory: "1Gi"
+                  cpu: "500m"
+                limits:
+                  memory: "4Gi"
+                  cpu: "2000m"
+---
+# ─── GNN Fraud Detection (GraphSAGE) ─────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+  labels:
+    app: paygate-gnn-fraud
+    tier: ml
+    component: fraud-detection
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-gnn-fraud
+  template:
+    metadata:
+      labels:
+        app: paygate-gnn-fraud
+    spec:
+      containers:
+        - name: gnn-fraud
+          image: paygate/gnn-fraud:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: paygate-config
+            - secretRef:
+                name: paygate-secrets
+          env:
+            - name: GNN_MODEL_VERSION
+              value: "v1.0.0"
+            - name: GNN_FRAUD_THRESHOLD
+              value: "0.7"
+            - name: GNN_RING_THRESHOLD
+              value: "0.85"
+            - name: FRAUD_SCORING_URL
+              value: "http://paygate-fraud-scoring:8000"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-gnn-fraud
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-gnn-fraud-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-gnn-fraud
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# GNN Fraud Detection K8s Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+  labels:
+    app: paygate-gnn-fraud
+    tier: ml
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-gnn-fraud
+  template:
+    metadata:
+      labels:
+        app: paygate-gnn-fraud
+    spec:
+      containers:
+        - name: gnn-fraud
+          image: paygate/gnn-fraud:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: GNN_MODEL_VERSION
+              value: v1.0.0
+            - name: GNN_FRAUD_THRESHOLD
+              value: "0.7"
+            - name: GNN_RING_THRESHOLD
+              value: "0.85"
+            - name: FRAUD_SCORING_URL
+              value: http://paygate-fraud-scoring:8000
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 2Gi
+              cpu: 1000m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-gnn-fraud
+  namespace: paygate
+spec:
+  selector:
+    app: paygate-gnn-fraud
+  ports:
+    - port: 8000
+      targetPort: 8000

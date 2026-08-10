@@ -1,0 +1,24 @@
+[package]
+name = "tigerbeetle-recon"
+version = "1.0.0"
+edition = "2021"
+description = "TigerBeetle ↔ Postgres ledger reconciliation service"
+
+[[bin]]
+name = "tigerbeetle-recon"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1"] }
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+thiserror = "1"
+dotenv = "0.15"

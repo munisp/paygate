@@ -1,0 +1,27 @@
+paygate:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_HOST', 'localhost') }}"
+      user: "{{ env_var('DBT_USER', 'paygate') }}"
+      password: "{{ env_var('DBT_PASSWORD', 'paygate_dev_password') }}"
+      port: "{{ env_var('DBT_PORT', '5432') | int }}"
+      dbname: "{{ env_var('DBT_DATABASE', 'paygate') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'public') }}"
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10
+      search_path: "public,staging,intermediate,finance,fraud,merchant,compliance"
+
+    prod:
+      type: postgres
+      host: "{{ env_var('PG_HOST', 'postgres') }}"
+      user: "{{ env_var('PG_USER', 'paygate') }}"
+      password: "{{ env_var('PG_PASSWORD') }}"
+      port: 5432
+      dbname: "{{ env_var('PG_DATABASE', 'paygate') }}"
+      schema: public
+      threads: 8
+      keepalives_idle: 0
+      connect_timeout: 10

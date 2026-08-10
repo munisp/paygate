@@ -1,0 +1,2874 @@
+version: "3.9"
+
+# =============================================================================
+# PayGate Production Docker Compose
+# Includes: Portal (2 replicas), Go Bridge (2 replicas), Redis, APISIX,
+#           TigerBeetle cluster, Kafka, Temporal, Prometheus, Grafana,
+#           Push Service, USSD Gateway, Fraud Scoring, Sync Relay,
+#           Consumer Outbox Relay, Lakehouse Audit, M-Pesa Connector,
+#           Kiosk Health, Payroll Service, USDC Lakehouse Consumer
+#
+# Usage:
+#   docker compose -f infra/docker-compose.prod.yml up -d
+#   docker compose -f infra/docker-compose.prod.yml ps
+#   docker compose -f infra/docker-compose.prod.yml logs -f paygate-bridge
+#
+# Required environment variables (copy to .env.prod):
+#   DATABASE_URL, JWT_SECRET, REDIS_PASSWORD, MIDDLEWARE_INTERNAL_KEY,
+#   INTERNAL_API_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+#   KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET,
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VTPASS_API_KEY, VTPASS_SECRET_KEY,
+#   TERMII_API_KEY, YOUVERIFY_API_KEY, NIBSS_SECRET_KEY, MOJALOOP_API_KEY,
+#   FIREBASE_PROJECT_ID, FIREBASE_CREDENTIALS_JSON, APNS_KEY_ID,
+#   APNS_TEAM_ID, APNS_PRIVATE_KEY, GRAFANA_ADMIN_PASSWORD,
+#   TEMPORAL_DB_USER, TEMPORAL_DB_PASSWORD, TEMPORAL_DB_HOST
+# =============================================================================
+
+x-portal-base: &portal-base
+  image: paygate/portal:${PORTAL_VERSION:-latest}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'
+        reservations:
+          memory: 512m
+          cpus: '0.5'
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: ${PG_DATABASE_URL}
+    JWT_SECRET: ${JWT_SECRET}
+    VITE_APP_ID: ${VITE_APP_ID}
+    OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
+    VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
+    OWNER_OPEN_ID: ${OWNER_OPEN_ID}
+    OWNER_NAME: ${OWNER_NAME}
+    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
+    MIDDLEWARE_BRIDGE_URL: ${MIDDLEWARE_BRIDGE_URL:-http://bridge-lb:8080}
+    MIDDLEWARE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+    BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    KEYCLOAK_URL: ${KEYCLOAK_URL:-https://auth.paygate.ng}
+    KEYCLOAK_REALM: ${KEYCLOAK_REALM:-paygate}
+    KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-merchant-portal}
+    KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+    VITE_KEYCLOAK_URL: ${KEYCLOAK_URL:-https://auth.paygate.ng}
+    VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+    VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+    VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:ops@paygate.ng}
+    VTPASS_API_KEY: ${VTPASS_API_KEY}
+    VTPASS_SECRET_KEY: ${VTPASS_SECRET_KEY}
+    VTPASS_SANDBOX: "false"
+    TERMII_API_KEY: ${TERMII_API_KEY}
+    YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY}
+    NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-nip.paygate.ng}
+    NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY}
+    NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-999999}
+    NIBSS_WEBHOOK_SECRET: ${NIBSS_WEBHOOK_SECRET}
+    MOJALOOP_URL: ${MOJALOOP_URL:-https://ml-api-adapter.paygate.ng}
+    MOJALOOP_API_KEY: ${MOJALOOP_API_KEY}
+    PUSH_SERVICE_URL: http://push-service:8096
+    PUSH_SERVICE_KEY: ${INTERNAL_API_KEY}
+    USSD_GATEWAY_URL: http://ussd-gateway:8095
+    FRAUD_SCORING_URL: http://fraud-scoring:8083
+    SYNC_RELAY_URL: http://sync-relay:8097
+    SYNC_RELAY_KEY: ${INTERNAL_API_KEY}
+    SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+    SMTP_PORT: ${SMTP_PORT:-587}
+    SMTP_USER: ${SMTP_USER:-noreply@paygate.ng}
+    SMTP_PASS: ${SMTP_PASS}
+    PAYOUT_APPROVER_EMAIL: ${PAYOUT_APPROVER_EMAIL:-approvals@paygate.ng}
+    NIP_API_KEY: ${NIP_API_KEY}
+    TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    TEMPORAL_HOST_PORT: temporal:7233
+    TEMPORAL_NAMESPACE: paygate
+    PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+    PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+    FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+    PORTAL_TRPC_URL: http://portal-1:3000/api/trpc
+    MERCHANT_PORTAL_URL: http://portal-1:3000
+    PAYMENT_LINK_BASE_URL: ${PAYMENT_LINK_BASE_URL:-https://pay.paygate.ng}
+    ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://paygate.ng,https://merchant.paygate.ng,https://consumer.paygate.ng}
+    LOG_LEVEL: info
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    OTEL_SERVICE_NAME: paygate-portal
+  depends_on:
+    redis:
+      condition: service_healthy
+  networks:
+    - paygate-net
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+
+x-bridge-base: &bridge-base
+  image: paygate/bridge:${BRIDGE_VERSION:-latest}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+        reservations:
+          memory: 256m
+          cpus: '0.25'
+  environment:
+    BRIDGE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+    TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+    KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+    TEMPORAL_ADDRESS: temporal:7233
+    TEMPORAL_NAMESPACE: paygate
+    PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+    PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+    FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+    NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-nip.paygate.ng}
+    NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY}
+    NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-999999}
+    NIBSS_WEBHOOK_SECRET: ${NIBSS_WEBHOOK_SECRET}
+    MOJALOOP_URL: ${MOJALOOP_URL:-https://ml-api-adapter.paygate.ng}
+    MOJALOOP_API_KEY: ${MOJALOOP_API_KEY}
+    PORTAL_TRPC_URL: http://portal-1:3000/api/trpc
+    DATABASE_URL: ${PG_DATABASE_URL}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    OTEL_SERVICE_NAME: paygate-bridge
+  networks:
+    - paygate-net
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 20s
+
+services:
+
+  # ─── PostgreSQL Database ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: paygate-postgres
+    restart: unless-stopped
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paygate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_prod_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-paygate}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paygate} -d ${POSTGRES_DB:-paygate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # ─── Portal replicas ─────────────────────────────────────────────────────────
+  portal-1:
+    <<: *portal-base
+    container_name: paygate-portal-1
+    ports:
+      - "3001:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  portal-2:
+    <<: *portal-base
+    container_name: paygate-portal-2
+    ports:
+      - "3002:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─── Go Bridge replicas ───────────────────────────────────────────────────────
+  bridge-1:
+    <<: *bridge-base
+    container_name: paygate-bridge-1
+    ports:
+      - "8081:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  bridge-2:
+    <<: *bridge-base
+    container_name: paygate-bridge-2
+    ports:
+      - "8082:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── APISIX (load balancer + API gateway) ─────────────────────────────────────
+  apisix:
+    image: apache/apisix:3.9-debian
+    container_name: paygate-apisix
+    restart: unless-stopped
+    ports:
+      - "80:9080"
+      - "443:9443"
+      - "9091:9091"
+    volumes:
+      - ./apisix/routes.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+      - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+    networks:
+      - paygate-net
+    depends_on:
+      portal-1:
+        condition: service_healthy
+      portal-2:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: paygate-redis
+    restart: unless-stopped
+    command: redis-server /etc/redis/redis.conf --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+      - redis-data:/data
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ─── TigerBeetle cluster (3 nodes) ────────────────────────────────────────────
+  tb-1:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate-tb-1
+    restart: unless-stopped
+    command: start --addresses=tb-1:3902,tb-2:3902,tb-3:3902 /data/1_0.tigerbeetle
+    volumes:
+      - tb-data-1:/data
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  tb-2:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate-tb-2
+    restart: unless-stopped
+    command: start --addresses=tb-1:3902,tb-2:3902,tb-3:3902 /data/1_1.tigerbeetle
+    volumes:
+      - tb-data-2:/data
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  tb-3:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate-tb-3
+    restart: unless-stopped
+    command: start --addresses=tb-1:3902,tb-2:3902,tb-3:3902 /data/1_2.tigerbeetle
+    volumes:
+      - tb-data-3:/data
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Temporal ─────────────────────────────────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: paygate-temporal
+    restart: unless-stopped
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${TEMPORAL_DB_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD}
+      POSTGRES_SEEDS: ${TEMPORAL_DB_HOST}
+    ports:
+      - "7233:7233"
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Push Service (Python FCM/APNs) ─────────────────────────────────────────
+  push-service:
+    image: paygate/push-service:${PUSH_VERSION:-latest}
+    container_name: paygate-push-service
+    restart: unless-stopped
+    environment:
+      PORT: "8096"
+      LOG_LEVEL: info
+      APNS_BUNDLE_ID: com.paygate.consumer
+      API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_PRIVATE_KEY: ${APNS_PRIVATE_KEY:-}
+    ports:
+      - "8096:8096"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── USSD Gateway (Python) ───────────────────────────────────────────────────
+  ussd-gateway:
+    image: paygate/ussd-gateway:${USSD_VERSION:-latest}
+    container_name: paygate-ussd-gateway
+    restart: unless-stopped
+    environment:
+      PORT: "8095"
+      LOG_LEVEL: info
+      PORTAL_BASE_URL: http://portal-1:3000
+      INTERNAL_API_KEY: ${MIDDLEWARE_INTERNAL_KEY}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: ${PG_DATABASE_URL}
+    ports:
+      - "8095:8095"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Fraud Scoring (Python ML) ───────────────────────────────────────────────
+  fraud-scoring:
+    image: paygate/fraud-scoring:${FRAUD_VERSION:-latest}
+    container_name: paygate-fraud-scoring
+    restart: unless-stopped
+    environment:
+      PORT: "8083"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    ports:
+      - "8083:8083"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─── Sync Relay (Go — offline POS mobile sync) ───────────────────────────────
+  sync-relay:
+    image: paygate/go-bridge:${BRIDGE_VERSION:-latest}
+    container_name: paygate-sync-relay
+    command: ["/app/sync-relay"]
+    restart: unless-stopped
+    environment:
+      PORT: "8097"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    ports:
+      - "8097:8097"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8097/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Consumer Outbox Relay (Go) ───────────────────────────────────────────────
+  consumer-outbox-relay:
+    image: paygate/go-bridge:${BRIDGE_VERSION:-latest}
+    container_name: paygate-consumer-outbox-relay
+    command: ["/app/consumer-outbox-relay"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Lakehouse Audit (Python Delta Lake) ─────────────────────────────────────
+  lakehouse-audit:
+    image: paygate/lakehouse-audit:${LAKEHOUSE_VERSION:-latest}
+    container_name: paygate-lakehouse-audit
+    restart: unless-stopped
+    environment:
+      PORT: "8098"
+      LOG_LEVEL: info
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DELTA_LAKE_PATH: /data/delta
+    volumes:
+      - lakehouse-data:/data/delta
+    ports:
+      - "8098:8098"
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── M-Pesa Connector (Python) ───────────────────────────────────────────────
+  mpesa-connector:
+    image: paygate/mpesa-connector:${MPESA_VERSION:-latest}
+    container_name: paygate-mpesa-connector
+    restart: unless-stopped
+    environment:
+      PORT: "8099"
+      LOG_LEVEL: info
+      BRIDGE_URL: http://bridge-1:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    ports:
+      - "8099:8099"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8099/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Kiosk Health Monitor (Python) ───────────────────────────────────────────
+  kiosk-health:
+    image: paygate/kiosk-health:${KIOSK_VERSION:-latest}
+    container_name: paygate-kiosk-health
+    restart: unless-stopped
+    environment:
+      PORT: "8094"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    ports:
+      - "8094:8094"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8094/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Payroll Service (Python) ────────────────────────────────────────────────
+  payroll-service:
+    image: paygate/payroll-service:${PAYROLL_VERSION:-latest}
+    container_name: paygate-payroll-service
+    restart: unless-stopped
+    environment:
+      PORT: "8100"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      BRIDGE_URL: http://bridge-1:8080
+    ports:
+      - "8100:8100"
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── USDC Lakehouse Consumer (Python) ────────────────────────────────────────
+  usdc-lakehouse-consumer:
+    image: paygate/usdc-lakehouse-consumer:${USDC_VERSION:-latest}
+    container_name: paygate-usdc-lakehouse-consumer
+    restart: unless-stopped
+    environment:
+      PORT: "8101"
+      LOG_LEVEL: info
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: paygate-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: paygate-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "https://grafana.paygate.internal"
+    volumes:
+      - ./grafana/paygate-dashboard.json:/var/lib/grafana/dashboards/paygate.json:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3100:3000"
+    networks:
+      - paygate-net
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── OpenTelemetry Collector ──────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.99.0
+    container_name: paygate-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9411:9411"   # Zipkin
+    networks:
+      - paygate-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 1: Credit Scoring Service (Rust FFI + Python wrapper) ──────────────
+  credit-scoring:
+    image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
+    container_name: paygate-credit-scoring
+    restart: unless-stopped
+    environment:
+      PORT: "8100"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      TEMPORAL_HOST_PORT: temporal:7233
+      DATABASE_URL: ${PG_DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-credit-scoring
+    ports:
+      - "8100:8100"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 1: Billing Engine (Rust proration + Temporal dunning) ──────────────
+  billing-engine:
+    image: paygate/billing-engine:${BILLING_VERSION:-latest}
+    container_name: paygate-billing-engine
+    restart: unless-stopped
+    environment:
+      PORT: "8101"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      TEMPORAL_HOST_PORT: temporal:7233
+      TEMPORAL_NAMESPACE: paygate
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-billing-engine
+    ports:
+      - "8101:8101"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 1: FX Rate Feed (Python + Fluvio streaming) ────────────────────────
+  fx-rate-feed:
+    image: paygate/fx-rate-feed:${FX_RATE_VERSION:-latest}
+    container_name: paygate-fx-rate-feed
+    restart: unless-stopped
+    environment:
+      PORT: "8102"
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-fx-rate-feed
+    ports:
+      - "8102:8102"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8102/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 2: Reconciliation Engine (Python + lakehouse + Kafka) ──────────────
+  reconciliation-engine:
+    image: paygate/reconciliation-engine:${RECON_ENGINE_VERSION:-latest}
+    container_name: paygate-reconciliation-engine
+    restart: unless-stopped
+    environment:
+      PORT: "8103"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      LAKEHOUSE_URL: http://lakehouse-audit:8085
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-reconciliation-engine
+    ports:
+      - "8103:8103"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 3: AML Monitor (Python rule engine + Redis velocity + Kafka) ────────
+  aml-monitor:
+    image: paygate/aml-monitor:${AML_VERSION:-latest}
+    container_name: paygate-aml-monitor
+    restart: unless-stopped
+    environment:
+      PORT: "8104"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+      PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-aml-monitor
+    ports:
+      - "8104:8104"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8104/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─── Tier 3: Session Risk (Go risk scorer + Redis session store) ──────────────
+  session-risk:
+    image: paygate/session-risk:${SESSION_RISK_VERSION:-latest}
+    container_name: paygate-session-risk
+    restart: unless-stopped
+    environment:
+      PORT: "8105"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      PERMIFY_URL: ${PERMIFY_URL:-http://permify:3476}
+      PERMIFY_API_KEY: ${PERMIFY_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-session-risk
+    ports:
+      - "8105:8105"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8105/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ─── Tier 4: Loyalty Ledger (Rust + Dapr state + Kafka events) ───────────────
+  loyalty-ledger:
+    image: paygate/loyalty-ledger:${LOYALTY_VERSION:-latest}
+    container_name: paygate-loyalty-ledger
+    restart: unless-stopped
+    environment:
+      PORT: "8106"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tb-1:3902,tb-2:3902,tb-3:3902}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: ${PG_DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-loyalty-ledger
+    ports:
+      - "8106:8106"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8106/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 5: AI Insights (Python + LLM + lakehouse aggregator) ───────────────
+  ai-insights:
+    image: paygate/ai-insights:${AI_INSIGHTS_VERSION:-latest}
+    container_name: paygate-ai-insights
+    restart: unless-stopped
+    environment:
+      PORT: "8107"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      LAKEHOUSE_URL: http://lakehouse-audit:8085
+      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-ai-insights
+    ports:
+      - "8107:8107"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8107/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Tier 5: Fraud Heatmap (Python ML clustering + Fluvio streaming) ─────────
+  fraud-heatmap:
+    image: paygate/fraud-heatmap:${FRAUD_HEATMAP_VERSION:-latest}
+    container_name: paygate-fraud-heatmap
+    restart: unless-stopped
+    environment:
+      PORT: "8108"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT:-fluvio:9003}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: paygate-fraud-heatmap
+    ports:
+      - "8108:8108"
+    networks:
+      - paygate-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8108/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+
+  # ─── Tier 6-8 Services ────────────────────────────────────────────────────
+
+  insurance-service:
+    image: paygate/insurance-service:${INSURANCE_VERSION:-latest}
+    container_name: paygate-insurance
+    restart: unless-stopped
+    ports: ["8110:8110"]
+    environment:
+      PORT: "8110"
+      INSURANCE_PROVIDER_URL: "${INSURANCE_PROVIDER_URL:-https://api.leadway.com/v1}"
+      INSURANCE_API_KEY: "${INSURANCE_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, redis]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  carbon-credit-service:
+    image: paygate/carbon-credit:${CARBON_VERSION:-latest}
+    container_name: paygate-carbon-credit
+    restart: unless-stopped
+    ports: ["8111:8111"]
+    environment:
+      PORT: "8111"
+      CARBON_REGISTRY_URL: "${CARBON_REGISTRY_URL:-https://api.verra.org/v1}"
+      CARBON_API_KEY: "${CARBON_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  nft-service:
+    image: paygate/nft-service:${NFT_VERSION:-latest}
+    container_name: paygate-nft-service
+    restart: unless-stopped
+    ports: ["8112:8112"]
+    environment:
+      PORT: "8112"
+      NFT_RPC_URL: "${NFT_RPC_URL:-https://polygon-rpc.com}"
+      NFT_CONTRACT_ADDRESS: "${NFT_CONTRACT_ADDRESS:-0x0000000000000000000000000000000000000000}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  bnpl-v2-service:
+    image: paygate/bnpl-v2:${BNPL_V2_VERSION:-latest}
+    container_name: paygate-bnpl-v2
+    restart: unless-stopped
+    ports: ["8113:8113"]
+    environment:
+      PORT: "8113"
+      CREDIT_BUREAU_URL: "${CREDIT_BUREAU_URL:-https://api.crc.ng/v1}"
+      CREDIT_BUREAU_API_KEY: "${CREDIT_BUREAU_API_KEY}"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  crypto-ramp-service:
+    image: paygate/crypto-ramp:${CRYPTO_RAMP_VERSION:-latest}
+    container_name: paygate-crypto-ramp
+    restart: unless-stopped
+    ports: ["8114:8114"]
+    environment:
+      PORT: "8114"
+      YELLOW_CARD_API_URL: "${YELLOW_CARD_API_URL:-https://api.yellowcard.io/v1}"
+      YELLOW_CARD_API_KEY: "${YELLOW_CARD_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  escrow-service:
+    image: paygate/escrow-service:${ESCROW_VERSION:-latest}
+    container_name: paygate-escrow
+    restart: unless-stopped
+    ports: ["8115:8115"]
+    environment:
+      PORT: "8115"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-paygate-prod}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  bulk-scheduler-service:
+    image: paygate/bulk-scheduler:${BULK_SCHED_VERSION:-latest}
+    container_name: paygate-bulk-scheduler
+    restart: unless-stopped
+    ports: ["8116:8116"]
+    environment:
+      PORT: "8116"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-paygate-prod}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  tax-withholding-service:
+    image: paygate/tax-withholding:${TAX_VERSION:-latest}
+    container_name: paygate-tax-withholding
+    restart: unless-stopped
+    ports: ["8117:8117"]
+    environment:
+      PORT: "8117"
+      FIRS_TIN_URL: "${FIRS_TIN_URL:-https://api.firs.gov.ng/v1}"
+      FIRS_API_KEY: "${FIRS_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  regulatory-sandbox-service:
+    image: paygate/regulatory-sandbox:${REG_SANDBOX_VERSION:-latest}
+    container_name: paygate-reg-sandbox
+    restart: unless-stopped
+    ports: ["8118:8118"]
+    environment:
+      PORT: "8118"
+      CBN_SANDBOX_URL: "${CBN_SANDBOX_URL:-https://sandbox.cbn.gov.ng/api/v1}"
+      CBN_SANDBOX_KEY: "${CBN_SANDBOX_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  multi-currency-wallet-service:
+    image: paygate/multi-currency-wallet:${MULTI_CURR_VERSION:-latest}
+    container_name: paygate-multi-currency
+    restart: unless-stopped
+    ports: ["8119:8119"]
+    environment:
+      PORT: "8119"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      FLUVIO_ENDPOINT: "${FLUVIO_ENDPOINT:-localhost:9003}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  rtgs-service:
+    image: paygate/rtgs-service:${RTGS_VERSION:-latest}
+    container_name: paygate-rtgs
+    restart: unless-stopped
+    ports: ["8120:8120"]
+    environment:
+      PORT: "8120"
+      NIBSS_RTGS_URL: "${NIBSS_RTGS_URL:-https://rtgs.nibss-plc.com.ng/api/v1}"
+      NIBSS_RTGS_KEY: "${NIBSS_RTGS_KEY}"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  iso20022-service:
+    image: paygate/iso20022:${ISO20022_VERSION:-latest}
+    container_name: paygate-iso20022
+    restart: unless-stopped
+    ports: ["8121:8121"]
+    environment:
+      PORT: "8121"
+      SWIFT_GPI_URL: "${SWIFT_GPI_URL:-https://api.swift.com/swift-apitracker/v4}"
+      SWIFT_API_KEY: "${SWIFT_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  open-finance-hub:
+    image: paygate/open-finance-hub:${OPEN_FINANCE_VERSION:-latest}
+    container_name: paygate-open-finance
+    restart: unless-stopped
+    ports: ["8122:8122"]
+    environment:
+      PORT: "8122"
+      OPEN_FINANCE_REGISTRY_URL: "${OPEN_FINANCE_REGISTRY_URL:-https://directory.openbanking.org.ng/v1}"
+      OPEN_FINANCE_API_KEY: "${OPEN_FINANCE_API_KEY}"
+      KEYCLOAK_URL: "${KEYCLOAK_URL:-https://auth.paygate.ng}"
+      KEYCLOAK_REALM: "${KEYCLOAK_REALM:-paygate}"
+      PERMIFY_URL: "${PERMIFY_URL:-http://permify:3476}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  white-label-sdk-service:
+    image: paygate/white-label-sdk:${WHITE_LABEL_VERSION:-latest}
+    container_name: paygate-white-label-sdk
+    restart: unless-stopped
+    ports: ["8123:8123"]
+    environment:
+      PORT: "8123"
+      SDK_CDN_URL: "${SDK_CDN_URL:-https://cdn.paygate.ng/sdk}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  super-app-service:
+    image: paygate/super-app:${SUPER_APP_VERSION:-latest}
+    container_name: paygate-super-app
+    restart: unless-stopped
+    ports: ["8124:8124"]
+    environment:
+      PORT: "8124"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, redis]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── MinIO Object Store (S3-compatible lakehouse storage) ──────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    container_name: paygate-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO Console UI
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_SITE_NAME: paygate-lakehouse
+    volumes:
+      - minio-data:/data
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # MinIO bucket initialisation (runs once, creates paygate-lakehouse bucket)
+  minio-init:
+    image: minio/mc:RELEASE.2024-11-17T19-35-25Z
+    container_name: paygate-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin} &&
+        mc mb --ignore-existing local/paygate-lakehouse &&
+        mc mb --ignore-existing local/paygate-exports &&
+        mc anonymous set download local/paygate-exports &&
+        echo 'MinIO buckets ready'
+      "
+    networks: [paygate-net]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Apache Spark 3.5 (Delta Lake + Sedona) ──────────────────────────────────
+  spark-master:
+    image: bitnami/spark:3.5.3
+    container_name: paygate-spark-master
+    restart: unless-stopped
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+    ports:
+      - "8086:8080"   # Spark Master Web UI
+      - "7077:7077"   # Spark Master RPC
+    volumes:
+      - spark-logs:/opt/bitnami/spark/logs
+    networks: [paygate-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  spark-worker:
+    image: bitnami/spark:3.5.3
+    container_name: paygate-spark-worker
+    restart: unless-stopped
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: "4G"
+      SPARK_WORKER_CORES: "4"
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+    volumes:
+      - spark-logs:/opt/bitnami/spark/logs
+    networks: [paygate-net]
+    depends_on: [spark-master]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Trino (distributed SQL query engine for lakehouse) ───────────────────────
+  trino:
+    image: trinodb/trino:457
+    container_name: paygate-trino
+    restart: unless-stopped
+    ports:
+      - "8090:8080"   # Trino Web UI + REST API
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+    networks: [paygate-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── lakehouse-v2 Python/DuckDB service ────────────────────────────────────────
+  lakehouse-v2-service:
+    image: paygate/lakehouse-v2:${LAKEHOUSE_V2_VERSION:-latest}
+    build:
+      context: ../python-services/lakehouse-v2
+      dockerfile: Dockerfile
+    container_name: paygate-lakehouse-v2
+    restart: unless-stopped
+    ports: ["8125:8125"]
+    environment:
+      PORT: "8125"
+      # S3/MinIO object store
+      S3_ENDPOINT: "http://minio:9000"
+      S3_BUCKET: "paygate-lakehouse"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      AWS_REGION: "us-east-1"
+      # Spark
+      SPARK_MASTER: "spark://spark-master:7077"
+      SEDONA_ENABLED: "true"
+      # Trino for ad-hoc queries
+      TRINO_URL: "http://trino:8080"
+      DATABASE_URL: "${DATABASE_URL}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+    networks: [paygate-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8125/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  payroll-v2-service:
+    image: paygate/payroll-v2:${PAYROLL_V2_VERSION:-latest}
+    container_name: paygate-payroll-v2
+    restart: unless-stopped
+    ports: ["8126:8126"]
+    environment:
+      PORT: "8126"
+      PENSION_ADMIN_URL: "${PENSION_ADMIN_URL:-https://api.pencom.gov.ng/v1}"
+      PENSION_API_KEY: "${PENSION_API_KEY}"
+      NHF_URL: "${NHF_URL:-https://api.fmbn.gov.ng/v1}"
+      NHF_API_KEY: "${NHF_API_KEY}"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}"
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-paygate-prod}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    depends_on: [kafka, tigerbeetle-1]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ── New Python Microservices ──────────────────────────────────────────────────
+  settlement-forecast:
+    image: paygate/settlement-forecast:${SETTLEMENT_FORECAST_VERSION:-latest}
+    build:
+      context: ../python-services/settlement-forecast
+      dockerfile: Dockerfile
+    container_name: paygate-settlement-forecast
+    restart: unless-stopped
+    ports: ["9010:9010"]
+    environment:
+      PORT: "9010"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  carbon-oracle:
+    image: paygate/carbon-oracle:${CARBON_ORACLE_VERSION:-latest}
+    build:
+      context: ../python-services/carbon-oracle
+      dockerfile: Dockerfile
+    container_name: paygate-carbon-oracle
+    restart: unless-stopped
+    ports: ["9011:9011"]
+    environment:
+      PORT: "9011"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  insurance-pricing:
+    image: paygate/insurance-pricing:${INSURANCE_PRICING_VERSION:-latest}
+    build:
+      context: ../python-services/insurance-pricing
+      dockerfile: Dockerfile
+    container_name: paygate-insurance-pricing
+    restart: unless-stopped
+    ports: ["9012:9012"]
+    environment:
+      PORT: "9012"
+      DATABASE_URL: "${DATABASE_URL}"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  tax-engine:
+    image: paygate/tax-engine:${TAX_ENGINE_VERSION:-latest}
+    build:
+      context: ../python-services/tax-engine
+      dockerfile: Dockerfile
+    container_name: paygate-tax-engine
+    restart: unless-stopped
+    ports: ["9013:9013"]
+    environment:
+      PORT: "9013"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9013/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  iso20022-parser:
+    image: paygate/iso20022-parser:${ISO20022_PARSER_VERSION:-latest}
+    build:
+      context: ../python-services/iso20022-parser
+      dockerfile: Dockerfile
+    container_name: paygate-iso20022-parser
+    restart: unless-stopped
+    ports: ["9014:9014"]
+    environment:
+      PORT: "9014"
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9014/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Wave 76/77 New Feature Microservices ─────────────────────────────────────
+  digital-gold-service:
+    image: paygate/digital-gold-service:${DIGITAL_GOLD_VERSION:-latest}
+    container_name: paygate-digital-gold-service
+    restart: unless-stopped
+    ports: ["9020:9020"]
+    environment:
+      PORT: "9020"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      GOLDTECH_BASE_URL: ${GOLDTECH_BASE_URL:-https://api.goldtech.ng/v1}
+      GOLDTECH_API_KEY: ${GOLDTECH_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  mutual-funds-service:
+    image: paygate/mutual-funds-service:${MUTUAL_FUNDS_VERSION:-latest}
+    container_name: paygate-mutual-funds-service
+    restart: unless-stopped
+    ports: ["9021:9021"]
+    environment:
+      PORT: "9021"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      COWRYWISE_BASE_URL: ${COWRYWISE_BASE_URL:-https://api.cowrywise.com/v1}
+      COWRYWISE_API_KEY: ${COWRYWISE_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9021/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  insurance-service:
+    image: paygate/insurance-service:${INSURANCE_VERSION:-latest}
+    container_name: paygate-insurance-service
+    restart: unless-stopped
+    ports: ["9022:9022"]
+    environment:
+      PORT: "9022"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      AON_INSURANCE_URL: ${AON_INSURANCE_URL:-https://api.aon.ng/v1}
+      AON_INSURANCE_API_KEY: ${AON_INSURANCE_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9022/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  pension-service:
+    image: paygate/pension-service:${PENSION_VERSION:-latest}
+    container_name: paygate-pension-service
+    restart: unless-stopped
+    ports: ["9023:9023"]
+    environment:
+      PORT: "9023"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      PENCOM_API_URL: ${PENCOM_API_URL:-https://api.pencom.gov.ng/v1}
+      PENCOM_API_KEY: ${PENCOM_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9023/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  cashback-service:
+    image: paygate/cashback-service:${CASHBACK_VERSION:-latest}
+    container_name: paygate-cashback-service
+    restart: unless-stopped
+    ports: ["9024:9024"]
+    environment:
+      PORT: "9024"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9024/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  voice-payments-service:
+    image: paygate/voice-payments-service:${VOICE_PAYMENTS_VERSION:-latest}
+    container_name: paygate-voice-payments-service
+    restart: unless-stopped
+    ports: ["9025:9025"]
+    environment:
+      PORT: "9025"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      SOUNDBOX_MQTT_BROKER: ${SOUNDBOX_MQTT_BROKER:-mqtt://mqtt-broker:1883}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9025/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  wealth-service:
+    image: paygate/wealth-service:${WEALTH_VERSION:-latest}
+    container_name: paygate-wealth-service
+    restart: unless-stopped
+    ports: ["9026:9026"]
+    environment:
+      PORT: "9026"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9026/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  emi-service:
+    image: paygate/emi-service:${EMI_VERSION:-latest}
+    container_name: paygate-emi-service
+    restart: unless-stopped
+    ports: ["9027:9027"]
+    environment:
+      PORT: "9027"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9027/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  bulk-collections-service:
+    image: paygate/bulk-collections-service:${BULK_COLLECTIONS_VERSION:-latest}
+    container_name: paygate-bulk-collections-service
+    restart: unless-stopped
+    ports: ["9028:9028"]
+    environment:
+      PORT: "9028"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9028/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  salary-service:
+    image: paygate/salary-service:${SALARY_VERSION:-latest}
+    container_name: paygate-salary-service
+    restart: unless-stopped
+    ports: ["9029:9029"]
+    environment:
+      PORT: "9029"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9029/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  privacy-payments-service:
+    image: paygate/privacy-payments-service:${PRIVACY_PAYMENTS_VERSION:-latest}
+    container_name: paygate-privacy-payments-service
+    restart: unless-stopped
+    ports: ["9030:9030"]
+    environment:
+      PORT: "9030"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9030/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  reports-service:
+    image: paygate/reports-service:${REPORTS_VERSION:-latest}
+    container_name: paygate-reports-service
+    restart: unless-stopped
+    ports: ["9031:9031"]
+    environment:
+      PORT: "9031"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      REPORTS_BUCKET_NAME: ${REPORTS_BUCKET_NAME:-paygate-reports}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9031/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  ai-insights-v2-service:
+    image: paygate/ai-insights-v2-service:${AI_INSIGHTS_V2_VERSION:-latest}
+    container_name: paygate-ai-insights-v2-service
+    restart: unless-stopped
+    ports: ["9032:9032"]
+    environment:
+      PORT: "9032"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9032/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  nodal-accounts-service:
+    image: paygate/nodal-accounts-service:${NODAL_ACCOUNTS_VERSION:-latest}
+    container_name: paygate-nodal-accounts-service
+    restart: unless-stopped
+    ports: ["9033:9033"]
+    environment:
+      PORT: "9033"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9033/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  smart-retail-pos-service:
+    image: paygate/smart-retail-pos-service:${SMART_RETAIL_POS_VERSION:-latest}
+    container_name: paygate-smart-retail-pos-service
+    restart: unless-stopped
+    ports: ["9034:9034"]
+    environment:
+      PORT: "9034"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9034/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  intl-remittance-service:
+    image: paygate/intl-remittance-service:${INTL_REMITTANCE_VERSION:-latest}
+    container_name: paygate-intl-remittance-service
+    restart: unless-stopped
+    ports: ["9035:9035"]
+    environment:
+      PORT: "9035"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      FLUTTERWAVE_BASE_URL: ${FLUTTERWAVE_BASE_URL:-https://api.flutterwave.com/v3}
+      FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
+      WORLDREMIT_BASE_URL: ${WORLDREMIT_BASE_URL:-https://api.worldremit.com/v1}
+      WORLDREMIT_API_KEY: ${WORLDREMIT_API_KEY:-}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9035/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  subscription-billing-v2-service:
+    image: paygate/subscription-billing-v2-service:${SUB_BILLING_V2_VERSION:-latest}
+    container_name: paygate-subscription-billing-v2-service
+    restart: unless-stopped
+    ports: ["9036:9036"]
+    environment:
+      PORT: "9036"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9036/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+
+  wealth-advisor-service:
+    image: paygate/wealth-advisor-service:${WEALTH_ADVISOR_VERSION:-latest}
+    container_name: paygate-wealth-advisor-service
+    restart: unless-stopped
+    ports: ["8020:8020"]
+    environment:
+      PORT: "8020"
+      LOG_LEVEL: info
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DATABASE_URL: ${PG_DATABASE_URL}
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Rust Services ─────────────────────────────────────────────────────────
+  billing-engine:
+    image: paygate/billing-engine:${BILLING_ENGINE_VERSION:-latest}
+    container_name: paygate-billing-engine
+    restart: unless-stopped
+    ports: ["8200:8200"]
+    environment:
+      PORT: "8200"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  credit-scoring:
+    image: paygate/credit-scoring:${CREDIT_SCORING_VERSION:-latest}
+    container_name: paygate-credit-scoring
+    restart: unless-stopped
+    ports: ["8201:8201"]
+    environment:
+      PORT: "8201"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8201/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  inventory-engine:
+    image: paygate/inventory-engine:${INVENTORY_ENGINE_VERSION:-latest}
+    container_name: paygate-inventory-engine
+    restart: unless-stopped
+    ports: ["8202:8202"]
+    environment:
+      PORT: "8202"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8202/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  loyalty-ledger:
+    image: paygate/loyalty-ledger:${LOYALTY_LEDGER_VERSION:-latest}
+    container_name: paygate-loyalty-ledger
+    restart: unless-stopped
+    ports: ["8203:8203"]
+    environment:
+      PORT: "8203"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8203/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  tigerbeetle-recon:
+    image: paygate/tigerbeetle-recon:${TB_RECON_VERSION:-latest}
+    container_name: paygate-tigerbeetle-recon
+    restart: unless-stopped
+    ports: ["8204:8204"]
+    environment:
+      PORT: "8204"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8204/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  wallet-ffi:
+    image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-latest}
+    container_name: paygate-wallet-ffi
+    restart: unless-stopped
+    ports: ["8205:8205"]
+    environment:
+      PORT: "8205"
+      DATABASE_URL: ${PG_DATABASE_URL}
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-tigerbeetle-1:3901}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      RUST_LOG: info
+    networks: [paygate-net]
+    depends_on: [postgres, kafka, tigerbeetle-1]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8205/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ─── Delta Lake Compaction Job (run manually or via K8s CronJob nightly) ──────────────
+  spark-compaction:
+    image: paygate/spark-compaction:${SPARK_COMPACTION_VERSION:-latest}
+    build:
+      context: ../python-services/spark-compaction
+      dockerfile: Dockerfile
+    container_name: paygate-spark-compaction
+    restart: "no"
+    environment:
+      S3_BUCKET: "paygate-lakehouse"
+      S3_ENDPOINT: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-minioadmin}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      AWS_REGION: "us-east-1"
+      SPARK_MASTER: "spark://spark-master:7077"
+      VACUUM_RETAIN_HOURS: "168"
+      COMPACT_TARGET_SIZE_MB: "128"
+      DRY_RUN: "false"
+    networks: [paygate-net]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+volumes:
+  redis-data:
+  tb-data-1:
+  tb-data-2:
+  tb-data-3:
+  prometheus-data:
+  grafana-data:
+  lakehouse-data:
+  postgres-data:
+  minio-data:
+  spark-logs:
+
+  # ─── Wave 80 New Feature Services ────────────────────────────────────────────
+  open-banking-v2:
+    image: paygate/open-banking-v2:latest
+    container_name: paygate-open-banking-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9040"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      OPEN_BANKING_V2_CLIENT_ID: ${OPEN_BANKING_V2_CLIENT_ID:-paygate-ob-client}
+      OPEN_BANKING_V2_CLIENT_SECRET: ${OPEN_BANKING_V2_CLIENT_SECRET:-ob-secret-2026}
+    ports: ["9040:9040"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9040/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  agent-banking-v4:
+    image: paygate/agent-banking-v4:latest
+    container_name: paygate-agent-banking-v4
+    restart: unless-stopped
+    environment:
+      PORT: "9042"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9042:9042"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9042/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  super-agent-v2:
+    image: paygate/super-agent-v2:latest
+    container_name: paygate-super-agent-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9043"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9043:9043"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9043/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  escrow-v2:
+    image: paygate/escrow-v2:latest
+    container_name: paygate-escrow-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9044"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9044:9044"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9044/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  marketplace-pay:
+    image: paygate/marketplace-pay:latest
+    container_name: paygate-marketplace-pay
+    restart: unless-stopped
+    environment:
+      PORT: "9045"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9045:9045"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9045/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  loyalty-v3:
+    image: paygate/loyalty-v3:latest
+    container_name: paygate-loyalty-v3
+    restart: unless-stopped
+    environment:
+      PORT: "9046"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9046:9046"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9046/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  crypto-offramp-v2:
+    image: paygate/crypto-offramp-v2:latest
+    container_name: paygate-crypto-offramp-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9047"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      CRYPTO_OFFRAMP_V2_API_KEY: ${CRYPTO_OFFRAMP_V2_API_KEY:-crypto-offramp-key-2026}
+    ports: ["9047:9047"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9047/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nfc-pay:
+    image: paygate/nfc-pay:latest
+    container_name: paygate-nfc-pay
+    restart: unless-stopped
+    environment:
+      PORT: "9048"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9048:9048"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9048/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  qr-merchant-analytics:
+    image: paygate/qr-merchant-analytics:latest
+    container_name: paygate-qr-merchant-analytics
+    restart: unless-stopped
+    environment:
+      PORT: "9049"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9049:9049"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9049/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  invoice-financing-v2:
+    image: paygate/invoice-financing-v2:latest
+    container_name: paygate-invoice-financing-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9050"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INVOICE_FINANCING_V2_API_KEY: ${INVOICE_FINANCING_V2_API_KEY:-inv-finance-key-2026}
+    ports: ["9050:9050"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  payroll-v3:
+    image: paygate/payroll-v3:latest
+    container_name: paygate-payroll-v3
+    restart: unless-stopped
+    environment:
+      PORT: "9051"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9051:9051"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9051/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tax-filing:
+    image: paygate/tax-filing:latest
+    container_name: paygate-tax-filing
+    restart: unless-stopped
+    environment:
+      PORT: "9052"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      TAX_FILING_API_KEY: ${TAX_FILING_API_KEY:-tax-filing-key-2026}
+    ports: ["9052:9052"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  regulatory-reporting:
+    image: paygate/regulatory-reporting:latest
+    container_name: paygate-regulatory-reporting
+    restart: unless-stopped
+    environment:
+      PORT: "9053"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REGULATORY_REPORTING_API_KEY: ${REGULATORY_REPORTING_API_KEY:-reg-reporting-key-2026}
+    ports: ["9053:9053"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9053/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  usdc-v2:
+    image: paygate/usdc-v2:latest
+    container_name: paygate-usdc-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9054"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9054:9054"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9054/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  multi-currency-ledger:
+    image: paygate/multi-currency-ledger:latest
+    container_name: paygate-multi-currency-ledger
+    restart: unless-stopped
+    environment:
+      PORT: "9055"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9055:9055"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9055/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ussd-session-v2:
+    image: paygate/ussd-session-v2:latest
+    container_name: paygate-ussd-session-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9056"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9056:9056"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9056/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  realtime-notifications:
+    image: paygate/realtime-notifications:latest
+    container_name: paygate-realtime-notifications
+    restart: unless-stopped
+    environment:
+      PORT: "9057"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9057:9057"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9057/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mobile-money-recon-v2:
+    image: paygate/mobile-money-recon-v2:latest
+    container_name: paygate-mobile-money-recon-v2
+    restart: unless-stopped
+    environment:
+      PORT: "9058"
+      PG_DATABASE_URL: ${PG_DATABASE_URL}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    ports: ["9058:9058"]
+    networks: [paygate-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9058/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  paygate-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+
+  # ─── Insider Threat Engine (Rust) ─────────────────────────────────────────
+  insider-threat-engine:
+    build:
+      context: ./rust-services/insider-threat-engine
+      dockerfile: Dockerfile
+    image: paygate/insider-threat-engine:latest
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      FLUVIO_ENDPOINT: ${FLUVIO_ENDPOINT}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      RUST_LOG: info
+    depends_on:
+      - redis
+      - kafka
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── UEBA Service (Python) ────────────────────────────────────────────────
+  ueba-service:
+    build:
+      context: ./python-services/ueba-service
+      dockerfile: Dockerfile
+    image: paygate/ueba-service:latest
+    restart: unless-stopped
+    ports:
+      - "8300:8300"
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - redis
+      - kafka
+      - opensearch
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── OpenSearch Indexer (Python) ──────────────────────────────────────────
+  opensearch-indexer:
+    build:
+      context: ./python-services/opensearch-indexer
+      dockerfile: Dockerfile
+    image: paygate/opensearch-indexer:latest
+    restart: unless-stopped
+    ports:
+      - "8400:8400"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      OPENSEARCH_USER: ${OPENSEARCH_USER:-admin}
+      OPENSEARCH_PASS: ${OPENSEARCH_PASS:-admin}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - kafka
+      - opensearch
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8400/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── OpenAppSec WAF Manager (Python) ──────────────────────────────────────
+  openappsec-waf:
+    build:
+      context: ./python-services/openappsec-waf
+      dockerfile: Dockerfile
+    image: paygate/openappsec-waf:latest
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+    environment:
+      OPENAPPSEC_API_URL: ${OPENAPPSEC_API_URL:-http://open-appsec-agent:8088}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - kafka
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── OpenSearch ───────────────────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASS:-Admin@PayGate1}
+      DISABLE_SECURITY_PLUGIN: "false"
+      plugins.security.ssl.http.enabled: "true"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  opensearch-data:

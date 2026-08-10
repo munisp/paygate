@@ -1,0 +1,51 @@
+[package]
+name = "nexthub-settlement"
+version = "0.1.0"
+edition = "2021"
+description = "NextHub TigerBeetle settlement service — PREPARE/FULFIL/ABORT for FSPIOP transfers"
+
+[[bin]]
+name = "nexthub-settlement"
+path = "src/main.rs"
+
+[lib]
+name = "nexthub_settlement"
+path = "src/lib.rs"
+
+[dependencies]
+# TigerBeetle client
+tigerbeetle-unofficial = { version = "0.4", features = ["async"] }
+
+# gRPC server
+tonic = { version = "0.12", features = ["transport", "tls"] }
+prost = "0.13"
+tokio = { version = "1", features = ["full"] }
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = { version = "0.24", features = ["trace"] }
+opentelemetry-otlp = { version = "0.17", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.25"
+
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Config
+config = "0.14"
+
+# Fluvio producer
+fluvio = { version = "0.22", optional = true }
+
+[features]
+default = ["fluvio-events"]
+fluvio-events = ["fluvio"]
+
+[dev-dependencies]
+tokio-test = "0.4"

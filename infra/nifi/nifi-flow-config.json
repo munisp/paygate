@@ -1,0 +1,291 @@
+{
+  "flowVersion": "1.0",
+  "description": "PayGate Merchant Portal — Apache NiFi Data Ingestion Flows",
+  "flows": [
+    {
+      "id": "paygate-transaction-ingestion",
+      "name": "Transaction Event Ingestion",
+      "description": "Consumes transaction events from Kafka, enriches with merchant metadata, and writes to PostgreSQL and Parquet Lakehouse",
+      "processors": [
+        {
+          "id": "consume-kafka-transactions",
+          "type": "org.apache.nifi.processors.kafka.pubsub.ConsumeKafkaRecord_2_6",
+          "name": "Consume Kafka: transactions.created",
+          "config": {
+            "bootstrap.servers": "${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}",
+            "topic": "transactions.created",
+            "group.id": "nifi-transaction-consumer",
+            "auto.offset.reset": "earliest",
+            "key.deserializer": "org.apache.kafka.common.serialization.StringDeserializer",
+            "value.deserializer": "org.apache.kafka.common.serialization.StringDeserializer",
+            "record-reader": "JsonTreeReader",
+            "record-writer": "JsonRecordSetWriter"
+          }
+        },
+        {
+          "id": "enrich-merchant-metadata",
+          "type": "org.apache.nifi.processors.standard.LookupRecord",
+          "name": "Enrich: Merchant Metadata",
+          "config": {
+            "record-reader": "JsonTreeReader",
+            "record-writer": "JsonRecordSetWriter",
+            "lookup-service": "SimpleDatabaseLookupService",
+            "result-record-path": "/merchant",
+            "key-to-lookup": "/merchantId"
+          }
+        },
+        {
+          "id": "route-by-status",
+          "type": "org.apache.nifi.processors.standard.RouteOnAttribute",
+          "name": "Route: Success vs Failure vs Fraud",
+          "config": {
+            "Routing Strategy": "Route to Property name",
+            "success": "${transaction.status:equals('success')}",
+            "failed": "${transaction.status:equals('failed')}",
+            "fraud": "${transaction.fraudScore:greaterThan(0.8)}"
+          }
+        },
+        {
+          "id": "write-postgres",
+          "type": "org.apache.nifi.processors.standard.PutDatabaseRecord",
+          "name": "Write: PostgreSQL transactions",
+          "config": {
+            "database-connection-pooling-service": "DBCPConnectionPool",
+            "statement-type": "INSERT",
+            "table-name": "transactions",
+            "record-reader": "JsonTreeReader"
+          }
+        },
+        {
+          "id": "write-parquet-lakehouse",
+          "type": "org.apache.nifi.processors.hadoop.PutParquet",
+          "name": "Write: Parquet Lakehouse (S3)",
+          "config": {
+            "hadoop-configuration-resources": "/opt/nifi/conf/core-site.xml",
+            "directory": "s3a://paygate-lakehouse/raw/transactions/${now():format('yyyy/MM/dd')}",
+            "filename": "transactions-${now():format('HHmmss')}-${UUID()}.parquet",
+            "compression-type": "SNAPPY",
+            "row-group-size": "134217728"
+          }
+        },
+        {
+          "id": "publish-fraud-alert",
+          "type": "org.apache.nifi.processors.kafka.pubsub.PublishKafkaRecord_2_6",
+          "name": "Publish: fraud.alerts Kafka topic",
+          "config": {
+            "bootstrap.servers": "${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}",
+            "topic": "fraud.alerts",
+            "record-reader": "JsonTreeReader",
+            "record-writer": "JsonRecordSetWriter"
+          }
+        }
+      ],
+      "connections": [
+        {"from": "consume-kafka-transactions", "to": "enrich-merchant-metadata", "relationship": "success"},
+        {"from": "enrich-merchant-metadata", "to": "route-by-status", "relationship": "success"},
+        {"from": "route-by-status", "to": "write-postgres", "relationship": "success"},
+        {"from": "route-by-status", "to": "write-postgres", "relationship": "failed"},
+        {"from": "route-by-status", "to": "publish-fraud-alert", "relationship": "fraud"},
+        {"from": "write-postgres", "to": "write-parquet-lakehouse", "relationship": "success"}
+      ]
+    },
+    {
+      "id": "paygate-kyc-document-pipeline",
+      "name": "KYC Document Processing Pipeline",
+      "description": "Ingests KYC documents from S3, triggers OCR via kyc-ocr-engine, writes results to PostgreSQL",
+      "processors": [
+        {
+          "id": "list-s3-kyc",
+          "type": "org.apache.nifi.processors.aws.s3.ListS3",
+          "name": "List: S3 KYC uploads bucket",
+          "config": {
+            "Bucket": "paygate-kyc-uploads",
+            "Region": "${AWS_REGION:us-east-1}",
+            "Access Key": "${AWS_ACCESS_KEY_ID}",
+            "Secret Key": "${AWS_SECRET_ACCESS_KEY}",
+            "Prefix": "pending/"
+          }
+        },
+        {
+          "id": "fetch-s3-document",
+          "type": "org.apache.nifi.processors.aws.s3.FetchS3Object",
+          "name": "Fetch: KYC document from S3",
+          "config": {
+            "Bucket": "paygate-kyc-uploads",
+            "Object Key": "${s3.key}"
+          }
+        },
+        {
+          "id": "invoke-ocr-service",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "name": "Invoke: KYC OCR Engine",
+          "config": {
+            "HTTP Method": "POST",
+            "Remote URL": "${KYC_OCR_URL:http://kyc-ocr-engine:8010}/v1/ocr",
+            "Content-Type": "application/octet-stream",
+            "Connection Timeout": "30 sec",
+            "Read Timeout": "120 sec"
+          }
+        },
+        {
+          "id": "evaluate-kyc-result",
+          "type": "org.apache.nifi.processors.standard.EvaluateJsonPath",
+          "name": "Extract: OCR result fields",
+          "config": {
+            "Destination": "flowfile-attribute",
+            "kyc.confidence": "$.confidence",
+            "kyc.documentType": "$.documentType",
+            "kyc.verified": "$.verified",
+            "kyc.merchantId": "$.merchantId"
+          }
+        },
+        {
+          "id": "update-kyc-status",
+          "type": "org.apache.nifi.processors.standard.PutDatabaseRecord",
+          "name": "Update: KYC status in PostgreSQL",
+          "config": {
+            "database-connection-pooling-service": "DBCPConnectionPool",
+            "statement-type": "UPDATE",
+            "table-name": "kyc_verifications",
+            "record-reader": "JsonTreeReader"
+          }
+        }
+      ],
+      "connections": [
+        {"from": "list-s3-kyc", "to": "fetch-s3-document", "relationship": "success"},
+        {"from": "fetch-s3-document", "to": "invoke-ocr-service", "relationship": "success"},
+        {"from": "invoke-ocr-service", "to": "evaluate-kyc-result", "relationship": "Response"},
+        {"from": "evaluate-kyc-result", "to": "update-kyc-status", "relationship": "matched"}
+      ]
+    },
+    {
+      "id": "paygate-settlement-reconciliation",
+      "name": "Settlement Reconciliation Pipeline",
+      "description": "Pulls settlement batches from NIBSS/Mojaloop, reconciles against internal ledger, flags discrepancies",
+      "processors": [
+        {
+          "id": "fetch-nibss-settlements",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "name": "Fetch: NIBSS Settlement Report",
+          "config": {
+            "HTTP Method": "GET",
+            "Remote URL": "${NIBSS_GATEWAY_URL:http://nibss-gateway:8080}/v1/settlements/daily",
+            "Authorization": "Bearer ${NIBSS_API_KEY}",
+            "Connection Timeout": "60 sec"
+          }
+        },
+        {
+          "id": "parse-settlement-json",
+          "type": "org.apache.nifi.processors.standard.ConvertRecord",
+          "name": "Parse: Settlement JSON to Avro",
+          "config": {
+            "record-reader": "JsonTreeReader",
+            "record-writer": "AvroRecordSetWriter"
+          }
+        },
+        {
+          "id": "reconcile-ledger",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "name": "Reconcile: TigerBeetle Ledger",
+          "config": {
+            "HTTP Method": "POST",
+            "Remote URL": "${MIDDLEWARE_BRIDGE_URL:http://go-bridge:4000}/v1/reconcile/settlement",
+            "Authorization": "Bearer ${MIDDLEWARE_INTERNAL_KEY}",
+            "Content-Type": "application/json"
+          }
+        },
+        {
+          "id": "write-reconciliation-results",
+          "type": "org.apache.nifi.processors.standard.PutDatabaseRecord",
+          "name": "Write: Reconciliation results",
+          "config": {
+            "database-connection-pooling-service": "DBCPConnectionPool",
+            "statement-type": "INSERT",
+            "table-name": "reconciliation_results",
+            "record-reader": "JsonTreeReader"
+          }
+        }
+      ],
+      "connections": [
+        {"from": "fetch-nibss-settlements", "to": "parse-settlement-json", "relationship": "Response"},
+        {"from": "parse-settlement-json", "to": "reconcile-ledger", "relationship": "success"},
+        {"from": "reconcile-ledger", "to": "write-reconciliation-results", "relationship": "Response"}
+      ]
+    },
+    {
+      "id": "paygate-fx-rate-feed",
+      "name": "FX Rate Feed Pipeline",
+      "description": "Polls external FX providers every 30 seconds, normalizes rates, publishes to Kafka and Redis",
+      "processors": [
+        {
+          "id": "generate-trigger",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "name": "Trigger: 30-second schedule",
+          "config": {
+            "Scheduling Strategy": "TIMER_DRIVEN",
+            "Run Schedule": "30 sec",
+            "File Size": "0 B"
+          }
+        },
+        {
+          "id": "fetch-fx-rates",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "name": "Fetch: FX rates from provider",
+          "config": {
+            "HTTP Method": "GET",
+            "Remote URL": "https://api.exchangerate-api.com/v4/latest/USD",
+            "Connection Timeout": "10 sec"
+          }
+        },
+        {
+          "id": "transform-fx-rates",
+          "type": "org.apache.nifi.processors.standard.JoltTransformJSON",
+          "name": "Transform: Normalize FX rate format",
+          "config": {
+            "Jolt Specification": "[{\"operation\":\"shift\",\"spec\":{\"rates\":{\"NGN\":\"rates.USD_NGN\",\"GHS\":\"rates.USD_GHS\",\"KES\":\"rates.USD_KES\",\"ZAR\":\"rates.USD_ZAR\",\"EUR\":\"rates.USD_EUR\",\"GBP\":\"rates.USD_GBP\"}}}]"
+          }
+        },
+        {
+          "id": "publish-fx-kafka",
+          "type": "org.apache.nifi.processors.kafka.pubsub.PublishKafkaRecord_2_6",
+          "name": "Publish: fx.rates.updated Kafka",
+          "config": {
+            "bootstrap.servers": "${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}",
+            "topic": "fx.rates.updated",
+            "record-reader": "JsonTreeReader",
+            "record-writer": "JsonRecordSetWriter"
+          }
+        }
+      ],
+      "connections": [
+        {"from": "generate-trigger", "to": "fetch-fx-rates", "relationship": "success"},
+        {"from": "fetch-fx-rates", "to": "transform-fx-rates", "relationship": "Response"},
+        {"from": "transform-fx-rates", "to": "publish-fx-kafka", "relationship": "success"}
+      ]
+    }
+  ],
+  "controllerServices": [
+    {
+      "id": "DBCPConnectionPool",
+      "type": "org.apache.nifi.dbcp.DBCPConnectionPool",
+      "config": {
+        "Database Connection URL": "${PG_DATABASE_URL:jdbc:postgresql://postgres:5432/paygate}",
+        "Database Driver Class Name": "org.postgresql.Driver",
+        "Max Total Connections": "20",
+        "Validation query": "SELECT 1"
+      }
+    },
+    {
+      "id": "JsonTreeReader",
+      "type": "org.apache.nifi.json.JsonTreeReader"
+    },
+    {
+      "id": "JsonRecordSetWriter",
+      "type": "org.apache.nifi.json.JsonRecordSetWriter"
+    },
+    {
+      "id": "AvroRecordSetWriter",
+      "type": "org.apache.nifi.avro.AvroRecordSetWriter"
+    }
+  ]
+}

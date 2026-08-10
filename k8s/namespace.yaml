@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paygate
+  labels:
+    app.kubernetes.io/name: paygate-merchant-portal
+    app.kubernetes.io/managed-by: kubectl
+    environment: production

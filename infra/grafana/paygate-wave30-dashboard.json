@@ -1,0 +1,138 @@
+{
+  "id": null,
+  "uid": "paygate-wave30",
+  "title": "PayGate Wave 30 — Tenant Billing, SLA & Middleware",
+  "tags": ["paygate", "wave30", "tenant", "sla", "middleware"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Active Tenants",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "paygate_active_tenants_total",
+        "legendFormat": "Active Tenants"
+      }],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "id": 2,
+      "title": "Monthly Recurring Revenue (USD)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{
+        "expr": "paygate_mrr_usd_total",
+        "legendFormat": "MRR"
+      }],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "id": 3,
+      "title": "SLA Uptime %",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{
+        "expr": "paygate_sla_uptime_percent",
+        "legendFormat": "Uptime"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "minVizHeight": 75, "minVizWidth": 75 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 90, "max": 100, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 99 }, { "color": "green", "value": 99.9 }] } } }
+    },
+    {
+      "id": 4,
+      "title": "Open SLA Incidents",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "paygate_sla_open_incidents_total",
+        "legendFormat": "Open Incidents"
+      }],
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 3 }] } } }
+    },
+    {
+      "id": 5,
+      "title": "NIBSS NIP Transactions/min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "rate(paygate_nibss_transactions_total[1m])", "legendFormat": "NIP TPS" },
+        { "expr": "rate(paygate_nibss_errors_total[1m])", "legendFormat": "NIP Errors/min" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 6,
+      "title": "Middleware Health Status",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{
+        "expr": "paygate_middleware_health_status",
+        "legendFormat": "{{service}}"
+      }],
+      "options": { "sortBy": [{ "displayName": "Service", "desc": false }] }
+    },
+    {
+      "id": 7,
+      "title": "Tenant API Usage (calls/hour)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [{
+        "expr": "sum by (tenant_id) (rate(paygate_tenant_api_calls_total[1h]))",
+        "legendFormat": "Tenant {{tenant_id}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 8,
+      "title": "FX Hedge Positions P&L",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "paygate_fx_hedge_unrealized_pnl_usd", "legendFormat": "Unrealized P&L (USD)" },
+        { "expr": "paygate_fx_hedge_realized_pnl_usd", "legendFormat": "Realized P&L (USD)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+    },
+    {
+      "id": 9,
+      "title": "Onboarding Email Delivery Rate",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "targets": [{
+        "expr": "paygate_onboarding_email_delivery_rate",
+        "legendFormat": "Delivery Rate"
+      }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.9 }, { "color": "green", "value": 0.98 }] } } }
+    },
+    {
+      "id": 10,
+      "title": "BNPL Repayment Delinquency Rate",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
+      "targets": [{
+        "expr": "paygate_bnpl_delinquency_rate",
+        "legendFormat": "Delinquency Rate"
+      }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.1 }] } } }
+    },
+    {
+      "id": 11,
+      "title": "KYB State Machine Transitions",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        { "expr": "rate(paygate_kyb_state_transitions_total{to_state='approved'}[1h])", "legendFormat": "Approved/hr" },
+        { "expr": "rate(paygate_kyb_state_transitions_total{to_state='rejected'}[1h])", "legendFormat": "Rejected/hr" },
+        { "expr": "rate(paygate_kyb_state_transitions_total{to_state='pending_review'}[1h])", "legendFormat": "Pending/hr" }
+      ]
+    }
+  ]
+}

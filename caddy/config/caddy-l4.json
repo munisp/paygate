@@ -1,0 +1,161 @@
+{
+  "logging": {
+    "logs": {
+      "default": {
+        "level": "INFO",
+        "writer": {
+          "output": "file",
+          "filename": "/var/log/caddy/l4.log",
+          "roll_size_mb": 100,
+          "roll_keep": 7
+        },
+        "encoder": {
+          "format": "json"
+        }
+      }
+    }
+  },
+  "apps": {
+    "layer4": {
+      "servers": {
+        "tigerbeetle_tls": {
+          "listen": ["0.0.0.0:3001"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "tls",
+                  "connection_policies": [
+                    {
+                      "certificate_selection": {
+                        "any_tag": ["tigerbeetle"]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "handler": "proxy",
+                  "upstreams": [
+                    {
+                      "dial": ["paygate_tigerbeetle:3000"]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "pgbouncer_tls": {
+          "listen": ["0.0.0.0:5433"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "tls",
+                  "connection_policies": [
+                    {
+                      "certificate_selection": {
+                        "any_tag": ["pgbouncer"]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "handler": "proxy",
+                  "upstreams": [
+                    {
+                      "dial": ["paygate_pgbouncer:5432"]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "redis_tls": {
+          "listen": ["0.0.0.0:6380"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "tls",
+                  "connection_policies": [
+                    {
+                      "certificate_selection": {
+                        "any_tag": ["redis"]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "handler": "proxy",
+                  "upstreams": [
+                    {
+                      "dial": ["paygate_redis:6379"]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "kafka_tls": {
+          "listen": ["0.0.0.0:9093"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "tls",
+                  "connection_policies": [
+                    {
+                      "certificate_selection": {
+                        "any_tag": ["kafka"]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "handler": "proxy",
+                  "upstreams": [
+                    {
+                      "dial": ["paygate_kafka:9092"]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "tls": {
+      "certificates": {
+        "automate": [
+          "paygate.ng",
+          "*.paygate.ng"
+        ]
+      },
+      "automation": {
+        "policies": [
+          {
+            "subjects": ["paygate.ng", "*.paygate.ng"],
+            "issuers": [
+              {
+                "module": "acme",
+                "ca": "https://acme.zerossl.com/v2/DV90",
+                "challenges": {
+                  "dns": {
+                    "provider": {
+                      "name": "cloudflare",
+                      "api_token": "{env.CLOUDFLARE_API_TOKEN}"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

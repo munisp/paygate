@@ -1,0 +1,59 @@
+# =============================================================================
+# OpenAppSec Attachment Configuration for Caddy
+# =============================================================================
+# OpenAppSec runs as a sidecar container. Caddy forwards all requests to
+# OpenAppSec's HTTP listener on port 8080. OpenAppSec inspects the request,
+# then forwards to the upstream specified in the X-Target-Upstream header.
+#
+# This file configures the OpenAppSec agent to:
+#   1. Accept requests from Caddy on port 8080
+#   2. Read X-Target-Upstream to determine where to forward
+#   3. Apply WAF policies from infra/apisix/waf-policy.yaml
+#   4. Publish WAF events to Kafka via the openappsec-waf Python service
+# =============================================================================
+
+attachment:
+  mode: "transparent-proxy"
+  listen_port: 8080
+  
+  # Trust Caddy's forwarded headers
+  trusted_proxies:
+    - "172.16.0.0/12"    # Docker bridge networks
+    - "10.0.0.0/8"       # Internal network
+  
+  # Forward to upstream specified by Caddy in X-Target-Upstream header
+  upstream_header: "X-Target-Upstream"
+  
+  # Default upstream if header not present (APISIX)
+  default_upstream: "paygate_apisix:9080"
+
+  # Preserve original client IP from Caddy
+  real_ip_header: "X-Real-IP"
+  forwarded_for_header: "X-Forwarded-For"
+
+  # Pass Caddy auth claims downstream
+  passthrough_headers:
+    - "X-Caddy-Auth-User"
+    - "X-Caddy-Auth-Roles"
+    - "X-Forwarded-Proto"
+    - "X-Nexthub"
+
+policy_file: "/etc/cp/conf/local_policy.yaml"
+
+# Event publishing to WAF management service
+event_webhook:
+  url: "http://paygate_openappsec_waf:8130/v1/waf/event"
+  method: "POST"
+  headers:
+    Content-Type: "application/json"
+    X-Source: "openappsec-agent"
+  timeout_ms: 2000
+  retry_count: 3
+
+# Metrics
+metrics:
+  enabled: true
+  prometheus_port: 8081
+  labels:
+    service: "paygate-waf"
+    environment: "production"

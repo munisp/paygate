@@ -1,0 +1,209 @@
+---
+# ─── Go Bridge Deployment ─────────────────────────────────────────────────────
+# Deploys the PayGate Go middleware bridge as a Kubernetes Deployment.
+# The bridge exposes the REST API consumed by the Node.js portal via
+# MIDDLEWARE_BRIDGE_URL.
+#
+# Prerequisites:
+#   kubectl create secret generic paygate-secrets \
+#     --from-literal=DATABASE_URL='...' \
+#     --from-literal=TIGERBEETLE_ADDRESS='...' \
+#     --from-literal=REDIS_URL='...' \
+#     --from-literal=KAFKA_BROKERS='...' \
+#     --from-literal=TEMPORAL_HOST='...' \
+#     --from-literal=PERMIFY_URL='...' \
+#     --from-literal=NIBSS_GATEWAY_URL='...' \
+#     --from-literal=NIBSS_SECRET_KEY='...' \
+#     --from-literal=NIBSS_INSTITUTION_CODE='...' \
+#     --from-literal=NIBSS_ORIGINATOR_ACCOUNT='...' \
+#     --from-literal=MIDDLEWARE_INTERNAL_KEY='...' \
+#     --from-literal=PORTAL_TRPC_URL='http://paygate-portal-svc:3000'
+#
+# PORTAL_TRPC_URL is the internal cluster URL of the PayGate portal service.
+# The Go reconciler uses it to POST alerts to /api/trpc/reconciliation.createAlert.
+# Set it to the ClusterIP service name + port of the portal deployment.
+#
+# Build & push the image before applying:
+#   docker build -t your-registry/paygate-go-bridge:latest ./go-bridge
+#   docker push your-registry/paygate-go-bridge:latest
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paygate-go-bridge
+  namespace: paygate
+  labels:
+    app: paygate-go-bridge
+    component: middleware
+    version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: paygate-go-bridge
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: paygate-go-bridge
+        component: middleware
+    spec:
+      # Graceful shutdown: allow 30s for in-flight requests to complete
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: go-bridge
+          image: your-registry/paygate-go-bridge:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # ── Database ──────────────────────────────────────────────────────
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: DATABASE_URL
+            # ── TigerBeetle ───────────────────────────────────────────────────
+            - name: TIGERBEETLE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TIGERBEETLE_ADDRESS
+            # ── Redis ─────────────────────────────────────────────────────────
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: REDIS_URL
+            # ── Kafka ─────────────────────────────────────────────────────────
+            - name: KAFKA_BROKERS
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: KAFKA_BROKERS
+            # ── Temporal ──────────────────────────────────────────────────────
+            - name: TEMPORAL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: TEMPORAL_HOST
+            # ── Permify ───────────────────────────────────────────────────────
+            - name: PERMIFY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: PERMIFY_URL
+            # ── NIBSS ─────────────────────────────────────────────────────────
+            - name: NIBSS_GATEWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: NIBSS_GATEWAY_URL
+            - name: NIBSS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: NIBSS_SECRET_KEY
+            - name: NIBSS_INSTITUTION_CODE
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: NIBSS_INSTITUTION_CODE
+            - name: NIBSS_ORIGINATOR_ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: NIBSS_ORIGINATOR_ACCOUNT
+            # ── Auth ──────────────────────────────────────────────────────────
+            - name: MIDDLEWARE_INTERNAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: MIDDLEWARE_INTERNAL_KEY
+            # ── Runtime config ────────────────────────────────────────────────
+            - name: PORT
+              value: "8080"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: TEMPORAL_ACTIVITIES_REAL
+              value: "true"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 2
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      securityContext:
+        fsGroup: 1000
+
+---
+# ─── Go Bridge Service ────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: paygate-go-bridge
+  namespace: paygate
+  labels:
+    app: paygate-go-bridge
+spec:
+  selector:
+    app: paygate-go-bridge
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ─── Horizontal Pod Autoscaler ────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-go-bridge-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-go-bridge
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

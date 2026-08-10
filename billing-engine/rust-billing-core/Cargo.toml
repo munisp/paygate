@@ -1,0 +1,69 @@
+[package]
+name = "paygate-billing-core"
+version = "0.1.0"
+edition = "2021"
+description = "PayGate real-time billing computation engine"
+
+[[bin]]
+name = "billing-core"
+path = "src/main.rs"
+
+[lib]
+name = "billing_core"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Decimal arithmetic — no floating point for money
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+rust_decimal_macros = "1"
+
+# HTTP server (Dapr sidecar invocation endpoint)
+axum = { version = "0.7", features = ["json"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+
+# Kafka consumer (rdkafka)
+rdkafka = { version = "0.36", features = ["cmake-build", "ssl", "sasl"] }
+
+# Redis
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
+# PostgreSQL
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "rust_decimal"] }
+
+# TigerBeetle client (via gRPC / HTTP)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Tracing / observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = { version = "0.22" }
+opentelemetry-otlp = { version = "0.15", features = ["tonic"] }
+tracing-opentelemetry = "0.23"
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Config
+config = "0.14"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# CloudEvents
+cloudevents-sdk = { version = "0.7", features = ["axum"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.12"

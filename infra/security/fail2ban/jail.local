@@ -1,0 +1,56 @@
+# =============================================================================
+# Fail2Ban Jail Configuration — PayGate
+# Reads APISIX JSON access logs and bans abusive IPs
+# =============================================================================
+
+[DEFAULT]
+# Ban duration: 1 hour
+bantime = 3600
+# Detection window: 10 minutes
+findtime = 600
+# Max retries before ban
+maxretry = 10
+# Ban action: drop packets (iptables)
+banaction = iptables-multiport
+banaction_allports = iptables-allports
+# Email alerts (configure SMTP in fail2ban main.conf)
+destemail = ops@paygate.ng
+sendername = Fail2Ban-PayGate
+action = %(action_mwl)s
+
+# ─── APISIX 401 Unauthorized (brute-force login) ──────────────────────────────
+[paygate-auth-brute]
+enabled = true
+filter = paygate-auth-brute
+logpath = /var/lib/docker/containers/*/*.log
+maxretry = 10
+findtime = 300
+bantime = 3600
+action = iptables-multiport[name=paygate-auth, port="80,443", protocol=tcp]
+
+# ─── APISIX 429 Rate Limit (DDoS/scraping) ────────────────────────────────────
+[paygate-rate-limit]
+enabled = true
+filter = paygate-rate-limit
+logpath = /var/lib/docker/containers/*/*.log
+maxretry = 5
+findtime = 60
+bantime = 7200
+action = iptables-multiport[name=paygate-ratelimit, port="80,443", protocol=tcp]
+
+# ─── APISIX WAF Block (open-appsec blocked requests) ─────────────────────────
+[paygate-waf-block]
+enabled = true
+filter = paygate-waf-block
+logpath = /var/lib/docker/containers/*/*.log
+maxretry = 3
+findtime = 300
+bantime = 86400  # 24 hours for WAF-blocked IPs
+action = iptables-multiport[name=paygate-waf, port="80,443", protocol=tcp]
+
+# ─── SSH brute-force (standard) ───────────────────────────────────────────────
+[sshd]
+enabled = true
+maxretry = 5
+findtime = 300
+bantime = 86400

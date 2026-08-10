@@ -1,0 +1,28 @@
+# PodDisruptionBudget — ensures at least 2 replicas are always available during disruptions
+# Apply with: kubectl apply -f k8s/pod-disruption-budget.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-pdb
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: paygate-merchant-portal
+---
+# PDB for the Go middleware bridge
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-go-bridge-pdb
+  namespace: paygate
+  labels:
+    app: paygate-go-bridge
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-go-bridge

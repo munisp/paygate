@@ -1,0 +1,202 @@
+# =============================================================================
+# PayGate WAF Stack — open-appsec + Apache APISIX
+# =============================================================================
+#
+# Architecture:
+#   Internet (port 80/443)
+#     └─► open-appsec WAF (ML threat detection, OWASP Top-10)
+#           └─► APISIX API Gateway (JWT auth, rate limiting, routing)
+#                 └─► PayGate App Services (portal, bridge, etc.)
+#
+# Usage:
+#   # Start WAF stack alongside main services:
+#   docker compose -f infra/docker-compose.prod.yml \
+#                  -f infra/docker-compose.waf.yml up -d
+#
+#   # View WAF logs:
+#   docker compose -f infra/docker-compose.waf.yml logs -f open-appsec
+#
+#   # View APISIX metrics:
+#   curl http://localhost:9091/metrics
+#
+# Required environment variables:
+#   APISIX_ADMIN_KEY     — Admin API key for APISIX (min 32 chars)
+#   APISIX_VIEWER_KEY    — Viewer API key for APISIX
+#   OPEN_APPSEC_TOKEN    — open-appsec cloud management token (optional)
+#   REDIS_PASSWORD       — Redis password (shared with main stack)
+# =============================================================================
+
+version: "3.9"
+
+networks:
+  paygate-net:
+    external: true
+    name: paygate_paygate-net
+
+volumes:
+  apisix-data:
+  open-appsec-data:
+  open-appsec-shared:
+
+services:
+
+  # ─── open-appsec WAF ─────────────────────────────────────────────────────────
+  # ML-based Web Application Firewall
+  # - No signature updates needed (ML model auto-updates)
+  # - OWASP Top-10 coverage out of the box
+  # - Bot mitigation
+  # - Runs in prevent-learn mode (blocks threats, learns from traffic)
+  # Reference: https://hub.docker.com/r/openappsec/agent
+  open-appsec:
+    image: openappsec/agent:latest
+    container_name: paygate-open-appsec
+    restart: unless-stopped
+    privileged: false
+    cap_add:
+      - NET_ADMIN
+      - SYS_PTRACE
+    environment:
+      # Deployment mode: standalone (no cloud management) or managed
+      DEPLOYMENT_MODE: ${OPEN_APPSEC_MODE:-standalone}
+      # Cloud management token (optional — for central policy management)
+      OPEN_APPSEC_TOKEN: ${OPEN_APPSEC_TOKEN:-}
+      # Policy file location
+      POLICY_FILE: /etc/cp/conf/local_policy.yaml
+      # Log level
+      CP_LOG_LEVEL: ${WAF_LOG_LEVEL:-warning}
+      # Attachment mode: nginx (integrates with APISIX's NGINX)
+      NGINX_ATTACHMENT_ENABLED: "1"
+      # Upstream: APISIX handles routing after WAF inspection
+      UPSTREAM_HOST: apisix
+      UPSTREAM_PORT: "9080"
+    volumes:
+      # WAF policy
+      - ./apisix/waf-policy.yaml:/etc/cp/conf/local_policy.yaml:ro
+      # Shared socket for NGINX attachment
+      - open-appsec-shared:/cp-nano-attachment
+      # Persistent WAF state (ML model, learned patterns)
+      - open-appsec-data:/etc/cp/data
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - paygate-net
+    depends_on:
+      apisix:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Apache APISIX API Gateway ────────────────────────────────────────────────
+  # Handles: JWT auth, rate limiting, CORS, routing, Prometheus metrics
+  apisix:
+    image: apache/apisix:3.9-debian
+    container_name: paygate-apisix
+    restart: unless-stopped
+    environment:
+      APISIX_ADMIN_KEY: ${APISIX_ADMIN_KEY:-paygate-apisix-admin-key-change-in-prod}
+      APISIX_VIEWER_KEY: ${APISIX_VIEWER_KEY:-paygate-apisix-viewer-key-change-in-prod}
+    volumes:
+      # Declarative route config
+      - ./apisix/routes.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+      # APISIX main config
+      - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      # TLS certificates (Let's Encrypt or self-signed)
+      - ${TLS_CERT_PATH:-./apisix/certs}:/usr/local/apisix/conf/ssl:ro
+      # Shared socket for open-appsec NGINX attachment
+      - open-appsec-shared:/cp-nano-attachment
+      # Persistent data
+      - apisix-data:/usr/local/apisix/data
+    ports:
+      # Internal only — open-appsec sits in front on 80/443
+      - "9080:9080"    # HTTP (internal)
+      - "9443:9443"    # HTTPS (internal)
+      - "9091:9091"    # Prometheus metrics
+      - "9180:9180"    # Admin API (bind to 127.0.0.1 in prod)
+    networks:
+      - paygate-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── APISIX Dashboard (optional, ops team only) ───────────────────────────────
+  apisix-dashboard:
+    image: apache/apisix-dashboard:3.0.1-alpine
+    container_name: paygate-apisix-dashboard
+    restart: unless-stopped
+    volumes:
+      - ./apisix/dashboard.yaml:/usr/local/apisix-dashboard/conf/conf.yaml:ro
+    ports:
+      - "127.0.0.1:9000:9000"  # Bind to localhost only
+    networks:
+      - paygate-net
+    depends_on:
+      - apisix
+    profiles:
+      - ops  # Only start with: docker compose --profile ops up
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  # ─── Fail2Ban (brute-force protection) ───────────────────────────────────────
+  # Reads APISIX access logs and bans IPs after repeated 401/429 responses
+  fail2ban:
+    image: crazymax/fail2ban:latest
+    container_name: paygate-fail2ban
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      TZ: UTC
+      F2B_LOG_TARGET: STDOUT
+      F2B_LOG_LEVEL: WARN
+      F2B_DB_PURGE_AGE: 1d
+    volumes:
+      - ./security/fail2ban/jail.local:/data/jail.d/paygate.local:ro
+      - ./security/fail2ban/filter.d:/data/filter.d:ro
+      # Read APISIX logs
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    profiles:
+      - security

@@ -1,0 +1,147 @@
+# =============================================================================
+# Caddy Edge Proxy — Docker Compose Service Definition
+# =============================================================================
+# Include this file alongside docker-compose.production.yml:
+#   docker compose -f docker-compose.production.yml -f caddy/docker-compose.caddy.yml up -d
+#
+# This replaces paygate_nginx as the edge proxy.
+# =============================================================================
+
+services:
+  paygate_caddy:
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    container_name: paygate_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"          # HTTP (redirects to HTTPS)
+      - "443:443"        # HTTPS (TLS 1.2/1.3)
+      - "443:443/udp"    # HTTP/3 QUIC
+      - "3001:3001"      # TigerBeetle TLS (L4)
+      - "5433:5433"      # PgBouncer TLS (L4)
+      - "6380:6380"      # Redis TLS (L4)
+      - "9093:9093"      # Kafka TLS (L4)
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/config:/etc/caddy/config:ro
+      - ./caddy/certs:/etc/caddy/certs:ro
+    environment:
+      # Cloudflare DNS-01 ACME challenge
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      # Keycloak OIDC
+      KEYCLOAK_ISSUER_URL: ${KEYCLOAK_ISSUER_URL:-http://paygate_keycloak:8080/realms/paygate}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-paygate-merchant}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      # JWT signing key (shared with app)
+      JWT_SECRET: ${JWT_SECRET}
+      # Admin API
+      CADDY_ADMIN_URL: http://paygate_caddy:2019
+    networks:
+      - paygate
+    depends_on:
+      - paygate_app
+      - paygate_keycloak
+      - paygate_openappsec
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=2019"
+      - "prometheus.path=/metrics"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # OpenAppSec WAF sidecar — sits between Caddy and APISIX
+  paygate_openappsec:
+    image: openappsec/agent:latest
+    container_name: paygate_openappsec
+    restart: unless-stopped
+    volumes:
+      - ./infra/apisix/waf-policy.yaml:/etc/cp/conf/local_policy.yaml:ro
+      - ./caddy/config/openappsec-attachment.yaml:/etc/cp/conf/attachment.yaml:ro
+      - openappsec_data:/etc/cp/data
+    environment:
+      OPENAPPSEC_TOKEN: ${OPENAPPSEC_TOKEN:-}
+      OPENAPPSEC_DEPLOYMENT: "paygate-production"
+      OPENAPPSEC_LOG_LEVEL: "info"
+    networks:
+      - paygate
+    depends_on:
+      - paygate_apisix
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # APISIX API Gateway (added if not already in main compose)
+  paygate_apisix:
+    image: apache/apisix:3.11.0-debian
+    container_name: paygate_apisix
+    restart: unless-stopped
+    volumes:
+      - ./infra/apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./infra/apisix/routes.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    environment:
+      APISIX_STAND_ALONE: "true"
+    networks:
+      - paygate
+    depends_on:
+      - paygate_app
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # APISIX Dashboard
+  paygate_apisix_dashboard:
+    image: apache/apisix-dashboard:3.0.1-alpine
+    container_name: paygate_apisix_dashboard
+    restart: unless-stopped
+    volumes:
+      - ./infra/apisix/dashboard.yaml:/usr/local/apisix-dashboard/conf/conf.yaml:ro
+    networks:
+      - paygate
+    depends_on:
+      - paygate_apisix
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  caddy_logs:
+    driver: local
+  openappsec_data:
+    driver: local
+
+networks:
+  paygate:
+    external: true

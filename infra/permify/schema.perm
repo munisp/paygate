@@ -1,0 +1,204 @@
+// =============================================================================
+// PayGate Permify Authorization Schema
+// Apply with: permify schema write --schema infra/permify/schema.perm
+// =============================================================================
+
+// ─── Entity: user ─────────────────────────────────────────────────────────────
+entity user {}
+
+// ─── Entity: merchant ─────────────────────────────────────────────────────────
+entity merchant {
+    // Direct role assignments
+    relation owner   @user
+    relation admin   @user
+    relation member  @user
+    relation viewer  @user
+
+    // Permissions
+    permission view_dashboard    = owner or admin or member or viewer
+    permission manage_settings   = owner or admin
+    permission manage_team       = owner or admin
+    permission create_payment    = owner or admin or member
+    permission view_transactions = owner or admin or member or viewer
+    permission export_data       = owner or admin
+    permission manage_api_keys   = owner or admin
+    permission manage_webhooks   = owner or admin
+    permission approve_payout    = owner or admin
+    permission initiate_payout   = owner or admin or member
+    permission view_analytics    = owner or admin or member or viewer
+    permission manage_products   = owner or admin or member
+    permission view_customers    = owner or admin or member or viewer
+    permission manage_disputes   = owner or admin
+    permission view_audit_log    = owner or admin
+    permission manage_compliance = owner
+}
+
+// ─── Entity: wallet ───────────────────────────────────────────────────────────
+entity wallet {
+    relation owner    @merchant
+    relation operator @user
+
+    permission debit  = owner.owner or owner.admin or operator
+    permission credit = owner.owner or owner.admin or operator
+    permission view   = owner.owner or owner.admin or owner.member or owner.viewer or operator
+}
+
+// ─── Entity: payout ───────────────────────────────────────────────────────────
+entity payout {
+    relation merchant @merchant
+    relation initiator @user
+
+    permission approve = merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin or merchant.member or initiator
+    permission cancel  = merchant.owner or merchant.admin or initiator
+}
+
+// ─── Entity: api_key ──────────────────────────────────────────────────────────
+entity api_key {
+    relation merchant @merchant
+
+    permission read   = merchant.owner or merchant.admin
+    permission revoke = merchant.owner or merchant.admin
+    permission create = merchant.owner or merchant.admin
+}
+
+// ─── Entity: webhook ──────────────────────────────────────────────────────────
+entity webhook {
+    relation merchant @merchant
+
+    permission manage = merchant.owner or merchant.admin
+    permission view   = merchant.owner or merchant.admin or merchant.member
+}
+
+// ─── Entity: report ───────────────────────────────────────────────────────────
+entity report {
+    relation merchant @merchant
+
+    permission view   = merchant.owner or merchant.admin or merchant.member or merchant.viewer
+    permission export = merchant.owner or merchant.admin
+    permission delete = merchant.owner
+}
+
+// ─── Entity: loan ─────────────────────────────────────────────────────────────
+entity loan {
+    relation merchant  @merchant
+    relation borrower  @user
+    permission apply   = merchant.owner or merchant.admin or borrower
+    permission view    = merchant.owner or merchant.admin or merchant.member or borrower
+    permission approve = merchant.owner or merchant.admin
+    permission disburse = merchant.owner or merchant.admin
+    permission repay   = borrower or merchant.owner or merchant.admin
+}
+
+// ─── Entity: split_rule ───────────────────────────────────────────────────────
+entity split_rule {
+    relation merchant @merchant
+    permission create  = merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin or merchant.member
+    permission delete  = merchant.owner or merchant.admin
+    permission execute = merchant.owner or merchant.admin or merchant.member
+}
+
+// ─── Entity: escrow ───────────────────────────────────────────────────────────
+entity escrow {
+    relation merchant  @merchant
+    relation buyer     @user
+    relation seller    @user
+    permission view    = merchant.owner or merchant.admin or buyer or seller
+    permission release = merchant.owner or merchant.admin
+    permission dispute = buyer or seller
+    permission cancel  = merchant.owner or merchant.admin
+}
+
+// ─── Entity: insurance_policy ─────────────────────────────────────────────────
+entity insurance_policy {
+    relation merchant @merchant
+    relation holder   @user
+    permission view   = merchant.owner or merchant.admin or holder
+    permission claim  = holder or merchant.owner or merchant.admin
+    permission cancel = merchant.owner or merchant.admin
+}
+
+// ─── Entity: carbon_credit ────────────────────────────────────────────────────
+entity carbon_credit {
+    relation merchant @merchant
+    permission mint    = merchant.owner or merchant.admin
+    permission retire  = merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin or merchant.member or merchant.viewer
+    permission transfer = merchant.owner or merchant.admin
+}
+
+// ─── Entity: agent ────────────────────────────────────────────────────────────
+entity agent {
+    relation merchant  @merchant
+    relation operator  @user
+    permission register = merchant.owner or merchant.admin
+    permission view     = merchant.owner or merchant.admin or merchant.member or operator
+    permission topup    = merchant.owner or merchant.admin
+    permission suspend  = merchant.owner or merchant.admin
+    permission transact = operator
+}
+
+// ─── Entity: kyb_application ──────────────────────────────────────────────────
+entity kyb_application {
+    relation merchant @merchant
+    relation reviewer @user
+    permission submit  = merchant.owner
+    permission view    = merchant.owner or merchant.admin or reviewer
+    permission approve = reviewer
+    permission reject  = reviewer
+    permission upload_doc = merchant.owner or merchant.admin
+}
+
+// ─── Entity: sdk_token ────────────────────────────────────────────────────────
+entity sdk_token {
+    relation merchant @merchant
+    permission create  = merchant.owner or merchant.admin
+    permission revoke  = merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin
+}
+
+// ─── Entity: open_banking_consent ─────────────────────────────────────────────
+entity open_banking_consent {
+    relation merchant  @merchant
+    relation customer  @user
+    permission grant   = customer
+    permission revoke  = customer or merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin or customer
+    permission use_data = merchant.owner or merchant.admin or merchant.member
+}
+
+// ─── Entity: tax_withholding ──────────────────────────────────────────────────
+entity tax_withholding {
+    relation merchant @merchant
+    permission compute  = merchant.owner or merchant.admin or merchant.member
+    permission remit    = merchant.owner or merchant.admin
+    permission view     = merchant.owner or merchant.admin or merchant.member or merchant.viewer
+    permission export   = merchant.owner or merchant.admin
+}
+
+// ─── Entity: bulk_payment ─────────────────────────────────────────────────────
+entity bulk_payment {
+    relation merchant   @merchant
+    relation initiator  @user
+    permission create   = merchant.owner or merchant.admin or merchant.member
+    permission approve  = merchant.owner or merchant.admin
+    permission view     = merchant.owner or merchant.admin or merchant.member or initiator
+    permission cancel   = merchant.owner or merchant.admin or initiator
+}
+
+// ─── Entity: loyalty_program ──────────────────────────────────────────────────
+entity loyalty_program {
+    relation merchant @merchant
+    permission manage  = merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin or merchant.member or merchant.viewer
+    permission award   = merchant.owner or merchant.admin or merchant.member
+    permission redeem  = merchant.owner or merchant.admin or merchant.member
+}
+
+// ─── Entity: dcc_config ───────────────────────────────────────────────────────
+entity dcc_config {
+    relation merchant @merchant
+    permission manage  = merchant.owner or merchant.admin
+    permission view    = merchant.owner or merchant.admin or merchant.member or merchant.viewer
+}

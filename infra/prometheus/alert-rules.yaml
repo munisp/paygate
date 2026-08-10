@@ -1,0 +1,508 @@
+groups:
+  - name: paygate.critical
+    interval: 30s
+    rules:
+      # ─── API availability ────────────────────────────────────────────────────
+      - alert: PayGateAPIDown
+        expr: up{job="paygate-portal"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PayGate portal is down"
+          description: "The PayGate portal has been unreachable for more than 1 minute."
+          runbook: "https://wiki.paygate.internal/runbooks/portal-down"
+
+      - alert: PayGateBridgeDown
+        expr: up{job="paygate-bridge"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PayGate Go bridge is down"
+          description: "The PayGate Go bridge has been unreachable for more than 1 minute."
+          runbook: "https://wiki.paygate.internal/runbooks/bridge-down"
+
+      # ─── Error rate ──────────────────────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(paygate_http_request_duration_seconds_count{status_code=~"5.."}[5m])
+            /
+            rate(paygate_http_request_duration_seconds_count[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High HTTP 5xx error rate (>5%)"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # ─── tRPC error rate ─────────────────────────────────────────────────────
+      - alert: HighTRPCErrorRate
+        expr: |
+          (
+            rate(paygate_trpc_calls_total{status="error"}[5m])
+            /
+            rate(paygate_trpc_calls_total[5m])
+          ) > 0.02
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High tRPC error rate (>2%)"
+          description: "tRPC error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # ─── Latency ─────────────────────────────────────────────────────────────
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            rate(paygate_http_request_duration_seconds_bucket[5m])
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "P99 latency exceeds 2s"
+          description: "P99 request latency is {{ $value | humanizeDuration }} over the last 5 minutes."
+
+      # ─── Database ────────────────────────────────────────────────────────────
+      - alert: HighDBQueryLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(paygate_db_query_duration_seconds_bucket[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: dba
+        annotations:
+          summary: "P95 DB query latency exceeds 500ms"
+          description: "P95 database query latency is {{ $value | humanizeDuration }}."
+
+      - alert: DBConnectionPoolExhausted
+        expr: |
+          pg_stat_activity_count{state="idle in transaction"}
+          / pg_settings_max_connections > 0.8
+        for: 2m
+        labels:
+          severity: critical
+          team: dba
+        annotations:
+          summary: "Database connection pool >80% utilised"
+          description: "{{ $value | humanizePercentage }} of max_connections are in use."
+
+      # ─── TigerBeetle ─────────────────────────────────────────────────────────
+      - alert: TigerBeetleUnreachable
+        expr: up{job="paygate-bridge"} == 1 and paygate_tigerbeetle_connected == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "TigerBeetle cluster unreachable from bridge"
+          description: "The Go bridge cannot reach TigerBeetle. Wallet operations will fail."
+
+      # ─── Settlement SLA ──────────────────────────────────────────────────────
+      - alert: SettlementSLABreach
+        expr: paygate_settlements_sla_breached_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: finance
+        annotations:
+          summary: "Settlement SLA breached"
+          description: "{{ $value }} settlement(s) have breached the 2-hour SLA."
+
+      # ─── Fraud ───────────────────────────────────────────────────────────────
+      - alert: HighFraudAlertRate
+        expr: |
+          rate(paygate_fraud_alerts_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: risk
+        annotations:
+          summary: "High fraud alert rate (>10/15min)"
+          description: "{{ $value | humanize }} fraud alerts generated in the last 15 minutes."
+
+      # ─── Memory ──────────────────────────────────────────────────────────────
+      - alert: HighMemoryUsage
+        expr: |
+          paygate_node_process_resident_memory_bytes
+          / paygate_node_process_heap_size_total_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Node.js heap usage >90%"
+          description: "Heap utilisation is {{ $value | humanizePercentage }}. Consider scaling."
+
+      # ─── Event loop lag ──────────────────────────────────────────────────────
+      - alert: HighEventLoopLag
+        expr: paygate_node_eventloop_lag_seconds > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Node.js event loop lag >100ms"
+          description: "Event loop lag is {{ $value | humanizeDuration }}. CPU-bound work may be blocking."
+
+      # ─── Kafka consumer lag ──────────────────────────────────────────────────
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_group_lag{group="paygate-lakehouse-sink"} > 10000
+        for: 10m
+        labels:
+          severity: warning
+          team: data
+        annotations:
+          summary: "Kafka consumer lag >10k messages"
+          description: "Consumer group {{ $labels.group }} is {{ $value }} messages behind."
+
+  - name: paygate.info
+    interval: 60s
+    rules:
+      # ─── Stripe mode ─────────────────────────────────────────────────────────
+      - alert: StripeTestModeInProduction
+        expr: paygate_stripe_test_mode == 1
+        for: 0m
+        labels:
+          severity: info
+          team: finance
+        annotations:
+          summary: "Stripe is in test mode"
+          description: "The portal is using Stripe test keys. Switch to live keys before processing real payments."
+
+  # ─── Wave 78 New Feature Microservices ────────────────────────────────────
+  - name: paygate.wave78
+    interval: 30s
+    rules:
+      - alert: DigitalGoldServiceDown
+        expr: up{job="paygate-digital-gold"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: digital-gold
+        annotations:
+          summary: "Digital Gold service is down"
+          description: "digital-gold microservice unreachable for 2+ min. Gold purchases and sales unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/digital-gold-down"
+
+      - alert: MutualFundsServiceDown
+        expr: up{job="paygate-mutual-funds"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: mutual-funds
+        annotations:
+          summary: "Mutual Funds service is down"
+          description: "mutual-funds microservice unreachable. Investment operations unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/mutual-funds-down"
+
+      - alert: PensionNPSServiceDown
+        expr: up{job="paygate-pension-nps"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: pension-nps
+        annotations:
+          summary: "Pension NPS service is down"
+          description: "pension-nps microservice unreachable. Pension contributions unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/pension-down"
+
+      - alert: CashbackRewardsServiceDown
+        expr: up{job="paygate-cashback-rewards"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: cashback-rewards
+        annotations:
+          summary: "Cashback Rewards service is down"
+          description: "cashback-rewards microservice unreachable."
+
+      - alert: SoundboxServiceDown
+        expr: up{job="paygate-soundbox"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: soundbox
+        annotations:
+          summary: "Soundbox service is down"
+          description: "soundbox microservice unreachable. Voice payment alerts unavailable."
+
+      - alert: WealthManagementServiceDown
+        expr: up{job="paygate-wealth-management"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: wealth-management
+        annotations:
+          summary: "Wealth Management service is down"
+          description: "wealth-management microservice unreachable."
+
+      - alert: EMIServiceDown
+        expr: up{job="paygate-emi-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: emi-service
+        annotations:
+          summary: "EMI Checkout service is down"
+          description: "emi-service microservice unreachable. EMI checkout unavailable."
+
+      - alert: BulkCollectionsServiceDown
+        expr: up{job="paygate-bulk-collections"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: bulk-collections
+        annotations:
+          summary: "Bulk Collections service is down"
+          description: "bulk-collections microservice unreachable."
+
+      - alert: SalaryAccountsServiceDown
+        expr: up{job="paygate-salary-accounts"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          service: salary-accounts
+        annotations:
+          summary: "Salary Accounts service is down"
+          description: "salary-accounts microservice unreachable."
+
+      - alert: IntlRemittanceServiceDown
+        expr: up{job="paygate-intl-remittance"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: intl-remittance
+        annotations:
+          summary: "International Remittance service is down"
+          description: "intl-remittance microservice unreachable. Cross-border transfers unavailable."
+          runbook: "https://wiki.paygate.internal/runbooks/intl-remittance-down"
+
+      - alert: GoldPriceFeedStale
+        expr: time() - paygate_gold_price_updated_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: digital-gold
+        annotations:
+          summary: "Gold price feed is stale (>5 min)"
+          description: "Gold price has not been updated in {{ $value }}s. Check GoldTech API connectivity."
+
+      - alert: RemittanceHighFailureRate
+        expr: rate(paygate_remittance_failures_total[10m]) / rate(paygate_remittance_transfers_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: risk
+          service: intl-remittance
+        annotations:
+          summary: "High remittance failure rate (>5%)"
+          description: "{{ $value | humanizePercentage }} of remittance transfers are failing."
+
+      - alert: EMIHighDelinquencyRate
+        expr: paygate_emi_overdue_instalments / paygate_emi_total_instalments > 0.05
+        for: 1h
+        labels:
+          severity: warning
+          team: risk
+          service: emi-service
+        annotations:
+          summary: "High EMI delinquency rate (>5%)"
+          description: "{{ $value | humanizePercentage }} of EMI instalments are overdue."
+
+  # ─── Lakehouse / Analytics Infrastructure ────────────────────────────────
+  - name: paygate.lakehouse
+    interval: 30s
+    rules:
+      - alert: MinIODown
+        expr: up{job="minio"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: minio
+        annotations:
+          summary: "MinIO object store is down"
+          description: "MinIO (lakehouse S3-compatible store) has been unreachable for >2 minutes. Delta Lake writes will fail."
+
+      - alert: MinIOHighDiskUsage
+        expr: minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes < 0.15
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: minio
+        annotations:
+          summary: "MinIO disk usage >85%"
+          description: "MinIO usable free space is below 15%. Lakehouse writes may fail soon."
+
+      - alert: SparkMasterDown
+        expr: up{job="spark-master"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          team: platform
+          service: spark
+        annotations:
+          summary: "Spark master is down"
+          description: "Apache Spark master has been unreachable for >3 minutes. Sedona geospatial jobs and Delta Lake batch writes will fail."
+
+      - alert: SparkNoWorkers
+        expr: spark_workers_alive < 1
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: spark
+        annotations:
+          summary: "No Spark workers alive"
+          description: "All Spark workers are down. Batch analytics and Sedona spatial clustering are unavailable."
+
+      - alert: TrinoDown
+        expr: up{job="trino"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: platform
+          service: trino
+        annotations:
+          summary: "Trino query engine is down"
+          description: "Trino has been unreachable for >3 minutes. Ad-hoc lakehouse SQL queries will fail."
+
+      - alert: TrinoHighQueryFailureRate
+        expr: rate(trino_query_failed_total[10m]) / (rate(trino_query_completed_total[10m]) + 1) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: trino
+        annotations:
+          summary: "Trino query failure rate >10%"
+          description: "{{ $value | humanizePercentage }} of Trino queries are failing."
+
+      - alert: LakehouseV2Down
+        expr: up{job="lakehouse-v2"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: lakehouse-v2
+        annotations:
+          summary: "Lakehouse v2 service is down"
+          description: "The DuckDB-backed lakehouse-v2 service has been unreachable for >2 minutes. All analytics queries will fall back to stubs."
+
+      - alert: LakehouseV2SlowQueries
+        expr: histogram_quantile(0.95, rate(lakehouse_query_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: lakehouse-v2
+        annotations:
+          summary: "Lakehouse v2 P95 query latency >30s"
+          description: "95th percentile DuckDB query latency is {{ $value }}s. Consider query optimisation or adding Spark offload."
+
+      - alert: CreditScoringDataFusionDown
+        expr: up{job="credit-scoring"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: risk
+          service: credit-scoring
+        annotations:
+          summary: "Credit scoring (DataFusion) service is down"
+          description: "The Rust/DataFusion credit-scoring service has been unreachable for >2 minutes. BNPL and loan origination will be blocked."
+
+      - alert: FraudHeatmapSedonaDown
+        expr: up{job="fraud-heatmap"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: risk
+          service: fraud-heatmap
+        annotations:
+          summary: "Fraud heatmap (Sedona) service is down"
+          description: "The Apache Sedona geospatial fraud-heatmap service is unreachable. Geo-clustering and H3 heatmaps are unavailable."
+
+      - alert: FraudHeatmapHighRiskClusters
+        expr: paygate_fraud_heatmap_high_risk_cells > 50
+        for: 15m
+        labels:
+          severity: warning
+          team: risk
+          service: fraud-heatmap
+        annotations:
+          summary: "High number of high-risk geo clusters detected"
+          description: "{{ $value }} H3 cells are currently flagged as high-risk by Sedona spatial analysis."
+
+      - alert: GNNFraudServiceDown
+        expr: up{job="paygate-gnn-fraud"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: risk
+          service: gnn-fraud
+        annotations:
+          summary: "GNN Fraud Detection service is down"
+          description: "The GraphSAGE fraud detection service is unreachable. Real-time GNN scoring is unavailable."
+      - alert: GNNFraudHighFraudRate
+        expr: rate(paygate_gnn_fraud_detections_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: risk
+          service: gnn-fraud
+        annotations:
+          summary: "High GNN fraud detection rate"
+          description: "GNN fraud detection rate is {{ \ | humanize }} per second over the last 5 minutes."
+      - alert: GNNFraudRingDetected
+        expr: paygate_gnn_fraud_rings_detected_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: risk
+          service: gnn-fraud
+        annotations:
+          summary: "Fraud ring detected by GNN"
+          description: "{{ \ }} fraud ring(s) detected by GraphSAGE analysis. Immediate investigation required."
+      - alert: VectorStoreDown
+        expr: up{job="paygate-vector-store"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: ai
+          service: vector-store
+        annotations:
+          summary: "Vector store (Qdrant) service is down"
+          description: "The Qdrant vector store is unreachable. AI semantic search is unavailable."
+      - alert: LakehouseAIDown
+        expr: up{job="paygate-lakehouse-ai"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          team: ai
+          service: lakehouse-ai
+        annotations:
+          summary: "Lakehouse AI service is down"
+          description: "The Lakehouse AI training/inference service is unreachable."

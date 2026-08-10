@@ -1,0 +1,190 @@
+version: "3.9"
+
+# ─── Wave 115/116: Billing Engine Services ────────────────────────────────────
+# Extends docker/docker-compose.middleware.yml
+# Run with: docker compose -f docker-compose.yml -f docker/docker-compose.middleware.yml -f docker/docker-compose.billing-engine.yml up
+
+networks:
+  paygate-net:
+    external: true
+
+volumes:
+  tigerbeetle-billing-data:
+
+services:
+
+  # ── Rust Billing Core (fee computation, TigerBeetle posting) ─────────────────
+  billing-core:
+    build:
+      context: ../billing-engine/rust-billing-core
+      dockerfile: Dockerfile
+    container_name: paygate-billing-core
+    restart: unless-stopped
+    ports:
+      - "8093:8093"
+    environment:
+      PORT: "8093"
+      TIGERBEETLE_ADDRESS: "${TIGERBEETLE_ADDRESS:-paygate-tigerbeetle-ledger:3000}"
+      RUST_LOG: "info"
+      DAPR_HTTP_PORT: "3500"
+    networks:
+      - paygate-net
+    depends_on:
+      - paygate-tigerbeetle-ledger
+    labels:
+      dapr.io/enabled: "true"
+      dapr.io/app-id: "billing-core"
+      dapr.io/app-port: "8093"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8093/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Go Event Ingestor (Kafka/Fluvio consumer → billing-core) ─────────────────
+  billing-event-ingestor:
+    build:
+      context: ../billing-engine/go-event-ingestor
+      dockerfile: Dockerfile
+    container_name: paygate-billing-event-ingestor
+    restart: unless-stopped
+    ports:
+      - "8094:8094"
+    environment:
+      PORT: "8094"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-paygate-kafka:9092}"
+      KAFKA_TOPIC: "payment.transactions"
+      KAFKA_GROUP_ID: "billing-ingestor"
+      BILLING_CORE_URL: "http://billing-core:8093"
+      REDIS_URL: "${REDIS_URL:-redis://paygate-redis:6379}"
+      DAPR_HTTP_PORT: "3500"
+    networks:
+      - paygate-net
+    depends_on:
+      - paygate-kafka
+      - billing-core
+      - paygate-redis
+    labels:
+      dapr.io/enabled: "true"
+      dapr.io/app-id: "billing-event-ingestor"
+      dapr.io/app-port: "8094"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8094/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Go Temporal Onboarding Workflow Worker ────────────────────────────────────
+  billing-onboarding-worker:
+    build:
+      context: ../billing-engine/go-onboarding-workflow
+      dockerfile: Dockerfile
+    container_name: paygate-billing-onboarding-worker
+    restart: unless-stopped
+    environment:
+      TEMPORAL_HOST_PORT: "${TEMPORAL_HOST_PORT:-paygate-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-default}"
+      BILLING_CORE_URL: "http://billing-core:8093"
+      PG_DATABASE_URL: "${PG_DATABASE_URL}"
+      KEYCLOAK_URL: "${KEYCLOAK_URL:-http://paygate-keycloak:8080}"
+      KEYCLOAK_REALM: "${KEYCLOAK_REALM:-paygate}"
+      KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID}"
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
+    networks:
+      - paygate-net
+    depends_on:
+      - paygate-temporal
+      - billing-core
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Go Audit & RBAC Service (Keycloak + Permify + OpenSearch) ────────────────
+  billing-audit-rbac:
+    build:
+      context: ../billing-engine/go-audit-rbac
+      dockerfile: Dockerfile
+    container_name: paygate-billing-audit-rbac
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    environment:
+      PORT: "8096"
+      KEYCLOAK_URL: "${KEYCLOAK_URL:-http://paygate-keycloak:8080}"
+      KEYCLOAK_REALM: "${KEYCLOAK_REALM:-paygate}"
+      PERMIFY_URL: "${PERMIFY_URL:-http://paygate-permify:3476}"
+      PERMIFY_API_KEY: "${PERMIFY_API_KEY}"
+      OPENSEARCH_URL: "http://paygate-opensearch:9200"
+      PG_DATABASE_URL: "${PG_DATABASE_URL}"
+    networks:
+      - paygate-net
+    depends_on:
+      - paygate-keycloak
+      - paygate-permify
+      - paygate-opensearch
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Python Settlement Bridge & Lakehouse Streaming ───────────────────────────
+  billing-settlement-bridge:
+    build:
+      context: ../billing-engine/python-settlement-lakehouse
+      dockerfile: Dockerfile
+    container_name: paygate-billing-settlement-bridge
+    restart: unless-stopped
+    ports:
+      - "8097:8097"
+    environment:
+      PORT: "8097"
+      MOJALOOP_URL: "${MOJALOOP_URL:-http://paygate-mojaloop:3000}"
+      MOJALOOP_API_KEY: "${MOJALOOP_API_KEY}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-paygate-kafka:9092}"
+      FLUVIO_ENDPOINT: "${FLUVIO_ENDPOINT:-paygate-fluvio-sc:9003}"
+      PG_DATABASE_URL: "${PG_DATABASE_URL}"
+      LAKEHOUSE_URL: "http://paygate-lakehouse:8080"
+    networks:
+      - paygate-net
+    depends_on:
+      - paygate-kafka
+      - paygate-fluvio-sc
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8097/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── APISIX Route Config for Billing Engine ───────────────────────────────────
+  billing-apisix-config:
+    image: curlimages/curl:8.6.0
+    container_name: paygate-billing-apisix-config
+    restart: "no"
+    networks:
+      - paygate-net
+    depends_on:
+      - paygate-apisix
+    command: >
+      sh -c "
+        sleep 15 &&
+        curl -X PUT http://paygate-apisix:9180/apisix/admin/routes/billing-engine \
+          -H 'X-API-KEY: edd1c9f034335f136f87ad84b625c8f1' \
+          -H 'Content-Type: application/json' \
+          -d '{
+            \"uri\": \"/api/trpc/billing*\",
+            \"plugins\": {
+              \"limit-req\": {\"rate\": 10, \"burst\": 5, \"key\": \"remote_addr\", \"rejected_code\": 429},
+              \"response-rewrite\": {\"headers\": {\"X-Content-Type-Options\": \"nosniff\", \"Cache-Control\": \"no-store\"}}
+            },
+            \"upstream\": {\"type\": \"roundrobin\", \"nodes\": {\"paygate_app:3000\": 1}}
+          }' &&
+        echo 'APISIX billing route configured'
+      "
