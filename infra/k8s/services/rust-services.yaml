@@ -480,6 +480,11 @@ spec:
                   key: KAFKA_BOOTSTRAP_SERVERS
             - name: OTEL_SERVICE_NAME
               value: paygate-wallet-ffi
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paygate-secrets
+                  key: INTERNAL_API_KEY
             - name: PORT
               value: "8080"
             - name: RUST_LOG

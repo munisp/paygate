@@ -7,7 +7,11 @@
 //!
 //! Environment variables:
 //!   PORT              — HTTP port (default: 8099)
-//!   INTERNAL_KEY      — X-Internal-Key header value for authentication
+//!   INTERNAL_API_KEY  — X-Internal-Key header value for authentication
+//!                       (INTERNAL_KEY accepted as a legacy alias)
+//!
+//! The server REFUSES TO START when no internal API key is configured:
+//! an unauthenticated signing endpoint must never fail open.
 //!
 //! Endpoints:
 //!   POST /v1/sign/usdc-transfer  — Sign a USDC SPL transfer
@@ -35,14 +39,29 @@ async fn main() {
         .parse()
         .expect("PORT must be a valid port number");
 
+    // Fail closed: never serve an unauthenticated signing endpoint.
     let internal_key: Arc<String> = Arc::new(
-        env::var("INTERNAL_KEY").unwrap_or_default(),
+        env::var("INTERNAL_API_KEY")
+            .or_else(|_| env::var("INTERNAL_KEY"))
+            .unwrap_or_default(),
     );
+    if internal_key.is_empty() {
+        eprintln!(
+            "[wallet-ffi-server] FATAL: INTERNAL_API_KEY (or INTERNAL_KEY) is not set. \
+             Refusing to start an unauthenticated signing endpoint."
+        );
+        std::process::exit(1);
+    }
 
-    // Health endpoint
+    // Health endpoint (liveness)
     let health_route = warp::get()
         .and(warp::path("health"))
         .map(|| warp::reply::json(&serde_json::json!({"status": "ok", "service": "wallet-ffi-server"})));
+
+    // Readiness endpoint (k8s readinessProbe)
+    let ready_route = warp::get()
+        .and(warp::path("ready"))
+        .map(|| warp::reply::json(&serde_json::json!({"status": "ready", "service": "wallet-ffi-server"})));
 
     // Sign endpoint
     let key_clone = internal_key.clone();
@@ -79,7 +98,7 @@ async fn main() {
             }
         });
 
-    let routes = health_route.or(sign_route);
+    let routes = health_route.or(ready_route).or(sign_route);
 
     let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
     println!("[wallet-ffi-server] Listening on {}", addr);

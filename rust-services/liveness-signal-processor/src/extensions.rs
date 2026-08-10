@@ -27,6 +27,11 @@ pub struct BatchSignalResponse {
     pub mean_confidence: f32,
     /// Per-frame decisions
     pub frame_results: Vec<FrameResult>,
+    /// Honesty labels: decisions derive from handcrafted heuristic signals,
+    /// not a trained model. Corroborate with the Python ML liveness service.
+    pub heuristic: bool,
+    pub ml_model: String,
+    pub decision_requires_corroboration: bool,
     /// Total processing time in milliseconds
     pub processing_ms: u64,
 }
@@ -87,7 +92,7 @@ pub async fn analyse_batch(
         };
         let gray = img.to_luma8();
         let rgb = img.to_rgb8();
-        let (lbp, fft, colour, gradient) = rayon::join(
+        let ((lbp_score, fft_score), (colour_depth, grad_coherence)) = rayon::join(
             || rayon::join(|| lbp_realness(&gray), || fft_realness(&gray)),
             || {
                 rayon::join(
@@ -96,8 +101,6 @@ pub async fn analyse_batch(
                 )
             },
         );
-        let (lbp_score, fft_score) = lbp;
-        let (colour_depth, grad_coherence) = gradient;
         let (_scores, decision, confidence) =
             classify_spoof(lbp_score, fft_score, colour_depth, grad_coherence);
         if decision == "real" {
@@ -142,6 +145,9 @@ pub async fn analyse_batch(
             decision,
             mean_confidence,
             frame_results,
+            heuristic: true,
+            ml_model: "none".to_string(),
+            decision_requires_corroboration: true,
             processing_ms,
         }).unwrap()),
     )

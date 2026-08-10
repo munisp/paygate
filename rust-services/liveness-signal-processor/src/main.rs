@@ -7,7 +7,10 @@ mod extensions;
 ///   - Local Binary Pattern (LBP) texture analysis (detect printed photos / paper masks)
 ///   - Colour-depth scoring (detect 2-D flat surfaces)
 ///   - Gradient coherence (detect deepfake blending boundaries)
-///   - 6-type spoof classification with per-class confidence scores
+///   - 6-class spoof HEURISTIC signals (NOT ML): fixed linear combinations of the
+///     four handcrafted signals above. There is no trained model and no measured
+///     accuracy — responses carry heuristic=true / ml_model="none", and any
+///     real/spoof decision requires corroboration by the Python ML service.
 ///   - Expose REST API consumed by the Go liveness-gateway
 ///
 /// Language rationale: Rust gives zero-copy pixel access, SIMD-accelerated FFT via
@@ -86,12 +89,22 @@ struct SignalResponse {
     spoof_type: Option<String>,
     /// 0.0–1.0 overall anti-spoof confidence
     confidence: f32,
+    /// Per-class HEURISTIC signals — fixed linear combinations of handcrafted
+    /// image statistics. These are NOT ML class confidences and have no
+    /// measured accuracy (deepfake / 3d_mask classes especially).
     spoof_scores: SpoofScores,
     /// Individual signal scores
     lbp_score: f32,
     fft_score: f32,
     colour_depth_score: f32,
     gradient_coherence: f32,
+    /// Honesty labels — always present so downstream consumers cannot mistake
+    /// these heuristic signals for ML inference.
+    heuristic: bool,
+    ml_model: String,
+    /// The Go gateway must corroborate this decision with the Python ML
+    /// liveness service before any real/spoof verdict is final.
+    decision_requires_corroboration: bool,
     /// Processing time in milliseconds
     processing_ms: u64,
 }
@@ -290,12 +303,14 @@ pub fn gradient_coherence(gray: &GrayImage) -> f32 {
     }
 
     if count == 0 {
-        return 0.7; // No strong edges — assume real
+        return 0.5; // No strong edges — signal extraction inconclusive (uncertain, NOT "assume real")
     }
     (coherence_sum / count as f32).clamp(0.0, 1.0)
 }
 
-/// Classify spoof type and compute per-class confidence scores.
+/// Classify spoof type and compute per-class HEURISTIC signals.
+/// These are fixed linear combinations of four handcrafted image statistics
+/// with invented weights — NOT a trained model, NOT calibrated confidences.
 pub fn classify_spoof(
     lbp: f32,
     fft: f32,
@@ -384,12 +399,10 @@ async fn analyse_signal(
     let gray: GrayImage = img.to_luma8();
     let rgb: RgbImage = img.to_rgb8();
 
-    let (lbp, fft, colour, gradient) = rayon::join(
+    let ((lbp_score, fft_score), (colour_depth, grad_coherence)) = rayon::join(
         || rayon::join(|| lbp_realness(&gray), || fft_realness(&gray)),
         || rayon::join(|| colour_depth_score(&rgb), || gradient_coherence(&gray)),
     );
-    let (lbp_score, fft_score) = lbp;
-    let (colour_depth, grad_coherence) = gradient;
 
     // Classify
     let (spoof_scores, decision, confidence) =
@@ -441,6 +454,9 @@ async fn analyse_signal(
         fft_score,
         colour_depth_score: colour_depth,
         gradient_coherence: grad_coherence,
+        heuristic: true,
+        ml_model: "none".to_string(),
+        decision_requires_corroboration: true,
         processing_ms,
     };
 
