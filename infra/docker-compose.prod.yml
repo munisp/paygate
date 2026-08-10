@@ -26,8 +26,8 @@ version: "3.9"
 
 x-portal-base: &portal-base
   image: paygate/portal:${PORTAL_VERSION:-latest}
-    restart: unless-stopped
-    deploy:
+  restart: unless-stopped
+  deploy:
       resources:
         limits:
           memory: 1g
@@ -112,8 +112,8 @@ x-portal-base: &portal-base
 
 x-bridge-base: &bridge-base
   image: paygate/bridge:${BRIDGE_VERSION:-latest}
-    restart: unless-stopped
-    deploy:
+  restart: unless-stopped
+  deploy:
       resources:
         limits:
           memory: 512m
@@ -418,6 +418,10 @@ services:
       INTERNAL_API_KEY: ${MIDDLEWARE_INTERNAL_KEY}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       DATABASE_URL: ${PG_DATABASE_URL}
+      # REQUIRED at startup — the gateway refuses to boot without a real
+      # bridge (money movement is never simulated in production).
+      BRIDGE_URL: ${BRIDGE_URL:-http://bridge-1:8080}
+      BRIDGE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY}
     ports:
       - "8095:8095"
     networks:
@@ -2352,6 +2356,8 @@ services:
 
   wallet-ffi:
     image: paygate/wallet-ffi:${WALLET_FFI_VERSION:-latest}
+    build:
+      context: ../rust-services/wallet-ffi
     container_name: paygate-wallet-ffi
     restart: unless-stopped
     ports: ["8205:8205"]
