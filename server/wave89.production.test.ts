@@ -321,3 +321,28 @@ describe("routers.ts wave89 registration", () => {
     expect(content).toContain("corridorLiveEnhanced");
   });
 });
+
+// ─── getRevenue: real DB aggregation, fail-loud, no fabricated figures ───────
+describe("adminTenantRevenueRouter.getRevenue fail-loud contract", () => {
+  const src = readFileSync(path.join(__dirname, "wave89Router.ts"), "utf-8");
+  const start = src.indexOf("export const adminTenantRevenueRouter");
+  const end = src.indexOf("getTopMerchants", start);
+  const section = start >= 0 && end > start ? src.slice(start, end) : "";
+
+  it("contains no hardcoded revenue figures or fabricated merchants", () => {
+    expect(section).not.toContain("48750000");
+    expect(section).not.toContain("Acme Payments Ltd");
+    expect(section).not.toContain("TechPay Solutions");
+    expect(section).not.toContain("QuickPay Africa");
+  });
+
+  it("contains no Math.random-derived revenue", () => {
+    expect(section).not.toContain("Math.random");
+  });
+
+  it("aggregates from the real transactions table and fails loud without DB", () => {
+    expect(section).toContain("transactions");
+    expect(section).toContain("feeAmount");
+    expect(section).toContain('code: "SERVICE_UNAVAILABLE"');
+  });
+});

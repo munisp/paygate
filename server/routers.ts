@@ -2657,6 +2657,47 @@ async function bridgeFetch(path: string, method: string, body?: unknown) {
   }
 }
 
+/**
+ * Call a rail endpoint on the middleware bridge and FAIL LOUD when the rail
+ * cannot be reached. Unlike bridgeFetch (which degrades to null), rail
+ * procedures must never fall back to fabricated quotes or identities.
+ */
+async function railBridgeCall(path: string, method: "GET" | "POST", body: unknown, rail: string) {
+  let result: unknown = null;
+  try {
+    result = await bridgeFetch(path, method, body);
+  } catch (e: any) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} rail unavailable: ${e?.message ?? "middleware bridge error"}` });
+  }
+  if (result == null) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} rail unavailable: middleware bridge unreachable` });
+  }
+  return result;
+}
+
+/**
+ * Request a live FX quote directly from a rail gateway. FAILS LOUD
+ * (SERVICE_UNAVAILABLE) when the gateway is unconfigured or unreachable —
+ * hardcoded rates must never be served as quotes.
+ */
+async function railGatewayQuote(gatewayUrl: string, apiKey: string, rail: string, payload: Record<string, unknown>) {
+  if (!gatewayUrl) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} gateway is not configured — live quote unavailable` });
+  }
+  try {
+    const resp = await fetch(`${gatewayUrl}/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) throw new Error(`gateway responded HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (e: any) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} gateway unreachable — live quote unavailable (${e?.message ?? "error"})` });
+  }
+}
+
 const middlewareRouter = router({
   health: publicProcedure.query(async () => {
     return bridgeFetch("/health", "GET");
@@ -3408,39 +3449,41 @@ const fraudRiskRouter = router({
       const existing = await db.select().from(fraudAlerts).where(dEq(fraudAlerts.merchantId, merchant.id)).limit(3);
       if (existing.length >= 3) return { seeded: 0, message: 'Already has alerts' };
       const DEMO_ALERTS = [
-        { riskScore: 92, riskLevel: 'high' as const, alertType: 'card_testing', description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionId: `TXN-DEMO-${Date.now()}-1`, transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
-        { riskScore: 78, riskLevel: 'high' as const, alertType: 'account_takeover', description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionId: `TXN-DEMO-${Date.now()}-2`, transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
-        { riskScore: 65, riskLevel: 'medium' as const, alertType: 'velocity_breach', description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionId: `TXN-DEMO-${Date.now()}-3`, transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
-        { riskScore: 88, riskLevel: 'high' as const, alertType: 'synthetic_identity', description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionId: `TXN-DEMO-${Date.now()}-4`, transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
-        { riskScore: 45, riskLevel: 'low' as const, alertType: 'unusual_pattern', description: 'Transaction amount 3× above customer average — flagged for review', transactionId: `TXN-DEMO-${Date.now()}-5`, transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
+        { riskScore: 92, alertType: 'card_testing' as const, description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
+        { riskScore: 78, alertType: 'account_takeover' as const, description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
+        { riskScore: 65, alertType: 'velocity_breach' as const, description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
+        { riskScore: 88, alertType: 'identity_mismatch' as const, description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
+        { riskScore: 45, alertType: 'unusual_location' as const, description: 'Transaction from unusual location (Ibadan, NG) at 3× customer average amount — flagged for review', transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
       ];
       let seeded = 0;
       for (const alert of DEMO_ALERTS) {
         try {
           await db.insert(fraudAlerts).values({
+            id: `FA-DEMO-${Date.now()}-${seeded + 1}`,
+            tenantId: merchant.tenantId ?? 'ten_default',
             merchantId: merchant.id,
-            transactionId: alert.transactionId,
-            alertType: alert.alertType as any,
-            severity: alert.riskLevel,
-            status: alert.status as any,
+            transactionId: null, // demo alerts are never linked to real transactions
+            alertType: alert.alertType,
+            status: alert.status,
             riskScore: alert.riskScore,
-            riskFactors: [alert.alertType],
-            details: {
-              description: alert.description,
+            description: `[DEMO] ${alert.description}`,
+            // Tagged as demo so downstream consumers can filter them out.
+            metadata: {
+              demo: true,
+              isDemo: true,
               transactionAmount: alert.transactionAmount,
               transactionCurrency: alert.transactionCurrency,
+              customerEmail: alert.customerEmail,
+              customerIp: alert.customerIp,
+              deviceFingerprint: alert.deviceFingerprint,
               location: alert.location,
             },
-            customerEmail: alert.customerEmail,
-            customerIp: alert.customerIp,
-            deviceFingerprint: alert.deviceFingerprint,
-            locationCity: alert.location.split(",")[0]?.trim() ?? null,
-            locationCountry: alert.location.split(",").slice(1).join(",").trim() || null,
-          } as any);
+            resolvedAt: alert.status === 'resolved' ? new Date() : null,
+          });
           seeded++;
         } catch { /* skip duplicates */ }
       }
-      return { seeded, message: `Seeded ${seeded} demo fraud alerts` };
+      return { seeded, message: `Seeded ${seeded} demo fraud alerts (tagged metadata.demo=true)` };
     }),
 });
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
@@ -5439,15 +5482,52 @@ const crossBorderRouter = router({
   // ── CIPS (China Interbank Payment System) dedicated procedures ──
   // ── Rail Health Monitor ──────────────────────────────────────────────────────
   getRailHealth: protectedProcedure.query(async () => {
-    const rails = [
-      { id: "mojaloop", name: "Mojaloop", region: "Africa", currency: "NGN/KES/GHS", latencyMs: 120 + Math.floor(Math.random() * 80), uptime: 99.7, status: "operational" as const },
-      { id: "swift", name: "SWIFT", region: "Global", currency: "USD/EUR/GBP", latencyMs: 3200 + Math.floor(Math.random() * 800), uptime: 99.95, status: "operational" as const },
-      { id: "sepa", name: "SEPA Instant", region: "Europe", currency: "EUR", latencyMs: 450 + Math.floor(Math.random() * 150), uptime: 99.9, status: "operational" as const },
-      { id: "cips", name: "CIPS", region: "China", currency: "CNY", latencyMs: 890 + Math.floor(Math.random() * 200), uptime: 99.8, status: "operational" as const },
-      { id: "upi", name: "UPI", region: "India", currency: "INR", latencyMs: 340 + Math.floor(Math.random() * 100), uptime: 99.85, status: "operational" as const },
-      { id: "pix", name: "PIX", region: "Brazil", currency: "BRL", latencyMs: 510 + Math.floor(Math.random() * 120), uptime: 99.6, status: "operational" as const },
-      { id: "brics_pay", name: "BRICS Pay", region: "BRICS", currency: "Multi", latencyMs: 1200 + Math.floor(Math.random() * 400), uptime: 98.5, status: Math.random() > 0.9 ? "degraded" as const : "operational" as const },
-    ];
+    // Live rail health comes from real probes of the middleware bridge's
+    // rail-health endpoints. Latency is the measured probe round-trip; uptime
+    // is only reported when a real source exists (none today → null). Rails
+    // without a probe are reported as "unknown" — never simulated.
+    type RailHealth = {
+      id: string; name: string; region: string; currency: string;
+      latencyMs: number | null; uptime: number | null;
+      status: "operational" | "degraded" | "down" | "unknown";
+      note?: string;
+    };
+    const probe = async (meta: { id: string; name: string; region: string; currency: string }, path: string): Promise<RailHealth> => {
+      const started = Date.now();
+      try {
+        const res = await fetch(`${BRIDGE_URL}${path}`, {
+          headers: { "X-Internal-Key": BRIDGE_KEY },
+          signal: AbortSignal.timeout(4000),
+        });
+        const latencyMs = Date.now() - started;
+        const body: any = await res.json().catch(() => null);
+        const upstreamStatus = typeof body?.status === "string" ? body.status : null;
+        let status: RailHealth["status"];
+        if (res.ok && (upstreamStatus === null || upstreamStatus === "healthy")) {
+          status = latencyMs > 2000 ? "degraded" : "operational";
+        } else if (upstreamStatus === "unhealthy" || upstreamStatus === "unavailable") {
+          status = "down";
+        } else {
+          // e.g. gateway unconfigured — the probe cannot determine rail state
+          status = "unknown";
+        }
+        return { ...meta, latencyMs, uptime: null, status };
+      } catch {
+        return { ...meta, latencyMs: null, uptime: null, status: "unknown", note: "health probe unreachable" };
+      }
+    };
+    const unknown = (meta: { id: string; name: string; region: string; currency: string }): RailHealth => ({
+      ...meta, latencyMs: null, uptime: null, status: "unknown", note: "no live health probe configured for this rail",
+    });
+    const rails: RailHealth[] = await Promise.all([
+      probe({ id: "mojaloop", name: "Mojaloop", region: "Africa", currency: "NGN/KES/GHS" }, "/v1/mojaloop/health"),
+      Promise.resolve(unknown({ id: "swift", name: "SWIFT", region: "Global", currency: "USD/EUR/GBP" })),
+      Promise.resolve(unknown({ id: "sepa", name: "SEPA Instant", region: "Europe", currency: "EUR" })),
+      probe({ id: "cips", name: "CIPS", region: "China", currency: "CNY" }, "/v1/cips/health"),
+      probe({ id: "upi", name: "UPI", region: "India", currency: "INR" }, "/v1/upi/health"),
+      probe({ id: "pix", name: "PIX", region: "Brazil", currency: "BRL" }, "/v1/pix/health"),
+      Promise.resolve(unknown({ id: "brics_pay", name: "BRICS Pay", region: "BRICS", currency: "Multi" })),
+    ]);
     return { rails, checkedAt: new Date().toISOString() };
   }),
   cips: router({
@@ -5459,18 +5539,13 @@ const crossBorderRouter = router({
       }))
       .query(async ({ input }) => {
         const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.cipsUrl}/quote`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.cipsApiKey },
-            body: JSON.stringify({ source_currency: input.sourceCurrency, target_currency: "CNY", amount: input.amount }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        const rate = 0.0048;
-        const fee = (parseFloat(input.amount) * 0.012).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "cips", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        // Live quote from the CIPS gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.cipsUrl, ENV.cipsApiKey, "CIPS", {
+          source_currency: input.sourceCurrency,
+          target_currency: "CNY",
+          amount: input.amount,
+          receiver_bank_code: input.receiverBankCode,
+        });
       }),
     validateReceiver: protectedProcedure
       .input(z.object({ bankCode: z.string(), accountNumber: z.string() }))
@@ -5483,27 +5558,21 @@ const crossBorderRouter = router({
     validateVpa: protectedProcedure
       .input(z.object({ vpa: z.string().min(3) }))
       .query(async ({ input }) => {
-        const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.upiGatewayUrl}/vpa/validate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.upiApiKey },
-            body: JSON.stringify({ vpa: input.vpa }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        const parts = input.vpa.split("@");
-        const handle = parts[0];
-        const bank = parts.length > 1 ? parts[1] : "upi";
-        return { valid: !!handle && !!bank, vpa: input.vpa, name: `${handle} (${bank})`, rail: "upi" };
+        // Real VPA resolution via the middleware bridge's UPI gateway proxy —
+        // fails loud when the bridge/gateway is unavailable; never fabricates
+        // a payee identity.
+        return railBridgeCall(`/v1/upi/vpa/resolve?vpa=${encodeURIComponent(input.vpa)}`, "GET", undefined, "UPI");
       }),
     getQuote: protectedProcedure
       .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
       .query(async ({ input }) => {
-        const rate = 0.0047;
-        const fee = (parseFloat(input.amount) * 0.010).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "upi", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        const { ENV } = await import("./_core/env");
+        // Live quote from the UPI gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.upiGatewayUrl, ENV.upiApiKey, "UPI", {
+          source_currency: input.sourceCurrency,
+          target_currency: "INR",
+          amount: input.amount,
+        });
       }),
   }),
   // ── PIX (Brazil Instant Payment System) dedicated procedures ──
@@ -5511,24 +5580,21 @@ const crossBorderRouter = router({
     validateKey: protectedProcedure
       .input(z.object({ pixKey: z.string().min(3), keyType: z.enum(["cpf", "cnpj", "phone", "email", "random"]).default("random") }))
       .query(async ({ input }) => {
-        const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.pixGatewayUrl}/keys/validate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.pixApiKey },
-            body: JSON.stringify({ key: input.pixKey, key_type: input.keyType }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        return { valid: input.pixKey.length >= 3, key: input.pixKey, key_type: input.keyType, name: "PIX Receiver", rail: "pix" };
+        // Real PIX key lookup via the middleware bridge's PIX gateway proxy —
+        // fails loud when the bridge/gateway is unavailable; never fabricates
+        // a receiver identity.
+        return railBridgeCall("/v1/pix/key/lookup", "POST", { key: input.pixKey, key_type: input.keyType }, "PIX");
       }),
     getQuote: protectedProcedure
       .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
       .query(async ({ input }) => {
-        const rate = 0.0033;
-        const fee = (parseFloat(input.amount) * 0.011).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "pix", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        const { ENV } = await import("./_core/env");
+        // Live quote from the PIX gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.pixGatewayUrl, ENV.pixApiKey, "PIX", {
+          source_currency: input.sourceCurrency,
+          target_currency: "BRL",
+          amount: input.amount,
+        });
       }),
   }),
 });
