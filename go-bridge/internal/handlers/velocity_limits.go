@@ -155,7 +155,7 @@ func UpsertVelocityConfig(w http.ResponseWriter, r *http.Request) {
 	_ = rdb.Delete(ctx, fmt.Sprintf("velocity:config:%s", merchantID))
 
 	// Publish config change event
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
 		"merchant_id": merchantID,
 		"event":       "velocity_config_updated",
@@ -163,7 +163,7 @@ func UpsertVelocityConfig(w http.ResponseWriter, r *http.Request) {
 		"updated_by":  cfg.UpdatedBy,
 		"updated_at":  cfg.UpdatedAt,
 	})
-	_ = kc.Publish(ctx, "velocity.config.updated", string(eventData))
+	_ = kc.Publish(ctx, "velocity.config.updated", "", string(eventData))
 
 	slog.Info("[velocity] config updated", "merchant_id", merchantID, "risk_tier", cfg.RiskTier)
 	writeJSON(w, http.StatusOK, cfg)
@@ -181,11 +181,11 @@ type CheckVelocityRequest struct {
 
 // CheckVelocityResponse is the response for POST /v1/velocity/check
 type CheckVelocityResponse struct {
-	Allowed       bool              `json:"allowed"`
-	BlockedReason string            `json:"blocked_reason,omitempty"`
-	Counters      map[string]int64  `json:"counters"`
-	Limits        map[string]int64  `json:"limits"`
-	RiskTier      string            `json:"risk_tier"`
+	Allowed       bool             `json:"allowed"`
+	BlockedReason string           `json:"blocked_reason,omitempty"`
+	Counters      map[string]int64 `json:"counters"`
+	Limits        map[string]int64 `json:"limits"`
+	RiskTier      string           `json:"risk_tier"`
 }
 
 // CheckVelocity handles POST /v1/velocity/check
@@ -346,16 +346,16 @@ func GetVelocityCounters(w http.ResponseWriter, r *http.Request) {
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 func publishVelocityBreach(ctx context.Context, merchantID, txID, reason string, current, limit int64) {
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	data, _ := json.Marshal(map[string]any{
-		"merchant_id":   merchantID,
+		"merchant_id":    merchantID,
 		"transaction_id": txID,
-		"breach_reason": reason,
-		"current_value": current,
-		"limit_value":   limit,
-		"breached_at":   time.Now().UTC(),
+		"breach_reason":  reason,
+		"current_value":  current,
+		"limit_value":    limit,
+		"breached_at":    time.Now().UTC(),
 	})
-	if err := kc.Publish(ctx, "velocity.breach", string(data)); err != nil {
+	if err := kc.Publish(ctx, "velocity.breach", "", string(data)); err != nil {
 		slog.Error("[velocity] failed to publish breach event", "err", err)
 	}
 	slog.Warn("[velocity] breach detected",

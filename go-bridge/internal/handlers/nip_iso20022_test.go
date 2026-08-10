@@ -11,8 +11,10 @@ import (
 // ─── NIPInstantDebit tests ─────────────────────────────────────────────────────
 
 func TestNIPInstantDebit_SandboxMode(t *testing.T) {
-	// With no NIBSS_GATEWAY_URL set, should return mock approval
+	// Simulation mode requires explicit opt-in; returns a clearly marked
+	// simulated response (never response_code "00").
 	t.Setenv("NIBSS_GATEWAY_URL", "")
+	t.Setenv("PAYGATE_SIMULATION_MODE", "true")
 
 	body := map[string]interface{}{
 		"debit_account_number":  "0123456789",
@@ -45,11 +47,39 @@ func TestNIPInstantDebit_SandboxMode(t *testing.T) {
 		t.Fatalf("invalid JSON response: %v", err)
 	}
 
-	if result["response_code"] != "00" {
-		t.Errorf("expected response_code '00', got %v", result["response_code"])
+	if result["response_code"] != "SIM" {
+		t.Errorf("expected response_code 'SIM', got %v", result["response_code"])
+	}
+	if result["simulation"] != true {
+		t.Errorf("expected simulation marker, got %v", result["simulation"])
 	}
 	if result["stan"] != "123456789012" {
 		t.Errorf("expected stan '123456789012', got %v", result["stan"])
+	}
+}
+
+func TestNIPInstantDebit_FailsClosedWithoutGateway(t *testing.T) {
+	// Without NIBSS_GATEWAY_URL and without PAYGATE_SIMULATION_MODE the debit
+	// must be REFUSED (503) — never reported as approved.
+	t.Setenv("NIBSS_GATEWAY_URL", "")
+	t.Setenv("PAYGATE_SIMULATION_MODE", "")
+
+	body := map[string]interface{}{
+		"debit_account_number":  "0123456789",
+		"credit_account_number": "9876543210",
+		"credit_bank_code":      "033",
+		"amount_kobo":           500000,
+		"stan":                  "123456789012",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/nip/instant-debit", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+
+	NIPInstantDebit(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
-	"strconv"
+	"os"
 	"time"
 )
 
@@ -32,12 +35,12 @@ func EnrollInsuranceCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	policyID := fmt.Sprintf("POL-%d", time.Now().UnixNano()%1000000)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"policyId":     policyID,
-		"premiumKobo":  150000,
-		"startDate":    time.Now().Format("2006-01-02"),
-		"expiryDate":   time.Now().AddDate(1, 0, 0).Format("2006-01-02"),
-		"status":       "active",
-		"kafkaTopic":   "insurance.policy.created",
+		"policyId":    policyID,
+		"premiumKobo": 150000,
+		"startDate":   time.Now().Format("2006-01-02"),
+		"expiryDate":  time.Now().AddDate(1, 0, 0).Format("2006-01-02"),
+		"status":      "active",
+		"kafkaTopic":  "insurance.policy.created",
 	})
 }
 
@@ -74,9 +77,9 @@ func FileInsuranceClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	claimID := fmt.Sprintf("CLM-%d", time.Now().UnixNano()%1000000)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"claimId":              claimID,
-		"status":               "under_review",
-		"estimatedPayoutKobo":  500000,
+		"claimId":             claimID,
+		"status":              "under_review",
+		"estimatedPayoutKobo": 500000,
 	})
 }
 
@@ -166,9 +169,9 @@ func MintNFTBadge(w http.ResponseWriter, r *http.Request) {
 	}
 	tokenID := rand.Int63n(999999)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"tokenId":    tokenID,
-		"txHash":     fmt.Sprintf("0x%064x", rand.Int63()),
-		"status":     "minted",
+		"tokenId":     tokenID,
+		"txHash":      fmt.Sprintf("0x%064x", rand.Int63()),
+		"status":      "minted",
 		"metadataUrl": fmt.Sprintf("https://metadata.paygate.ng/nft/%d.json", tokenID),
 	})
 }
@@ -218,12 +221,12 @@ func CreateBNPLv2Loan(w http.ResponseWriter, r *http.Request) {
 	}
 	loanID := fmt.Sprintf("BNPL2-%d", time.Now().UnixNano()%1000000)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"loanId":           loanID,
-		"status":           "active",
-		"disbursedKobo":    req["amountKobo"],
-		"totalRepayKobo":   int64(req["amountKobo"].(float64) * 1.025),
-		"firstDueDate":     time.Now().AddDate(0, 1, 0).Format("2006-01-02"),
-		"kafkaEvent":       "bnpl.v2.loan.created",
+		"loanId":         loanID,
+		"status":         "active",
+		"disbursedKobo":  req["amountKobo"],
+		"totalRepayKobo": int64(req["amountKobo"].(float64) * 1.025),
+		"firstDueDate":   time.Now().AddDate(0, 1, 0).Format("2006-01-02"),
+		"kafkaEvent":     "bnpl.v2.loan.created",
 	})
 }
 
@@ -245,79 +248,100 @@ func RecordBNPLv2Repayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"status":          "success",
-		"amountPaidKobo":  req["amountKobo"],
-		"remainingKobo":   0,
-		"loanStatus":      "paid",
+		"status":         "success",
+		"amountPaidKobo": req["amountKobo"],
+		"remainingKobo":  0,
+		"loanStatus":     "paid",
 	})
 }
 
 // ─── Crypto On/Off Ramp ─────────────────────────────────────────────────────────
 
-func GetCryptoRampQuote(w http.ResponseWriter, r *http.Request) {
-	direction := r.URL.Query().Get("direction")
-	crypto := r.URL.Query().Get("crypto")
-	fiatKoboStr := r.URL.Query().Get("fiatKobo")
-	fiatKobo, _ := strconv.ParseFloat(fiatKoboStr, 64)
-	if fiatKobo == 0 {
-		fiatKobo = 100000
-	}
-	rates := map[string]float64{"BTC": 95000000, "ETH": 5200000, "USDT": 1650, "USDC": 1650}
-	rate := rates[crypto]
-	if rate == 0 {
-		rate = 1650
-	}
-	cryptoAmt := fiatKobo / rate
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"direction":       direction,
-		"cryptoCurrency":  crypto,
-		"fiatAmountKobo":  fiatKobo,
-		"cryptoAmount":    cryptoAmt,
-		"exchangeRate":    rate,
-		"feesKobo":        fiatKobo * 0.015,
-		"networkFeeUSD":   2.50,
-		"quoteExpiry":     time.Now().Add(5 * time.Minute).Unix(),
-		"provider":        "Yellow Card",
+// cryptoRampProviderURL returns the configured ramp provider base URL, or "".
+func cryptoRampProviderURL() string {
+	return os.Getenv("CRYPTO_RAMP_PROVIDER_URL")
+}
+
+// cryptoRampUnavailable fails loudly when no ramp provider is wired. We never
+// fabricate quotes, wallet balances, or on-chain transaction hashes.
+func cryptoRampUnavailable(w http.ResponseWriter) {
+	slog.Error("[crypto-ramp] CRYPTO_RAMP_PROVIDER_URL not configured — refusing to fabricate ramp data")
+	respondJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+		"error":   "ramp_provider_not_configured",
+		"message": "no crypto ramp provider is wired (set CRYPTO_RAMP_PROVIDER_URL); refusing to fabricate quotes/transactions",
 	})
+}
+
+func GetCryptoRampQuote(w http.ResponseWriter, r *http.Request) {
+	provider := cryptoRampProviderURL()
+	if provider == "" {
+		cryptoRampUnavailable(w)
+		return
+	}
+	proxyToProvider(w, r, http.MethodGet, provider+"/v1/quotes?"+r.URL.RawQuery, nil)
 }
 
 func ExecuteCryptoRamp(w http.ResponseWriter, r *http.Request) {
-	var req map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	provider := cryptoRampProviderURL()
+	if provider == "" {
+		cryptoRampUnavailable(w)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	txID := fmt.Sprintf("CRYPTO-%d", time.Now().UnixNano()%1000000)
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"transactionId": txID,
-		"status":        "processing",
-		"txHash":        fmt.Sprintf("0x%064x", rand.Int63()),
-		"estimatedMins": 15,
-	})
+	proxyToProvider(w, r, http.MethodPost, provider+"/v1/executions", body)
 }
 
 func GetCryptoWallets(w http.ResponseWriter, r *http.Request) {
-	merchantID := r.URL.Query().Get("merchantId")
-	_ = merchantID
-	wallets := []map[string]interface{}{
-		{"currency": "BTC", "address": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh", "balance": 0.00125, "balanceUSD": 118.75},
-		{"currency": "ETH", "address": "0x742d35Cc6634C0532925a3b8D4C9C2C3F4D5E6F7", "balance": 0.05, "balanceUSD": 260.00},
-		{"currency": "USDT", "address": "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", "balance": 500.00, "balanceUSD": 500.00},
+	provider := cryptoRampProviderURL()
+	if provider == "" {
+		cryptoRampUnavailable(w)
+		return
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"wallets": wallets})
+	proxyToProvider(w, r, http.MethodGet, provider+"/v1/wallets?"+r.URL.RawQuery, nil)
 }
 
 func GetCryptoTransactions(w http.ResponseWriter, r *http.Request) {
-	merchantID := r.URL.Query().Get("merchantId")
-	limitStr := r.URL.Query().Get("limit")
-	limit, _ := strconv.Atoi(limitStr)
-	if limit == 0 {
-		limit = 20
+	provider := cryptoRampProviderURL()
+	if provider == "" {
+		cryptoRampUnavailable(w)
+		return
 	}
-	_ = merchantID
-	txns := []map[string]interface{}{
-		{"id": "CRYPTO-001", "type": "on_ramp", "crypto": "USDT", "cryptoAmount": 100.0, "fiatKobo": 165000, "status": "completed", "createdAt": time.Now().Add(-24 * time.Hour).Format(time.RFC3339)},
-		{"id": "CRYPTO-002", "type": "off_ramp", "crypto": "BTC", "cryptoAmount": 0.001, "fiatKobo": 95000, "status": "completed", "createdAt": time.Now().Add(-48 * time.Hour).Format(time.RFC3339)},
+	proxyToProvider(w, r, http.MethodGet, provider+"/v1/transactions?"+r.URL.RawQuery, nil)
+}
+
+// proxyToProvider relays a request to the configured ramp provider and
+// relays its response verbatim; 502 on transport failure.
+func proxyToProvider(w http.ResponseWriter, r *http.Request, method, target string, body []byte) {
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"transactions": txns})
+	req, err := http.NewRequestWithContext(r.Context(), method, target, bodyReader)
+	if err != nil {
+		http.Error(w, "failed to build provider request", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := os.Getenv("CRYPTO_RAMP_PROVIDER_KEY"); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Error("[crypto-ramp] provider unreachable", "err", err)
+		respondJSON(w, http.StatusBadGateway, map[string]interface{}{
+			"error":   "ramp_provider_unreachable",
+			"message": "configured ramp provider could not be reached",
+		})
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(respBody)
 }

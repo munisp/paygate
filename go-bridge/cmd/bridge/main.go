@@ -21,18 +21,19 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/paygate/go-bridge/internal/apisix"
-	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/dapr"
 	"github.com/paygate/go-bridge/internal/fluvio"
-	"github.com/paygate/go-bridge/internal/keycloak"
-	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/handlers"
 	"github.com/paygate/go-bridge/internal/kafka"
+	"github.com/paygate/go-bridge/internal/keycloak"
+	"github.com/paygate/go-bridge/internal/lakehouse"
 	"github.com/paygate/go-bridge/internal/permify"
+	"github.com/paygate/go-bridge/internal/pgdb"
 	"github.com/paygate/go-bridge/internal/redis"
 	tb "github.com/paygate/go-bridge/internal/tigerbeetle"
 )
@@ -44,42 +45,42 @@ func main() {
 	})))
 
 	// ── Startup env var validation ──────────────────────────────────────────
-// Warn (not fatal) for optional but recommended env vars so the bridge
-// starts in degraded mode rather than refusing to start entirely.
-requiredEnvVars := []struct {
-key     string
-fatal   bool
-purpose string
-}{
-{"BRIDGE_INTERNAL_KEY", false, "bearer token for portal→bridge auth (dev mode: skipped)"},
-{"DATABASE_URL", true, "MySQL/TiDB connection string"},
-}
-recommendedEnvVars := []struct {
-key     string
-purpose string
-}{
-{"PORTAL_TRPC_URL", "portal tRPC URL for reconciler alert push"},
-{"MIDDLEWARE_INTERNAL_KEY", "shared HMAC key for bridge→portal auth"},
-{"TEMPORAL_HOST_PORT", "Temporal server address for settlement workflows"},
-{"NIBSS_GATEWAY_URL", "NIBSS NIP gateway base URL"},
-}
-for _, ev := range requiredEnvVars {
-if os.Getenv(ev.key) == "" {
-if ev.fatal {
-slog.Error("required env var missing", "key", ev.key, "purpose", ev.purpose)
-os.Exit(1)
-}
-slog.Warn("optional env var not set — running in degraded mode", "key", ev.key, "purpose", ev.purpose)
-}
-}
-for _, ev := range recommendedEnvVars {
-if os.Getenv(ev.key) == "" {
-slog.Warn("recommended env var not set", "key", ev.key, "purpose", ev.purpose)
-}
-}
-slog.Info("env var validation complete")
+	// Warn (not fatal) for optional but recommended env vars so the bridge
+	// starts in degraded mode rather than refusing to start entirely.
+	requiredEnvVars := []struct {
+		key     string
+		fatal   bool
+		purpose string
+	}{
+		{"BRIDGE_INTERNAL_KEY", false, "bearer token for portal→bridge auth (dev mode: skipped)"},
+		{"DATABASE_URL", true, "MySQL/TiDB connection string"},
+	}
+	recommendedEnvVars := []struct {
+		key     string
+		purpose string
+	}{
+		{"PORTAL_TRPC_URL", "portal tRPC URL for reconciler alert push"},
+		{"MIDDLEWARE_INTERNAL_KEY", "shared HMAC key for bridge→portal auth"},
+		{"TEMPORAL_HOST_PORT", "Temporal server address for settlement workflows"},
+		{"NIBSS_GATEWAY_URL", "NIBSS NIP gateway base URL"},
+	}
+	for _, ev := range requiredEnvVars {
+		if os.Getenv(ev.key) == "" {
+			if ev.fatal {
+				slog.Error("required env var missing", "key", ev.key, "purpose", ev.purpose)
+				os.Exit(1)
+			}
+			slog.Warn("optional env var not set — running in degraded mode", "key", ev.key, "purpose", ev.purpose)
+		}
+	}
+	for _, ev := range recommendedEnvVars {
+		if os.Getenv(ev.key) == "" {
+			slog.Warn("recommended env var not set", "key", ev.key, "purpose", ev.purpose)
+		}
+	}
+	slog.Info("env var validation complete")
 
-// ── TigerBeetle init ─────────────────────────────────────────────────────
+	// ── TigerBeetle init ─────────────────────────────────────────────────────
 	tbAddress := tb.DefaultTigerBeetleAddress()
 	clusterID := uint64(0)
 	if v := os.Getenv("TIGERBEETLE_CLUSTER"); v != "" {
@@ -567,41 +568,39 @@ slog.Info("env var validation complete")
 		port = "8080"
 	}
 
+	// ── Cross-Border Rails (CIPS / UPI / PIX / Mojaloop) ────────────────────────
+	mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransferReal))
+	mux.HandleFunc("GET /v1/cips/status", authMiddleware(handlers.GetCIPSTransferStatus))
+	mux.HandleFunc("GET /v1/cips/corridors", authMiddleware(handlers.GetCIPSCorridors))
+	mux.HandleFunc("GET /v1/cips/health", handlers.GetCIPSHealth)
 
-// ── Cross-Border Rails (CIPS / UPI / PIX / Mojaloop) ────────────────────────
-mux.HandleFunc("POST /v1/cips/transfer", authMiddleware(handlers.ProxyCIPSTransferReal))
-mux.HandleFunc("GET /v1/cips/status", authMiddleware(handlers.GetCIPSTransferStatus))
-mux.HandleFunc("GET /v1/cips/corridors", authMiddleware(handlers.GetCIPSCorridors))
-mux.HandleFunc("GET /v1/cips/health", handlers.GetCIPSHealth)
+	mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPayReal))
+	mux.HandleFunc("POST /v1/upi/collect", authMiddleware(handlers.ProxyUPICollect))
+	mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPAReal))
+	mux.HandleFunc("GET /v1/upi/status", authMiddleware(handlers.GetUPITransferStatus))
+	mux.HandleFunc("GET /v1/upi/health", handlers.GetUPIHealth)
 
-mux.HandleFunc("POST /v1/upi/pay", authMiddleware(handlers.ProxyUPIPayReal))
-mux.HandleFunc("POST /v1/upi/collect", authMiddleware(handlers.ProxyUPICollect))
-mux.HandleFunc("GET /v1/upi/vpa/resolve", authMiddleware(handlers.ResolveUPIVPAReal))
-mux.HandleFunc("GET /v1/upi/status", authMiddleware(handlers.GetUPITransferStatus))
-mux.HandleFunc("GET /v1/upi/health", handlers.GetUPIHealth)
-
-mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPaymentReal))
-mux.HandleFunc("POST /v1/pix/key/lookup", authMiddleware(handlers.LookupPIXKey))
-mux.HandleFunc("GET /v1/pix/status", authMiddleware(handlers.GetPIXTransferStatus))
-mux.HandleFunc("GET /v1/pix/health", handlers.GetPIXHealth)
+	mux.HandleFunc("POST /v1/pix/payment", authMiddleware(handlers.ProxyPIXPaymentReal))
+	mux.HandleFunc("POST /v1/pix/key/lookup", authMiddleware(handlers.LookupPIXKey))
+	mux.HandleFunc("GET /v1/pix/status", authMiddleware(handlers.GetPIXTransferStatus))
+	mux.HandleFunc("GET /v1/pix/health", handlers.GetPIXHealth)
 	mux.HandleFunc("GET /v1/cross-border/circuit-status", handlers.GetCrossRailCircuitStatus)
 
-mux.HandleFunc("POST /v1/mojaloop/transfer", authMiddleware(handlers.ProxyMojaloopTransfer))
-mux.HandleFunc("GET /v1/mojaloop/quote", authMiddleware(handlers.GetMojaloopQuote))
-mux.HandleFunc("GET /v1/mojaloop/parties", authMiddleware(handlers.GetMojaloopParties))
-mux.HandleFunc("GET /v1/mojaloop/health", handlers.GetMojaloopHealth)
+	mux.HandleFunc("POST /v1/mojaloop/transfer", authMiddleware(handlers.ProxyMojaloopTransfer))
+	mux.HandleFunc("GET /v1/mojaloop/quote", authMiddleware(handlers.GetMojaloopQuote))
+	mux.HandleFunc("GET /v1/mojaloop/parties", authMiddleware(handlers.GetMojaloopParties))
+	mux.HandleFunc("GET /v1/mojaloop/health", handlers.GetMojaloopHealth)
 
-// ── OpenSearch ───────────────────────────────────────────────────────────────
-mux.HandleFunc("POST /v1/opensearch/query", authMiddleware(handlers.ProxyOpenSearchQuery))
-mux.HandleFunc("POST /v1/opensearch/index", authMiddleware(handlers.ProxyOpenSearchIndex))
-mux.HandleFunc("GET /v1/opensearch/health", handlers.GetOpenSearchHealth)
+	// ── OpenSearch ───────────────────────────────────────────────────────────────
+	mux.HandleFunc("POST /v1/opensearch/query", authMiddleware(handlers.ProxyOpenSearchQuery))
+	mux.HandleFunc("POST /v1/opensearch/index", authMiddleware(handlers.ProxyOpenSearchIndex))
+	mux.HandleFunc("GET /v1/opensearch/health", handlers.GetOpenSearchHealth)
 
-// ── TigerBeetle Ledger ───────────────────────────────────────────────────────
-mux.HandleFunc("GET /v1/ledger/accounts", authMiddleware(handlers.GetLedgerAccounts))
-mux.HandleFunc("POST /v1/ledger/transfer", authMiddleware(handlers.CreateLedgerTransfer))
-mux.HandleFunc("GET /v1/ledger/balance", authMiddleware(handlers.GetLedgerBalance))
-mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
-
+	// ── TigerBeetle Ledger ───────────────────────────────────────────────────────
+	mux.HandleFunc("GET /v1/ledger/accounts", authMiddleware(handlers.GetLedgerAccounts))
+	mux.HandleFunc("POST /v1/ledger/transfer", authMiddleware(handlers.CreateLedgerTransfer))
+	mux.HandleFunc("GET /v1/ledger/balance", authMiddleware(handlers.GetLedgerBalance))
+	mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 
 	// ─── Go Microservices ────────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/mojaloop/health", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/health"))
@@ -749,10 +748,10 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 		Addr:              ":" + port,
 		Handler:           loggingMiddleware(mux),
 		ReadTimeout:       30 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,   // mitigate Slowloris attacks
-		WriteTimeout:      60 * time.Second,  // allow long-running Temporal starts
+		ReadHeaderTimeout: 5 * time.Second,  // mitigate Slowloris attacks
+		WriteTimeout:      60 * time.Second, // allow long-running Temporal starts
 		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,           // 1 MB
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
 	// Graceful shutdown
@@ -779,11 +778,24 @@ mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 }
 
 // authMiddleware validates the BRIDGE_INTERNAL_KEY bearer token.
-// If BRIDGE_INTERNAL_KEY is not set, authentication is skipped (dev mode).
+// Refusing to run unauthenticated: when BRIDGE_INTERNAL_KEY is unset the
+// bridge refuses to start unless BRIDGE_ALLOW_NOAUTH=true is explicitly set
+// (dev only); with ENV=production the bridge always refuses to start.
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	key := os.Getenv("BRIDGE_INTERNAL_KEY")
 	if key == "" {
-		return next // no auth in dev mode
+		env := strings.ToLower(os.Getenv("ENV"))
+		allowNoAuth := os.Getenv("BRIDGE_ALLOW_NOAUTH") == "true"
+		if env == "production" || env == "prod" {
+			slog.Error("FATAL: BRIDGE_INTERNAL_KEY must be set when ENV=production — refusing to serve unauthenticated money-movement endpoints")
+			os.Exit(1)
+		}
+		if !allowNoAuth {
+			slog.Error("FATAL: BRIDGE_INTERNAL_KEY unset and BRIDGE_ALLOW_NOAUTH != true — refusing to start unauthenticated")
+			os.Exit(1)
+		}
+		slog.Warn("bridge running WITHOUT authentication — BRIDGE_ALLOW_NOAUTH=true; NEVER use in production")
+		return next
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")

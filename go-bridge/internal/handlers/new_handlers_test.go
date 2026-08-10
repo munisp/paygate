@@ -64,6 +64,7 @@ func assertJSONField(t *testing.T, rr *httptest.ResponseRecorder, field string) 
 		t.Errorf("response missing field %q; got: %v", field, m)
 	}
 }
+
 // ─── setup ───────────────────────────────────────────────────────────────────
 
 func TestMain(m *testing.M) {
@@ -132,6 +133,8 @@ func TestRefundTransaction_MissingTransactionId(t *testing.T) {
 // ─── disputes ─────────────────────────────────────────────────────────────────
 
 func TestSubmitDispute_Success(t *testing.T) {
+	t.Setenv("PERMIFY_FAIL_OPEN", "true") // these tests exercise handler logic, not PBAC
+
 	body := map[string]any{
 		"dispute_id":     "00000000-0000-0000-0000-000000000020",
 		"transaction_id": "txn-001",
@@ -157,6 +160,8 @@ func TestSubmitDispute_MissingDisputeId(t *testing.T) {
 }
 
 func TestResolveDispute_Refund(t *testing.T) {
+	t.Setenv("PERMIFY_FAIL_OPEN", "true") // these tests exercise handler logic, not PBAC
+
 	body := map[string]any{
 		"merchant_id": "00000000-0000-0000-0000-000000000001",
 		"resolution":  "won",
@@ -169,6 +174,8 @@ func TestResolveDispute_Refund(t *testing.T) {
 }
 
 func TestResolveDispute_Reject(t *testing.T) {
+	t.Setenv("PERMIFY_FAIL_OPEN", "true") // these tests exercise handler logic, not PBAC
+
 	body := map[string]any{
 		"merchant_id": "00000000-0000-0000-0000-000000000001",
 		"resolution":  "lost",
@@ -247,6 +254,8 @@ func TestScoreFraud_MissingTransactionId(t *testing.T) {
 }
 
 func TestAcknowledgeFraudAlert_Success(t *testing.T) {
+	t.Setenv("PERMIFY_FAIL_OPEN", "true") // these tests exercise handler logic, not PBAC
+
 	body := map[string]any{
 		"merchant_id":     "00000000-0000-0000-0000-000000000001",
 		"acknowledger_id": "00000000-0000-0000-0000-000000000008",
@@ -264,11 +273,11 @@ func TestAcknowledgeFraudAlert_Success(t *testing.T) {
 
 func TestStartKYCWorkflow_Success(t *testing.T) {
 	body := map[string]any{
-		"submission_id":  "sub-001",
-		"merchant_id":    "00000000-0000-0000-0000-000000000001",
-		"document_type":  "national_id",
-		"document_url":   "https://storage.example.com/docs/id.jpg",
-		"initiator_id":   "00000000-0000-0000-0000-000000000003",
+		"submission_id": "sub-001",
+		"merchant_id":   "00000000-0000-0000-0000-000000000001",
+		"document_type": "national_id",
+		"document_url":  "https://storage.example.com/docs/id.jpg",
+		"initiator_id":  "00000000-0000-0000-0000-000000000003",
 	}
 	rr := do(t, handlers.StartKYCWorkflow, newReq(t, http.MethodPost, "/v1/kyc/start", body))
 	assertStatus(t, rr, http.StatusOK)
@@ -342,12 +351,14 @@ func TestProcessBNPLInstalment_Success(t *testing.T) {
 // ─── virtual cards ────────────────────────────────────────────────────────────
 
 func TestIssueVirtualCard_Success(t *testing.T) {
+	t.Setenv("PERMIFY_FAIL_OPEN", "true") // these tests exercise handler logic, not PBAC
+
 	body := map[string]any{
-		"card_id":       "00000000-0000-0000-0000-000000000040",
-		"merchant_id":   "00000000-0000-0000-0000-000000000001",
-		"currency":      "USD",
+		"card_id":        "00000000-0000-0000-0000-000000000040",
+		"merchant_id":    "00000000-0000-0000-0000-000000000001",
+		"currency":       "USD",
 		"spending_limit": uint64(50000),
-		"issuer_id":     "00000000-0000-0000-0000-000000000005",
+		"issuer_id":      "00000000-0000-0000-0000-000000000005",
 	}
 	rr := do(t, handlers.IssueVirtualCard, newReq(t, http.MethodPost, "/v1/virtual-cards/issue", body))
 	assertStatus(t, rr, http.StatusOK)
@@ -393,6 +404,8 @@ func TestTerminateVirtualCard_Success(t *testing.T) {
 // ─── payment links ────────────────────────────────────────────────────────────
 
 func TestCreatePaymentLink_Success(t *testing.T) {
+	t.Setenv("PERMIFY_FAIL_OPEN", "true") // these tests exercise handler logic, not PBAC
+
 	body := map[string]any{
 		"link_id":     "link-001",
 		"merchant_id": "00000000-0000-0000-0000-000000000001",

@@ -40,7 +40,7 @@ type USDCPayoutInput struct {
 	AmountLamports       uint64 `json:"amount_lamports"` // micro-USDC (6 decimals)
 	Reference            string `json:"reference"`
 	PendingTransferIDHex string `json:"pending_transfer_id_hex,omitempty"` // set after ReserveUSDCFunds
-	SolanaSignature      string `json:"solana_signature,omitempty"`         // set after ExecuteUSDCPayout
+	SolanaSignature      string `json:"solana_signature,omitempty"`        // set after ExecuteUSDCPayout
 }
 
 // ─── Activity: ReserveUSDCFunds ───────────────────────────────────────────────
@@ -121,9 +121,13 @@ func (a *ActivitySet) ExecuteUSDCPayout(ctx context.Context, input USDCPayoutInp
 
 	solanaRPCURL := os.Getenv("SOLANA_RPC_URL")
 	if solanaRPCURL == "" {
-		// Dev/staging simulation mode — return a deterministic fake signature
+		if !allowSimulation() {
+			slog.Error("[activity] ExecuteUSDCPayout: SOLANA_RPC_URL not set and ALLOW_SIMULATION != true — failing (no fake on-chain payout)")
+			return "", fmt.Errorf("ExecuteUSDCPayout: SOLANA_RPC_URL not configured")
+		}
+		// Explicit simulation mode — signature is clearly marked SIM_.
 		sig := fmt.Sprintf("SIM_%s_%d", input.TransferID[:8], time.Now().Unix())
-		slog.Warn("[activity] ExecuteUSDCPayout: SOLANA_RPC_URL not set — simulating",
+		slog.Warn("[activity] ExecuteUSDCPayout: ALLOW_SIMULATION=true — SIMULATED payout, NO ON-CHAIN TRANSFER",
 			"simulated_signature", sig)
 		return sig, nil
 	}
@@ -202,7 +206,11 @@ func (a *ActivitySet) ConfirmSolanaTransaction(ctx context.Context, input USDCPa
 	// Simulation mode: skip Solana polling for SIM_ prefixed signatures
 	isSimulated := len(input.SolanaSignature) >= 4 && input.SolanaSignature[:4] == "SIM_"
 	if os.Getenv("SOLANA_RPC_URL") == "" || isSimulated {
-		slog.Warn("[activity] ConfirmSolanaTransaction: simulation mode — posting without Solana poll")
+		if !allowSimulation() {
+			slog.Error("[activity] ConfirmSolanaTransaction: no Solana RPC / SIM_ signature and ALLOW_SIMULATION != true — failing (no unverified ledger post)")
+			return fmt.Errorf("ConfirmSolanaTransaction: Solana verification unavailable and simulation not enabled")
+		}
+		slog.Warn("[activity] ConfirmSolanaTransaction: ALLOW_SIMULATION=true — posting WITHOUT Solana finality verification")
 		if err := tbClient.PostPendingTransfer(pendingID, tb.LedgerUSD, tb.CodeUSDCEscrow); err != nil {
 			return fmt.Errorf("ConfirmSolanaTransaction: PostPendingTransfer (sim): %w", err)
 		}

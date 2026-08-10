@@ -102,8 +102,26 @@ func TestSubmitNIBSSBatch_NoGateway_Noop(t *testing.T) {
 		AccountNumber: "0123456789",
 		AccountName:   "Test Merchant",
 	})
+	// Fail-closed contract: unconfigured NIBSS must error (no fake submission)
+	if err == nil {
+		t.Fatal("expected error when NIBSS gateway not configured and ALLOW_SIMULATION unset, got nil")
+	}
+}
+
+func TestSubmitNIBSSBatch_SimulationGated(t *testing.T) {
+	t.Setenv("ALLOW_SIMULATION", "true")
+	acts := temporal.NewActivitySet()
+	err := acts.SubmitNIBSSBatch(context.Background(), temporal.SettlementBatchInput{
+		SettlementID:  "settlement-001",
+		BatchRef:      "BATCH-001",
+		Amount:        500000,
+		Currency:      "NGN",
+		BankCode:      "058",
+		AccountNumber: "0123456789",
+		AccountName:   "Test Merchant",
+	})
 	if err != nil {
-		t.Fatalf("expected nil when NIBSS gateway not configured, got: %v", err)
+		t.Fatalf("expected nil with ALLOW_SIMULATION=true, got: %v", err)
 	}
 }
 
@@ -112,8 +130,17 @@ func TestSubmitNIBSSBatch_NoGateway_Noop(t *testing.T) {
 func TestConfirmNIBSSBatch_NoGateway_Noop(t *testing.T) {
 	acts := temporal.NewActivitySet()
 	err := acts.ConfirmNIBSSBatch(context.Background(), "BATCH-001")
-	if err != nil {
-		t.Fatalf("expected nil when NIBSS gateway not configured, got: %v", err)
+	// Fail-closed contract: unconfigured NIBSS must error (no fake confirmation)
+	if err == nil {
+		t.Fatal("expected error when NIBSS gateway not configured and ALLOW_SIMULATION unset, got nil")
+	}
+}
+
+func TestConfirmNIBSSBatch_SimulationGated(t *testing.T) {
+	t.Setenv("ALLOW_SIMULATION", "true")
+	acts := temporal.NewActivitySet()
+	if err := acts.ConfirmNIBSSBatch(context.Background(), "BATCH-001"); err != nil {
+		t.Fatalf("expected nil with ALLOW_SIMULATION=true, got: %v", err)
 	}
 }
 
@@ -255,8 +282,23 @@ func TestChargeSubscription_NoStripe_Noop(t *testing.T) {
 		Currency:       "NGN",
 		CustomerEmail:  "customer@example.com",
 	})
+	// Fail-closed contract: unconfigured Stripe must error (no fake charge)
+	if err == nil {
+		t.Fatal("expected error when Stripe not configured and ALLOW_SIMULATION unset, got nil")
+	}
+}
+
+func TestChargeSubscription_SimulationGated(t *testing.T) {
+	t.Setenv("ALLOW_SIMULATION", "true")
+	acts := temporal.NewActivitySet()
+	err := acts.ChargeSubscription(context.Background(), temporal.SubscriptionChargeInput{
+		SubscriptionID: "sub-001",
+		Amount:         500000,
+		Currency:       "NGN",
+		CustomerEmail:  "customer@example.com",
+	})
 	if err != nil {
-		t.Fatalf("expected nil when Stripe not configured, got: %v", err)
+		t.Fatalf("expected nil with ALLOW_SIMULATION=true, got: %v", err)
 	}
 }
 
@@ -304,7 +346,22 @@ func TestGetCrossBorderQuote_NoMojaloop_ReturnsMockQuote(t *testing.T) {
 // ─── ExecuteMojalloopTransfer ─────────────────────────────────────────────────
 
 func TestExecuteMojalloopTransfer_NoMojaloop_Noop(t *testing.T) {
-	t.Setenv("MOJALOOP_URL", "") // ensure noop path even when env var is set in shell
+	t.Setenv("MOJALOOP_URL", "") // ensure unconfigured path even when env var is set in shell
+	acts := temporal.NewActivitySet()
+	err := acts.ExecuteMojalloopTransfer(context.Background(), temporal.CrossBorderInput{
+		TransferID: "transfer-001",
+		QuoteID:    "quote-001",
+		Corridors:  "NGN-KES",
+	})
+	// Fail-closed contract: unconfigured Mojaloop must error (no fake transfer)
+	if err == nil {
+		t.Fatal("expected error when Mojaloop not configured and ALLOW_SIMULATION unset, got nil")
+	}
+}
+
+func TestExecuteMojalloopTransfer_SimulationGated(t *testing.T) {
+	t.Setenv("MOJALOOP_URL", "")
+	t.Setenv("ALLOW_SIMULATION", "true")
 	acts := temporal.NewActivitySet()
 	err := acts.ExecuteMojalloopTransfer(context.Background(), temporal.CrossBorderInput{
 		TransferID: "transfer-001",
@@ -312,7 +369,7 @@ func TestExecuteMojalloopTransfer_NoMojaloop_Noop(t *testing.T) {
 		Corridors:  "NGN-KES",
 	})
 	if err != nil {
-		t.Fatalf("expected nil when Mojaloop not configured, got: %v", err)
+		t.Fatalf("expected nil with ALLOW_SIMULATION=true, got: %v", err)
 	}
 }
 
@@ -329,44 +386,52 @@ func TestUpdateTransferStatus_DBNoop_Succeeds(t *testing.T) {
 
 // ─── PollNIBSSBatchStatus ─────────────────────────────────────────────────────
 
-// TestPollNIBSSBatchStatus_NoGateway_Noop verifies that when NIBSS_GATEWAY_URL
-// is not set, the activity returns nil immediately (sandbox/staging mode).
-func TestPollNIBSSBatchStatus_NoGateway_Noop(t *testing.T) {
-acts := temporal.NewActivitySet()
-err := acts.PollNIBSSBatchStatus(context.Background(), "BATCH-001", "settlement-001")
-if err != nil {
-t.Fatalf("expected nil when NIBSS gateway not configured, got: %v", err)
+// TestPollNIBSSBatchStatus_NoGateway_FailsClosed verifies that when NIBSS_GATEWAY_URL
+// is not set, the activity returns a retryable error (no fake confirmation).
+func TestPollNIBSSBatchStatus_NoGateway_FailsClosed(t *testing.T) {
+	acts := temporal.NewActivitySet()
+	err := acts.PollNIBSSBatchStatus(context.Background(), "BATCH-001", "settlement-001")
+	if err == nil {
+		t.Fatal("expected error when NIBSS gateway not configured and ALLOW_SIMULATION unset, got nil")
+	}
 }
+
+// TestPollNIBSSBatchStatus_SimulationGated verifies the explicit simulation opt-in.
+func TestPollNIBSSBatchStatus_SimulationGated(t *testing.T) {
+	t.Setenv("ALLOW_SIMULATION", "true")
+	acts := temporal.NewActivitySet()
+	err := acts.PollNIBSSBatchStatus(context.Background(), "BATCH-001", "settlement-001")
+	if err != nil {
+		t.Fatalf("expected nil with ALLOW_SIMULATION=true, got: %v", err)
+	}
 }
 
 // TestPollNIBSSBatchStatus_ContextCancelled_ReturnsError verifies that the
 // activity exits cleanly when the context is cancelled during a poll sleep.
 func TestPollNIBSSBatchStatus_ContextCancelled_ReturnsError(t *testing.T) {
-// When NIBSS is not configured the activity returns nil immediately,
-// so this test validates the contract: a cancelled context on attempt > 1
-// should return an error.  We test this via the exported function signature.
-acts := temporal.NewActivitySet()
-ctx, cancel := context.WithCancel(context.Background())
-cancel() // cancel immediately
+	// When NIBSS is not configured the activity returns nil immediately,
+	// so this test validates the contract: a cancelled context on attempt > 1
+	// should return an error.  We test this via the exported function signature.
+	acts := temporal.NewActivitySet()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
 
-// With NIBSS not configured the noop path returns nil before the context
-// is checked, so we just verify the function signature is correct.
-err := acts.PollNIBSSBatchStatus(ctx, "BATCH-002", "settlement-002")
-// In noop mode (no gateway), should still return nil regardless of context
-if err != nil {
-// This is acceptable — noop path returns nil before context check
-t.Logf("noop path returned: %v (acceptable)", err)
-}
+	// With NIBSS not configured the fail-closed path returns an error before the
+	// context is checked, which is acceptable for this signature test.
+	err := acts.PollNIBSSBatchStatus(ctx, "BATCH-002", "settlement-002")
+	if err != nil {
+		t.Logf("fail-closed path returned: %v (acceptable)", err)
+	}
 }
 
 // TestPollNIBSSBatchStatus_Signature verifies the activity has the expected
 // function signature: (ctx, batchRef string, settlementID string) error.
 func TestPollNIBSSBatchStatus_Signature(t *testing.T) {
-acts := temporal.NewActivitySet()
-// Call with valid arguments to verify the signature compiles correctly
-err := acts.PollNIBSSBatchStatus(context.Background(), "BATCH-003", "settlement-003")
-// In noop mode this should succeed
-if err != nil {
-t.Fatalf("unexpected error in noop mode: %v", err)
-}
+	acts := temporal.NewActivitySet()
+	// Call with valid arguments to verify the signature compiles correctly
+	err := acts.PollNIBSSBatchStatus(context.Background(), "BATCH-003", "settlement-003")
+	// Fail-closed mode (no gateway, no ALLOW_SIMULATION) returns an error
+	if err == nil {
+		t.Fatal("expected error in fail-closed mode, got nil")
+	}
 }

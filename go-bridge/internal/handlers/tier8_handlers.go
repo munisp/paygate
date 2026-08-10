@@ -2,12 +2,12 @@
 // RTGS/ISO20022, Payroll-as-a-Service V2, Cross-Border Remittance V2
 //
 // Every fund-flow endpoint in this file follows the same atomicity contract:
-//   1. Redis idempotency guard (prevents duplicate execution)
-//   2. Permify authorisation check
-//   3. TigerBeetle ledger operation (atomic double-entry)
-//   4. Kafka event publish (durable audit trail)
-//   5. Fluvio stream publish (real-time analytics)
-//   6. Temporal workflow dispatch (orchestration / compensation)
+//  1. Redis idempotency guard (prevents duplicate execution)
+//  2. Permify authorisation check
+//  3. TigerBeetle ledger operation (atomic double-entry)
+//  4. Kafka event publish (durable audit trail)
+//  5. Fluvio stream publish (real-time analytics)
+//  6. Temporal workflow dispatch (orchestration / compensation)
 package handlers
 
 import (
@@ -39,52 +39,74 @@ import (
 func InitiateRTGS(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req struct {
-		RTGSID         string `json:"rtgs_id"`
-		MerchantID     string `json:"merchant_id"`
-		SenderAcct     string `json:"sender_account"`
+		RTGSID          string `json:"rtgs_id"`
+		MerchantID      string `json:"merchant_id"`
+		SenderAcct      string `json:"sender_account"`
 		BeneficiaryAcct string `json:"beneficiary_account"`
 		BeneficiaryBank string `json:"beneficiary_bank"`
-		AmountKobo     uint64 `json:"amount_kobo"`
-		Currency       string `json:"currency"`
-		Narration      string `json:"narration"`
-		ISO20022MsgID  string `json:"iso20022_msg_id"`
+		AmountKobo      uint64 `json:"amount_kobo"`
+		Currency        string `json:"currency"`
+		Narration       string `json:"narration"`
+		ISO20022MsgID   string `json:"iso20022_msg_id"`
 	}
-	if err := decodeBody(r, &req); err != nil { writeError(w, http.StatusBadRequest, "invalid request body"); return }
-	if req.RTGSID == "" { req.RTGSID = uuid.New().String() }
-	if req.Currency == "" { req.Currency = "NGN" }
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.RTGSID == "" {
+		req.RTGSID = uuid.New().String()
+	}
+	if req.Currency == "" {
+		req.Currency = "NGN"
+	}
 
 	rc := redis.Get()
 	if rc != nil {
 		already, err := rc.CheckAndSetIdempotency(ctx, "rtgs.initiate", req.RTGSID)
-		if err == nil && already { writeError(w, http.StatusConflict, "RTGS transfer already initiated"); return }
+		if err == nil && already {
+			writeError(w, http.StatusConflict, "RTGS transfer already initiated")
+			return
+		}
 	}
 
 	pc := permify.Get()
 	if pc != nil {
 		ok, err := pc.CheckPermission(ctx, permify.CheckRequest{
-			Entity: fmt.Sprintf("platform:paygate"),
+			Entity:     fmt.Sprintf("platform:paygate"),
 			Permission: "rtgs:initiate",
-			Subject: fmt.Sprintf("merchant:%s", req.MerchantID),
+			Subject:    fmt.Sprintf("merchant:%s", req.MerchantID),
 		})
-		if err != nil || !ok { writeError(w, http.StatusForbidden, "merchant not authorised for RTGS"); return }
+		if err != nil || !ok {
+			writeError(w, http.StatusForbidden, "merchant not authorised for RTGS")
+			return
+		}
 	}
 
 	client := tb.GetActive()
 	ledger := tb.CurrencyToLedger(req.Currency)
 	if client != nil {
 		senderID, err := tb.UUIDToID(req.SenderAcct)
-		if err != nil { writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid sender_account: %v", err)); return }
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid sender_account: %v", err))
+			return
+		}
 		rtgsHoldID, err := tb.UUIDToID(req.RTGSID)
-		if err != nil { writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid rtgs_id: %v", err)); return }
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid rtgs_id: %v", err))
+			return
+		}
 		transferID := tb.ReferenceToID("rtgs.hold." + req.RTGSID)
 		if err := client.EnsureAccount(senderID, ledger, tb.CodeWallet); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to ensure sender account"); return
+			writeError(w, http.StatusInternalServerError, "failed to ensure sender account")
+			return
 		}
 		if err := client.EnsureAccount(rtgsHoldID, ledger, tb.CodeEscrow); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to ensure RTGS hold account"); return
+			writeError(w, http.StatusInternalServerError, "failed to ensure RTGS hold account")
+			return
 		}
 		if err := client.Transfer(transferID, senderID, rtgsHoldID, req.AmountKobo, ledger, tb.CodeEscrow); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("TigerBeetle RTGS hold failed: %v", err)); return
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("TigerBeetle RTGS hold failed: %v", err))
+			return
 		}
 	}
 
@@ -115,7 +137,9 @@ func InitiateRTGS(w http.ResponseWriter, r *http.Request) {
 			BeneficiaryBank: req.BeneficiaryBank, AmountKobo: req.AmountKobo,
 			Currency: req.Currency, Narration: req.Narration, ISO20022MsgID: req.ISO20022MsgID,
 		})
-		if err == nil { workflowID = run.GetID() }
+		if err == nil {
+			workflowID = run.GetID()
+		}
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
@@ -139,10 +163,6 @@ func GetISO20022Templates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"templates": []string{"pacs.008", "pacs.009", "camt.053", "pain.001"},
 	})
-}
-
-func ValidateISO20022(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{"valid": true, "errors": []string{}})
 }
 
 // ─── Payroll-as-a-Service V2 ──────────────────────────────────────────────────
@@ -171,46 +191,73 @@ func RunPayrollV2(w http.ResponseWriter, r *http.Request) {
 			BankCode    string `json:"bank_code"`
 		} `json:"employees"`
 	}
-	if err := decodeBody(r, &req); err != nil { writeError(w, http.StatusBadRequest, "invalid request body"); return }
-	if req.PayrollID == "" { req.PayrollID = uuid.New().String() }
-	if req.Currency == "" { req.Currency = "NGN" }
-	if len(req.Employees) == 0 { writeError(w, http.StatusBadRequest, "employees array must not be empty"); return }
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.PayrollID == "" {
+		req.PayrollID = uuid.New().String()
+	}
+	if req.Currency == "" {
+		req.Currency = "NGN"
+	}
+	if len(req.Employees) == 0 {
+		writeError(w, http.StatusBadRequest, "employees array must not be empty")
+		return
+	}
 
 	rc := redis.Get()
 	if rc != nil {
 		already, err := rc.CheckAndSetIdempotency(ctx, "payroll.run", req.PayrollID)
-		if err == nil && already { writeError(w, http.StatusConflict, "payroll already initiated"); return }
+		if err == nil && already {
+			writeError(w, http.StatusConflict, "payroll already initiated")
+			return
+		}
 	}
 
 	pc := permify.Get()
 	if pc != nil {
 		ok, err := pc.CheckPermission(ctx, permify.CheckRequest{
-			Entity: fmt.Sprintf("platform:paygate"),
+			Entity:     fmt.Sprintf("platform:paygate"),
 			Permission: "payroll:run",
-			Subject: fmt.Sprintf("merchant:%s", req.MerchantID),
+			Subject:    fmt.Sprintf("merchant:%s", req.MerchantID),
 		})
-		if err != nil || !ok { writeError(w, http.StatusForbidden, "merchant not authorised for payroll"); return }
+		if err != nil || !ok {
+			writeError(w, http.StatusForbidden, "merchant not authorised for payroll")
+			return
+		}
 	}
 
 	var totalNetKobo uint64
-	for _, e := range req.Employees { totalNetKobo += e.NetSalary }
+	for _, e := range req.Employees {
+		totalNetKobo += e.NetSalary
+	}
 
 	client := tb.GetActive()
 	ledger := tb.CurrencyToLedger(req.Currency)
 	if client != nil {
 		merchantAcctID, err := tb.UUIDToID(req.MerchantID)
-		if err != nil { writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid merchant_id: %v", err)); return }
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid merchant_id: %v", err))
+			return
+		}
 		payrollPoolID, err := tb.UUIDToID(req.PayrollID)
-		if err != nil { writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid payroll_id: %v", err)); return }
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid payroll_id: %v", err))
+			return
+		}
 		payrollTransferID := tb.ReferenceToID("payroll.pool." + req.PayrollID)
 		if err := client.EnsureAccount(merchantAcctID, ledger, tb.CodeWallet); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to ensure merchant account"); return
+			writeError(w, http.StatusInternalServerError, "failed to ensure merchant account")
+			return
 		}
 		if err := client.EnsureAccount(payrollPoolID, ledger, tb.CodeEscrow); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to ensure payroll pool account"); return
+			writeError(w, http.StatusInternalServerError, "failed to ensure payroll pool account")
+			return
 		}
 		if err := client.Transfer(payrollTransferID, merchantAcctID, payrollPoolID, totalNetKobo, ledger, tb.CodeEscrow); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("TigerBeetle payroll pool debit failed: %v", err)); return
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("TigerBeetle payroll pool debit failed: %v", err))
+			return
 		}
 	}
 
@@ -247,7 +294,9 @@ func RunPayrollV2(w http.ResponseWriter, r *http.Request) {
 			PayrollID: req.PayrollID, MerchantID: req.MerchantID,
 			Period: req.Period, Currency: req.Currency, Employees: employees,
 		})
-		if err == nil { workflowID = run.GetID() }
+		if err == nil {
+			workflowID = run.GetID()
+		}
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
@@ -304,38 +353,56 @@ func SendRemittanceV2(w http.ResponseWriter, r *http.Request) {
 		Purpose         string `json:"purpose"`
 		MojaloopTxID    string `json:"mojaloop_transaction_id"`
 	}
-	if err := decodeBody(r, &req); err != nil { writeError(w, http.StatusBadRequest, "invalid request body"); return }
-	if req.RemittanceID == "" { req.RemittanceID = uuid.New().String() }
-	if req.SendCurrency == "" { req.SendCurrency = "NGN" }
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.RemittanceID == "" {
+		req.RemittanceID = uuid.New().String()
+	}
+	if req.SendCurrency == "" {
+		req.SendCurrency = "NGN"
+	}
 
 	rc := redis.Get()
 	if rc != nil {
 		already, err := rc.CheckAndSetIdempotency(ctx, "remittance.send", req.RemittanceID)
-		if err == nil && already { writeError(w, http.StatusConflict, "remittance already initiated"); return }
+		if err == nil && already {
+			writeError(w, http.StatusConflict, "remittance already initiated")
+			return
+		}
 	}
 
 	pc := permify.Get()
 	if pc != nil {
 		ok, err := pc.CheckPermission(ctx, permify.CheckRequest{
-			Entity: fmt.Sprintf("platform:paygate"),
+			Entity:     fmt.Sprintf("platform:paygate"),
 			Permission: "remittance:send",
-			Subject: fmt.Sprintf("merchant:%s", req.MerchantID),
+			Subject:    fmt.Sprintf("merchant:%s", req.MerchantID),
 		})
-		if err != nil || !ok { writeError(w, http.StatusForbidden, "merchant not authorised for remittance"); return }
+		if err != nil || !ok {
+			writeError(w, http.StatusForbidden, "merchant not authorised for remittance")
+			return
+		}
 	}
 
 	client := tb.GetActive()
 	ledger := tb.CurrencyToLedger(req.SendCurrency)
 	if client != nil {
 		senderAcctID, err := tb.UUIDToID(req.SenderID)
-		if err != nil { writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid sender_id: %v", err)); return }
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid sender_id: %v", err))
+			return
+		}
 		floatID := tb.FloatAccountID()
 		remitTransferID := tb.ReferenceToID("remittance.debit." + req.RemittanceID)
 		if err := client.EnsureAccount(senderAcctID, ledger, tb.CodeWallet); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to ensure sender account"); return
+			writeError(w, http.StatusInternalServerError, "failed to ensure sender account")
+			return
 		}
 		if err := client.Transfer(remitTransferID, senderAcctID, floatID, req.SendAmountKobo, ledger, tb.CodeWallet); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("TigerBeetle sender debit failed: %v", err)); return
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("TigerBeetle sender debit failed: %v", err))
+			return
 		}
 	}
 
@@ -368,7 +435,9 @@ func SendRemittanceV2(w http.ResponseWriter, r *http.Request) {
 			SendAmountKobo: req.SendAmountKobo, SendCurrency: req.SendCurrency,
 			ReceiveCurrency: req.ReceiveCurrency, Purpose: req.Purpose, MojaloopTransactionID: req.MojaloopTxID,
 		})
-		if err == nil { workflowID = run.GetID() }
+		if err == nil {
+			workflowID = run.GetID()
+		}
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
@@ -402,9 +471,9 @@ func GetRemittanceCorridors(w http.ResponseWriter, r *http.Request) {
 
 func GetRemittanceQuote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"quote_id": uuid.New().String(),
+		"quote_id":      uuid.New().String(),
 		"exchange_rate": 1650.0,
-		"fee_kobo": 5000,
-		"expires_at": time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339),
+		"fee_kobo":      5000,
+		"expires_at":    time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339),
 	})
 }

@@ -1,17 +1,19 @@
 package handlers
 
 // new_features.go — Wave 76/77 feature handlers for the PayGate Go bridge.
-// Each handler first attempts a real upstream call; on failure it falls back
-// to a realistic mock so the portal remains usable during service outages.
+// Each handler attempts a real upstream call; on failure it returns 502 with an
+// explicit error. Simulated fallback payloads are served ONLY when
+// PAYGATE_SIMULATION_MODE=true is explicitly set (marked via X-Simulation-Mode).
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"github.com/paygate/go-bridge/internal/httpclient"
+	"io"
+	"log/slog"
+	"net/http"
 	"os"
 	"time"
 )
@@ -124,20 +126,41 @@ func subscriptionBillingV2URL() string {
 // ─── Generic upstream proxy helper ───────────────────────────────────────────
 
 // proxyUpstream forwards the request to an upstream service and writes the
-// response back. On any error it falls back to the provided fallback function.
+// response back. On any error it fails loudly with 502. The provided fallback
+// (a simulated payload) is served ONLY when PAYGATE_SIMULATION_MODE=true is
+// explicitly set in the environment; the response is then marked with the
+// X-Simulation-Mode header and a loud WARN is logged.
 func proxyUpstream(w http.ResponseWriter, r *http.Request, upstreamURL string, fallback func()) {
+	fail := func(cause error) {
+		if os.Getenv("PAYGATE_SIMULATION_MODE") == "true" {
+			slog.Warn("[proxy] upstream failed — serving SIMULATED fallback (PAYGATE_SIMULATION_MODE=true)",
+				"url", upstreamURL, "err", cause)
+			w.Header().Set("X-Simulation-Mode", "true")
+			fallback()
+			return
+		}
+		slog.Error("[proxy] upstream unavailable — refusing to serve mock data", "url", upstreamURL, "err", cause)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":    "upstream_unavailable",
+			"upstream": upstreamURL,
+			"message":  "upstream service unreachable and PAYGATE_SIMULATION_MODE is not enabled",
+		})
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		fallback()
+		fail(err)
 		return
 	}
 
 	req, err := http.NewRequestWithContext(ctx, r.Method, upstreamURL, bytes.NewReader(body))
 	if err != nil {
-		fallback()
+		fail(err)
 		return
 	}
 
@@ -148,14 +171,14 @@ func proxyUpstream(w http.ResponseWriter, r *http.Request, upstreamURL string, f
 	client := httpclient.Default
 	resp, err := client.Do(req)
 	if err != nil {
-		fallback()
+		fail(err)
 		return
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fallback()
+		fail(err)
 		return
 	}
 
@@ -204,7 +227,7 @@ func SellDigitalGold(w http.ResponseWriter, r *http.Request) {
 	proxyUpstream(w, r, digitalGoldURL()+"/sell", func() {
 		writeJSON(w, 200, map[string]any{
 			"transactionId": fmt.Sprintf("DGS-%d", time.Now().UnixMilli()),
-			"proceedsKobo": 49500, "status": "completed",
+			"proceedsKobo":  49500, "status": "completed",
 		})
 	})
 }
@@ -217,7 +240,7 @@ func GetDigitalGoldHistory(w http.ResponseWriter, r *http.Request) {
 					"id": "DGT-1", "type": "buy", "grams": 1.0,
 					"pricePerGram": 95000, "amountKobo": 95000,
 					"timestamp": time.Now().Add(-72 * time.Hour).UTC().Format(time.RFC3339),
-					"status": "completed",
+					"status":    "completed",
 				},
 			},
 			"total": 1,
@@ -276,7 +299,7 @@ func InvestInMutualFund(w http.ResponseWriter, r *http.Request) {
 	proxyUpstream(w, r, mutualFundsURL()+"/invest", func() {
 		writeJSON(w, 200, map[string]any{
 			"orderId": fmt.Sprintf("MFO-%d", time.Now().UnixMilli()),
-			"units": 79.68, "nav": 125.50, "amountKobo": 10000000, "status": "processing",
+			"units":   79.68, "nav": 125.50, "amountKobo": 10000000, "status": "processing",
 		})
 	})
 }
@@ -361,7 +384,7 @@ func MakePensionContribution(w http.ResponseWriter, r *http.Request) {
 	proxyUpstream(w, r, pensionServiceURL()+"/contribute", func() {
 		writeJSON(w, 200, map[string]any{
 			"transactionId": fmt.Sprintf("PENT-%d", time.Now().UnixMilli()),
-			"amountKobo": 500000, "status": "completed", "newBalanceKobo": 13950000,
+			"amountKobo":    500000, "status": "completed", "newBalanceKobo": 13950000,
 		})
 	})
 }
@@ -414,7 +437,7 @@ func RedeemCashback(w http.ResponseWriter, r *http.Request) {
 	proxyUpstream(w, r, cashbackServiceURL()+"/redeem", func() {
 		writeJSON(w, 200, map[string]any{
 			"redemptionId": fmt.Sprintf("CBR-%d", time.Now().UnixMilli()),
-			"amountKobo": 100000, "status": "completed", "newBalanceKobo": 25000,
+			"amountKobo":   100000, "status": "completed", "newBalanceKobo": 25000,
 		})
 	})
 }
@@ -476,7 +499,7 @@ func GetWealthPortfolio(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
 			"totalValueKobo": 45000000, "investedKobo": 40000000,
 			"unrealizedPnlKobo": 5000000, "unrealizedPnlPct": 12.5,
-			"riskScore": 65,
+			"riskScore":       65,
 			"assetAllocation": map[string]any{"equity": 60.0, "debt": 25.0, "gold": 10.0, "cash": 5.0},
 		})
 	})

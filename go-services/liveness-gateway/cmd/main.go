@@ -18,9 +18,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
@@ -53,9 +55,21 @@ func loadConfig() Config {
 		}
 		return def
 	}
+	internalKey := os.Getenv("INTERNAL_API_KEY")
+	env := strings.ToLower(os.Getenv("ENV"))
+	if internalKey == "" {
+		if env == "production" || env == "prod" {
+			slog.Error("FATAL: INTERNAL_API_KEY must be set when ENV=production")
+			os.Exit(1)
+		}
+		b := make([]byte, 16)
+		rand.Read(b)
+		internalKey = fmt.Sprintf("dev-%x", b)
+		slog.Warn("INTERNAL_API_KEY unset — generated per-boot dev key; refusing well-known defaults")
+	}
 	return Config{
 		Port:            getEnv("PORT", "8085"),
-		InternalKey:     getEnv("INTERNAL_API_KEY", "dev-internal-key"),
+		InternalKey:     internalKey,
 		PythonMLURL:     getEnv("PYTHON_ML_URL", "http://localhost:8086"),
 		RustSignalURL:   getEnv("RUST_SIGNAL_URL", "http://localhost:8090"),
 		NodeCallbackURL: getEnv("NODE_CALLBACK_URL", "http://localhost:3000/api/internal/liveness/result"),
@@ -66,11 +80,11 @@ func loadConfig() Config {
 // ─── Request / Response types ─────────────────────────────────────────────────
 
 type LivenessRequest struct {
-	ImageB64   string   `json:"image_b64"`
-	ImageB64_2 string   `json:"image_b64_2,omitempty"`
-	SessionID  string   `json:"session_id,omitempty"`
-	Mode       string   `json:"mode,omitempty"` // passive|active|full
-	Challenge  string   `json:"challenge,omitempty"`
+	ImageB64   string      `json:"image_b64"`
+	ImageB64_2 string      `json:"image_b64_2,omitempty"`
+	SessionID  string      `json:"session_id,omitempty"`
+	Mode       string      `json:"mode,omitempty"` // passive|active|full
+	Challenge  string      `json:"challenge,omitempty"`
 	Embeddings [][]float64 `json:"embeddings,omitempty"` // for face-match
 }
 
@@ -81,40 +95,40 @@ type FaceMatchRequest struct {
 }
 
 type FaceMatchResponse struct {
-	SessionID  string  `json:"session_id"`
-	Similarity float64 `json:"similarity"`
-	Match      bool    `json:"match"`
-	Threshold  float64 `json:"threshold"`
-	ProcessingMs int64 `json:"processing_ms"`
+	SessionID    string  `json:"session_id"`
+	Similarity   float64 `json:"similarity"`
+	Match        bool    `json:"match"`
+	Threshold    float64 `json:"threshold"`
+	ProcessingMs int64   `json:"processing_ms"`
 }
 
 type SpoofScores struct {
-	PrintedPhoto    float64 `json:"printed_photo"`
-	ScreenReplay    float64 `json:"screen_replay"`
-	PaperMask       float64 `json:"paper_mask"`
-	Mask3D          float64 `json:"3d_mask"`
-	Deepfake        float64 `json:"deepfake"`
+	PrintedPhoto     float64 `json:"printed_photo"`
+	ScreenReplay     float64 `json:"screen_replay"`
+	PaperMask        float64 `json:"paper_mask"`
+	Mask3D           float64 `json:"3d_mask"`
+	Deepfake         float64 `json:"deepfake"`
 	HighQualityPhoto float64 `json:"high_quality_photo"`
 }
 
 type AggregatedResult struct {
-	SessionID       string      `json:"session_id"`
-	Decision        string      `json:"decision"`
-	SpoofType       string      `json:"spoof_type,omitempty"`
-	LivenessScore   float64     `json:"liveness_score"`
-	Confidence      float64     `json:"confidence"`
-	SpoofScores     SpoofScores `json:"spoof_scores"`
-	FaceDetected    bool        `json:"face_detected"`
-	FaceCount       int         `json:"face_count"`
-	PassiveScore    float64     `json:"passive_score"`
-	ActiveScore     float64     `json:"active_score"`
-	ChallengePassed bool        `json:"challenge_passed"`
-	LBPScore        float64     `json:"lbp_score"`
-	FFTScore        float64     `json:"fft_score"`
-	ColourDepth     float64     `json:"colour_depth_score"`
-	GradientCoherence float64   `json:"gradient_coherence"`
-	QualityScore    float64     `json:"quality_score"`
-	ProcessingMs    int64       `json:"processing_ms"`
+	SessionID         string      `json:"session_id"`
+	Decision          string      `json:"decision"`
+	SpoofType         string      `json:"spoof_type,omitempty"`
+	LivenessScore     float64     `json:"liveness_score"`
+	Confidence        float64     `json:"confidence"`
+	SpoofScores       SpoofScores `json:"spoof_scores"`
+	FaceDetected      bool        `json:"face_detected"`
+	FaceCount         int         `json:"face_count"`
+	PassiveScore      float64     `json:"passive_score"`
+	ActiveScore       float64     `json:"active_score"`
+	ChallengePassed   bool        `json:"challenge_passed"`
+	LBPScore          float64     `json:"lbp_score"`
+	FFTScore          float64     `json:"fft_score"`
+	ColourDepth       float64     `json:"colour_depth_score"`
+	GradientCoherence float64     `json:"gradient_coherence"`
+	QualityScore      float64     `json:"quality_score"`
+	ProcessingMs      int64       `json:"processing_ms"`
 }
 
 // ─── Cosine Similarity (face-match) ──────────────────────────────────────────
