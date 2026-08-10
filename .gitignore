@@ -119,5 +119,3 @@ target/
 *.pyc
 .venv/
 venv/
-target/
-node_modules/

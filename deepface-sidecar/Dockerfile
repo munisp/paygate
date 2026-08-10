@@ -23,17 +23,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY main.py .
 
-# Pre-download DeepFace models at build time to avoid cold-start latency
+# Pre-download DeepFace models at build time to avoid cold-start latency.
+# FAIL THE BUILD LOUDLY if model weights cannot be downloaded: shipping an
+# image without weights previously resulted in a "healthy" container serving
+# fabricated KYC results (mock mode). There is no `|| true` here on purpose.
 RUN python -c "\
 from deepface import DeepFace; \
 import numpy as np; \
 dummy = np.zeros((100,100,3), dtype=np.uint8); \
 dummy[40:60,40:60] = 200; \
-try: DeepFace.represent(img_path=dummy, model_name='ArcFace', detector_backend='opencv', enforce_detection=False) \
-except: pass; \
-try: DeepFace.represent(img_path=dummy, model_name='Facenet512', detector_backend='opencv', enforce_detection=False) \
-except: pass; \
-print('Models pre-loaded')" || true
+DeepFace.represent(img_path=dummy, model_name='ArcFace', detector_backend='opencv', enforce_detection=False); \
+DeepFace.represent(img_path=dummy, model_name='Facenet512', detector_backend='opencv', enforce_detection=False); \
+print('Models pre-loaded')"
 
 EXPOSE 5050
 
