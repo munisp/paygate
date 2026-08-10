@@ -1,0 +1,4 @@
+# vendor/ is excluded due to size (>100MB GitHub limit).
+# Transitive dependencies are pinned via go.sum.
+# Restore with: go mod vendor
+vendor/

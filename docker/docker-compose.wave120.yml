@@ -1,0 +1,175 @@
+version: "3.9"
+# Wave 120 Extension Services
+# Usage: docker compose -f docker-compose.yml -f docker-compose.wave120.yml up
+
+x-wave120-env: &wave120-env
+  MIDDLEWARE_BRIDGE_URL: http://go-bridge:8080
+  MIDDLEWARE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY:-changeme-internal-key}
+  REDIS_URL: redis://redis:6379
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  TIGERBEETLE_ADDRESS: tigerbeetle:3000
+  OPENSEARCH_URL: http://opensearch:9200
+  PERMIFY_URL: http://permify:3476
+  KEYCLOAK_URL: http://keycloak:8080
+  KEYCLOAK_REALM: paygate
+  LAKEHOUSE_URL: http://lakehouse:8125
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+networks:
+  paygate-net:
+    external: true
+
+services:
+  staff-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/staff:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8910"
+    ports:
+      - "8910:8910"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  insurance-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/insurance:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8911"
+    ports:
+      - "8911:8911"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  support-chat-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/support-chat:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8912"
+      WEBSOCKET_ENABLED: "true"
+    ports:
+      - "8912:8912"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  usdc-bridge-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/usdc-bridge:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8913"
+      ETH_RPC_URL: ${ETH_RPC_URL:-https://mainnet.infura.io/v3/changeme}
+      USDC_CONTRACT_ADDRESS: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    ports:
+      - "8913:8913"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  tax-filing-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/tax-filing:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8914"
+      FIRS_API_URL: ${FIRS_API_URL:-https://api.firs.gov.ng}
+      FIRS_API_KEY: ${FIRS_API_KEY:-changeme}
+    ports:
+      - "8914:8914"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  split-bill-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/split-bill:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8915"
+    ports:
+      - "8915:8915"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  webhook-simulator-v2:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/webhook-sim-v2:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8916"
+      MAX_CONCURRENT_SIMULATIONS: "50"
+    ports:
+      - "8916:8916"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  tenant-provisioning-service:
+    image: golang:1.22-alpine
+    working_dir: /app
+    volumes:
+      - ../go-services/tenant-provisioning:/app
+    command: ["go", "run", "main.go"]
+    environment:
+      <<: *wave120-env
+      SERVICE_PORT: "8917"
+      TEMPORAL_HOST_PORT: temporal:7233
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASS: ${KEYCLOAK_ADMIN_PASS:-admin}
+    ports:
+      - "8917:8917"
+    networks:
+      - paygate-net
+    depends_on:
+      - temporal
+    restart: unless-stopped
+
+  openappsec-waf:
+    image: ghcr.io/openappsec/agent:latest
+    environment:
+      SHARED_STORAGE_HOST: openappsec-storage
+      SHARED_STORAGE_PORT: "7777"
+      OPENAPPSEC_UID: ${OPENAPPSEC_UID:-changeme-uid}
+      NGINX_UPSTREAM: app:3000
+      LEARNING_MODE: "true"
+      BLOCKING_MODE: "false"
+    ports:
+      - "8080:80"
+    networks:
+      - paygate-net
+    restart: unless-stopped
+
+  openappsec-storage:
+    image: ghcr.io/openappsec/smartsync-shared-files:latest
+    ports:
+      - "7777:7777"
+    networks:
+      - paygate-net
+    restart: unless-stopped

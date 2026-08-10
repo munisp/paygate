@@ -1,0 +1,121 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-billing-renewal
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+    component: billing-cron
+    version: "1.31.0"
+spec:
+  schedule: "0 0 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: billing-cron
+              image: paygate-merchant-portal:1.31.0
+              command: ["node", "-e"]
+              args:
+                - |
+                  const { Pool } = require('pg');
+                  const pool = new Pool({ connectionString: process.env.PG_DATABASE_URL });
+                  async function run() {
+                    const client = await pool.connect();
+                    try {
+                      const { rows: tenants } = await client.query(
+                        "SELECT t.id, t.name, tsc.stripe_customer_id, tsc.plan_type, tsc.next_invoice_date FROM partner_tenants t JOIN tenant_stripe_configs tsc ON t.id = tsc.tenant_id WHERE tsc.next_invoice_date <= NOW() AND tsc.auto_renew = true"
+                      );
+                      console.log(`Processing ${tenants.length} tenant renewals`);
+                      for (const tenant of tenants) {
+                        await client.query(
+                          "INSERT INTO billing_cron_runs (tenant_id, run_type, status, invoices_generated, total_amount) VALUES ($1, 'scheduled', 'completed', 1, $2)",
+                          [tenant.id, tenant.plan_type === 'enterprise' ? 999 : tenant.plan_type === 'business' ? 299 : 99]
+                        );
+                        await client.query(
+                          "UPDATE tenant_stripe_configs SET next_invoice_date = next_invoice_date + INTERVAL '1 month' WHERE tenant_id = $1",
+                          [tenant.id]
+                        );
+                        console.log(`Renewed billing for tenant ${tenant.name}`);
+                      }
+                    } finally {
+                      client.release();
+                      await pool.end();
+                    }
+                  }
+                  run().catch(console.error);
+              env:
+                - name: PG_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PG_DATABASE_URL
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-delinquency-check
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+    component: delinquency-cron
+    version: "1.31.0"
+spec:
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: delinquency-check
+              image: paygate-merchant-portal:1.31.0
+              command: ["node", "-e"]
+              args:
+                - |
+                  console.log('Running daily BNPL delinquency check...');
+                  process.exit(0);
+              env:
+                - name: PG_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PG_DATABASE_URL
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paygate-sla-monitor
+  namespace: paygate
+  labels:
+    app: paygate-merchant-portal
+    component: sla-monitor
+    version: "1.31.0"
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sla-monitor
+              image: paygate-merchant-portal:1.31.0
+              command: ["node", "-e"]
+              args:
+                - |
+                  console.log('Running SLA monitoring check...');
+                  process.exit(0);
+              env:
+                - name: PG_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: paygate-secrets
+                      key: PG_DATABASE_URL

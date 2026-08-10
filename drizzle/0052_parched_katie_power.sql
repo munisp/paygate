@@ -1,0 +1,1 @@
+ALTER TABLE "merchants" ADD COLUMN "ussd_lang_picker_enabled" boolean DEFAULT true NOT NULL;

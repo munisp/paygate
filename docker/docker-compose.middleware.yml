@@ -1,0 +1,573 @@
+version: "3.9"
+
+# ─── PayGate Middleware Stack ─────────────────────────────────────────────────
+# 13 services: Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify,
+#              Redis, PostgreSQL, OpenSearch, APISIX, TigerBeetle, Lakehouse, Go-Bridge
+#
+# Usage:
+#   docker compose -f docker-compose.middleware.yml up -d
+#   docker compose -f docker-compose.middleware.yml down -v
+#
+# Ports:
+#   Kafka:       9092 (broker), 9093 (controller), 8082 (REST proxy)
+#   Fluvio:      9003 (SC), 9005 (SPU)
+#   Temporal:    7233 (gRPC), 8080 (UI)
+#   Keycloak:    8180 (HTTP)
+#   Permify:     3476 (gRPC/HTTP)
+#   Redis:       6379
+#   PostgreSQL:  5432
+#   OpenSearch:  9200 (HTTP), 9600 (perf)
+#   APISIX:      9080 (proxy), 9180 (admin)
+#   TigerBeetle: 3000 (HTTP wrapper)
+#   Lakehouse:   8125 (Python service)
+#   Go-Bridge:   8080 (internal)
+
+x-common-env: &common-env
+  TZ: UTC
+  LOG_LEVEL: info
+
+x-restart: &restart
+  restart: unless-stopped
+
+networks:
+  paygate-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  kafka-data:
+  zookeeper-data:
+  temporal-db:
+  keycloak-db:
+  permify-db:
+  redis-data:
+  postgres-data:
+  opensearch-data:
+  apisix-data:
+  tigerbeetle-data:
+  lakehouse-data:
+
+services:
+  # ── 1. Zookeeper (Kafka dependency) ──────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: paygate-zookeeper
+    <<: *restart
+    networks: [paygate-net]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 2. Kafka ──────────────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: paygate-kafka
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── Kafka topic initializer ───────────────────────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: paygate-kafka-init
+    networks: [paygate-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 12 --replication-factor 1 --topic paygate.transaction.completed &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 6  --replication-factor 1 --topic paygate.cips.transfer.settled &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 6  --replication-factor 1 --topic paygate.upi.pay.settled &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 6  --replication-factor 1 --topic paygate.pix.payment.settled &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 6  --replication-factor 1 --topic paygate.mojaloop.transfer.fulfilled &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3  --replication-factor 1 --topic paygate.fraud.alert &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3  --replication-factor 1 --topic paygate.audit.events &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3  --replication-factor 1 --topic paygate.fx.rate.updated &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 6  --replication-factor 1 --topic paygate.payout.initiated &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3  --replication-factor 1 --topic paygate.dispute.created &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3  --replication-factor 1 --topic paygate.kyc.completed &&
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --partitions 3  --replication-factor 1 --topic paygate.webhook.delivery &&
+        echo 'Kafka topics created successfully'
+      "
+
+  # ── 3. Fluvio ─────────────────────────────────────────────────────────────────
+  fluvio-sc:
+    image: infinyon/fluvio:latest
+    container_name: paygate-fluvio-sc
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "9003:9003"
+    command: ["./fluvio-run", "sc", "--local"]
+    environment:
+      RUST_LOG: info
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9003"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  fluvio-spu:
+    image: infinyon/fluvio:latest
+    container_name: paygate-fluvio-spu
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "9005:9005"
+      - "9006:9006"
+    depends_on:
+      fluvio-sc:
+        condition: service_healthy
+    command: ["./fluvio-run", "spu", "--sc-addr", "fluvio-sc:9003", "--spu-id", "5001"]
+    environment:
+      RUST_LOG: info
+
+  # ── 4. Temporal ───────────────────────────────────────────────────────────────
+  temporal-db:
+    image: postgres:15-alpine
+    container_name: paygate-temporal-db
+    <<: *restart
+    networks: [paygate-net]
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal_secret
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: paygate-temporal
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "7233:7233"
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal_secret
+      POSTGRES_SEEDS: temporal-db
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/development-sql.yaml
+      TEMPORAL_BROADCAST_ADDRESS: "0.0.0.0"
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: paygate-temporal-ui
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "8088:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+
+  # ── 5. Keycloak ───────────────────────────────────────────────────────────────
+  keycloak-db:
+    image: postgres:15-alpine
+    container_name: paygate-keycloak-db
+    <<: *restart
+    networks: [paygate-net]
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak_secret
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.3
+    container_name: paygate-keycloak
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "8180:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_secret
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8180
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin_secret
+      KC_REALM: paygate
+      KC_CLIENT_ID: paygate-portal
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/realms/master/.well-known/openid-configuration || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+
+  # ── 6. Permify ────────────────────────────────────────────────────────────────
+  permify-db:
+    image: postgres:15-alpine
+    container_name: paygate-permify-db
+    <<: *restart
+    networks: [paygate-net]
+    environment:
+      POSTGRES_USER: permify
+      POSTGRES_PASSWORD: permify_secret
+      POSTGRES_DB: permify
+    volumes:
+      - permify-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permify"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  permify:
+    image: ghcr.io/permify/permify:v0.9.6
+    container_name: paygate-permify
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "3476:3476"
+      - "3478:3478"
+    depends_on:
+      permify-db:
+        condition: service_healthy
+    command: ["serve"]
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: postgres://permify:permify_secret@permify-db:5432/permify
+      PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: 20
+      PERMIFY_SERVER_HTTP_PORT: 3476
+      PERMIFY_SERVER_GRPC_PORT: 3478
+      PERMIFY_LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "3476"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── 7. Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: paygate-redis
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass redis_secret
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_secret", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── 8. PostgreSQL (primary) ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: paygate-postgres
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: paygate
+      POSTGRES_PASSWORD: paygate_secret
+      POSTGRES_DB: paygate
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paygate"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── 9. OpenSearch ─────────────────────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: paygate-opensearch
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    environment:
+      cluster.name: paygate-cluster
+      node.name: paygate-node-1
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.13.0
+    container_name: paygate-opensearch-dashboards
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+
+  # ── 10. APISIX ────────────────────────────────────────────────────────────────
+  apisix-etcd:
+    image: bitnami/etcd:3.5.12
+    container_name: paygate-apisix-etcd
+    <<: *restart
+    networks: [paygate-net]
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: http://apisix-etcd:2379
+    volumes:
+      - apisix-data:/bitnami/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  apisix:
+    image: apache/apisix:3.9.0-debian
+    container_name: paygate-apisix
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "9080:9080"
+      - "9180:9180"
+      - "9443:9443"
+    depends_on:
+      apisix-etcd:
+        condition: service_healthy
+    volumes:
+      - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9180/apisix/admin/routes"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── 11. TigerBeetle ───────────────────────────────────────────────────────────
+  # Note: TigerBeetle runs as a native binary; we use our Rust HTTP wrapper
+  tigerbeetle-ledger:
+    build:
+      context: ../rust-services/tigerbeetle-ledger
+      dockerfile: Dockerfile
+    container_name: paygate-tigerbeetle-ledger
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "8200:8200"
+    environment:
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-0.0.0.0:3000}
+      RUST_LOG: info
+      PORT: 8200
+    volumes:
+      - tigerbeetle-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── 12. Lakehouse (Python) ────────────────────────────────────────────────────
+  lakehouse:
+    build:
+      context: ../python-services/lakehouse-v2
+      dockerfile: Dockerfile
+    container_name: paygate-lakehouse
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "8125:8125"
+    environment:
+      <<: *common-env
+      OPENSEARCH_URL: http://opensearch:9200
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      POSTGRES_URL: postgresql://paygate:paygate_secret@postgres:5432/paygate
+      LAKEHOUSE_DATA_PATH: /data/lakehouse
+      PORT: 8125
+    volumes:
+      - lakehouse-data:/data/lakehouse
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8125/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── 13. Go Bridge (Dapr + all middleware) ─────────────────────────────────────
+  go-bridge:
+    build:
+      context: ../go-bridge
+      dockerfile: Dockerfile
+    container_name: paygate-go-bridge
+    <<: *restart
+    networks: [paygate-net]
+    ports:
+      - "8090:8080"
+    environment:
+      <<: *common-env
+      PORT: 8080
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      FLUVIO_SC_ADDR: fluvio-sc:9003
+      TEMPORAL_HOST_PORT: temporal:7233
+      TEMPORAL_NAMESPACE: paygate
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: paygate
+      KEYCLOAK_CLIENT_ID: paygate-portal
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      PERMIFY_URL: http://permify:3476
+      PERMIFY_API_KEY: ${PERMIFY_API_KEY:-}
+      REDIS_URL: redis://:redis_secret@redis:6379/0
+      TIGERBEETLE_ADDRESS: tigerbeetle-ledger:3000
+      POSTGRES_URL: postgresql://paygate:paygate_secret@postgres:5432/paygate
+      MIDDLEWARE_INTERNAL_KEY: ${MIDDLEWARE_INTERNAL_KEY:-paygate-internal-key}
+      MOJALOOP_URL: ${MOJALOOP_URL:-https://sandbox.mojaloop.io}
+      MOJALOOP_API_KEY: ${MOJALOOP_API_KEY:-}
+      NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-gateway.paygate.io}
+      NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-000001}
+      NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY:-}
+      FRAUD_SCORING_URL: http://lakehouse:8125
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Dapr sidecar for Go Bridge ────────────────────────────────────────────────
+  go-bridge-dapr:
+    image: daprio/daprd:1.13.4
+    container_name: paygate-go-bridge-dapr
+    <<: *restart
+    networks: [paygate-net]
+    command: >
+      ./daprd
+      --app-id go-bridge
+      --app-port 8080
+      --dapr-http-port 3500
+      --dapr-grpc-port 50001
+      --components-path /components
+      --log-level info
+    volumes:
+      - ./dapr/components:/components:ro
+    depends_on:
+      - go-bridge
+      - redis
+
+  # ── OpenSearch index initializer ──────────────────────────────────────────────
+  opensearch-init:
+    image: curlimages/curl:8.7.1
+    container_name: paygate-opensearch-init
+    networks: [paygate-net]
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    command: >
+      sh -c "
+        curl -X PUT 'http://opensearch:9200/paygate-transactions' -H 'Content-Type: application/json' -d '{\"settings\":{\"number_of_shards\":3,\"number_of_replicas\":0}}' &&
+        curl -X PUT 'http://opensearch:9200/paygate-crossborder' -H 'Content-Type: application/json' -d '{\"settings\":{\"number_of_shards\":3,\"number_of_replicas\":0}}' &&
+        curl -X PUT 'http://opensearch:9200/paygate-customers' -H 'Content-Type: application/json' -d '{\"settings\":{\"number_of_shards\":2,\"number_of_replicas\":0}}' &&
+        curl -X PUT 'http://opensearch:9200/paygate-fraud-alerts' -H 'Content-Type: application/json' -d '{\"settings\":{\"number_of_shards\":1,\"number_of_replicas\":0}}' &&
+        curl -X PUT 'http://opensearch:9200/paygate-audit-events' -H 'Content-Type: application/json' -d '{\"settings\":{\"number_of_shards\":3,\"number_of_replicas\":0}}' &&
+        curl -X PUT 'http://opensearch:9200/paygate-merchants' -H 'Content-Type: application/json' -d '{\"settings\":{\"number_of_shards\":1,\"number_of_replicas\":0}}' &&
+        echo 'OpenSearch indices created'
+      "

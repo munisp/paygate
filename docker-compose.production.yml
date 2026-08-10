@@ -1,0 +1,1336 @@
+version: '3.9'
+
+# ═══════════════════════════════════════════════════════════════════
+# PayGate Merchant Portal — Full Production Docker Compose Stack
+# Services: App, PostgreSQL, Redis, Qdrant, FalkorDB, Kafka,
+#           Temporal, Keycloak, MinIO, Nginx + all Python microservices
+# ═══════════════════════════════════════════════════════════════════
+
+x-python-defaults: &python-defaults
+  restart: unless-stopped
+  networks: [paygate]
+  environment:
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+  healthcheck:
+    test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 20s
+
+  credit-scoring:
+    build:
+      context: ./python-services/credit-scoring
+      dockerfile: Dockerfile
+    container_name: paygate-credit-scoring-py
+    restart: unless-stopped
+    environment:
+      - PORT=8115
+      - PG_DATABASE_URL=${PG_DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-paygate-internal-dev-key-2026}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+    ports:
+      - "8115:8115"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - paygate
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8115/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  paygate:
+    driver: bridge
+  # keycloak-admin: internal-only network for Keycloak Admin Console.
+  # The Admin Console (port 8080) is NOT exposed to the host.
+  # Access via SSH tunnel: ssh -L 18080:keycloak:8080 <bastion-host>
+  keycloak-admin:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  falkordb_data:
+  kafka_data:
+  zookeeper_data:
+  keycloak_data:
+  minio_data:
+  nginx_logs:
+
+services:
+
+  # ─── Core App ────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paygate_app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379}
+      JWT_SECRET: ${JWT_SECRET:-paygate_jwt_secret_change_in_production_2026_min32chars}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      QDRANT_URL: http://qdrant:6333
+      FALKORDB_URL: redis://falkordb:6379
+      TEMPORAL_HOST_PORT: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-paygate-prod}
+      FRAUD_SCORING_URL: http://fraud-scoring:8000
+      VECTOR_STORE_URL: http://vector-store:8000
+      KNOWLEDGE_GRAPH_URL: http://knowledge-graph:8000
+      ART_REASONING_URL: http://art-reasoning:8000
+      COCOINDEX_URL: http://cocoindex:8000
+      LAKEHOUSE_AI_URL: http://lakehouse-ai:8000
+      AI_INSIGHTS_URL: http://ai-insights:8000
+      AML_MONITOR_URL: http://aml-monitor:8000
+      SETTLEMENT_FORECAST_URL: http://settlement-forecast:8000
+      GNN_FRAUD_URL: http://gnn-fraud:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-PayGate Merchant Portal}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder}
+      SMTP_HOST: ${SMTP_HOST:-smtp.mailgun.org}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-postmaster@paygate.ng}
+      SMTP_PASS: ${SMTP_PASS:-smtp_password_placeholder}
+      NIBSS_GATEWAY_URL: ${NIBSS_GATEWAY_URL:-https://nibss-gateway.paygate.ng}
+      NIBSS_INSTITUTION_CODE: ${NIBSS_INSTITUTION_CODE:-000001}
+      NIBSS_SECRET_KEY: ${NIBSS_SECRET_KEY:-nibss_secret_placeholder}
+      MOJALOOP_URL: ${MOJALOOP_URL:-https://mojaloop.paygate.ng}
+      MOJALOOP_API_KEY: ${MOJALOOP_API_KEY:-mojaloop_key_placeholder}
+      PAYMENT_LINK_BASE_URL: ${PAYMENT_LINK_BASE_URL:-https://pay.paygate.ng}
+      MERCHANT_PORTAL_URL: ${MERCHANT_PORTAL_URL:-https://portal.paygate.ng}
+      YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY:-youverify_key_placeholder}
+      TERMII_API_KEY: ${TERMII_API_KEY:-termii_key_placeholder}
+      NIP_API_KEY: ${NIP_API_KEY:-nip_key_placeholder}
+      # ─── Keycloak OIDC ─────────────────────────────────────────────────────────────────────
+      # Required for on-premise auth. Run scripts/keycloak-bootstrap.sh once
+      # after first startup to provision the realm, client, and admin user.
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-paygate}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-merchant-portal}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me_run_bootstrap_script}
+      # Keycloak Admin credentials for the nightly realm backup job
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
+      # Comma-separated list of allowed redirect origins (e.g. https://portal.acme.com)
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks: [paygate]
+  # ─── PostgreSQL ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: paygate_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-paygate_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-paygate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paygate} -d ${POSTGRES_DB:-paygate_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [paygate]
+
+  # ─── PgBouncer ────────────────────────────────────────────────────────────────
+  # Connection pooler — sits between the application servers and PostgreSQL.
+  # Reduces connection overhead under high concurrency by multiplexing connections.
+  # All services that previously connected directly to postgres:5432 should use
+  # pgbouncer:6432 instead in production.
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1
+    container_name: paygate_pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-paygate}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      DB_NAME: ${POSTGRES_DB:-paygate_prod}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "25"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "5"
+      RESERVE_POOL_TIMEOUT: "3"
+      SERVER_IDLE_TIMEOUT: "600"
+      CLIENT_IDLE_TIMEOUT: "0"
+      LOG_CONNECTIONS: "0"
+      LOG_DISCONNECTIONS: "0"
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U ${POSTGRES_USER:-paygate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [paygate]
+  # ─── Redis ────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: paygate_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_dev_2026} --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_dev_2026}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [paygate]
+
+  # ─── Qdrant Vector Store ──────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    container_name: paygate_qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks: [paygate]
+
+  # ─── FalkorDB (Graph DB for KG/EPR-KGQA) ─────────────────────────
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: paygate_falkordb
+    restart: unless-stopped
+    ports:
+      - "${FALKORDB_PORT:-6380}:6379"
+    volumes:
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [paygate]
+
+  # ─── Zookeeper ────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: paygate_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper
+    networks: [paygate]
+
+  # ─── Kafka ────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: paygate_kafka
+    restart: unless-stopped
+    depends_on: [zookeeper]
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks: [paygate]
+
+  # ─── Temporal Workflow Engine ─────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: paygate_temporal
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-paygate}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      POSTGRES_SEEDS: postgres
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-paygate-prod}
+    networks: [paygate]
+
+  # ─── Temporal UI ──────────────────────────────────────────────────
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: paygate_temporal_ui
+    restart: unless-stopped
+    depends_on: [temporal]
+    ports:
+      - "${TEMPORAL_UI_PORT:-8082}:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    networks: [paygate]
+
+  # ─── Keycloak Identity Provider ───────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.4
+    container_name: paygate_keycloak
+    restart: unless-stopped
+    # start-dev: suitable for on-premise internal networks.
+    # For internet-facing deployments, switch to `start` and configure KC_HOSTNAME.
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paygate_prod}
+      KC_DB_USERNAME: ${POSTGRES_USER:-paygate}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      # ── SMTP (password-reset / email-verification emails) ──────────
+      # Leave KC_SMTP_HOST empty to disable email sending (e.g. in dev).
+      # Set all four vars to enable Keycloak's built-in SMTP sender.
+      KC_SMTP_HOST: ${KC_SMTP_HOST:-}
+      KC_SMTP_PORT: ${KC_SMTP_PORT:-587}
+      KC_SMTP_FROM: ${KC_SMTP_FROM:-no-reply@paygate.local}
+      KC_SMTP_FROM_DISPLAY_NAME: ${KC_SMTP_FROM_DISPLAY_NAME:-PayGate Identity}
+      KC_SMTP_USER: ${KC_SMTP_USER:-}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD:-}
+      KC_SMTP_SSL: ${KC_SMTP_SSL:-false}
+      KC_SMTP_STARTTLS: ${KC_SMTP_STARTTLS:-true}
+      KC_SMTP_AUTH: ${KC_SMTP_AUTH:-true}
+      # ── Webhook secret for event listener SPI ─────────────────────
+      # This value must match KEYCLOAK_WEBHOOK_SECRET in the portal .env.
+      # Generate with: openssl rand -hex 32
+      KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
+    # Port 8080 is intentionally NOT exposed to the host.
+    # Uncomment the line below ONLY for initial bootstrap / emergency access:
+    # ports:
+    #   - "127.0.0.1:${KEYCLOAK_PORT:-18080}:8080"
+    # Health-check: poll /health/ready so dependent services (portal, bootstrap
+    # script) only start once Keycloak is fully initialised and serving OIDC.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      # Mount realm JSON so Keycloak auto-imports it on first start (--import-realm).
+      # The realm is only imported if it does not already exist.
+      - ./keycloak/paygate-realm.json:/opt/keycloak/data/import/paygate-realm.json:ro
+    networks:
+      - paygate
+      - keycloak-admin
+    # NOTE: Port 8080 (Admin Console) is NOT exposed to the host.
+    # The portal reaches Keycloak via the internal Docker network (http://keycloak:8080).
+    # To access Admin Console: ssh -L 18080:localhost:8080 <bastion-ip>
+    # then open http://localhost:18080/admin
+
+  # ─── MinIO (S3-compatible Lakehouse storage) ──────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-10-02T17-50-41Z
+    container_name: paygate_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_access_key}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks: [paygate]
+
+  # ─── Nginx Reverse Proxy ──────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: paygate_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_logs:/var/log/nginx
+    depends_on: [app]
+    networks: [paygate]
+
+  # ─── Python: Fraud Scoring (GNN/ML) ──────────────────────────────
+  fraud-scoring:
+    <<: *python-defaults
+    build:
+      context: ./python-services/fraud-scoring
+      dockerfile: Dockerfile
+    container_name: paygate_fraud_scoring
+    ports:
+      - "${FRAUD_SCORING_PORT:-8100}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      QDRANT_URL: http://qdrant:6333
+      FALKORDB_URL: redis://falkordb:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: GNN Fraud Detection (GraphSAGE) ──────────────────────
+  gnn-fraud:
+    <<: *python-defaults
+    build:
+      context: ./python-services/gnn-fraud
+      dockerfile: Dockerfile
+    container_name: paygate_gnn_fraud
+    ports:
+      - "${GNN_FRAUD_PORT:-8102}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FRAUD_SCORING_URL: http://fraud-scoring:8000
+      FALKORDB_URL: redis://falkordb:6379
+      GNN_MODEL_VERSION: ${GNN_MODEL_VERSION:-v1.0.0}
+      GNN_FRAUD_THRESHOLD: ${GNN_FRAUD_THRESHOLD:-0.7}
+      GNN_RING_THRESHOLD: ${GNN_RING_THRESHOLD:-0.85}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ─── Python: Vector Store (Qdrant) ───────────────────────────────
+  vector-store:
+    <<: *python-defaults
+    build:
+      context: ./python-services/vector-store
+      dockerfile: Dockerfile
+    container_name: paygate_vector_store
+    ports:
+      - "${VECTOR_STORE_PORT:-8101}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      QDRANT_URL: http://qdrant:6333
+
+  # ─── Python: Knowledge Graph (FalkorDB + EPR-KGQA) ───────────────
+  knowledge-graph:
+    <<: *python-defaults
+    build:
+      context: ./python-services/knowledge-graph
+      dockerfile: Dockerfile
+    container_name: paygate_knowledge_graph
+    ports:
+      - "${KNOWLEDGE_GRAPH_PORT:-8102}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      FALKORDB_URL: redis://falkordb:6379
+
+  # ─── Python: ART Reasoning Engine ────────────────────────────────
+  art-reasoning:
+    <<: *python-defaults
+    build:
+      context: ./python-services/art-reasoning
+      dockerfile: Dockerfile
+    container_name: paygate_art_reasoning
+    ports:
+      - "${ART_REASONING_PORT:-8103}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      FRAUD_SCORING_URL: http://fraud-scoring:8000
+      VECTOR_STORE_URL: http://vector-store:8000
+      KNOWLEDGE_GRAPH_URL: http://knowledge-graph:8000
+
+  # ─── Python: CocoIndex ETL Pipeline ──────────────────────────────
+  cocoindex:
+    <<: *python-defaults
+    build:
+      context: ./python-services/cocoindex
+      dockerfile: Dockerfile
+    container_name: paygate_cocoindex
+    ports:
+      - "${COCOINDEX_PORT:-8104}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      QDRANT_URL: http://qdrant:6333
+      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: Lakehouse AI Orchestrator ───────────────────────────
+  lakehouse-ai:
+    <<: *python-defaults
+    build:
+      context: ./python-services/lakehouse-ai
+      dockerfile: Dockerfile
+    container_name: paygate_lakehouse_ai
+    ports:
+      - "${LAKEHOUSE_AI_PORT:-8105}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      FRAUD_SCORING_URL: http://fraud-scoring:8000
+      VECTOR_STORE_URL: http://vector-store:8000
+      KNOWLEDGE_GRAPH_URL: http://knowledge-graph:8000
+      ART_REASONING_URL: http://art-reasoning:8000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+      S3_ENDPOINT_URL: http://minio:9000
+      LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: AI Insights ──────────────────────────────────────────
+  ai-insights:
+    <<: *python-defaults
+    build:
+      context: ./python-services/ai-insights
+      dockerfile: Dockerfile
+    container_name: paygate_ai_insights
+    ports:
+      - "${AI_INSIGHTS_PORT:-8106}:8000"
+
+  # ─── Python: AML Monitor ─────────────────────────────────────────
+  aml-monitor:
+    <<: *python-defaults
+    build:
+      context: ./python-services/aml-monitor
+      dockerfile: Dockerfile
+    container_name: paygate_aml_monitor
+    ports:
+      - "${AML_MONITOR_PORT:-8107}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: Settlement Forecast ─────────────────────────────────
+  settlement-forecast:
+    <<: *python-defaults
+    build:
+      context: ./python-services/settlement-forecast
+      dockerfile: Dockerfile
+    container_name: paygate_settlement_forecast
+    ports:
+      - "${SETTLEMENT_FORECAST_PORT:-8108}:8000"
+
+  # ─── Python: Lakehouse Audit ──────────────────────────────────────
+  lakehouse-audit:
+    <<: *python-defaults
+    build:
+      context: ./python-services/lakehouse-audit
+      dockerfile: Dockerfile
+    container_name: paygate_lakehouse_audit
+    ports:
+      - "${LAKEHOUSE_AUDIT_PORT:-8109}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── DB Migration (one-shot) ──────────────────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paygate_migrate
+    command: ["pnpm", "db:push"]
+    environment:
+      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+    restart: "no"
+
+  # ─── Seed Data (one-shot) ─────────────────────────────────────────
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paygate_seed
+    command: ["node", "scripts/seed-production-complete.mjs"]
+    environment:
+      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [paygate]
+    restart: "no"
+
+  # ─── Python: Bulk Collections ─────────────────────────────────────
+  bulk-collections:
+    <<: *python-defaults
+    build:
+      context: ./python-services/bulk-collections
+      dockerfile: Dockerfile
+    container_name: paygate_bulk_collections
+    ports:
+      - "${BULK_COLLECTIONS_PORT:-8110}:8000"
+
+  # ─── Python: Carbon Oracle ────────────────────────────────────────
+  carbon-oracle:
+    <<: *python-defaults
+    build:
+      context: ./python-services/carbon-oracle
+      dockerfile: Dockerfile
+    container_name: paygate_carbon_oracle
+    ports:
+      - "${CARBON_ORACLE_PORT:-8111}:8000"
+
+  # ─── Python: Cashback Rewards ─────────────────────────────────────
+  cashback-rewards:
+    <<: *python-defaults
+    build:
+      context: ./python-services/cashback-rewards
+      dockerfile: Dockerfile
+    container_name: paygate_cashback_rewards
+    ports:
+      - "${CASHBACK_REWARDS_PORT:-8112}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: Cohort Analytics ─────────────────────────────────────
+  cohort-analytics:
+    <<: *python-defaults
+    build:
+      context: ./python-services/cohort-analytics
+      dockerfile: Dockerfile
+    container_name: paygate_cohort_analytics
+    ports:
+      - "${COHORT_ANALYTICS_PORT:-8113}:8000"
+
+  # ─── Python: Credit Scoring ───────────────────────────────────────
+  credit-scoring-py:
+    <<: *python-defaults
+    build:
+      context: ./python-services/credit-scoring
+      dockerfile: Dockerfile
+    container_name: paygate_credit_scoring_py
+    ports:
+      - "${CREDIT_SCORING_PY_PORT:-8114}:8000"
+
+  # ─── Python: Digital Gold ─────────────────────────────────────────
+  digital-gold:
+    <<: *python-defaults
+    build:
+      context: ./python-services/digital-gold
+      dockerfile: Dockerfile
+    container_name: paygate_digital_gold
+    ports:
+      - "${DIGITAL_GOLD_PORT:-8115}:8000"
+
+  # ─── Python: EMI Service ──────────────────────────────────────────
+  emi-service:
+    <<: *python-defaults
+    build:
+      context: ./python-services/emi-service
+      dockerfile: Dockerfile
+    container_name: paygate_emi_service
+    ports:
+      - "${EMI_SERVICE_PORT:-8116}:8000"
+
+  # ─── Python: Fraud Heatmap ────────────────────────────────────────
+  fraud-heatmap:
+    <<: *python-defaults
+    build:
+      context: ./python-services/fraud-heatmap
+      dockerfile: Dockerfile
+    container_name: paygate_fraud_heatmap
+    ports:
+      - "${FRAUD_HEATMAP_PORT:-8117}:8000"
+
+  # ─── Python: FX Rate Feed ─────────────────────────────────────────
+  fx-rate-feed:
+    <<: *python-defaults
+    build:
+      context: ./python-services/fx-rate-feed
+      dockerfile: Dockerfile
+    container_name: paygate_fx_rate_feed
+    ports:
+      - "${FX_RATE_FEED_PORT:-8118}:8000"
+
+  # ─── Python: Insurance Pricing ────────────────────────────────────
+  insurance-pricing:
+    <<: *python-defaults
+    build:
+      context: ./python-services/insurance-pricing
+      dockerfile: Dockerfile
+    container_name: paygate_insurance_pricing
+    ports:
+      - "${INSURANCE_PRICING_PORT:-8119}:8000"
+
+  # ─── Python: International Remittance ────────────────────────────
+  intl-remittance:
+    <<: *python-defaults
+    build:
+      context: ./python-services/intl-remittance
+      dockerfile: Dockerfile
+    container_name: paygate_intl_remittance
+    ports:
+      - "${INTL_REMITTANCE_PORT:-8120}:8000"
+
+  # ─── Python: ISO 20022 Parser ─────────────────────────────────────
+  iso20022-parser:
+    <<: *python-defaults
+    build:
+      context: ./python-services/iso20022-parser
+      dockerfile: Dockerfile
+    container_name: paygate_iso20022_parser
+    ports:
+      - "${ISO20022_PARSER_PORT:-8121}:8000"
+
+  # ─── Python: Kiosk Health ─────────────────────────────────────────
+  kiosk-health:
+    <<: *python-defaults
+    build:
+      context: ./python-services/kiosk-health
+      dockerfile: Dockerfile
+    container_name: paygate_kiosk_health
+    ports:
+      - "${KIOSK_HEALTH_PORT:-8122}:8000"
+
+  # ─── Python: KYC OCR ──────────────────────────────────────────────
+  kyc-ocr:
+    <<: *python-defaults
+    build:
+      context: ./python-services/kyc-ocr
+      dockerfile: Dockerfile
+    container_name: paygate_kyc_ocr
+    ports:
+      - "${KYC_OCR_PORT:-8123}:8000"
+
+  # ─── Python: Lakehouse V2 ─────────────────────────────────────────
+  lakehouse-v2:
+    <<: *python-defaults
+    build:
+      context: ./python-services/lakehouse-v2
+      dockerfile: Dockerfile
+    container_name: paygate_lakehouse_v2
+    ports:
+      - "${LAKEHOUSE_V2_PORT:-8124}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+      S3_ENDPOINT_URL: http://minio:9000
+      LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
+
+  # ─── Python: Liveness Detection ───────────────────────────────────
+  liveness-detection:
+    <<: *python-defaults
+    build:
+      context: ./python-services/liveness-detection
+      dockerfile: Dockerfile
+    container_name: paygate_liveness_detection
+    ports:
+      - "${LIVENESS_DETECTION_PORT:-8125}:8000"
+
+  # ─── Python: M-Pesa Connector ─────────────────────────────────────
+  mpesa-connector:
+    <<: *python-defaults
+    build:
+      context: ./python-services/mpesa-connector
+      dockerfile: Dockerfile
+    container_name: paygate_mpesa_connector
+    ports:
+      - "${MPESA_CONNECTOR_PORT:-8126}:8000"
+
+  # ─── Python: Mutual Funds ─────────────────────────────────────────
+  mutual-funds:
+    <<: *python-defaults
+    build:
+      context: ./python-services/mutual-funds
+      dockerfile: Dockerfile
+    container_name: paygate_mutual_funds
+    ports:
+      - "${MUTUAL_FUNDS_PORT:-8127}:8000"
+
+  # ─── Python: Payroll ──────────────────────────────────────────────
+  payroll:
+    <<: *python-defaults
+    build:
+      context: ./python-services/payroll
+      dockerfile: Dockerfile
+    container_name: paygate_payroll
+    ports:
+      - "${PAYROLL_PORT:-8128}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: Pension NPS ──────────────────────────────────────────
+  pension-nps:
+    <<: *python-defaults
+    build:
+      context: ./python-services/pension-nps
+      dockerfile: Dockerfile
+    container_name: paygate_pension_nps
+    ports:
+      - "${PENSION_NPS_PORT:-8129}:8000"
+
+  # ─── Python: Push Service ─────────────────────────────────────────
+  push-service:
+    <<: *python-defaults
+    build:
+      context: ./python-services/push-service
+      dockerfile: Dockerfile
+    container_name: paygate_push_service
+    ports:
+      - "${PUSH_SERVICE_PORT:-8130}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-vapid_public_key_placeholder}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-vapid_private_key_placeholder}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@paygate.ng}
+
+  # ─── Python: Reconciliation Engine ───────────────────────────────
+  reconciliation-engine:
+    <<: *python-defaults
+    build:
+      context: ./python-services/reconciliation-engine
+      dockerfile: Dockerfile
+    container_name: paygate_reconciliation_engine
+    ports:
+      - "${RECONCILIATION_ENGINE_PORT:-8131}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: Salary Accounts ──────────────────────────────────────
+  salary-accounts:
+    <<: *python-defaults
+    build:
+      context: ./python-services/salary-accounts
+      dockerfile: Dockerfile
+    container_name: paygate_salary_accounts
+    ports:
+      - "${SALARY_ACCOUNTS_PORT:-8132}:8000"
+
+  # ─── Python: Soundbox ─────────────────────────────────────────────
+  soundbox:
+    <<: *python-defaults
+    build:
+      context: ./python-services/soundbox
+      dockerfile: Dockerfile
+    container_name: paygate_soundbox
+    ports:
+      - "${SOUNDBOX_PORT:-8133}:8000"
+
+  # ─── Python: Spark Compaction ─────────────────────────────────────
+  spark-compaction:
+    <<: *python-defaults
+    build:
+      context: ./python-services/spark-compaction
+      dockerfile: Dockerfile
+    container_name: paygate_spark_compaction
+    ports:
+      - "${SPARK_COMPACTION_PORT:-8134}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      S3_ENDPOINT_URL: http://minio:9000
+      LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
+
+  # ─── Python: Tax Engine ───────────────────────────────────────────
+  tax-engine:
+    <<: *python-defaults
+    build:
+      context: ./python-services/tax-engine
+      dockerfile: Dockerfile
+    container_name: paygate_tax_engine
+    ports:
+      - "${TAX_ENGINE_PORT:-8135}:8000"
+
+  # ─── Python: USDC Lakehouse Consumer ─────────────────────────────
+  usdc-lakehouse-consumer:
+    <<: *python-defaults
+    build:
+      context: ./python-services/usdc-lakehouse-consumer
+      dockerfile: Dockerfile
+    container_name: paygate_usdc_lakehouse_consumer
+    ports:
+      - "${USDC_LAKEHOUSE_PORT:-8136}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # ─── Python: USSD Gateway ─────────────────────────────────────────
+  ussd-gateway:
+    <<: *python-defaults
+    build:
+      context: ./python-services/ussd-gateway
+      dockerfile: Dockerfile
+    container_name: paygate_ussd_gateway
+    ports:
+      - "${USSD_GATEWAY_PORT:-8137}:8000"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      USSD_GATEWAY_URL: ${USSD_GATEWAY_URL:-https://ussd.paygate.ng}
+
+  # ─── Python: Wealth Management ────────────────────────────────────
+  wealth-management:
+    <<: *python-defaults
+    build:
+      context: ./python-services/wealth-management
+      dockerfile: Dockerfile
+    container_name: paygate_wealth_management
+    ports:
+      - "${WEALTH_MANAGEMENT_PORT:-8138}:8000"
+
+  # ─── Go Bridge ────────────────────────────────────────────────────
+  go-bridge:
+    build:
+      context: ./go-bridge
+      dockerfile: Dockerfile
+    container_name: paygate_go_bridge
+    restart: unless-stopped
+    ports:
+      - "${GO_BRIDGE_PORT:-8200}:8080"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      FRAUD_SCORING_URL: http://fraud-scoring:8000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── Apache NiFi ──────────────────────────────────────────────────
+  nifi:
+    image: apache/nifi:1.28.1
+    container_name: paygate_nifi
+    restart: unless-stopped
+    ports:
+      - "${NIFI_PORT:-8443}:8443"
+    environment:
+      NIFI_WEB_HTTPS_PORT: 8443
+      SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_USERNAME:-admin}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD:-paygate_nifi_admin_2026}
+      NIFI_SENSITIVE_PROPS_KEY: ${NIFI_SENSITIVE_KEY:-paygate_nifi_sensitive_key_32chars}
+    volumes:
+      - nifi_data:/opt/nifi/nifi-current/data
+      - nifi_logs:/opt/nifi/nifi-current/logs
+      - ./infra/nifi/templates:/opt/nifi/nifi-current/conf/templates
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/nifi/"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 120s
+
+  # ─── Apache Airflow Webserver ─────────────────────────────────────
+  airflow-webserver:
+    image: apache/airflow:2.10.4
+    container_name: paygate_airflow_webserver
+    restart: unless-stopped
+    depends_on: [postgres, redis]
+    ports:
+      - "${AIRFLOW_PORT:-8090}:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-paygate_airflow_secret_2026}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-paygate_airflow_2026}
+    volumes:
+      - ./infra/airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: webserver
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ─── Apache Airflow Scheduler ─────────────────────────────────────
+  airflow-scheduler:
+    image: apache/airflow:2.10.4
+    container_name: paygate_airflow_scheduler
+    restart: unless-stopped
+    depends_on: [airflow-webserver]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./infra/airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: scheduler
+    networks: [paygate]
+
+  # ─── Apache Airflow Celery Worker ─────────────────────────────────
+  airflow-worker:
+    image: apache/airflow:2.10.4
+    container_name: paygate_airflow_worker
+    restart: unless-stopped
+    depends_on: [airflow-scheduler]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+    volumes:
+      - ./infra/airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: celery worker
+    networks: [paygate]
+
+  # ─── dbt Runner (run-once transformation job) ─────────────────────
+  dbt-runner:
+    image: ghcr.io/dbt-labs/dbt-postgres:1.9.4
+    container_name: paygate_dbt_runner
+    restart: "no"
+    depends_on: [postgres]
+    environment:
+      DBT_PROFILES_DIR: /usr/app/dbt
+      DBT_PROJECT_DIR: /usr/app/dbt
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-paygate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-paygate_prod}
+    volumes:
+      - ./infra/dbt:/usr/app/dbt
+      - dbt_logs:/usr/app/dbt/logs
+    command: ["run", "--profiles-dir", "/usr/app/dbt", "--project-dir", "/usr/app/dbt"]
+    networks: [paygate]
+
+  # ─── Trino (SQL query engine over Lakehouse) ──────────────────────
+  trino:
+    image: trinodb/trino:457
+    container_name: paygate_trino
+    restart: unless-stopped
+    ports:
+      - "${TRINO_PORT:-8091}:8080"
+    volumes:
+      - ./infra/trino:/etc/trino
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── Threat Intelligence Engine (Wave 108) ──────────────────────
+  threat-intel:
+    build:
+      context: ./python-services/threat-intel
+      dockerfile: Dockerfile
+    container_name: paygate_threat_intel
+    restart: unless-stopped
+    ports:
+      - "${THREAT_INTEL_PORT:-8095}:8095"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      GEOIP_DB_PATH: /data/GeoLite2-City.mmdb
+      THREAT_INTEL_PORT: "8095"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./infra/geoip:/data:ro
+    networks: [paygate]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── CIPS/UPI/PIX/FX Corridor Service ───────────────────────────
+  cips-upi-pix-fx:
+    build:
+      context: ./python-services/cips-upi-pix-fx
+      dockerfile: Dockerfile
+    container_name: paygate_cips_upi_pix_fx
+    restart: unless-stopped
+    ports:
+      - "${CIPS_UPI_PIX_FX_PORT:-8102}:8102"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8102/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── OpenSearch Analytics Service ───────────────────────────────
+  opensearch-service:
+    build:
+      context: ./python-services/opensearch-service
+      dockerfile: Dockerfile
+    container_name: paygate_opensearch_service
+    restart: unless-stopped
+    ports:
+      - "${OPENSEARCH_SERVICE_PORT:-8300}:8300"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── Wealth Advisor ML Service ───────────────────────────────────
+  wealth-advisor:
+    build:
+      context: ./python-services/wealth-advisor
+      dockerfile: Dockerfile
+    container_name: paygate_wealth_advisor
+    restart: unless-stopped
+    ports:
+      - "${WEALTH_ADVISOR_PORT:-8020}:8020"
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [paygate]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── TigerBeetle Ledger ─────────────────────────────────────────────
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+    container_name: paygate_tigerbeetle
+    restart: unless-stopped
+    command: >
+      sh -c "if [ ! -f /var/lib/tigerbeetle/0_0.tigerbeetle ]; then
+               tigerbeetle format --cluster=0 --replica=0 --replica-count=1 /var/lib/tigerbeetle/0_0.tigerbeetle;
+             fi &&
+             tigerbeetle start --addresses=0.0.0.0:3000 /var/lib/tigerbeetle/0_0.tigerbeetle"
+    ports:
+      - "${TIGERBEETLE_PORT:-3001}:3000"
+    volumes:
+      - tigerbeetle_data:/var/lib/tigerbeetle
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── Permify Fine-Grained Authorization ─────────────────────────────
+  permify:
+    image: ghcr.io/permify/permify:v0.9.6
+    container_name: paygate_permify
+    restart: unless-stopped
+    command: serve
+    ports:
+      - "${PERMIFY_PORT:-3476}:3476"
+      - "${PERMIFY_GRPC_PORT:-3478}:3478"
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
+      PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: "20"
+      PERMIFY_SERVER_RATE_LIMIT: "100"
+      PERMIFY_LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3476/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── Fluvio Real-Time Streaming ───────────────────────────────────────
+  fluvio:
+    image: infinyon/fluvio:0.11.11
+    container_name: paygate_fluvio
+    restart: unless-stopped
+    ports:
+      - "${FLUVIO_PORT:-9003}:9003"
+    volumes:
+      - fluvio_data:/var/lib/fluvio
+    networks: [paygate]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9003 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
+  opensearch-indexer:
+    build:
+      context: ./python-services/opensearch-indexer
+      dockerfile: Dockerfile
+    image: paygate/opensearch-indexer:latest
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      OPENSEARCH_USER: ${OPENSEARCH_USER:-admin}
+      OPENSEARCH_PASS: ${OPENSEARCH_PASS:-admin}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8003:8003"
+    networks:
+      - paygate
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+
+  # ─── Ollama LLM Server ──────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.3.14
+    container_name: paygate-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama/models
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=/root/.ollama/models
+      - OLLAMA_KEEP_ALIVE=5m
+      - OLLAMA_NUM_PARALLEL=2
+    networks:
+      - paygate-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+
+
+volumes:
+  nifi_data:
+  nifi_logs:
+  airflow_logs:
+  dbt_logs:
+  tigerbeetle_data:
+  fluvio_data:
+  ollama_models:

@@ -1,0 +1,200 @@
+syntax = "proto3";
+
+package nexthub.settlement.v1;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PayGate NextHub Settlement Service
+// ─────────────────────────────────────────────────────────────────────────────
+// All financial operations are backed by TigerBeetle.
+// Transfer IDs are UUID v5 (deterministic) for idempotency.
+// Amounts are always in minor units (kobo for NGN, cents for USD, etc.).
+// ─────────────────────────────────────────────────────────────────────────────
+
+service SettlementService {
+  // FSPIOP Transfer lifecycle
+  rpc PrepareTransfer(PrepareTransferRequest) returns (PrepareTransferResponse);
+  rpc FulfilTransfer(FulfilTransferRequest) returns (FulfilTransferResponse);
+  rpc AbortTransfer(AbortTransferRequest) returns (AbortTransferResponse);
+
+  // Cross-currency (4-link chain)
+  rpc CrossCurrencyTransfer(CrossCurrencyRequest) returns (CrossCurrencyResponse);
+
+  // DFSP account provisioning
+  rpc ProvisionDfspAccounts(ProvisionDfspRequest) returns (ProvisionDfspResponse);
+  rpc GetDfspBalance(GetDfspBalanceRequest) returns (GetDfspBalanceResponse);
+
+  // Settlement window operations
+  rpc CloseSettlementWindow(CloseWindowRequest) returns (CloseWindowResponse);
+  rpc GetNetPositions(GetNetPositionsRequest) returns (GetNetPositionsResponse);
+
+  // Fee / billing
+  rpc PostInvoiceTransfer(PostInvoiceRequest) returns (PostInvoiceResponse);
+  rpc PostFeeTransfer(PostFeeRequest) returns (PostFeeResponse);
+}
+
+// ── Prepare Transfer ──────────────────────────────────────────────────────────
+
+message PrepareTransferRequest {
+  string transfer_id = 1;          // UUID v5 — idempotency key
+  string payer_dfsp_id = 2;
+  string payee_dfsp_id = 3;
+  uint64 amount_minor = 4;
+  string currency = 5;             // ISO 4217 e.g. "NGN"
+  string ilp_condition = 6;        // SHA-256 hex
+  uint64 expiry_ms = 7;            // UTC epoch ms
+}
+
+message PrepareTransferResponse {
+  string transfer_id = 1;
+  string status = 2;               // PREPARED | DUPLICATE | INSUFFICIENT_FUNDS | ERROR
+  uint64 payer_position_after = 3; // minor units
+  string error_message = 4;
+}
+
+// ── Fulfil Transfer ───────────────────────────────────────────────────────────
+
+message FulfilTransferRequest {
+  string transfer_id = 1;
+  string ilp_fulfillment = 2;      // SHA-256 preimage hex
+}
+
+message FulfilTransferResponse {
+  string transfer_id = 1;
+  string status = 2;               // COMMITTED | ALREADY_COMMITTED | NOT_FOUND | EXPIRED | ERROR
+  uint64 committed_at_ms = 3;
+  string error_message = 4;
+}
+
+// ── Abort Transfer ────────────────────────────────────────────────────────────
+
+message AbortTransferRequest {
+  string transfer_id = 1;
+  string error_code = 2;           // FSPIOP error code e.g. "3301"
+  string error_description = 3;
+}
+
+message AbortTransferResponse {
+  string transfer_id = 1;
+  string status = 2;               // ABORTED | ALREADY_ABORTED | NOT_FOUND | ERROR
+  string error_message = 4;
+}
+
+// ── Cross-Currency Transfer ───────────────────────────────────────────────────
+
+message CrossCurrencyRequest {
+  string transfer_id = 1;
+  string payer_dfsp_id = 2;
+  string payee_dfsp_id = 3;
+  uint64 payer_amount_minor = 4;   // in payer currency
+  string payer_currency = 5;
+  uint64 payee_amount_minor = 6;   // in payee currency
+  string payee_currency = 7;
+  string fx_rate_id = 8;           // locked FX rate reference
+  uint64 expiry_ms = 9;
+}
+
+message CrossCurrencyResponse {
+  string transfer_id = 1;
+  string status = 2;
+  string error_message = 3;
+}
+
+// ── DFSP Account Provisioning ─────────────────────────────────────────────────
+
+message ProvisionDfspRequest {
+  string dfsp_id = 1;
+  string nip_code = 2;             // 3-digit CBN NIP institution code
+  repeated string currencies = 3;  // e.g. ["NGN", "USD"]
+  uint64 initial_position_minor = 4;
+  uint64 liquidity_threshold_minor = 5;
+}
+
+message ProvisionDfspResponse {
+  string dfsp_id = 1;
+  repeated AccountInfo accounts = 2;
+  string status = 3;
+}
+
+message AccountInfo {
+  string account_id = 1;           // TigerBeetle account ID (hex)
+  string account_type = 2;         // POSITION | SETTLEMENT | LIQUIDITY | FEE_RESERVE
+  string currency = 3;
+  uint64 balance_minor = 4;
+}
+
+// ── DFSP Balance ──────────────────────────────────────────────────────────────
+
+message GetDfspBalanceRequest {
+  string dfsp_id = 1;
+  string currency = 2;
+}
+
+message GetDfspBalanceResponse {
+  string dfsp_id = 1;
+  string currency = 2;
+  uint64 position_minor = 3;
+  uint64 settlement_minor = 4;
+  uint64 liquidity_threshold_minor = 5;
+  bool below_threshold = 6;
+}
+
+// ── Settlement Window ─────────────────────────────────────────────────────────
+
+message CloseWindowRequest {
+  string window_id = 1;
+  string window_type = 2;          // RTGS | DNS_INTRADAY | DNS_END_OF_DAY
+}
+
+message CloseWindowResponse {
+  string window_id = 1;
+  string status = 2;
+  repeated NetPosition net_positions = 3;
+}
+
+message GetNetPositionsRequest {
+  string window_id = 1;
+}
+
+message GetNetPositionsResponse {
+  string window_id = 1;
+  repeated NetPosition positions = 2;
+}
+
+message NetPosition {
+  string dfsp_id = 1;
+  string currency = 2;
+  int64 net_minor = 3;             // positive = net creditor, negative = net debtor
+  string settlement_status = 4;    // PENDING | SETTLED | FAILED
+}
+
+// ── Invoice Transfer ──────────────────────────────────────────────────────────
+
+message PostInvoiceRequest {
+  string transfer_id = 1;
+  string dfsp_id = 2;
+  uint64 amount_minor = 3;
+  string currency = 4;
+  string invoice_id = 5;
+}
+
+message PostInvoiceResponse {
+  string transfer_id = 1;
+  string status = 2;
+  string error_message = 3;
+}
+
+// ── Fee Transfer ──────────────────────────────────────────────────────────────
+
+message PostFeeRequest {
+  string transfer_id = 1;          // parent transfer ID
+  string dfsp_id = 2;
+  string fee_type = 3;             // SCHEME_FEE | INTERCHANGE | FX_MARKUP | PENALTY
+  uint64 amount_minor = 4;
+  string currency = 5;
+}
+
+message PostFeeResponse {
+  string fee_transfer_id = 1;
+  string status = 2;
+  string error_message = 3;
+}

@@ -1,0 +1,337 @@
+# APISIX Route Configuration — Cross-Border Rails + Middleware Dashboard
+# Deploy via: apisix admin API or apisix.yaml static config
+# Version: v97 — CIPS / UPI / PIX / Mojaloop / Middleware Dashboard
+
+routes:
+  # ─── CIPS (China Interbank Payment System) ─────────────────────────────────
+  - id: cips-transfer-submit
+    uri: /v1/cips/transfer
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+      request-id:
+        include_in_response: true
+      opentelemetry:
+        sampler:
+          name: always_on
+
+  - id: cips-transfer-status
+    uri: /v1/cips/transfer/status
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 500
+        burst: 100
+        key: remote_addr
+
+  - id: cips-quote
+    uri: /v1/cips/quote
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 200
+        burst: 100
+        key: remote_addr
+      response-rewrite:
+        headers:
+          X-Rail: CIPS
+          X-Corridor: CNY
+
+  # ─── UPI (Unified Payments Interface — India) ───────────────────────────────
+  - id: upi-collect-initiate
+    uri: /v1/upi/collect
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 200
+        burst: 100
+        key: remote_addr
+      opentelemetry:
+        sampler:
+          name: always_on
+
+  - id: upi-pay
+    uri: /v1/upi/pay
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 200
+        burst: 100
+        key: remote_addr
+
+  - id: upi-vpa-lookup
+    uri: /v1/upi/vpa/lookup
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 500
+        burst: 200
+        key: remote_addr
+      response-rewrite:
+        headers:
+          X-Rail: UPI
+          X-Corridor: INR
+
+  - id: upi-callback
+    uri: /v1/upi/callback
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      ip-restriction:
+        whitelist:
+          - 103.0.0.0/8   # NPCI IP range
+          - 182.0.0.0/8
+
+  # ─── PIX (Brazil Instant Payment) ──────────────────────────────────────────
+  - id: pix-payment-initiate
+    uri: /v1/pix/payment
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 300
+        burst: 150
+        key: remote_addr
+      opentelemetry:
+        sampler:
+          name: always_on
+
+  - id: pix-qrcode-generate
+    uri: /v1/pix/qrcode
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 500
+        burst: 200
+        key: remote_addr
+
+  - id: pix-key-lookup
+    uri: /v1/pix/key/lookup
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 500
+        burst: 200
+        key: remote_addr
+      response-rewrite:
+        headers:
+          X-Rail: PIX
+          X-Corridor: BRL
+
+  - id: pix-webhook
+    uri: /v1/pix/webhook
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      hmac-auth: {}
+
+  # ─── Mojaloop ───────────────────────────────────────────────────────────────
+  - id: mojaloop-transfer
+    uri: /v1/mojaloop/transfer
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+
+  - id: mojaloop-quote
+    uri: /v1/mojaloop/quote
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: mojaloop-party-lookup
+    uri: /v1/mojaloop/parties/{idType}/{idValue}
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  # ─── Middleware Dashboard ───────────────────────────────────────────────────
+  - id: middleware-health
+    uri: /v1/middleware/health
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: middleware-kafka-topics
+    uri: /v1/middleware/kafka/topics
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: middleware-kafka-events
+    uri: /v1/middleware/kafka/events
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 100
+        burst: 50
+        key: remote_addr
+
+  - id: middleware-temporal-workflows
+    uri: /v1/middleware/temporal/workflows
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: middleware-tigerbeetle-accounts
+    uri: /v1/middleware/tigerbeetle/accounts
+    methods: [GET, POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: middleware-tigerbeetle-transfers
+    uri: /v1/middleware/tigerbeetle/transfers
+    methods: [GET, POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: middleware-opensearch-query
+    uri: /v1/middleware/opensearch/query
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 50
+        burst: 20
+        key: remote_addr
+
+  - id: middleware-lakehouse-query
+    uri: /v1/middleware/lakehouse/query
+    methods: [POST]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+      limit-req:
+        rate: 20
+        burst: 10
+        key: remote_addr
+
+  - id: middleware-redis-stats
+    uri: /v1/middleware/redis/stats
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+  - id: middleware-fluvio-streams
+    uri: /v1/middleware/fluvio/streams
+    methods: [GET]
+    upstream_id: paygate-bridge
+    plugins:
+      key-auth:
+        key: ${MIDDLEWARE_INTERNAL_KEY}
+
+upstreams:
+  - id: paygate-bridge
+    type: roundrobin
+    nodes:
+      - host: go-bridge
+        port: 8080
+        weight: 1
+    scheme: http
+    pass_host: pass
+    keepalive_pool:
+      size: 320
+      idle_timeout: 60
+      requests: 1000
+    checks:
+      active:
+        type: http
+        http_path: /health
+        interval: 5
+        timeout: 2
+        healthy:
+          interval: 5
+          successes: 2
+        unhealthy:
+          interval: 5
+          http_failures: 2
+
+  - id: opensearch
+    type: roundrobin
+    nodes:
+      - host: opensearch
+        port: 9200
+        weight: 1
+    scheme: http
+
+  - id: lakehouse-v2
+    type: roundrobin
+    nodes:
+      - host: lakehouse-v2
+        port: 8125
+        weight: 1
+    scheme: http
+
+global_rules:
+  - id: cors-global
+    plugins:
+      cors:
+        allow_origins: "*"
+        allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
+        allow_headers: "Authorization,Content-Type,X-Request-ID,X-Rail"
+        max_age: 3600
+
+  - id: otel-global
+    plugins:
+      opentelemetry:
+        resource:
+          service.name: paygate-apisix-gateway
+          service.version: v97
+        collector:
+          address: otel-collector:4317

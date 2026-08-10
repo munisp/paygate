@@ -1,0 +1,52 @@
+version: "3.9"
+
+# =============================================================================
+# PayGate Temporal Server (with PostgreSQL backend)
+# Usage: docker compose -f infra/temporal/docker-compose.yml up -d
+# =============================================================================
+
+services:
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: paygate-temporal
+    restart: unless-stopped
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${TEMPORAL_DB_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD}
+      POSTGRES_SEEDS: ${TEMPORAL_DB_HOST:-pg-primary.internal}
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      ENABLE_ES: "false"
+      TEMPORAL_ADDRESS: 0.0.0.0:7233
+    ports:
+      - "7233:7233"
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    networks:
+      - temporal-net
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  temporal-ui:
+    image: temporalio/ui:2.26
+    container_name: paygate-temporal-ui
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: "*"
+    ports:
+      - "8088:8080"
+    networks:
+      - temporal-net
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+networks:
+  temporal-net:
+    driver: bridge

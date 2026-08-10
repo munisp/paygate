@@ -1,0 +1,51 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: paygate-dapr-config
+  namespace: paygate
+spec:
+  # ─── mTLS ─────────────────────────────────────────────────────────────────────
+  mtls:
+    enabled: true
+    workloadCertTTL: "24h"
+    allowedClockSkew: "15m"
+
+  # ─── Tracing ──────────────────────────────────────────────────────────────────
+  tracing:
+    samplingRate: "1"
+    zipkin:
+      endpointAddress: "http://otel-collector:9411/api/v2/spans"
+
+  # ─── Middleware pipeline ──────────────────────────────────────────────────────
+  httpPipeline:
+    handlers:
+      - name: ratelimit
+        type: middleware.http.ratelimit
+      - name: oauth2clientcredentials
+        type: middleware.http.oauth2clientcredentials
+
+  # ─── API access control ───────────────────────────────────────────────────────
+  accessControl:
+    defaultAction: deny
+    trustDomain: "paygate.local"
+    policies:
+      - appId: paygate-portal
+        defaultAction: allow
+        namespace: paygate
+        operations:
+          - name: /v1/wallets/*
+            httpVerb: [POST]
+            action: allow
+          - name: /v1/settlements/*
+            httpVerb: [POST]
+            action: allow
+          - name: /health
+            httpVerb: [GET]
+            action: allow
+      - appId: paygate-bridge
+        defaultAction: allow
+        namespace: paygate
+        operations:
+          - name: /api/trpc/*
+            httpVerb: [GET, POST]
+            action: allow

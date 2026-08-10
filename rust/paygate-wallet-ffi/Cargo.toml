@@ -1,0 +1,35 @@
+[package]
+name = "paygate-wallet-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "PayGate wallet FFI crate — TigerBeetle double-entry ledger operations exposed via C ABI for CGo bridge"
+license = "MIT"
+
+# Build a C-compatible shared library (.so / .dylib / .dll)
+[lib]
+name = "paygate_wallet_ffi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+# TigerBeetle official Rust client
+tigerbeetle-unofficial = { version = "0.14", optional = true }
+# Async runtime (used for blocking TigerBeetle calls via block_on)
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+# Serialization for JSON responses returned to Go
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# UUID generation for ledger entry IDs
+uuid = { version = "1", features = ["v4"] }
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Thread-safe lazy initialization for the global TB client
+once_cell = "1"
+
+[features]
+default = []
+# Enable the real TigerBeetle client; when disabled, an in-process mock is used
+live = ["tigerbeetle-unofficial"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "test-util"] }

@@ -1,0 +1,293 @@
+version: "3.9"
+
+# ─── PayGate Merchant Portal — Full Stack Docker Compose ─────────────────────
+# Usage:
+#   Development:  docker compose up
+#   Production:   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Required env vars (copy .env.example to .env and fill in):
+#   PG_DATABASE_URL, JWT_SECRET, VITE_APP_ID, OAUTH_SERVER_URL, etc.
+
+services:
+  # ── Application Server ─────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: paygate-merchant-portal:latest
+    container_name: paygate_app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PG_DATABASE_URL: postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_prod
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production_32chars_min}
+      VITE_APP_ID: ${VITE_APP_ID:-paygate-merchant-portal}
+      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL:-https://oauth.manus.im}
+      VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL:-https://auth.manus.im}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID:-}
+      OWNER_NAME: ${OWNER_NAME:-PayGate Admin}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      TERMII_API_KEY: ${TERMII_API_KEY:-}
+      YOUVERIFY_API_KEY: ${YOUVERIFY_API_KEY:-}
+      VTPASS_API_KEY: ${VTPASS_API_KEY:-}
+      VTPASS_SECRET_KEY: ${VTPASS_SECRET_KEY:-}
+      VTPASS_SANDBOX: ${VTPASS_SANDBOX:-true}
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - paygate_net
+    volumes:
+      - app_logs:/app/logs
+
+  # ── PostgreSQL Database ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: paygate_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paygate_prod
+      POSTGRES_USER: paygate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_secure_2026}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paygate -d paygate_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - paygate_net
+
+  # ── Redis Cache ────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: paygate_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secure_2026}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_secure_2026}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paygate_net
+
+  # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: paygate_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - paygate_net
+
+  # ── DB Migration Runner ────────────────────────────────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: paygate_migrate
+    command: pnpm db:push
+    environment:
+      PG_DATABASE_URL: postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paygate_net
+    profiles:
+      - migrate
+
+  # ── Seed Data Runner ───────────────────────────────────────────────────────
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: paygate_seed
+    command: sh -c "npx tsx scripts/seed-all.mjs"
+    environment:
+      PG_DATABASE_URL: postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paygate_net
+    profiles:
+      - seed
+
+  # ── Fluvio (Real-time event streaming) ────────────────────────────────────
+  fluvio:
+    image: infinyon/fluvio:latest
+    container_name: paygate_fluvio
+    restart: unless-stopped
+    ports:
+      - "9003:9003"
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Temporal (Workflow orchestration) ───────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: paygate_temporal
+    restart: unless-stopped
+    ports:
+      - "7233:7233"
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: paygate
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-paygate_secure_2026}
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Permify (Fine-grained PBAC authorization) ──────────────────────────────────
+  permify:
+    image: ghcr.io/permify/permify:latest
+    container_name: paygate_permify
+    restart: unless-stopped
+    ports:
+      - "3476:3476"
+      - "3478:3478"
+    command: serve
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_prod
+      PERMIFY_DATABASE_MAX_OPEN_CONNECTIONS: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── OpenSearch (Transaction search & audit indexing) ─────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: paygate_opensearch
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      plugins.security.disabled: "true"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── TigerBeetle (Double-entry accounting ledger) ──────────────────────────────
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:latest
+    container_name: paygate_tigerbeetle
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    command: start --addresses=0.0.0.0:3001 /data/0_0.tigerbeetle
+    volumes:
+      - tigerbeetle_data:/data
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Dapr Placement (Service mesh sidecar) ───────────────────────────────────────────
+  dapr-placement:
+    image: daprio/dapr:1.13
+    container_name: paygate_dapr_placement
+    restart: unless-stopped
+    command: ["./placement", "-port", "50006"]
+    ports:
+      - "50006:50006"
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+  # ── Mojaloop Simulator (Interoperability testing) ──────────────────────────────
+  mojaloop-simulator:
+    image: mojaloop/simulator:latest
+    container_name: paygate_mojaloop_sim
+    restart: unless-stopped
+    ports:
+      - "8444:8444"
+    networks:
+      - paygate_net
+    profiles:
+      - middleware
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  app_logs:
+    driver: local
+  nginx_logs:
+    driver: local
+  opensearch_data:
+    driver: local
+  tigerbeetle_data:
+    driver: local
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  paygate_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

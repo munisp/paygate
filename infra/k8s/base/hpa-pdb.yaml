@@ -1,0 +1,335 @@
+---
+# ─── Horizontal Pod Autoscalers ───────────────────────────────────────────────
+# PayGate Portal (Node.js/React)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-portal-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-portal
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# Go Bridge
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-go-bridge-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-go-bridge
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+# Fraud Scoring
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-fraud-scoring-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-fraud-scoring
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+# Fraud Heatmap (Sedona)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-fraud-heatmap-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-fraud-heatmap
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Lakehouse V2 (DuckDB)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-lakehouse-v2-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-lakehouse-v2
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+# Credit Scoring (DataFusion)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-credit-scoring-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-credit-scoring
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# AI Insights
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-ai-insights-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-ai-insights
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+# Reconciliation Engine
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-reconciliation-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-reconciliation-engine
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# FX Rate Feed
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paygate-fx-rate-feed-hpa
+  namespace: paygate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paygate-fx-rate-feed
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# ─── Pod Disruption Budgets ───────────────────────────────────────────────────
+# PayGate Portal
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-portal-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-portal
+---
+# Go Bridge
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-go-bridge-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-go-bridge
+---
+# Fraud Scoring
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-fraud-scoring-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-fraud-scoring
+---
+# Fraud Heatmap
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-fraud-heatmap-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-fraud-heatmap
+---
+# Lakehouse V2
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-lakehouse-v2-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-lakehouse-v2
+---
+# Credit Scoring
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-credit-scoring-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-credit-scoring
+---
+# MinIO
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-minio-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-minio
+---
+# Spark Master
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-spark-master-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-spark-master
+---
+# Trino
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-trino-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-trino
+---
+# AI Insights
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-ai-insights-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-ai-insights
+---
+# Reconciliation Engine
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: paygate-reconciliation-pdb
+  namespace: paygate
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: paygate-reconciliation-engine

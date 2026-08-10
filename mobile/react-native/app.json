@@ -1,0 +1,82 @@
+{
+  "expo": {
+    "name": "PayGate",
+    "slug": "paygate-merchant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.paygate.merchant",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to scan QR codes for payments",
+        "NSFaceIDUsageDescription": "Used for biometric authentication",
+        "NSLocalNetworkUsageDescription": "Used to connect to local payment terminals"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "package": "com.paygate.merchant",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0f172a",
+          "sounds": ["./assets/notification.wav"]
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow PayGate to use Face ID for secure login."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow PayGate to access your camera to scan QR codes."
+        }
+      ]
+    ],
+    "scheme": "paygate",
+    "extra": {
+      "eas": {
+        "projectId": "paygate-merchant-portal"
+      }
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/paygate-merchant-portal"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
+}

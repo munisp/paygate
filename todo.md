@@ -1,0 +1,54 @@
+# PayGate Monitor TODO
+
+- [x] Initialize static project
+- [x] Design Obsidian Operations dark theme
+- [x] Build DashboardLayout with fixed sidebar + operational top bar
+- [x] Build OverviewPage with asymmetric 2/3 + 1/3 layout
+- [x] Build GatewayPage (APISIX routes, consumers, plugins, traffic tabs)
+- [x] Build WorkflowsPage (Temporal executions, signal/cancel/terminate controls)
+- [x] Build PoolPage (PgBouncer connection pool telemetry)
+- [x] Upgrade to full-stack (web-db-user) for backend proxy support
+- [x] Add backend proxy routes for PayGate API (PAYGATE_API_URL)
+- [x] Add backend proxy routes for PayGate API (PAYGATE_API_URL)
+- [x] Replace mock data with live fetch hooks with graceful fallback
+- [x] Add auto-refresh interval selector with countdown timer
+- [x] Build Kafka/Redis infrastructure panel (5th nav page)
+- [x] Add vitest tests for proxy routes
+- [x] Add vitest tests for proxy routes
+- [x] Add vitest tests for proxy routes
+- [x] Color-coded alerts on Kafka consumer lag and Redis memory utilization
+- [x] Color-coded alerts on Kafka consumer lag and Redis memory utilization
+- [x] Manual Refresh Now button and mock/live toggle in top bar
+- [x] Kafka topic detail modal with historical throughput chart
+- [x] Color-coded alerts on Kafka consumer lag and Redis memory utilization
+- [x] Kafka topic detail modal with historical throughput chart
+- [x] Redis node detail modal with historical memory and cache hit/miss charts
+- [x] Date range picker in Kafka Topic Detail Modal
+- [x] Toast notifications for manual refresh and MOCK/LIVE toggle
+- [x] Redis node detail modal with historical memory and cache hit/miss charts
+- [x] Date range picker in Kafka Topic Detail Modal (24h / 7d / 30d presets + custom calendar range)
+- [x] Toast notifications for manual refresh and MOCK/LIVE toggle
+- [x] Kafka consumer group detail modal with per-partition lag breakdown and member assignments
+- [x] Settings panel for configurable warning/critical thresholds (consumer lag + Redis memory)
+- [x] Date range picker in Redis Node Detail Modal (presets + custom calendar)
+- [x] Threshold breach owner push notifications (server-side polling, notification API)
+- [x] Consumer lag sparkline on Overview page (last-hour aggregate trend)
+- [x] Partition rebalance indicator in ConsumerGroupDetailModal (highlight recently reassigned partitions)
+- [x] Push all code to GitHub (feature/paygate-monitor branch in munisp/paygate)
+- [x] Breach history log page at /alerts with sorting and filtering
+- [x] Interactive acknowledgeable toast alerts for critical breach notifications
+- [x] Heartbeat-driven periodic breach polling (every 5 minutes, task_uid: XDqDWZ8EvKQTADamprBPYP)
+- [x] Open GitHub pull request to merge feature/paygate-monitor into main
+- [x] Live unacknowledged-count badge on Alerts sidebar nav item
+- [x] Named per-consumer-group alert rules in Settings page
+- [x] CSV export button on Alerts page
+- [x] Apply named alert rules in checkBreaches (override global thresholds per target)
+- [x] Bulk Acknowledge All button on Alerts page (clears all unacknowledged matching current filters)
+- [x] Full-export CSV: download all matching events across all pages
+- [x] PSP Health page (/psp) with per-PSP success rate, latency histogram, retry queue depth
+- [x] Wire PSP metrics into checkBreaches (psp_error_rate threshold)
+- [x] Add PSP nav item to DashboardLayout sidebar
+- [ ] Update GitHub PR #17 description with full feature list
+- [x] Fix PSP Health page loading state — add placeholderData to pspStats query so page renders immediately
+- [ ] Update GitHub PR #17 description with full feature list
+- [x] Update GitHub PR #17 description with full feature list

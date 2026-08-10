@@ -1,0 +1,4 @@
+*.mmdb
+metadata.json
+_*.tar.gz
+_*.gz

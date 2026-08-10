@@ -1,0 +1,414 @@
+# =============================================================================
+# PayGate Caddy Edge Proxy — Production Caddyfile
+# =============================================================================
+# Architecture:
+#   Internet → Caddy (TLS, HTTP/3, WAF, OIDC) → APISIX → App Services
+#
+# Caddy handles:
+#   1. Automatic TLS via ACME (Let's Encrypt / ZeroSSL)
+#   2. HTTP/3 QUIC for all payment API endpoints
+#   3. OIDC enforcement via caddy-security → Keycloak
+#   4. Request forwarding to OpenAppSec WAF sidecar before APISIX
+#   5. Prometheus metrics on :2019/metrics
+#   6. Rate limiting, header hardening, CORS
+#   7. L4 TCP proxy for TigerBeetle and PgBouncer (see caddy.json)
+#
+# Build Caddy with required plugins:
+#   xcaddy build \
+#     --with github.com/greenpau/caddy-security \
+#     --with github.com/mholt/caddy-l4 \
+#     --with github.com/caddy-dns/cloudflare \
+#     --with github.com/caddyserver/cache-handler \
+#     --with github.com/mholt/caddy-ratelimit
+# =============================================================================
+
+{
+  # Global options
+  admin 0.0.0.0:2019          # Admin API (internal only — firewall this port)
+  email tls@paygate.ng        # ACME account email
+
+  # TLS defaults — use ZeroSSL as primary, Let's Encrypt as fallback
+  acme_ca https://acme.zerossl.com/v2/DV90
+  acme_ca_root /etc/caddy/certs/zerossl-root.pem
+
+  # HTTP/3 QUIC enabled globally
+  servers {
+    protocols h1 h2 h3
+    metrics
+  }
+
+  # Prometheus metrics
+  metrics {
+    per_host
+  }
+
+  # caddy-security: global auth portal configuration
+  security {
+    oauth identity provider keycloak {
+      realm paygate
+      driver generic
+      client_id {$KEYCLOAK_CLIENT_ID}
+      client_secret {$KEYCLOAK_CLIENT_SECRET}
+      scopes openid email profile roles
+      base_auth_url {$KEYCLOAK_ISSUER_URL}
+      metadata_url {$KEYCLOAK_ISSUER_URL}/.well-known/openid-configuration
+    }
+
+    authentication portal paygate_auth_portal {
+      crypto default token lifetime 3600
+      crypto key sign-verify {$JWT_SECRET}
+      enable identity provider keycloak
+      cookie domain paygate.ng
+      cookie insecure off
+      ui {
+        logo url "https://paygate.ng/assets/logo.png"
+        logo description "PayGate"
+        links {
+          "PayGate Portal" https://paygate.ng
+        }
+      }
+    }
+
+    authorization policy paygate_merchant_policy {
+      set auth url https://auth.paygate.ng/auth/login
+      allow roles authp/admin authp/user paygate-admin paygate-merchant
+      crypto key verify {$JWT_SECRET}
+      acl rule {
+        comment "Allow authenticated merchants"
+        match role paygate-merchant
+        allow stop log info
+      }
+      acl rule {
+        comment "Allow admins"
+        match role paygate-admin
+        allow stop log info
+      }
+      acl rule {
+        comment "Deny all others"
+        match any
+        deny stop log warn
+      }
+    }
+
+    authorization policy paygate_admin_policy {
+      set auth url https://auth.paygate.ng/auth/login
+      allow roles authp/admin paygate-admin
+      crypto key verify {$JWT_SECRET}
+    }
+  }
+}
+
+# =============================================================================
+# Auth Portal — Keycloak OIDC entry point
+# =============================================================================
+auth.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  route /auth/* {
+    authenticate with paygate_auth_portal
+  }
+
+  # Health check (no auth required)
+  route /health {
+    respond "OK" 200
+  }
+
+  log {
+    output file /var/log/caddy/auth.log {
+      roll_size 100mb
+      roll_keep 7
+    }
+    format json
+    level INFO
+  }
+}
+
+# =============================================================================
+# Merchant Portal — Main PayGate Web App
+# =============================================================================
+paygate.ng, www.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  # Security headers
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "SAMEORIGIN"
+    X-XSS-Protection "1; mode=block"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.paygate.ng wss://api.paygate.ng; font-src 'self' https://fonts.gstatic.com"
+    -Server
+    -X-Powered-By
+  }
+
+  # OIDC enforcement for all non-public routes
+  @protected {
+    not path /health /assets/* /favicon.ico /robots.txt /api/oauth/* /api/webhooks/*
+  }
+  route @protected {
+    authorize with paygate_merchant_policy
+  }
+
+  # OAuth callback — handled by app (no auth gate)
+  route /api/oauth/* {
+    reverse_proxy paygate_app:3000 {
+      header_up X-Forwarded-Proto https
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+    }
+  }
+
+  # Webhook endpoints — no OIDC, but WAF enforced
+  route /api/webhooks/* {
+    reverse_proxy paygate_openappsec:8080 {
+      header_up X-Target-Upstream "paygate_app:3000"
+      header_up X-Forwarded-Proto https
+      header_up X-Real-IP {remote_host}
+    }
+  }
+
+  # API routes — through OpenAppSec WAF → APISIX → app
+  route /api/* {
+    reverse_proxy paygate_openappsec:8080 {
+      header_up X-Target-Upstream "paygate_apisix:9080"
+      header_up X-Forwarded-Proto https
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Caddy-Auth-User {http.auth.user.id}
+      header_up X-Caddy-Auth-Roles {http.auth.user.roles}
+      transport http {
+        keepalive 30s
+        keepalive_idle_conns 100
+        response_header_timeout 30s
+      }
+    }
+  }
+
+  # Static assets — direct to app with long cache
+  route /assets/* {
+    header Cache-Control "public, max-age=31536000, immutable"
+    reverse_proxy paygate_app:3000
+  }
+
+  # SPA fallback
+  route {
+    reverse_proxy paygate_app:3000 {
+      header_up X-Forwarded-Proto https
+      header_up X-Real-IP {remote_host}
+    }
+  }
+
+  log {
+    output file /var/log/caddy/portal.log {
+      roll_size 100mb
+      roll_keep 14
+    }
+    format json
+    level INFO
+  }
+}
+
+# =============================================================================
+# API Gateway — APISIX public endpoint
+# =============================================================================
+api.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    -Server
+  }
+
+  # OIDC enforcement for non-webhook, non-health routes
+  @protected_api {
+    not path /health /v1/webhooks/* /v1/mojaloop/* /v1/momo/*
+  }
+  route @protected_api {
+    authorize with paygate_merchant_policy
+  }
+
+  # All API traffic → OpenAppSec WAF → APISIX
+  route {
+    reverse_proxy paygate_openappsec:8080 {
+      header_up X-Target-Upstream "paygate_apisix:9080"
+      header_up X-Forwarded-Proto https
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Caddy-Auth-User {http.auth.user.id}
+      header_up X-Caddy-Auth-Roles {http.auth.user.roles}
+      lb_policy round_robin
+      health_uri /health
+      health_interval 10s
+      health_timeout 5s
+      transport http {
+        keepalive 60s
+        keepalive_idle_conns 200
+        response_header_timeout 60s
+        dial_timeout 5s
+      }
+    }
+  }
+
+  log {
+    output file /var/log/caddy/api.log {
+      roll_size 200mb
+      roll_keep 30
+    }
+    format json
+    level INFO
+  }
+}
+
+# =============================================================================
+# NextHub Settlement Portal
+# =============================================================================
+nexthub.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    -Server
+  }
+
+  # Require admin role for NextHub
+  route {
+    authorize with paygate_admin_policy
+    reverse_proxy paygate_openappsec:8080 {
+      header_up X-Target-Upstream "paygate_apisix:9080"
+      header_up X-Forwarded-Proto https
+      header_up X-Nexthub "true"
+    }
+  }
+
+  log {
+    output file /var/log/caddy/nexthub.log {
+      roll_size 100mb
+      roll_keep 14
+    }
+    format json
+    level INFO
+  }
+}
+
+# =============================================================================
+# Keycloak Identity Provider
+# =============================================================================
+keycloak.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    -Server
+    -X-Powered-By
+  }
+
+  # Keycloak admin console — restrict to internal IPs
+  @admin_console path /admin/*
+  route @admin_console {
+    @internal_only remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+    route @internal_only {
+      reverse_proxy paygate_keycloak:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+        transport http {
+          keepalive 30s
+        }
+      }
+    }
+    respond "Access denied" 403
+  }
+
+  # Public Keycloak endpoints (OIDC discovery, token, userinfo, JWKS)
+  route {
+    reverse_proxy paygate_keycloak:8080 {
+      header_up X-Forwarded-Proto https
+      header_up X-Forwarded-Host {host}
+      header_up X-Real-IP {remote_host}
+      transport http {
+        keepalive 60s
+        keepalive_idle_conns 100
+      }
+    }
+  }
+
+  log {
+    output file /var/log/caddy/keycloak.log {
+      roll_size 100mb
+      roll_keep 14
+    }
+    format json
+    level INFO
+  }
+}
+
+# =============================================================================
+# APISIX Dashboard (admin only, internal)
+# =============================================================================
+apisix-dashboard.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  # Restrict to internal IPs only
+  @allowed remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+  route @allowed {
+    authorize with paygate_admin_policy
+    reverse_proxy paygate_apisix_dashboard:9000
+  }
+  respond "Access denied" 403
+}
+
+# =============================================================================
+# Minio Object Storage
+# =============================================================================
+storage.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  route {
+    authorize with paygate_merchant_policy
+    reverse_proxy paygate_minio:9000 {
+      header_up X-Forwarded-Proto https
+    }
+  }
+}
+
+# =============================================================================
+# Temporal Workflow UI (admin only)
+# =============================================================================
+temporal.paygate.ng {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  @allowed remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+  route @allowed {
+    authorize with paygate_admin_policy
+    reverse_proxy paygate_temporal_ui:8080
+  }
+  respond "Access denied" 403
+}
+
+# =============================================================================
+# Metrics endpoint (Prometheus scrape — internal only)
+# =============================================================================
+:2019 {
+  @internal remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1
+  route @internal {
+    metrics /metrics
+  }
+  respond "Access denied" 403
+}
