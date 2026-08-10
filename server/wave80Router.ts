@@ -26,7 +26,23 @@ import {
   qrPayments,
 } from "../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { debitWalletViaMiddleware, creditWalletViaMiddleware } from "./middlewareBridge";
+import { debitWalletViaMiddleware, creditWalletViaMiddleware, getCryptoRampQuoteViaMiddleware } from "./middlewareBridge";
+
+/**
+ * Live crypto→fiat rate from the ramp provider bridge. FAILS LOUD when the
+ * provider is unavailable — hardcoded rates must never be committed to real
+ * payout records.
+ */
+async function getLiveCryptoFiatRate(cryptoAsset: string, fiatCurrency: string): Promise<number> {
+  const quote = await getCryptoRampQuoteViaMiddleware(cryptoAsset, fiatCurrency, 1).catch(() => null);
+  if (!quote || typeof quote.rate !== "number" || quote.rate <= 0) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Live ${cryptoAsset}/${fiatCurrency} rate is unavailable (ramp provider unreachable). Off-ramp cannot be initiated.`,
+    });
+  }
+  return quote.rate;
+}
 
 // ─── 1. Open Banking V2 ───────────────────────────────────────────────────────
 const openBankingV2Router = router({
@@ -340,7 +356,8 @@ const cryptoOfframpV2Router = router({
   initiateOfframp: protectedProcedure.input(z.object({ cryptoAsset: z.string().default("USDT"), cryptoAmount: z.string(), fiatCurrency: z.string().default("NGN"), bankCode: z.string(), accountNumber: z.string(), walletAddress: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    const rate = input.cryptoAsset === "USDT" ? 1650 : input.cryptoAsset === "BTC" ? 95000000 : 3200;
+    // Live rate from the ramp provider — never a hardcoded rate.
+    const rate = await getLiveCryptoFiatRate(input.cryptoAsset, input.fiatCurrency);
     const fiatAmount = Math.round(parseFloat(input.cryptoAmount) * rate);
     const [tx] = await db.insert(cryptoOfframpV2Transactions).values({ merchantId: ctx.user.id.toString().toString(), cryptoAsset: input.cryptoAsset, cryptoAmount: input.cryptoAmount, fiatCurrency: input.fiatCurrency, fiatAmount, exchangeRate: rate.toString(), bankCode: input.bankCode, accountNumber: input.accountNumber, walletAddress: input.walletAddress, status: "pending" }).returning();
     return { transaction: tx };
@@ -352,7 +369,17 @@ const cryptoOfframpV2Router = router({
     return { total: txs.length, completed: txs.filter(t => t.status === "completed").length, pending: txs.filter(t => t.status === "pending").length, totalFiatOut: txs.filter(t => t.status === "completed").reduce((s, t) => s + t.fiatAmount, 0) };
   }),
   getRates: protectedProcedure.query(async () => {
-    return { rates: [{ asset: "USDT", rate: 1650, change24h: 0.2 }, { asset: "BTC", rate: 95000000, change24h: -1.5 }, { asset: "ETH", rate: 3200000, change24h: 0.8 }, { asset: "USDC", rate: 1648, change24h: 0.1 }], updatedAt: new Date() };
+    // Live quotes from the ramp provider; assets with no live quote are omitted.
+    const assets = ["USDT", "BTC", "ETH", "USDC"];
+    const quotes = await Promise.all(assets.map(async (asset) => {
+      const q = await getCryptoRampQuoteViaMiddleware(asset, "NGN", 1).catch(() => null);
+      return q && typeof q.rate === "number" && q.rate > 0 ? { asset, rate: q.rate, change24h: null } : null;
+    }));
+    const rates = quotes.filter((q): q is NonNullable<typeof q> => q !== null);
+    if (rates.length === 0) {
+      throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Live crypto rates are unavailable (ramp provider unreachable)." });
+    }
+    return { rates, updatedAt: new Date() };
   }),
   cancelTransaction: protectedProcedure.input(z.object({ txId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -448,7 +475,12 @@ const invoiceFinancingV2Router = router({
     return { success: true };
   }),
   getEligibility: protectedProcedure.query(async () => {
-    return { eligible: true, maxAmount: 10000000, interestRate: "3.5%", maxTenor: 90 };
+    // FAIL LOUD — no real underwriting integration exists; eligibility must
+    // never be unconditionally "approved".
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Invoice-financing eligibility check is temporarily unavailable (underwriting service not integrated).",
+    });
   }),
 });
 

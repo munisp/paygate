@@ -23,6 +23,7 @@ import {
 } from "../../drizzle/schema";
 import { invokeLLM } from "../_core/llm";
 import { publishAuditEvent } from "../auditEvents";
+import { logger } from "../logger";
 
 // ─── 1. UBO Management Router ─────────────────────────────────────────────────
 export const uboMgmtRouter = router({
@@ -188,7 +189,14 @@ Respond with JSON only.`,
         flagReason = parsed.reason ?? null;
         resultJson = JSON.stringify(parsed);
       } catch (e: any) {
-        resultJson = JSON.stringify({ error: e.message });
+        // FAIL LOUD — a failed screening MUST NOT be persisted as a completed
+        // (unflagged) screening-of-record. Downstream risk scoring consumes
+        // `flagged`; silently recording a pass on provider error is an AML breach.
+        logger.error(`[adverseMedia] Screening provider error for "${input.name}": ${e?.message}`);
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Adverse media screening provider is unavailable — screening NOT completed. Retry or escalate to manual review.",
+        });
       }
 
       const [row] = await db.insert(adverseMediaScreenings).values({

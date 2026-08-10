@@ -128,28 +128,28 @@ async function createStripePaymentIntent(opts: {
   } catch { return null; }
 }
 
-/** Generate NIBSS NIP virtual account via Go bridge */
+/**
+ * Generate NIBSS NIP virtual account via Go bridge.
+ * FAILS LOUD — throws when the bridge is unconfigured or errors. A fabricated
+ * account number at a non-existent bank must NEVER be presented to a customer
+ * as a real transfer destination.
+ */
 async function generateNIPVirtualAccount(opts: {
   amountKobo: number;
   reference: string;
   merchantId: string;
   customerName?: string;
   expiresInMinutes?: number;
-}): Promise<{ accountNumber: string; bankCode: string; bankName: string; sessionId: string; expiresAt: Date } | null> {
+}): Promise<{ accountNumber: string; bankCode: string; bankName: string; sessionId: string; expiresAt: Date }> {
   const url = process.env.MIDDLEWARE_BRIDGE_URL ?? process.env.NIBSS_GATEWAY_URL;
   if (!url) {
-    // Fallback: generate a deterministic virtual account for demo
-    const acct = "99" + String(Date.now()).slice(-8);
-    return {
-      accountNumber: acct,
-      bankCode: "000",
-      bankName: "PayGate Virtual Bank",
-      sessionId: nanoid(16),
-      expiresAt: new Date(Date.now() + (opts.expiresInMinutes ?? 30) * 60 * 1000),
-    };
+    throw new Error(
+      "Bank transfer is temporarily unavailable (NIP virtual account service not configured). Please choose another payment method or try again later."
+    );
   }
+  let res: Response;
   try {
-    const res = await fetch(`${url}/nip/virtual-account`, {
+    res = await fetch(`${url}/nip/virtual-account`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -165,32 +165,27 @@ async function generateNIPVirtualAccount(opts: {
       }),
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) {
-      // Graceful fallback
-      const acct = "99" + String(Date.now()).slice(-8);
-      return {
-        accountNumber: acct,
-        bankCode: "000",
-        bankName: "PayGate Virtual Bank",
-        sessionId: nanoid(16),
-        expiresAt: new Date(Date.now() + (opts.expiresInMinutes ?? 30) * 60 * 1000),
-      };
-    }
-    const json = await res.json() as {
-      accountNumber: string; bankCode: string; bankName: string;
-      sessionId: string; expiresAt: string;
-    };
-    return { ...json, expiresAt: new Date(json.expiresAt) };
-  } catch {
-    const acct = "99" + String(Date.now()).slice(-8);
-    return {
-      accountNumber: acct,
-      bankCode: "000",
-      bankName: "PayGate Virtual Bank",
-      sessionId: nanoid(16),
-      expiresAt: new Date(Date.now() + (opts.expiresInMinutes ?? 30) * 60 * 1000),
-    };
+  } catch (err) {
+    throw new Error(
+      `Bank transfer is temporarily unavailable (NIP service unreachable: ${err instanceof Error ? err.message : String(err)}). Please choose another payment method or try again later.`
+    );
   }
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(
+      `Bank transfer is temporarily unavailable (NIP service error HTTP ${res.status}: ${text}). Please choose another payment method or try again later.`
+    );
+  }
+  const json = await res.json() as {
+    accountNumber: string; bankCode: string; bankName: string;
+    sessionId: string; expiresAt: string;
+  };
+  if (!json.accountNumber || !json.bankCode) {
+    throw new Error(
+      "Bank transfer is temporarily unavailable (NIP service returned an invalid virtual account). Please choose another payment method or try again later."
+    );
+  }
+  return { ...json, expiresAt: new Date(json.expiresAt) };
 }
 
 /** Generate USSD payment reference */
@@ -353,20 +348,28 @@ export const hostedCheckoutRouter = router({
 
       // ── Bank Transfer: NIBSS NIP Virtual Account ──────────────────────────
       if (input.paymentMethod === "bank_transfer") {
-        const va = await generateNIPVirtualAccount({
-          amountKobo: input.amountKobo,
-          reference,
-          merchantId: input.merchantId,
-          customerName: input.customerName,
-          expiresInMinutes: 30,
-        });
-        if (va) {
-          sessionData.nipVirtualAccountNumber = va.accountNumber;
-          sessionData.nipBankCode = va.bankCode;
-          sessionData.nipBankName = va.bankName;
-          sessionData.nipSessionId = va.sessionId;
-          sessionData.nipExpiresAt = va.expiresAt;
+        // Fail the whole checkout loudly if the real account cannot be issued —
+        // never present a fabricated account number to the customer.
+        let va;
+        try {
+          va = await generateNIPVirtualAccount({
+            amountKobo: input.amountKobo,
+            reference,
+            merchantId: input.merchantId,
+            customerName: input.customerName,
+            expiresInMinutes: 30,
+          });
+        } catch (err) {
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: err instanceof Error ? err.message : "Bank transfer is temporarily unavailable.",
+          });
         }
+        sessionData.nipVirtualAccountNumber = va.accountNumber;
+        sessionData.nipBankCode = va.bankCode;
+        sessionData.nipBankName = va.bankName;
+        sessionData.nipSessionId = va.sessionId;
+        sessionData.nipExpiresAt = va.expiresAt;
       }
 
       // ── USSD: Generate dial code ──────────────────────────────────────────
