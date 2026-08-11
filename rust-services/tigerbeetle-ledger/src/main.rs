@@ -3,15 +3,27 @@
 // Exposes HTTP API for account creation, transfers, and balance queries.
 //
 // Architecture:
-//   - TigerBeetle: high-performance double-entry ledger (financial-grade ACID)
+//   - Postgres: durable double-entry ledger (P0-12 fix — accounts and transfers
+//     survive restarts; `reference` UNIQUE gives idempotent replay; debits use
+//     guarded UPDATE ... WHERE balance >= amount in a single SQL transaction)
+//   - In-memory: DEV ONLY, explicit opt-in via LEDGER_ALLOW_IN_MEMORY=1
 //   - Axum: async HTTP framework
 //   - Tokio: async runtime
-//   - serde: JSON serialization
+//
+// Configuration:
+//   DATABASE_URL              Postgres DSN (required unless in-memory opt-in)
+//   LEDGER_ALLOW_IN_MEMORY=1  Dev-only in-memory backend (loud WARN, no durability)
+//   LEDGER_SEED_DEMO=1        Seed merchant_demo_001 demo accounts at startup
+//   PORT                      Listen port (default 8200)
 //
 // Ledger Design:
 //   - Account types: MERCHANT (1), ESCROW (2), FEE (3), SETTLEMENT (4), SUSPENSE (5)
 //   - Ledger codes: USD (840), EUR (978), CNY (156), INR (356), BRL (986), NGN (566)
-//   - Each cross-border transfer: DEBIT merchant → CREDIT escrow → CREDIT settlement
+//   - Each cross-border transfer: DEBIT escrow → CREDIT settlement + CREDIT fee
+
+mod mem;
+mod model;
+mod pg;
 
 use axum::{
     extract::{Path, Query, State},
@@ -20,488 +32,243 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, env, net::SocketAddr, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
-use tokio::sync::RwLock;
-use uuid::Uuid;
+use mem::MemStore;
+use model::*;
+use pg::PgStore;
+use std::{collections::HashMap, env, net::SocketAddr, sync::Arc};
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Store dispatch ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
-    pub id: String,
-    pub merchant_id: String,
-    pub account_type: AccountType,
-    pub ledger_code: u32,    // ISO 4217 numeric currency code
-    pub currency: String,
-    pub debits_posted: i64,
-    pub credits_posted: i64,
-    pub debits_pending: i64,
-    pub credits_pending: i64,
-    pub flags: u32,
-    pub created_at: u64,
+#[derive(Clone)]
+enum Store {
+    Pg(PgStore),
+    Mem(MemStore),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AccountType {
-    Merchant,
-    Escrow,
-    Fee,
-    Settlement,
-    Suspense,
-    CrossBorderCips,
-    CrossBorderUpi,
-    CrossBorderPix,
-    CrossBorderMojaloop,
-}
+impl Store {
+    fn backend_name(&self) -> &'static str {
+        match self {
+            Store::Pg(_) => "postgres",
+            Store::Mem(_) => "in-memory",
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Transfer {
-    pub id: String,
-    pub debit_account_id: String,
-    pub credit_account_id: String,
-    pub amount: i64,
-    pub ledger_code: u32,
-    pub currency: String,
-    pub rail: String,
-    pub transfer_type: TransferType,
-    pub reference: String,
-    pub merchant_id: String,
-    pub flags: u32,
-    pub timestamp: u64,
-    pub settled_at: Option<u64>,
-}
+    async fn healthy(&self) -> bool {
+        match self {
+            Store::Pg(pg) => pg.healthy().await,
+            Store::Mem(_) => true,
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TransferType {
-    CrossBorderDebit,
-    CrossBorderCredit,
-    FeeDebit,
-    FxConversion,
-    Settlement,
-    Refund,
-    Reversal,
-}
+    async fn create_account(&self, req: CreateAccountRequest) -> Result<Account, StoreError> {
+        match self {
+            Store::Pg(pg) => pg.create_account(req).await,
+            Store::Mem(m) => m.create_account(req).await,
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateAccountRequest {
-    pub merchant_id: String,
-    pub account_type: AccountType,
-    pub currency: String,
-    pub ledger_code: Option<u32>,
-}
+    async fn get_account(&self, id: &str) -> Result<Account, StoreError> {
+        match self {
+            Store::Pg(pg) => pg.get_account(id).await,
+            Store::Mem(m) => m.get_account(id).await,
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateTransferRequest {
-    pub debit_account_id: String,
-    pub credit_account_id: String,
-    pub amount: i64,
-    pub currency: String,
-    pub rail: String,
-    pub transfer_type: TransferType,
-    pub reference: String,
-    pub merchant_id: String,
-}
+    async fn create_transfer(
+        &self,
+        req: CreateTransferRequest,
+    ) -> Result<(Transfer, bool), StoreError> {
+        match self {
+            Store::Pg(pg) => pg.create_transfer(req).await,
+            Store::Mem(m) => m.create_transfer(req).await,
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossBorderTransferRequest {
-    pub transfer_id: String,
-    pub merchant_id: String,
-    pub amount: i64,
-    pub source_currency: String,
-    pub target_currency: String,
-    pub exchange_rate: f64,
-    pub fee_amount: i64,
-    pub rail: String,          // cips | upi | pix | mojaloop | brics
-    pub reference: String,
-}
+    async fn cross_border_transfer(
+        &self,
+        req: CrossBorderTransferRequest,
+    ) -> Result<(serde_json::Value, bool), StoreError> {
+        match self {
+            Store::Pg(pg) => pg.cross_border_transfer(req).await,
+            Store::Mem(m) => m.cross_border_transfer(req).await,
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BalanceResponse {
-    pub account_id: String,
-    pub merchant_id: String,
-    pub currency: String,
-    pub balance: i64,
-    pub debits_posted: i64,
-    pub credits_posted: i64,
-    pub pending_debits: i64,
-    pub pending_credits: i64,
-    pub available_balance: i64,
-}
+    async fn list_transfers(
+        &self,
+        merchant_id: &str,
+        rail: &str,
+        limit: usize,
+    ) -> (Vec<Transfer>, usize) {
+        match self {
+            Store::Pg(pg) => pg.list_transfers(merchant_id, rail, limit).await,
+            Store::Mem(m) => m.list_transfers(merchant_id, rail, limit).await,
+        }
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LedgerStats {
-    pub total_accounts: usize,
-    pub total_transfers: usize,
-    pub total_volume_by_rail: HashMap<String, i64>,
-    pub total_fees_collected: i64,
-    pub active_currencies: Vec<String>,
-}
+    async fn list_accounts(&self, merchant_id: &str) -> Vec<Account> {
+        match self {
+            Store::Pg(pg) => pg.list_accounts(merchant_id).await,
+            Store::Mem(m) => m.list_accounts(merchant_id).await,
+        }
+    }
 
-// ─── State ────────────────────────────────────────────────────────────────────
-
-#[derive(Default)]
-pub struct LedgerState {
-    pub accounts: HashMap<String, Account>,
-    pub transfers: Vec<Transfer>,
-    pub account_index: HashMap<String, Vec<String>>, // merchant_id -> [account_ids]
-}
-
-type SharedState = Arc<RwLock<LedgerState>>;
-
-// ─── Currency helpers ─────────────────────────────────────────────────────────
-
-fn currency_to_ledger_code(currency: &str) -> u32 {
-    match currency.to_uppercase().as_str() {
-        "USD" => 840,
-        "EUR" => 978,
-        "CNY" => 156,
-        "INR" => 356,
-        "BRL" => 986,
-        "NGN" => 566,
-        "GBP" => 826,
-        "JPY" => 392,
-        "ZAR" => 710,
-        "KES" => 404,
-        "GHS" => 936,
-        "XOF" => 952,
-        _ => 0,
+    async fn stats(&self) -> LedgerStats {
+        match self {
+            Store::Pg(pg) => pg.stats().await,
+            Store::Mem(m) => m.stats().await,
+        }
     }
 }
 
-fn now_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+type SharedState = Arc<Store>;
+
+// ─── Error mapping ────────────────────────────────────────────────────────────
+
+type ApiError = (StatusCode, Json<serde_json::Value>);
+
+fn api_error(err: StoreError) -> ApiError {
+    match err {
+        StoreError::AccountNotFound { account_id, role } => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("{role} not found"),
+                "account_id": account_id
+            })),
+        ),
+        StoreError::InsufficientFunds {
+            account_id,
+            available,
+            requested,
+        } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": "insufficient balance",
+                "account_id": account_id,
+                "available": available,
+                "requested": requested
+            })),
+        ),
+        StoreError::InvalidRequest(msg) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        ),
+        StoreError::Backend(msg) => {
+            tracing::error!(error = %msg, "ledger backend error");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": "ledger backend error" })),
+            )
+        }
+    }
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "status": "ok",
-        "service": "tigerbeetle-ledger",
-        "version": "v97",
-        "timestamp": now_nanos()
-    }))
+async fn health(State(store): State<SharedState>) -> (StatusCode, Json<serde_json::Value>) {
+    let healthy = store.healthy().await;
+    let status = if healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "status": if healthy { "ok" } else { "degraded" },
+            "service": "tigerbeetle-ledger",
+            "version": "v97",
+            "backend": store.backend_name(),
+            "durable": matches!(store.as_ref(), Store::Pg(_)),
+            "timestamp": now_nanos()
+        })),
+    )
 }
 
 async fn create_account(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Json(req): Json<CreateAccountRequest>,
-) -> Result<Json<Account>, (StatusCode, Json<serde_json::Value>)> {
-    let account_id = Uuid::new_v4().to_string();
-    let ledger_code = req.ledger_code.unwrap_or_else(|| currency_to_ledger_code(&req.currency));
-
-    let account = Account {
-        id: account_id.clone(),
-        merchant_id: req.merchant_id.clone(),
-        account_type: req.account_type,
-        ledger_code,
-        currency: req.currency.to_uppercase(),
-        debits_posted: 0,
-        credits_posted: 0,
-        debits_pending: 0,
-        credits_pending: 0,
-        flags: 0,
-        created_at: now_nanos(),
-    };
-
-    let mut s = state.write().await;
-    s.accounts.insert(account_id.clone(), account.clone());
-    s.account_index
-        .entry(req.merchant_id)
-        .or_default()
-        .push(account_id);
-
-    Ok(Json(account))
+) -> Result<Json<Account>, ApiError> {
+    store.create_account(req).await.map(Json).map_err(api_error)
 }
 
 async fn get_account(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Path(account_id): Path<String>,
-) -> Result<Json<Account>, (StatusCode, Json<serde_json::Value>)> {
-    let s = state.read().await;
-    s.accounts.get(&account_id)
-        .cloned()
+) -> Result<Json<Account>, ApiError> {
+    store
+        .get_account(&account_id)
+        .await
         .map(Json)
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "account not found", "account_id": account_id})),
-        ))
+        .map_err(|e| match e {
+            StoreError::AccountNotFound { account_id, .. } => (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "account not found", "account_id": account_id})),
+            ),
+            other => api_error(other),
+        })
 }
 
 async fn get_balance(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Path(account_id): Path<String>,
-) -> Result<Json<BalanceResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let s = state.read().await;
-    let account = s.accounts.get(&account_id)
-        .ok_or_else(|| (
+) -> Result<Json<BalanceResponse>, ApiError> {
+    let account = store.get_account(&account_id).await.map_err(|e| match e {
+        StoreError::AccountNotFound { .. } => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "account not found"})),
-        ))?;
-
-    let balance = account.credits_posted - account.debits_posted;
-    let available = balance - account.debits_pending;
-
-    Ok(Json(BalanceResponse {
-        account_id: account.id.clone(),
-        merchant_id: account.merchant_id.clone(),
-        currency: account.currency.clone(),
-        balance,
-        debits_posted: account.debits_posted,
-        credits_posted: account.credits_posted,
-        pending_debits: account.debits_pending,
-        pending_credits: account.credits_pending,
-        available_balance: available,
-    }))
+        ),
+        other => api_error(other),
+    })?;
+    Ok(Json(BalanceResponse::from_account(&account)))
 }
 
 async fn create_transfer(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Json(req): Json<CreateTransferRequest>,
-) -> Result<Json<Transfer>, (StatusCode, Json<serde_json::Value>)> {
-    let transfer_id = Uuid::new_v4().to_string();
-    let ledger_code = currency_to_ledger_code(&req.currency);
-
-    let mut s = state.write().await;
-
-    // Validate accounts exist
-    if !s.accounts.contains_key(&req.debit_account_id) {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": "debit account not found",
-            "account_id": req.debit_account_id
-        }))));
-    }
-    if !s.accounts.contains_key(&req.credit_account_id) {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": "credit account not found",
-            "account_id": req.credit_account_id
-        }))));
-    }
-
-    // Check sufficient balance
-    let debit_account = s.accounts.get(&req.debit_account_id).unwrap();
-    let available = debit_account.credits_posted - debit_account.debits_posted - debit_account.debits_pending;
-    if available < req.amount {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({
-            "error": "insufficient balance",
-            "available": available,
-            "requested": req.amount
-        }))));
-    }
-
-    // Apply double-entry
-    if let Some(debit_acct) = s.accounts.get_mut(&req.debit_account_id) {
-        debit_acct.debits_posted += req.amount;
-    }
-    if let Some(credit_acct) = s.accounts.get_mut(&req.credit_account_id) {
-        credit_acct.credits_posted += req.amount;
-    }
-
-    let transfer = Transfer {
-        id: transfer_id,
-        debit_account_id: req.debit_account_id,
-        credit_account_id: req.credit_account_id,
-        amount: req.amount,
-        ledger_code,
-        currency: req.currency.to_uppercase(),
-        rail: req.rail,
-        transfer_type: req.transfer_type,
-        reference: req.reference,
-        merchant_id: req.merchant_id,
-        flags: 0,
-        timestamp: now_nanos(),
-        settled_at: Some(now_nanos()),
-    };
-
-    s.transfers.push(transfer.clone());
+) -> Result<Json<Transfer>, ApiError> {
+    let (transfer, _replayed) = store.create_transfer(req).await.map_err(api_error)?;
     Ok(Json(transfer))
 }
 
 async fn cross_border_transfer(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Json(req): Json<CrossBorderTransferRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let mut s = state.write().await;
-    let ts = now_nanos();
-
-    // Find or create merchant escrow account for source currency
-    let merchant_accounts: Vec<String> = s.account_index
-        .get(&req.merchant_id)
-        .cloned()
-        .unwrap_or_default();
-
-    // Create escrow and settlement accounts if they don't exist
-    let escrow_id = format!("escrow-{}-{}", req.merchant_id, req.source_currency.to_lowercase());
-    let settlement_id = format!("settlement-{}-{}-{}", req.merchant_id, req.rail, req.target_currency.to_lowercase());
-    let fee_id = format!("fee-{}-{}", req.merchant_id, req.source_currency.to_lowercase());
-
-    for (id, acct_type, currency) in [
-        (escrow_id.clone(), AccountType::Escrow, req.source_currency.clone()),
-        (settlement_id.clone(), AccountType::Settlement, req.target_currency.clone()),
-        (fee_id.clone(), AccountType::Fee, req.source_currency.clone()),
-    ] {
-        if !s.accounts.contains_key(&id) {
-            s.accounts.insert(id.clone(), Account {
-                id: id.clone(),
-                merchant_id: req.merchant_id.clone(),
-                account_type: acct_type,
-                ledger_code: currency_to_ledger_code(&currency),
-                currency: currency.to_uppercase(),
-                debits_posted: 0,
-                credits_posted: req.amount * 10, // seed with balance for demo
-                debits_pending: 0,
-                credits_pending: 0,
-                flags: 0,
-                created_at: ts,
-            });
-            s.account_index
-                .entry(req.merchant_id.clone())
-                .or_default()
-                .push(id);
-        }
-    }
-
-    let target_amount = (req.amount as f64 * req.exchange_rate) as i64;
-
-    // Transfer 1: Merchant escrow → Settlement (source currency debit)
-    let t1_id = format!("tb-{}-debit", req.transfer_id);
-    if let Some(escrow) = s.accounts.get_mut(&escrow_id) {
-        escrow.debits_posted += req.amount;
-    }
-    if let Some(settlement) = s.accounts.get_mut(&settlement_id) {
-        settlement.credits_posted += target_amount;
-    }
-
-    // Transfer 2: Fee deduction
-    let t2_id = format!("tb-{}-fee", req.transfer_id);
-    if let Some(escrow) = s.accounts.get_mut(&escrow_id) {
-        escrow.debits_posted += req.fee_amount;
-    }
-    if let Some(fee_acct) = s.accounts.get_mut(&fee_id) {
-        fee_acct.credits_posted += req.fee_amount;
-    }
-
-    let transfers = vec![
-        Transfer {
-            id: t1_id,
-            debit_account_id: escrow_id.clone(),
-            credit_account_id: settlement_id.clone(),
-            amount: req.amount,
-            ledger_code: currency_to_ledger_code(&req.source_currency),
-            currency: req.source_currency.to_uppercase(),
-            rail: req.rail.clone(),
-            transfer_type: TransferType::CrossBorderDebit,
-            reference: req.reference.clone(),
-            merchant_id: req.merchant_id.clone(),
-            flags: 0,
-            timestamp: ts,
-            settled_at: Some(ts),
-        },
-        Transfer {
-            id: t2_id,
-            debit_account_id: escrow_id.clone(),
-            credit_account_id: fee_id.clone(),
-            amount: req.fee_amount,
-            ledger_code: currency_to_ledger_code(&req.source_currency),
-            currency: req.source_currency.to_uppercase(),
-            rail: req.rail.clone(),
-            transfer_type: TransferType::FeeDebit,
-            reference: format!("fee-{}", req.reference),
-            merchant_id: req.merchant_id.clone(),
-            flags: 0,
-            timestamp: ts,
-            settled_at: Some(ts),
-        },
-    ];
-
-    for t in &transfers {
-        s.transfers.push(t.clone());
-    }
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "transfer_id": req.transfer_id,
-        "rail": req.rail,
-        "source_amount": req.amount,
-        "source_currency": req.source_currency,
-        "target_amount": target_amount,
-        "target_currency": req.target_currency,
-        "fee_amount": req.fee_amount,
-        "exchange_rate": req.exchange_rate,
-        "ledger_entries": transfers.len(),
-        "escrow_account": escrow_id,
-        "settlement_account": settlement_id,
-        "settled_at": ts
-    })))
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (payload, _replayed) = store.cross_border_transfer(req).await.map_err(api_error)?;
+    Ok(Json(payload))
 }
 
 async fn list_transfers(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
-    let s = state.read().await;
     let merchant_id = params.get("merchant_id").cloned().unwrap_or_default();
     let rail = params.get("rail").cloned().unwrap_or_default();
-    let limit: usize = params.get("limit")
+    let limit: usize = params
+        .get("limit")
         .and_then(|l| l.parse().ok())
         .unwrap_or(50);
 
-    let transfers: Vec<&Transfer> = s.transfers.iter()
-        .filter(|t| {
-            (merchant_id.is_empty() || t.merchant_id == merchant_id) &&
-            (rail.is_empty() || t.rail == rail)
-        })
-        .rev()
-        .take(limit)
-        .collect();
+    let (transfers, total) = store.list_transfers(&merchant_id, &rail, limit).await;
 
     Json(serde_json::json!({
         "transfers": transfers,
         "count": transfers.len(),
-        "total": s.transfers.len()
+        "total": total
     }))
 }
 
-async fn ledger_stats(State(state): State<SharedState>) -> Json<LedgerStats> {
-    let s = state.read().await;
-
-    let mut volume_by_rail: HashMap<String, i64> = HashMap::new();
-    let mut total_fees: i64 = 0;
-    let mut currencies: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    for t in &s.transfers {
-        *volume_by_rail.entry(t.rail.clone()).or_insert(0) += t.amount;
-        if matches!(t.transfer_type, TransferType::FeeDebit) {
-            total_fees += t.amount;
-        }
-        currencies.insert(t.currency.clone());
-    }
-
-    Json(LedgerStats {
-        total_accounts: s.accounts.len(),
-        total_transfers: s.transfers.len(),
-        total_volume_by_rail: volume_by_rail,
-        total_fees_collected: total_fees,
-        active_currencies: currencies.into_iter().collect(),
-    })
+async fn ledger_stats(State(store): State<SharedState>) -> Json<LedgerStats> {
+    Json(store.stats().await)
 }
 
 async fn list_accounts(
-    State(state): State<SharedState>,
+    State(store): State<SharedState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
-    let s = state.read().await;
     let merchant_id = params.get("merchant_id").cloned().unwrap_or_default();
-
-    let accounts: Vec<&Account> = s.accounts.values()
-        .filter(|a| merchant_id.is_empty() || a.merchant_id == merchant_id)
-        .collect();
+    let accounts = store.list_accounts(&merchant_id).await;
 
     Json(serde_json::json!({
         "accounts": accounts,
@@ -515,41 +282,62 @@ async fn list_accounts(
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let state: SharedState = Arc::new(RwLock::new(LedgerState::default()));
+    let in_memory = env::var("LEDGER_ALLOW_IN_MEMORY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
-    // Seed demo accounts
-    {
-        let mut s = state.write().await;
-        let demo_merchant = "merchant_demo_001";
-        let ts = now_nanos();
+    let store: Store = if in_memory {
+        tracing::warn!(
+            "⚠️  LEDGER_ALLOW_IN_MEMORY is set: running with a NON-DURABLE in-memory ledger. \
+             All accounts and transfers are LOST on restart. DEV/TEST ONLY — never use in production."
+        );
+        eprintln!(
+            "WARNING: tigerbeetle-ledger running in NON-DURABLE in-memory mode (LEDGER_ALLOW_IN_MEMORY=1). \
+             Restart = total ledger loss. Dev/test only."
+        );
+        Store::Mem(MemStore::new())
+    } else {
+        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+            eprintln!(
+                "FATAL: DATABASE_URL is not set. The ledger requires a durable Postgres backend. \
+                 Set DATABASE_URL, or explicitly opt into dev-only in-memory mode with LEDGER_ALLOW_IN_MEMORY=1."
+            );
+            std::process::exit(2);
+        });
+        match PgStore::connect(&database_url).await {
+            Ok(pg) => {
+                tracing::info!("connected to durable Postgres ledger backend");
+                Store::Pg(pg)
+            }
+            Err(e) => {
+                eprintln!(
+                    "FATAL: cannot initialize durable Postgres ledger backend: {:?}. \
+                     Refusing to serve a non-durable ledger. Fix DATABASE_URL or the database, \
+                     or opt into dev-only in-memory mode with LEDGER_ALLOW_IN_MEMORY=1.",
+                    e
+                );
+                std::process::exit(2);
+            }
+        }
+    };
 
-        for (id, acct_type, currency, balance) in [
-            ("escrow-demo-usd", AccountType::Escrow, "USD", 10_000_000_i64),
-            ("escrow-demo-cny", AccountType::CrossBorderCips, "CNY", 50_000_000_i64),
-            ("escrow-demo-inr", AccountType::CrossBorderUpi, "INR", 500_000_000_i64),
-            ("escrow-demo-brl", AccountType::CrossBorderPix, "BRL", 20_000_000_i64),
-            ("settlement-demo-ngn", AccountType::Settlement, "NGN", 0_i64),
-            ("fee-demo-usd", AccountType::Fee, "USD", 0_i64),
-        ] {
-            s.accounts.insert(id.to_string(), Account {
-                id: id.to_string(),
-                merchant_id: demo_merchant.to_string(),
-                account_type: acct_type,
-                ledger_code: currency_to_ledger_code(currency),
-                currency: currency.to_string(),
-                debits_posted: 0,
-                credits_posted: balance,
-                debits_pending: 0,
-                credits_pending: 0,
-                flags: 0,
-                created_at: ts,
-            });
-            s.account_index
-                .entry(demo_merchant.to_string())
-                .or_default()
-                .push(id.to_string());
+    // Demo seed is strictly opt-in — fabricated balances must never appear by default.
+    let seed_demo = env::var("LEDGER_SEED_DEMO")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if seed_demo {
+        tracing::warn!("LEDGER_SEED_DEMO=1: seeding merchant_demo_001 demo accounts with pre-funded balances");
+        match &store {
+            Store::Pg(pg) => {
+                if let Err(e) = pg.seed_demo_accounts().await {
+                    tracing::error!(error = ?e, "demo seed failed");
+                }
+            }
+            Store::Mem(m) => m.seed_demo_accounts().await,
         }
     }
+
+    let shared: SharedState = Arc::new(store);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -559,14 +347,14 @@ async fn main() {
         .route("/v1/ledger/transfers", get(list_transfers).post(create_transfer))
         .route("/v1/ledger/crossborder", post(cross_border_transfer))
         .route("/v1/ledger/stats", get(ledger_stats))
-        .with_state(state);
+        .with_state(shared);
 
     let port = env::var("PORT").unwrap_or_else(|_| "8200".to_string());
     let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
 
     println!("TigerBeetle Ledger Service listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .unwrap();
+        .expect("bind ledger port");
+    axum::serve(listener, app).await.unwrap();
 }
