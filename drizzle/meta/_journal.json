@@ -575,6 +575,13 @@
       "when": 1786449561365,
       "tag": "0081_slow_excalibur",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1786466378661,
+      "tag": "0082_rare_the_hood",
+      "breakpoints": true
     }
   ]
 }

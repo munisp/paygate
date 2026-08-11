@@ -240,7 +240,7 @@ export async function creditWalletTopUp(input: CreditWalletTopUpInput): Promise<
   };
 
   const newBalance = supportsTx
-    ? await (db as unknown as { transaction: <T>(fn: (tx: never) => Promise<T>) => Promise<T> }).transaction(applyCredit as never)
+    ? await (db as unknown as { transaction: <T>(fn: (tx: never) => Promise<T>) => Promise<T> }).transaction<number>(applyCredit as never)
     : await applyCredit(db);
 
   logger.info("[stripeWebhook] wallet credited", {
