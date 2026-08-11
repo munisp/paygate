@@ -603,20 +603,29 @@ func main() {
 	mux.HandleFunc("GET /v1/ledger/health", handlers.GetLedgerHealth)
 
 	// ─── Go Microservices ────────────────────────────────────────────────────────
-	mux.HandleFunc("/v1/mojaloop/health", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/health"))
-	mux.HandleFunc("/v1/mojaloop/transfers", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/v1/transfers"))
-	mux.HandleFunc("/v1/mojaloop/quotes", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/v1/quotes"))
-	mux.HandleFunc("/v1/mojaloop/parties/", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8200", "/v1/parties"))
-	mux.HandleFunc("/v1/cips/health", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8201", "/health"))
-	mux.HandleFunc("/v1/cips/transfer", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8201", "/v1/transfer"))
-	mux.HandleFunc("/v1/cips/status/", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8201", "/v1/status"))
-	mux.HandleFunc("/v1/upi/health", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/health"))
-	mux.HandleFunc("/v1/upi/pay", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/v1/pay"))
-	mux.HandleFunc("/v1/upi/collect", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/v1/collect"))
-	mux.HandleFunc("/v1/upi/vpa/resolve", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8202", "/v1/vpa/resolve"))
-	mux.HandleFunc("/v1/pix/health", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8203", "/health"))
-	mux.HandleFunc("/v1/pix/payment", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8203", "/v1/payment"))
-	mux.HandleFunc("/v1/pix/key/resolve", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8203", "/v1/key/resolve"))
+	// mojaloop-fspiop-adapter (Go) listens on 8097 and serves /v1/cross-border/*
+	// — see go-services/mojaloop-fspiop-adapter/cmd/adapter/main.go. The adapter
+	// has no /v1/parties surface; its lookup surface is the transfer-status GET.
+	mux.HandleFunc("/v1/mojaloop/health", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/health"))
+	mux.HandleFunc("/v1/mojaloop/transfers", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer"))
+	mux.HandleFunc("/v1/mojaloop/quotes", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/quote"))
+	mux.HandleFunc("/v1/mojaloop/parties/", handlers.ProxyToService("MOJALOOP_URL", "http://localhost:8097", "/v1/cross-border/transfer"))
+	// cips-gateway (Go) listens on 8098 and serves POST /v1/transfers and
+	// GET /v1/transfers/{id} — see go-services/cips-gateway/cmd/gateway/main.go.
+	mux.HandleFunc("/v1/cips/health", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/health"))
+	mux.HandleFunc("/v1/cips/transfer", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers"))
+	mux.HandleFunc("/v1/cips/status/", handlers.ProxyToService("CIPS_GATEWAY_URL", "http://localhost:8098", "/v1/transfers"))
+	// upi-gateway (Go) listens on 8099; VPA resolution is POST /v1/vpa/lookup —
+	// see go-services/upi-gateway/cmd/gateway/main.go.
+	mux.HandleFunc("/v1/upi/health", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/health"))
+	mux.HandleFunc("/v1/upi/pay", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/pay"))
+	mux.HandleFunc("/v1/upi/collect", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/collect"))
+	mux.HandleFunc("/v1/upi/vpa/resolve", handlers.ProxyToService("UPI_GATEWAY_URL", "http://localhost:8099", "/v1/vpa/lookup"))
+	// pix-gateway (Go) listens on 8100 and serves /v1/payments + /v1/keys/lookup
+	// — see go-services/pix-gateway/cmd/gateway/main.go.
+	mux.HandleFunc("/v1/pix/health", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/health"))
+	mux.HandleFunc("/v1/pix/payment", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/payments"))
+	mux.HandleFunc("/v1/pix/key/resolve", handlers.ProxyToService("PIX_GATEWAY_URL", "http://localhost:8100", "/v1/keys/lookup"))
 
 	// ─── Rust Microservices ───────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/billing/health", handlers.ProxyToService("BILLING_ENGINE_URL", "http://localhost:8210", "/health"))
@@ -657,8 +666,10 @@ func main() {
 	mux.HandleFunc("/v1/emi/schedule", handlers.ProxyToService("EMI_SERVICE_URL", "http://localhost:8225", "/v1/schedule"))
 	mux.HandleFunc("/v1/fraud-heatmap/health", handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/health"))
 	mux.HandleFunc("/v1/fraud-heatmap/data", handlers.ProxyToService("FRAUD_HEATMAP_URL", "http://localhost:8226", "/v1/data"))
-	mux.HandleFunc("/v1/fraud-scoring/health", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8100", "/health"))
-	mux.HandleFunc("/v1/fraud-scoring/score", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8100", "/v1/score"))
+	// fraud-scoring (Python/FastAPI) listens on 8083 — see
+	// python-services/fraud-scoring/main.py. (8100 is pix-gateway's port.)
+	mux.HandleFunc("/v1/fraud-scoring/health", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/health"))
+	mux.HandleFunc("/v1/fraud-scoring/score", handlers.ProxyToService("FRAUD_SCORING_URL", "http://localhost:8083", "/v1/score"))
 	mux.HandleFunc("/v1/fx-rate/health", handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/health"))
 	mux.HandleFunc("/v1/fx-rate/rates", handlers.ProxyToService("FX_RATE_FEED_URL", "http://localhost:8227", "/v1/rates"))
 	mux.HandleFunc("/v1/insurance/health", handlers.ProxyToService("INSURANCE_PRICING_URL", "http://localhost:8228", "/health"))

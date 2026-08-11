@@ -9,7 +9,7 @@
 import Stripe from "stripe";
 import type { Request, Response } from "express";
 import { nanoid } from "nanoid";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { getDb } from "./db";
 import { consumerWallets, consumerWalletTxns } from "../drizzle/schema";
@@ -194,24 +194,54 @@ export async function creditWalletTopUp(input: CreditWalletTopUpInput): Promise<
     wallet = created;
   }
 
-  const newBalance = wallet.balanceKobo + input.amountKobo;
-  await db
-    .update(consumerWallets)
-    .set({ balanceKobo: newBalance, updatedAt: new Date() })
-    .where(eq(consumerWallets.id, wallet.id));
+  // Credit atomically: blind increment (SET balance_kobo = balance_kobo + X)
+  // and the ledger row in ONE transaction — no read-modify-write race between
+  // concurrent webhook deliveries for the same wallet.
+  // The minimal in-memory test double has no transaction()/SQL-fragment
+  // support; fall back to a plain update there (single-threaded harness).
+  const supportsTx = typeof (db as { transaction?: unknown }).transaction === "function";
 
-  await db.insert(consumerWalletTxns).values({
-    id: nanoid(),
-    walletId: wallet.id,
-    userId: input.userId,
-    type: "topup",
-    amountKobo: input.amountKobo,
-    currency,
-    balanceAfterKobo: newBalance,
-    description: input.description ?? "Wallet top-up (Stripe)",
-    reference: input.reference,
-    status: "completed",
-  });
+  const applyCredit = async (tx: {
+    update: typeof db.update;
+    insert: typeof db.insert;
+  }): Promise<number> => {
+    let creditedBalance: number;
+    if (supportsTx) {
+      const [updated] = await tx
+        .update(consumerWallets)
+        .set({
+          balanceKobo: sql<number>`${consumerWallets.balanceKobo} + ${input.amountKobo}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(consumerWallets.id, wallet.id))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      creditedBalance = updated?.balanceKobo ?? wallet.balanceKobo + input.amountKobo;
+    } else {
+      creditedBalance = wallet.balanceKobo + input.amountKobo;
+      await tx
+        .update(consumerWallets)
+        .set({ balanceKobo: creditedBalance, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id));
+    }
+
+    await tx.insert(consumerWalletTxns).values({
+      id: nanoid(),
+      walletId: wallet.id,
+      userId: input.userId,
+      type: "topup",
+      amountKobo: input.amountKobo,
+      currency,
+      balanceAfterKobo: creditedBalance,
+      description: input.description ?? "Wallet top-up (Stripe)",
+      reference: input.reference,
+      status: "completed",
+    });
+    return creditedBalance;
+  };
+
+  const newBalance = supportsTx
+    ? await (db as unknown as { transaction: <T>(fn: (tx: never) => Promise<T>) => Promise<T> }).transaction(applyCredit as never)
+    : await applyCredit(db);
 
   logger.info("[stripeWebhook] wallet credited", {
     userId: input.userId, amountKobo: input.amountKobo, currency, reference: input.reference,
