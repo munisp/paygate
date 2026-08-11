@@ -2,10 +2,10 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import {
-  TrendingUp, TrendingDown, RefreshCw, Globe, DollarSign,
+  TrendingDown, RefreshCw, Globe, DollarSign,
   ArrowLeftRight, Settings2, CheckCircle2, AlertTriangle,
-  BarChart3, Clock, Zap, ArrowUpRight, ArrowDownRight,
-  Send, Loader2, ChevronRight, User, CreditCard, Activity
+  BarChart3, Clock, Zap,
+  Send, Loader2, ChevronRight, CreditCard, Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,30 +36,7 @@ const CURRENCIES = [
   { code: "CNY", name: "Chinese Yuan", flag: "🇨🇳", symbol: "¥", region: "BRICS" },
 ];
 
-// Simulated rates against USD
-const BASE_RATES: Record<string, number> = {
-  NGN: 1580, KES: 129.5, GHS: 15.2, ZAR: 18.4, EGP: 48.9,
-  TZS: 2580, UGX: 3720, XOF: 615, USD: 1, EUR: 0.92, GBP: 0.79, CNY: 7.24,
-};
-
-function getRate(from: string, to: string) {
-  return BASE_RATES[to] / BASE_RATES[from];
-}
-
-function generateHistory(base: number, points = 24) {
-  return Array.from({ length: points }, (_, i) => ({
-    time: `${String(i).padStart(2, "0")}:00`,
-    rate: +(base * (1 + (Math.random() - 0.5) * 0.02)).toFixed(4),
-  }));
-}
-
-const FX_COST_DATA = [
-  { method: "PayGate Direct", cost: 0.8, color: "#3b82f6" },
-  { method: "SWIFT Wire", cost: 3.5, color: "#ef4444" },
-  { method: "Traditional Bank", cost: 4.2, color: "#f97316" },
-  { method: "Wise/Remitly", cost: 1.4, color: "#8b5cf6" },
-  { method: "Western Union", cost: 5.1, color: "#6b7280" },
-];
+// No simulated rates: only real rates from the DB (fx.getRates) and SSE stream are displayed.
 
 function RateAlertDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [base, setBase] = useState("USD");
@@ -120,7 +97,16 @@ export default function FXDashboard() {
   const [fromCurrency, setFromCurrency] = useState("USD");
   const [toCurrency, setToCurrency] = useState("NGN");
   const [amount, setAmount] = useState("1000");
-  const [rates, setRates] = useState(BASE_RATES);
+  // Real rates only — seeded from DB (fx.getRates) and the SSE market stream. USD=1 is the base identity.
+  const [rates, setRates] = useState<Record<string, number>>({ USD: 1 });
+
+  // Returns null when either leg has no real rate — callers must handle the unavailable state.
+  function getRate(from: string, to: string): number | null {
+    const f = from === "USD" ? 1 : rates[from];
+    const t = to === "USD" ? 1 : rates[to];
+    if (!f || !t) return null;
+    return t / f;
+  }
   const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString());
   const [settlementCurrency, setSettlementCurrency] = useState("NGN");
   const [tab, setTab] = useState<"rates" | "converter" | "analytics" | "settings" | "transfer">("rates");
@@ -158,18 +144,17 @@ export default function FXDashboard() {
     { enabled: (tab as string, { staleTime: 30_000 }) === "transfer" && xbTab === "history" }
   );
 
-  // Poll status every 5 s after submission (simulates SSE)
+  // Real transfer status polling from crossBorder.getById every 5s after submission
+  const xbStatusQuery = trpc.crossBorder.getById.useQuery(
+    { transferId: xbResult?.transferId ?? "" },
+    { enabled: xbStep === "done" && !!xbResult?.transferId, refetchInterval: 5000, staleTime: 0 }
+  );
   useEffect(() => {
-    if (xbStep !== "done" || !xbResult?.transferId) return;
-    const STATUSES = ["pending", "submitted", "processing", "completed"];
-    let idx = 0;
-    const iv = setInterval(() => {
-      idx = Math.min(idx + 1, STATUSES.length - 1);
-      setXbStatusMsg(`Transfer ${xbResult.transferId} — ${STATUSES[idx]}`);
-      if (STATUSES[idx] === "completed") clearInterval(iv);
-    }, 5000);
-    return () => clearInterval(iv);
-  }, [xbStep, xbResult]);
+    const status = (xbStatusQuery.data as any)?.status;
+    if (xbStep === "done" && xbResult?.transferId && status) {
+      setXbStatusMsg(`Transfer ${xbResult.transferId} — ${status}`);
+    }
+  }, [xbStatusQuery.data, xbStep, xbResult]);
 
   async function handleXbGetQuote() {
     if (!xbForm.amount || parseFloat(xbForm.amount) <= 0) {
@@ -177,7 +162,7 @@ export default function FXDashboard() {
     }
     const result = await xbQuoteMutation.refetch();
     if (result.data) { setXbQuote(result.data); setXbStep("quote"); }
-    else toast.error("Could not fetch quote — using estimated rate");
+    else toast.error("Could not fetch a quote for this corridor — please try again later");
   }
 
   function handleXbConfirm() {
@@ -218,6 +203,8 @@ export default function FXDashboard() {
   const { data: liveRates, refetch: refetchRates } = trpc.fx.getRates.useQuery({ base: "USD" }, { refetchInterval: autoRefresh ? fxInterval : false }, { staleTime: 30_000 });
   // Live corridor limits
   const { data: corridorLimits } = trpc.wave32.corridors.list.useQuery({ tenantId: "ten_paygate_default" }, { staleTime: 30_000 });
+  // Real corridor transfer volume for the analytics tab
+  const { data: corridorVolume } = trpc.fx.corridorVolume.useQuery({ daysSince: 7 }, { enabled: tab === "analytics", staleTime: 60_000 });
   const fetchAndStoreMutation = trpc.fx.fetchAndStore.useMutation({
     onSuccess: (d: any) => { toast.success(`Fetched ${d.count} live rates`); refetchRates(); },
     onError: () => toast.error("Failed to fetch live rates"),
@@ -234,33 +221,30 @@ export default function FXDashboard() {
   // Merge live DB rates into the rates map
   useEffect(() => {
     if (liveRates && liveRates.length > 0) {
-      const updated = { ...BASE_RATES };
+      const updated: Record<string, number> = { USD: 1 };
       liveRates.forEach(r => { updated[r.targetCurrency] = parseFloat(r.rate); });
       setRates(updated);
       setLastUpdated(new Date(liveRates[0].fetchedAt).toLocaleTimeString());
     }
   }, [liveRates]);
 
-  // Simulate rate fluctuations only when no live data
-  useEffect(() => {
-    if (!autoRefresh || (liveRates && liveRates.length > 0)) return;
-    const interval = setInterval(() => {
-      setRates(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(k => {
-          if (k !== "USD") updated[k] = +(updated[k] * (1 + (Math.random() - 0.5) * 0.003)).toFixed(4);
-        });
-        return updated;
-      });
-      setLastUpdated(new Date().toLocaleTimeString());
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, liveRates]);
+  // Real rate history from the DB for the selected pair (stored by fetchAndStore / SSE upserts)
+  const { data: historyData } = trpc.fx.getHistory.useQuery(
+    { base: fromCurrency, target: toCurrency, limit: 48 },
+    { enabled: tab === "converter", staleTime: 60_000 }
+  );
+  const history = ((historyData as any[]) ?? [])
+    .map((h: any) => ({
+      time: new Date(h.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      rate: parseFloat(h.rate),
+    }))
+    .reverse();
 
   const currentRate = getRate(fromCurrency, toCurrency);
-  const convertedAmount = (parseFloat(amount || "0") * currentRate).toFixed(2);
-  const fxFee = (parseFloat(amount || "0") * 0.008).toFixed(2);
-  const history = generateHistory(currentRate);
+  const rateAvailable = currentRate !== null;
+  const amt = parseFloat(amount || "0");
+  const convertedAmount = rateAvailable ? (amt * currentRate).toFixed(2) : null;
+  const fxFee = rateAvailable ? (amt * 0.008).toFixed(2) : null;
 
   const fromCurr = CURRENCIES.find(c => c.code === fromCurrency)!;
   const toCurr = CURRENCIES.find(c => c.code === toCurrency)!;
@@ -302,9 +286,9 @@ export default function FXDashboard() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Currencies Supported", value: liveRates && liveRates.length > 0 ? String(liveRates.length) : String(Object.keys(rates).length), sub: "African + Global", icon: Globe, cls: "text-primary" },
-          { label: "Avg FX Spread", value: "0.8%", sub: "vs 3.5% SWIFT avg", icon: TrendingDown, cls: "text-emerald-600" },
-          { label: "Live Rates Cached", value: liveRates ? `${liveRates.length}` : "…", sub: "From external feed", icon: DollarSign, cls: "text-blue-600" },
+          { label: "Currencies Supported", value: String(Object.keys(rates).length), sub: "African + Global", icon: Globe, cls: "text-primary" },
+          { label: "Avg FX Spread", value: "—", sub: "Not yet instrumented", icon: TrendingDown, cls: "text-emerald-600" },
+          { label: "Live Rates Cached", value: liveRates ? `${liveRates.length}` : "0", sub: "From external feed", icon: DollarSign, cls: "text-blue-600" },
           { label: "Settlement Time", value: "<2hr", sub: "PAPSS & BRICS Pay", icon: Zap, cls: "text-amber-600" },
         ].map(s => (
           <div key={s.label} className="stat-card">
@@ -332,11 +316,8 @@ export default function FXDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {CURRENCIES.filter(c => c.code !== "USD").map(curr => {
             const rate = rates[curr.code];
-            const baseRate = BASE_RATES[curr.code];
-            const change = ((rate - baseRate) / baseRate) * 100;
-            const isUp = change >= 0;
             return (
-              <div key={curr.code} className="bg-card rounded-xl border border-border p-4 hover:border-primary/30 transition-all cursor-pointer group" onClick={() => { setFromCurrency("USD"); setToCurrency(curr.code); setTab("converter"); }}>
+              <div key={curr.code} className={`bg-card rounded-xl border border-border p-4 transition-all group ${rate ? "hover:border-primary/30 cursor-pointer" : "opacity-60"}`} onClick={() => { if (rate) { setFromCurrency("USD"); setToCurrency(curr.code); setTab("converter"); } }}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2.5">
                     <span className="text-2xl">{curr.flag}</span>
@@ -345,16 +326,15 @@ export default function FXDashboard() {
                       <p className="text-xs text-muted-foreground">{curr.name}</p>
                     </div>
                   </div>
-                  <div className={`flex items-center gap-1 text-xs font-medium ${isUp ? "text-red-600" : "text-emerald-600"}`}>
-                    {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                    {Math.abs(change).toFixed(3)}%
-                  </div>
+                  {!rate && (
+                    <span className="text-xs text-muted-foreground italic">Rate unavailable</span>
+                  )}
                 </div>
                 <div className="flex items-end justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">1 USD =</p>
                     <p className="text-xl font-bold amount" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-                      {curr.symbol}{rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {rate ? `${curr.symbol}${rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
                     </p>
                   </div>
                   <Badge className="text-xs border-0 bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -372,6 +352,13 @@ export default function FXDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-card rounded-xl border border-border p-6 space-y-5">
             <h3 className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Currency Converter</h3>
+
+            {!rateAvailable && (
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700">No live rate is available for <strong>{fromCurrency}/{toCurrency}</strong> yet. Conversion is disabled until a real rate is fetched. Use "Fetch Live Rates" above to populate rates.</p>
+              </div>
+            )}
 
             {/* From */}
             <div className="space-y-2">
@@ -399,7 +386,7 @@ export default function FXDashboard() {
                   {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
                 </select>
                 <div className="flex-1 px-4 py-3 bg-primary/5 rounded-xl border border-primary/20 text-lg font-bold amount text-primary">
-                  {parseFloat(convertedAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {convertedAmount !== null ? parseFloat(convertedAmount).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
                 </div>
               </div>
             </div>
@@ -408,53 +395,63 @@ export default function FXDashboard() {
             <div className="bg-muted/50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Exchange Rate</span>
-                <span className="font-semibold amount">1 {fromCurrency} = {currentRate.toFixed(4)} {toCurrency}</span>
+                <span className="font-semibold amount">{rateAvailable ? `1 ${fromCurrency} = ${currentRate.toFixed(4)} ${toCurrency}` : "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">PayGate FX Fee (0.8%)</span>
-                <span className="font-semibold text-emerald-600">−{fromCurr.symbol}{parseFloat(fxFee).toLocaleString()}</span>
+                <span className="font-semibold text-emerald-600">{fxFee !== null ? `−${fromCurr.symbol}${parseFloat(fxFee).toLocaleString()}` : "—"}</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between text-sm font-semibold">
                 <span>You receive</span>
-                <span className="amount">{toCurr.symbol}{(parseFloat(convertedAmount) * 0.992).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span className="amount">{convertedAmount !== null ? `${toCurr.symbol}${(parseFloat(convertedAmount) * 0.992).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</span>
               </div>
             </div>
 
-            <Button className="w-full" disabled={convertMutation.isPending || !amount || parseFloat(amount) <= 0} onClick={() => convertMutation.mutate({ fromCurrency, toCurrency, amount: parseFloat(amount) })}>
+            <Button className="w-full" disabled={!rateAvailable || convertMutation.isPending || !amount || parseFloat(amount) <= 0} onClick={() => convertMutation.mutate({ fromCurrency, toCurrency, amount: parseFloat(amount) })}>
               {convertMutation.isPending ? "Converting..." : "Convert & Settle"}
             </Button>
           </div>
 
-          {/* Rate history chart */}
+          {/* Rate history chart — real stored observations only */}
           <div className="bg-card rounded-xl border border-border p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
-                {fromCurrency}/{toCurrency} Rate — 24h
+                {fromCurrency}/{toCurrency} Rate History
               </h3>
-              <Badge className="text-xs border-0 bg-muted text-muted-foreground">Simulated</Badge>
+              <Badge className="text-xs border-0 bg-muted text-muted-foreground">Live data</Badge>
             </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={history}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="time" tick={{ fontSize: 11 }} interval={3} />
-                <YAxis tick={{ fontSize: 11 }} domain={["auto", "auto"]} tickFormatter={v => v.toFixed(2)} />
-                <Tooltip formatter={(v: number) => [v.toFixed(4), `${fromCurrency}/${toCurrency}`]} />
-                <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              {[
-                { label: "24h High", value: Math.max(...history.map(h => h.rate)).toFixed(4) },
-                { label: "24h Low", value: Math.min(...history.map(h => h.rate)).toFixed(4) },
-                { label: "Current", value: currentRate.toFixed(4) },
-              ].map(s => (
-                <div key={s.label} className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                  <p className="text-sm font-semibold amount mt-0.5">{s.value}</p>
+            {history.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
+                <BarChart3 className="w-8 h-8 mb-2 opacity-40" />
+                <p className="text-sm">No stored rate history for this pair yet.</p>
+                <p className="text-xs mt-1">History accumulates as live rates are fetched.</p>
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} interval={3} />
+                    <YAxis tick={{ fontSize: 11 }} domain={["auto", "auto"]} tickFormatter={v => v.toFixed(2)} />
+                    <Tooltip formatter={(v: number) => [v.toFixed(4), `${fromCurrency}/${toCurrency}`]} />
+                    <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  {[
+                    { label: "High", value: Math.max(...history.map(h => h.rate)).toFixed(4) },
+                    { label: "Low", value: Math.min(...history.map(h => h.rate)).toFixed(4) },
+                    { label: "Latest", value: history[history.length - 1]?.rate.toFixed(4) ?? "—" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-muted/50 rounded-lg p-3 text-center">
+                      <p className="text-xs text-muted-foreground">{s.label}</p>
+                      <p className="text-sm font-semibold amount mt-0.5">{s.value}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -463,28 +460,32 @@ export default function FXDashboard() {
       {tab === "analytics" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-card rounded-xl border border-border p-5">
-            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>FX Cost Comparison</h3>
-            <p className="text-xs text-muted-foreground mb-4">Average fee as % of transaction value for $1,000 transfer to Africa</p>
-            <div className="space-y-3">
-              {FX_COST_DATA.map(item => (
-                <div key={item.method} className="flex items-center gap-3">
-                  <div className="w-36 flex-shrink-0">
-                    <p className="text-xs font-medium">{item.method}</p>
-                  </div>
-                  <div className="flex-1 h-6 bg-muted rounded-lg overflow-hidden relative">
-                    <div className="h-full rounded-lg transition-all" style={{ width: `${(item.cost / 6) * 100}%`, background: item.color }} />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold" style={{ color: item.color }}>{item.cost}%</span>
-                  </div>
-                  {item.method === "PayGate Direct" && (
-                    <Badge className="text-xs border-0 bg-emerald-100 text-emerald-700 flex-shrink-0">Best</Badge>
-                  )}
+            <h3 className="font-semibold mb-4" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Corridor Volume (Last 7 Days)</h3>
+            <p className="text-xs text-muted-foreground mb-4">Real cross-border transfer volume per corridor from the database</p>
+            {(() => {
+              const corridors = (corridorVolume as any[]) ?? [];
+              const maxVol = Math.max(1, ...corridors.map(c => Number(c.volume ?? 0)));
+              return corridors.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <BarChart3 className="w-8 h-8 mb-2 opacity-40" />
+                  <p className="text-sm">No corridor volume recorded yet.</p>
                 </div>
-              ))}
-            </div>
-            <div className="mt-4 p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-              <p className="text-xs font-semibold text-emerald-700">💡 Savings with PayGate</p>
-              <p className="text-xs text-emerald-600 mt-1">On $10,000/month in cross-border payments, PayGate saves you ~$270/month vs SWIFT.</p>
-            </div>
+              ) : (
+                <div className="space-y-3">
+                  {corridors.map((c: any) => (
+                    <div key={c.corridor} className="flex items-center gap-3">
+                      <div className="w-24 flex-shrink-0">
+                        <p className="text-xs font-medium">{c.corridor}</p>
+                      </div>
+                      <div className="flex-1 h-6 bg-muted rounded-lg overflow-hidden relative">
+                        <div className="h-full rounded-lg transition-all bg-primary" style={{ width: `${(Number(c.volume ?? 0) / maxVol) * 100}%` }} />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold">{Number(c.volume ?? 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="bg-card rounded-xl border border-border p-5">
@@ -826,23 +827,8 @@ export default function FXDashboard() {
           <div className="bg-card rounded-xl border border-border p-5 space-y-4">
             <h3 className="font-semibold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>FX Rate Alerts</h3>
             <p className="text-sm text-muted-foreground">Get notified when exchange rates hit your target thresholds.</p>
-            <div className="space-y-3">
-              {[
-                { pair: "USD/NGN", current: rates.NGN.toFixed(2), alert: "1600", direction: "above" },
-                { pair: "USD/KES", current: rates.KES.toFixed(2), alert: "135", direction: "above" },
-                { pair: "USD/GHS", current: rates.GHS.toFixed(2), alert: "14", direction: "below" },
-              ].map(alert => (
-                <div key={alert.pair} className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                  <div>
-                    <p className="text-sm font-semibold">{alert.pair}</p>
-                    <p className="text-xs text-muted-foreground">Alert when {alert.direction} {alert.alert}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold amount">{alert.current}</p>
-                    <p className="text-xs text-muted-foreground">Current</p>
-                  </div>
-                </div>
-              ))}
+            <div className="p-3 rounded-xl bg-muted/50 text-xs text-muted-foreground">
+              Alerts you configure are stored server-side and enforced on live rates. Listing configured alerts is not yet available in this dashboard.
             </div>
             <Button variant="outline" className="w-full" onClick={() => setAlertDialogOpen(true)}>
               <AlertTriangle className="w-4 h-4 mr-2" />Add Rate Alert

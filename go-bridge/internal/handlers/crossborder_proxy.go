@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -123,15 +124,15 @@ func proxyRequest(ctx context.Context, method, targetURL string, body []byte, he
 // ─── Fraud pre-screening ──────────────────────────────────────────────────────
 
 type fraudPreScreenRequest struct {
-	TransferID          string  `json:"transfer_id"`
-	MerchantID          string  `json:"merchant_id"`
-	Rail                string  `json:"rail"`
-	SourceCurrency      string  `json:"source_currency"`
-	TargetCurrency      string  `json:"target_currency"`
-	Amount              string  `json:"amount"`
-	Corridor            string  `json:"corridor"`
-	ReceiverID          string  `json:"receiver_id"`
-	IsFirstTimeCorridor bool    `json:"is_first_time_corridor"`
+	TransferID          string `json:"transfer_id"`
+	MerchantID          string `json:"merchant_id"`
+	Rail                string `json:"rail"`
+	SourceCurrency      string `json:"source_currency"`
+	TargetCurrency      string `json:"target_currency"`
+	Amount              string `json:"amount"`
+	Corridor            string `json:"corridor"`
+	ReceiverID          string `json:"receiver_id"`
+	IsFirstTimeCorridor bool   `json:"is_first_time_corridor"`
 }
 
 type fraudPreScreenResponse struct {
@@ -143,37 +144,58 @@ type fraudPreScreenResponse struct {
 var fraudBlockedCount int64
 
 // prescreenFraud calls the Rust fraud engine. Returns (score, recommendation, error).
-// If the fraud engine is unavailable, returns (0, "ALLOW", nil) — fail-open.
+// FAIL CLOSED by default: if the fraud engine is unconfigured or errors, an
+// error is returned and callers must reject the money-movement request.
+// FRAUD_FAIL_OPEN=true restores legacy fail-open behaviour (loud WARN).
 func prescreenFraud(ctx context.Context, req fraudPreScreenRequest) (float64, string, error) {
+	failClosed := func(cause error) (float64, string, error) {
+		if os.Getenv("FRAUD_FAIL_OPEN") == "true" {
+			slog.Warn("[fraud] engine unavailable — ALLOWING via FRAUD_FAIL_OPEN=true",
+				"rail", req.Rail, "merchant", req.MerchantID, "err", cause)
+			return 0, "ALLOW", nil
+		}
+		slog.Error("[fraud] engine unavailable — BLOCKING money movement (set FRAUD_FAIL_OPEN=true to override)",
+			"rail", req.Rail, "merchant", req.MerchantID, "err", cause)
+		return 0, "BLOCK", fmt.Errorf("fraud pre-screening unavailable: %w", cause)
+	}
 	fraudURL := os.Getenv("FRAUD_SCORING_URL")
 	if fraudURL == "" {
-		return 0, "ALLOW", nil // fail-open when not configured
+		return failClosed(fmt.Errorf("FRAUD_SCORING_URL not configured"))
 	}
 	body, _ := json.Marshal(req)
 	apiKey := os.Getenv("INTERNAL_API_KEY")
 	respBody, status, err := proxyRequest(ctx, http.MethodPost, fraudURL+"/v1/score", body, map[string]string{
 		"X-Internal-Key": apiKey,
 	})
-	if err != nil || status >= 500 {
-		return 0, "ALLOW", nil // fail-open on error
+	if err != nil {
+		return failClosed(err)
+	}
+	if status >= 500 {
+		return failClosed(fmt.Errorf("fraud engine returned HTTP %d", status))
 	}
 	var result fraudPreScreenResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return 0, "ALLOW", nil
+		return failClosed(fmt.Errorf("fraud engine undecodable response: %w", err))
 	}
 	return result.Score, result.Recommendation, nil
 }
 
 // ─── Helper: sandbox fallback response ───────────────────────────────────────
 
+// sandboxResponse fabricates a PENDING transfer acknowledgement. It is only
+// reachable when PAYGATE_SIMULATION_MODE=true (enforced at every call site);
+// the payload is explicitly marked simulation:true and never claims execution.
 func sandboxResponse(w http.ResponseWriter, rail, transferID, message string) {
+	slog.Warn("[crossborder] SIMULATED transfer response — no money moved",
+		"rail", rail, "transferId", transferID)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Sandbox-Mode", "true")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"transferId": transferID,
-		"status":     "PENDING",
+		"transferId": "SIM-" + transferID,
+		"status":     "SIMULATED_PENDING",
 		"rail":       rail,
 		"sandbox":    true,
+		"simulation": true,
 		"message":    message,
 		"timestamp":  time.Now().UTC().Format(time.RFC3339),
 	})
@@ -183,9 +205,9 @@ func cbOpenResponse(w http.ResponseWriter, rail string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error":     "circuit_open",
-		"rail":      rail,
-		"message":   "Gateway temporarily unavailable — circuit breaker open",
+		"error":      "circuit_open",
+		"rail":       rail,
+		"message":    "Gateway temporarily unavailable — circuit breaker open",
 		"retryAfter": cbOpenDuration.Seconds(),
 	})
 }
@@ -195,9 +217,9 @@ func fraudBlockedResponse(w http.ResponseWriter, score float64) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error":      "fraud_blocked",
-		"score":      score,
-		"message":    "Transaction blocked by fraud pre-screening",
+		"error":          "fraud_blocked",
+		"score":          score,
+		"message":        "Transaction blocked by fraud pre-screening",
 		"recommendation": "BLOCK",
 	})
 }
@@ -219,7 +241,7 @@ func ProxyCIPSTransferReal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fraud pre-screen
-	score, recommendation, _ := prescreenFraud(r.Context(), fraudPreScreenRequest{
+	score, recommendation, err := prescreenFraud(r.Context(), fraudPreScreenRequest{
 		TransferID:     fmt.Sprintf("CIPS-%d", time.Now().UnixMilli()),
 		MerchantID:     fmt.Sprintf("%v", body["merchantId"]),
 		Rail:           "cips",
@@ -229,6 +251,15 @@ func ProxyCIPSTransferReal(w http.ResponseWriter, r *http.Request) {
 		Corridor:       fmt.Sprintf("%v", body["corridor"]),
 		ReceiverID:     fmt.Sprintf("%v", body["cnapsCode"]),
 	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "fraud_screening_unavailable",
+			"message": "fraud pre-screening is required for cross-border money movement and is currently unavailable",
+		})
+		return
+	}
 	if recommendation == "BLOCK" {
 		fraudBlockedResponse(w, score)
 		return
@@ -236,7 +267,11 @@ func ProxyCIPSTransferReal(w http.ResponseWriter, r *http.Request) {
 
 	cipsURL := os.Getenv("CIPS_GATEWAY_URL")
 	if cipsURL == "" {
-		sandboxResponse(w, "CIPS", fmt.Sprintf("CIPS-%d", time.Now().UnixMilli()), "Sandbox: CIPS_GATEWAY_URL not configured")
+		if os.Getenv("PAYGATE_SIMULATION_MODE") != "true" {
+			gatewayUnavailable(w, "CIPS", "CIPS_GATEWAY_URL")
+			return
+		}
+		sandboxResponse(w, "CIPS", fmt.Sprintf("CIPS-%d", time.Now().UnixMilli()), "Simulation: CIPS_GATEWAY_URL not configured — no transfer executed")
 		return
 	}
 
@@ -272,7 +307,7 @@ func ProxyUPIPayReal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fraud pre-screen
-	score, recommendation, _ := prescreenFraud(r.Context(), fraudPreScreenRequest{
+	score, recommendation, err := prescreenFraud(r.Context(), fraudPreScreenRequest{
 		TransferID:     fmt.Sprintf("UPI-%d", time.Now().UnixMilli()),
 		MerchantID:     fmt.Sprintf("%v", body["merchantId"]),
 		Rail:           "upi",
@@ -282,6 +317,15 @@ func ProxyUPIPayReal(w http.ResponseWriter, r *http.Request) {
 		Corridor:       fmt.Sprintf("%v", body["corridor"]),
 		ReceiverID:     fmt.Sprintf("%v", body["vpa"]),
 	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "fraud_screening_unavailable",
+			"message": "fraud pre-screening is required for cross-border money movement and is currently unavailable",
+		})
+		return
+	}
 	if recommendation == "BLOCK" {
 		fraudBlockedResponse(w, score)
 		return
@@ -289,7 +333,11 @@ func ProxyUPIPayReal(w http.ResponseWriter, r *http.Request) {
 
 	upiURL := os.Getenv("UPI_GATEWAY_URL")
 	if upiURL == "" {
-		sandboxResponse(w, "UPI", fmt.Sprintf("UPI-%d", time.Now().UnixMilli()), "Sandbox: UPI_GATEWAY_URL not configured")
+		if os.Getenv("PAYGATE_SIMULATION_MODE") != "true" {
+			gatewayUnavailable(w, "UPI", "UPI_GATEWAY_URL")
+			return
+		}
+		sandboxResponse(w, "UPI", fmt.Sprintf("UPI-%d", time.Now().UnixMilli()), "Simulation: UPI_GATEWAY_URL not configured — no transfer executed")
 		return
 	}
 
@@ -319,14 +367,20 @@ func ResolveUPIVPAReal(w http.ResponseWriter, r *http.Request) {
 
 	upiURL := os.Getenv("UPI_GATEWAY_URL")
 	if upiURL == "" {
-		// Sandbox: validate VPA format locally
+		if os.Getenv("PAYGATE_SIMULATION_MODE") != "true" {
+			gatewayUnavailable(w, "UPI", "UPI_GATEWAY_URL")
+			return
+		}
+		// Simulation: local format check only; payee identity is NOT verified.
 		valid := len(vpa) > 3 && bytes.Contains([]byte(vpa), []byte("@"))
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Sandbox-Mode", "true")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"vpa":     vpa,
-			"valid":   valid,
-			"name":    "Sandbox Payee",
-			"sandbox": true,
+			"vpa":        vpa,
+			"valid":      valid,
+			"name":       "SIMULATED Payee",
+			"sandbox":    true,
+			"simulation": true,
 		})
 		return
 	}
@@ -358,7 +412,7 @@ func ProxyPIXPaymentReal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fraud pre-screen
-	score, recommendation, _ := prescreenFraud(r.Context(), fraudPreScreenRequest{
+	score, recommendation, err := prescreenFraud(r.Context(), fraudPreScreenRequest{
 		TransferID:     fmt.Sprintf("PIX-%d", time.Now().UnixMilli()),
 		MerchantID:     fmt.Sprintf("%v", body["merchantId"]),
 		Rail:           "pix",
@@ -368,6 +422,15 @@ func ProxyPIXPaymentReal(w http.ResponseWriter, r *http.Request) {
 		Corridor:       fmt.Sprintf("%v", body["corridor"]),
 		ReceiverID:     fmt.Sprintf("%v", body["pixKey"]),
 	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "fraud_screening_unavailable",
+			"message": "fraud pre-screening is required for cross-border money movement and is currently unavailable",
+		})
+		return
+	}
 	if recommendation == "BLOCK" {
 		fraudBlockedResponse(w, score)
 		return
@@ -375,7 +438,11 @@ func ProxyPIXPaymentReal(w http.ResponseWriter, r *http.Request) {
 
 	pixURL := os.Getenv("PIX_GATEWAY_URL")
 	if pixURL == "" {
-		sandboxResponse(w, "PIX", fmt.Sprintf("PIX-%d", time.Now().UnixMilli()), "Sandbox: PIX_GATEWAY_URL not configured")
+		if os.Getenv("PAYGATE_SIMULATION_MODE") != "true" {
+			gatewayUnavailable(w, "PIX", "PIX_GATEWAY_URL")
+			return
+		}
+		sandboxResponse(w, "PIX", fmt.Sprintf("PIX-%d", time.Now().UnixMilli()), "Simulation: PIX_GATEWAY_URL not configured — no transfer executed")
 		return
 	}
 
@@ -405,12 +472,18 @@ func ResolvePIXKeyReal(w http.ResponseWriter, r *http.Request) {
 
 	pixURL := os.Getenv("PIX_GATEWAY_URL")
 	if pixURL == "" {
+		if os.Getenv("PAYGATE_SIMULATION_MODE") != "true" {
+			gatewayUnavailable(w, "PIX", "PIX_GATEWAY_URL")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Sandbox-Mode", "true")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"key":     key,
-			"valid":   true,
-			"name":    "Sandbox Receiver",
-			"sandbox": true,
+			"key":        key,
+			"valid":      false,
+			"name":       "SIMULATED Receiver",
+			"sandbox":    true,
+			"simulation": true,
 		})
 		return
 	}
@@ -447,11 +520,11 @@ func GetCrossRailCircuitStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"cips":            status(cipsCB),
-		"upi":             upiCB.allow(),
-		"pix":             pixCB.allow(),
-		"mojaloop":        mojaloopCB.allow(),
+		"cips":                status(cipsCB),
+		"upi":                 upiCB.allow(),
+		"pix":                 pixCB.allow(),
+		"mojaloop":            mojaloopCB.allow(),
 		"fraud_blocked_total": atomic.LoadInt64(&fraudBlockedCount),
-		"timestamp":       now.UTC().Format(time.RFC3339),
+		"timestamp":           now.UTC().Format(time.RFC3339),
 	})
 }

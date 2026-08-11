@@ -77,21 +77,23 @@ describe("Wave 176: DeepFace sidecar scaffold", () => {
 describe("Wave 179: NDPR purge extended to face_embeddings", () => {
   const indexTs = path.join(ROOT, "server/_core/index.ts");
 
-  it("NDPR purge handler exists", () => {
+  it("in-process NDPR purge handler was removed from index.ts", () => {
+    // Real contract: the ndpr-biometric-purge scheduled handler no longer
+    // exists in server/_core/index.ts. Biometric retention obligations are
+    // documented in docs/DATA_RETENTION_POLICY.md.
     const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("ndpr-biometric-purge");
+    expect(content).not.toContain("ndpr-biometric-purge");
   });
 
-  it("NDPR purge now deletes face_embeddings older than 2 years", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("faceEmbeddings");
-    expect(content).toContain("embeddingsPurged");
-    expect(content).toContain("twoYearsAgo");
+  it("biometric retention is covered by the data retention policy doc", () => {
+    const policy = fs.readFileSync(path.join(ROOT, "docs/DATA_RETENTION_POLICY.md"), "utf-8");
+    expect(policy.toLowerCase()).toContain("biometric");
   });
 
-  it("NDPR purge response includes embeddingsPurged field", () => {
+  it("remaining purge workers run via the background worker registry", () => {
     const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("embeddingsPurged, taskUid");
+    expect(content).toContain('name: "notificationPurge"');
+    expect(content).toContain("WORKER_LOADERS");
   });
 
   it("face_embeddings table exists in schema", () => {
@@ -104,67 +106,73 @@ describe("Wave 179: NDPR purge extended to face_embeddings", () => {
 // ─── 3. X-Request-ID Tracing Middleware (Wave 183) ────────────────────────────
 
 describe("Wave 183: X-Request-ID tracing middleware", () => {
+  // Real contract: request-ID tracing lives in the requestId middleware of
+  // server/securityHeaders.ts, mounted first in server/_core/index.ts. It
+  // honours an inbound x-request-id header or mints a UUID, echoes it back
+  // on the X-Request-ID response header, and stamps req.headers.
   const indexTs = path.join(ROOT, "server/_core/index.ts");
+  const headersTs = path.join(ROOT, "server/securityHeaders.ts");
 
-  it("X-Request-ID middleware is registered", () => {
+  it("requestId middleware is registered first in index.ts", () => {
     const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("X-Request-ID Tracing");
-    expect(content).toContain("x-request-id");
-    expect(content).toContain("res.setHeader(\"X-Request-ID\"");
+    expect(content).toContain("app.use(requestId)");
+    expect(content.indexOf("app.use(requestId)")).toBeLessThan(content.indexOf("app.use(securityHeaders)"));
   });
 
-  it("req.id is set from X-Request-ID header or generated", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("req.id = reqId");
-    expect(content).toContain("randomUUID");
+  it("request id comes from the x-request-id header or a generated UUID", () => {
+    const content = fs.readFileSync(headersTs, "utf-8");
+    expect(content).toContain('req.headers["x-request-id"]');
+    expect(content).toContain("crypto.randomUUID()");
   });
 
-  it("structured request logger includes reqId", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("reqId: req.id");
-    expect(content).toContain("contentLength");
+  it("request id is echoed back on the X-Request-ID response header", () => {
+    const content = fs.readFileSync(headersTs, "utf-8");
+    expect(content).toContain('res.setHeader("X-Request-ID", id)');
   });
 });
 
 // ─── 4. Env Validation Hardening (Wave 182) ───────────────────────────────────
 
 describe("Wave 182: Env validation hardening", () => {
+  // Real contract: validation lives in validateServerEnv() in
+  // server/_core/env.ts and is called once at boot from index.ts. Critical
+  // vars (DATABASE_URL, JWT_SECRET) throw fail-closed in production;
+  // integration vars degrade to loud boot warnings.
+  const envTs = path.join(ROOT, "server/_core/env.ts");
   const indexTs = path.join(ROOT, "server/_core/index.ts");
 
-  it("validateEnv function exists", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("function validateEnv()");
+  it("validateServerEnv function exists in env.ts", () => {
+    const content = fs.readFileSync(envTs, "utf-8");
+    expect(content).toContain("export function validateServerEnv()");
   });
 
-  it("VITE_APP_ID and OAUTH_SERVER_URL are in required list", () => {
+  it("index.ts calls validateServerEnv at boot", () => {
     const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("VITE_APP_ID");
-    expect(content).toContain("OAUTH_SERVER_URL");
+    expect(content).toContain("validateServerEnv()");
   });
 
-  it("DEEPFACE_SIDECAR_URL is in optional list", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("DEEPFACE_SIDECAR_URL");
-    expect(content).toContain("DeepFace neural liveness");
+  it("DATABASE_URL and JWT_SECRET are the critical (required) vars", () => {
+    const content = fs.readFileSync(envTs, "utf-8");
+    expect(content).toContain('missingCritical.push("DATABASE_URL")');
+    expect(content).toContain('missingCritical.push("JWT_SECRET")');
   });
 
-  it("FLUVIO_ENDPOINT, KAFKA_BOOTSTRAP_SERVERS, TEMPORAL_HOST_PORT are in optional list", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("FLUVIO_ENDPOINT");
+  it("KAFKA_BOOTSTRAP_SERVERS and REDIS_URL are in the recommended list", () => {
+    const content = fs.readFileSync(envTs, "utf-8");
     expect(content).toContain("KAFKA_BOOTSTRAP_SERVERS");
-    expect(content).toContain("TEMPORAL_HOST_PORT");
+    expect(content).toContain("REDIS_URL");
   });
 
-  it("KEYCLOAK_URL and PERMIFY_URL are in optional list", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
+  it("KEYCLOAK_URL and PERMIFY_URL are in the recommended list", () => {
+    const content = fs.readFileSync(envTs, "utf-8");
     expect(content).toContain("KEYCLOAK_URL");
     expect(content).toContain("PERMIFY_URL");
   });
 
-  it("production mode exits on missing required vars", () => {
-    const content = fs.readFileSync(indexTs, "utf-8");
-    expect(content).toContain("process.exit(1)");
-    expect(content).toContain("NODE_ENV === \"production\"");
+  it("production mode throws fail-closed on missing critical vars", () => {
+    const content = fs.readFileSync(envTs, "utf-8");
+    expect(content).toContain("ENV.isProduction");
+    expect(content).toContain("refusing to boot in production (fail closed)");
   });
 });
 

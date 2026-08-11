@@ -22,6 +22,7 @@ Security:
 from __future__ import annotations
 
 import base64
+import hmac
 import io
 import logging
 import os
@@ -70,9 +71,31 @@ def _get_model(name: str):
         _models[name] = DeepFace
         return DeepFace
     except ImportError:
-        logger.warning("deepface package not installed — running in stub mode")
+        logger.error(
+            "deepface package not installed — sidecar CANNOT serve KYC inference; "
+            "all inference endpoints return HTTP 503 (fail closed)"
+        )
         _models[name] = None
         return None
+
+
+def _require_model(endpoint: str):
+    """Fail-closed guard: KYC/biometric results are never fabricated.
+
+    Returns the DeepFace module or raises HTTP 503. There is no stub mode:
+    random embeddings poison the pgvector identity store, pixel-MSE is not
+    face verification, and canned demographics corrupt NDPR age-gating.
+    """
+    df = _get_model("deepface")
+    if df is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"{endpoint}: face-recognition model stack unavailable — "
+                "refusing to return a fabricated biometric result"
+            ),
+        )
+    return df
 
 
 def _decode_image(b64: str) -> np.ndarray:
@@ -88,7 +111,11 @@ def _decode_image(b64: str) -> np.ndarray:
 
 # ─── Auth helper ──────────────────────────────────────────────────────────────
 def _verify_key(key: str) -> None:
-    if INTERNAL_API_KEY and key != INTERNAL_API_KEY:
+    # Fail closed: the service must be configured with a key, and callers
+    # must present it. Constant-time comparison.
+    if not INTERNAL_API_KEY:
+        raise HTTPException(status_code=503, detail="Service misconfigured: INTERNAL_API_KEY not set")
+    if not key or not hmac.compare_digest(key, INTERNAL_API_KEY):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -166,37 +193,29 @@ async def liveness(
 ) -> LivenessResponse:
     """
     Anti-spoofing liveness check.
-    Uses SilentFace CNN when deepface is available; falls back to a
-    texture-variance heuristic in stub mode.
+    Requires the deepface model stack; returns HTTP 503 when unavailable —
+    no heuristic stub is ever substituted for a biometric decision.
     """
     _verify_key(x_internal_key)
     t0 = time.monotonic()
     img = _decode_image(req.image)
-    df = _get_model("deepface")
+    df = _require_model("/liveness")
 
-    if df is not None:
-        try:
-            # DeepFace does not expose SilentFace directly; we use face detection
-            # confidence as a proxy for liveness in this scaffold.
-            result = df.extract_faces(
-                img_path=img,
-                detector_backend="retinaface",
-                enforce_detection=False,
-            )
-            confidence = float(result[0]["confidence"]) if result else 0.0
-            is_live = confidence >= 0.80
-            score = confidence
-            method = "retinaface_confidence"
-        except Exception as exc:
-            logger.warning("deepface liveness error: %s", exc)
-            is_live, score, method = False, 0.0, "error"
-    else:
-        # Stub: texture variance heuristic
-        gray = np.mean(img, axis=2)
-        variance = float(np.var(gray))
-        score = min(1.0, variance / 2000.0)
-        is_live = score >= 0.40
-        method = "texture_variance_stub"
+    try:
+        # DeepFace does not expose SilentFace directly; we use face detection
+        # confidence as a proxy for liveness in this scaffold.
+        result = df.extract_faces(
+            img_path=img,
+            detector_backend="retinaface",
+            enforce_detection=False,
+        )
+        confidence = float(result[0]["confidence"]) if result else 0.0
+        is_live = confidence >= 0.80
+        score = confidence
+        method = "retinaface_confidence"
+    except Exception as exc:
+        logger.error("deepface liveness error: %s", exc)
+        raise HTTPException(status_code=503, detail=f"Liveness inference failed: {exc}") from exc
 
     return LivenessResponse(
         is_live=is_live,
@@ -219,33 +238,23 @@ async def verify_face(
     t0 = time.monotonic()
     selfie_img = _decode_image(req.selfie)
     id_img = _decode_image(req.id_photo)
-    df = _get_model("deepface")
+    df = _require_model("/verify-face")
 
-    if df is not None:
-        try:
-            result = df.verify(
-                img1_path=selfie_img,
-                img2_path=id_img,
-                model_name=req.model,
-                detector_backend="retinaface",
-                enforce_detection=False,
-                distance_metric="cosine",
-            )
-            distance = float(result["distance"])
-            verified = bool(result["verified"])
-            similarity = round(1.0 - distance, 4)
-        except Exception as exc:
-            logger.warning("deepface verify error: %s", exc)
-            distance, verified, similarity = 1.0, False, 0.0
-    else:
-        # Stub: pixel-level MSE as proxy
-        h, w = min(selfie_img.shape[0], id_img.shape[0]), min(selfie_img.shape[1], id_img.shape[1])
-        s_crop = selfie_img[:h, :w].astype(float)
-        i_crop = id_img[:h, :w].astype(float)
-        mse = float(np.mean((s_crop - i_crop) ** 2))
-        distance = min(1.0, mse / 65025.0)
+    try:
+        result = df.verify(
+            img1_path=selfie_img,
+            img2_path=id_img,
+            model_name=req.model,
+            detector_backend="retinaface",
+            enforce_detection=False,
+            distance_metric="cosine",
+        )
+        distance = float(result["distance"])
+        verified = bool(result["verified"])
         similarity = round(1.0 - distance, 4)
-        verified = distance <= req.threshold
+    except Exception as exc:
+        logger.error("deepface verify error: %s", exc)
+        raise HTTPException(status_code=503, detail=f"Face verification failed: {exc}") from exc
 
     return VerifyFaceResponse(
         verified=verified,
@@ -270,26 +279,22 @@ async def search(
     _verify_key(x_internal_key)
     t0 = time.monotonic()
     img = _decode_image(req.image)
-    df = _get_model("deepface")
+    df = _require_model("/search")
 
-    if df is not None:
-        try:
-            embedding_obj = df.represent(
-                img_path=img,
-                model_name=req.model,
-                detector_backend="retinaface",
-                enforce_detection=False,
-            )
-            embedding: list[float] = embedding_obj[0]["embedding"]
-        except Exception as exc:
-            logger.warning("deepface represent error: %s", exc)
-            embedding = [0.0] * (512 if "512" in req.model else 128)
-    else:
-        # Stub: random unit vector
-        dim = 512 if "512" in req.model else 128
-        vec = np.random.randn(dim).astype(float)
-        vec /= np.linalg.norm(vec) + 1e-9
-        embedding = vec.tolist()
+    try:
+        embedding_obj = df.represent(
+            img_path=img,
+            model_name=req.model,
+            detector_backend="retinaface",
+            enforce_detection=False,
+        )
+        embedding: list[float] = embedding_obj[0]["embedding"]
+    except Exception as exc:
+        # NEVER substitute a zero/random vector: callers store this embedding
+        # in pgvector face_embeddings — a fabricated vector permanently
+        # poisons duplicate-identity detection.
+        logger.error("deepface represent error: %s", exc)
+        raise HTTPException(status_code=503, detail=f"Embedding extraction failed: {exc}") from exc
 
     return SearchResponse(
         embedding=embedding,
@@ -312,62 +317,87 @@ async def analyze(
     _verify_key(x_internal_key)
     t0 = time.monotonic()
     img = _decode_image(req.image)
-    df = _get_model("deepface")
+    df = _require_model("/analyze")
     actions = [a for a in req.actions if a in ("age", "gender", "emotion", "race")]
     if not actions:
         actions = ["age", "gender", "emotion"]
 
-    if df is not None:
-        try:
-            results = df.analyze(
-                img_path=img,
-                actions=actions,
-                detector_backend="retinaface",
-                enforce_detection=False,
-            )
-            r = results[0] if isinstance(results, list) else results
-            return AnalyzeResponse(
-                age=int(r.get("age", 0)) if "age" in actions else None,
-                gender=r.get("dominant_gender") if "gender" in actions else None,
-                gender_confidence=float(r.get("gender", {}).get(r.get("dominant_gender", ""), 0)) if "gender" in actions else None,
-                dominant_emotion=r.get("dominant_emotion") if "emotion" in actions else None,
-                emotion_scores=r.get("emotion") if "emotion" in actions else None,
-                dominant_race=r.get("dominant_race") if "race" in actions else None,
-                race_scores=r.get("race") if "race" in actions else None,
-                face_confidence=float(r.get("face_confidence", 1.0)),
-                latency_ms=int((time.monotonic() - t0) * 1000),
-            )
-        except Exception as exc:
-            logger.warning("deepface analyze error: %s", exc)
-
-    # Stub fallback
-    return AnalyzeResponse(
-        age=25 if "age" in actions else None,
-        gender="Man" if "gender" in actions else None,
-        gender_confidence=0.92 if "gender" in actions else None,
-        dominant_emotion="neutral" if "emotion" in actions else None,
-        emotion_scores={"neutral": 0.92, "happy": 0.05, "sad": 0.03} if "emotion" in actions else None,
-        dominant_race=None,
-        race_scores=None,
-        face_confidence=0.0,
-        latency_ms=int((time.monotonic() - t0) * 1000),
-    )
+    try:
+        results = df.analyze(
+            img_path=img,
+            actions=actions,
+            detector_backend="retinaface",
+            enforce_detection=False,
+        )
+        r = results[0] if isinstance(results, list) else results
+        return AnalyzeResponse(
+            age=int(r.get("age", 0)) if "age" in actions else None,
+            gender=r.get("dominant_gender") if "gender" in actions else None,
+            gender_confidence=float(r.get("gender", {}).get(r.get("dominant_gender", ""), 0)) if "gender" in actions else None,
+            dominant_emotion=r.get("dominant_emotion") if "emotion" in actions else None,
+            emotion_scores=r.get("emotion") if "emotion" in actions else None,
+            dominant_race=r.get("dominant_race") if "race" in actions else None,
+            race_scores=r.get("race") if "race" in actions else None,
+            face_confidence=float(r.get("face_confidence", 1.0)),
+            latency_ms=int((time.monotonic() - t0) * 1000),
+        )
+    except Exception as exc:
+        # NEVER return canned demographics (age 25 / "Man" / 0.92): these feed
+        # NDPR age-gating compliance decisions and must be real model output.
+        logger.error("deepface analyze error: %s", exc)
+        raise HTTPException(status_code=503, detail=f"Face analysis failed: {exc}") from exc
 
 
 @app.get("/health")
 async def health():
-    """Kubernetes liveness / readiness probe."""
+    """Kubernetes liveness probe."""
     df_available = _get_model("deepface") is not None
     return {
-        "status": "ok",
+        "status": "ok" if df_available else "degraded",
         "service": "deepface-sidecar",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "deepface_available": df_available,
-        "mode": "production" if df_available else "stub",
+        "mode": "production" if df_available else "unavailable_fail_closed",
     }
 
 
+@app.get("/ready")
+async def ready():
+    """Kubernetes readiness probe: no KYC traffic until models are loaded."""
+    if _get_model("deepface") is None:
+        raise HTTPException(status_code=503, detail="deepface models not ready")
+    return {"status": "ready", "deepface_available": True}
+
+
 # ─── Entrypoint ───────────────────────────────────────────────────────────────
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, log_level="info")

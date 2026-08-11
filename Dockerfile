@@ -3,8 +3,8 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm (release-pinned toolchain; keep in sync with CI PNPM_VERSION)
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 # Copy manifests first for layer caching
 COPY package.json pnpm-lock.yaml ./
@@ -21,8 +21,8 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Install pnpm for production install
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm for production install (release-pinned toolchain)
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 
 # Copy manifests
 COPY package.json pnpm-lock.yaml ./

@@ -4,8 +4,14 @@
  * Typed client for the PayGate Go middleware bridge.
  *
  * Every domain service in the portal calls through this file when the bridge is
- * available.  When MIDDLEWARE_BRIDGE_URL is unset (local dev / sandbox) every
- * function returns null so the portal falls back to direct DB operations.
+ * available.  Failure semantics are split by call type (see bridgeCallStrict):
+ *   - MONEY-PATH helpers (payout approval, transaction/refund recording,
+ *     dispute reserve/resolve, FX conversion, wallet debit/credit/P2P,
+ *     settlement trigger) THROW TRPCError(SERVICE_UNAVAILABLE) when the bridge
+ *     is unconfigured/unreachable — a silent null would skip a ledger write.
+ *   - Read-only / dashboard / observability helpers return null via safe() so
+ *     the portal falls back to direct DB operations when
+ *     MIDDLEWARE_BRIDGE_URL is unset (local dev / sandbox).
  *
  * Full middleware stack wired through the bridge:
  *   Temporal     — workflow orchestration (payments, KYC, disputes, settlements)
@@ -20,6 +26,7 @@
  *   Lakehouse    — compliance audit trail (every state change written)
  */
 
+import { TRPCError } from "@trpc/server";
 import { ENV } from "./_core/env";
 import { getCircuitBreaker, CircuitBreakerOpenError } from "./circuitBreaker";
 import { logger } from "./logger";
@@ -42,16 +49,84 @@ async function bridgeRequest<T>(
     "Content-Type": "application/json",
     "X-Internal-Key": ENV.middlewareInternalKey,
   };
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Hard 10s timeout — a hung bridge must never stall a payment request.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Bridge ${method} ${path} timed out after 10s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Bridge ${method} ${path} failed: HTTP ${res.status} — ${text}`);
   }
   return res.json() as Promise<T>;
+}
+
+// ─── Bridge failure visibility (safe() null-swallow gauge) ────────────────────
+// safe() intentionally returns null per call so domain code falls back to
+// direct DB operations — but a silently dead bridge must not stay invisible.
+// We keep a sliding-window failure count: sustained failure (>= threshold
+// failures inside the window) logs ERROR once and is surfaced via
+// getBridgeHealth() as `degraded` in /api/health.
+const BRIDGE_FAILURE_WINDOW_MS = parseInt(process.env.BRIDGE_FAILURE_WINDOW_MS ?? "300000", 10); // 5 min
+const BRIDGE_FAILURE_THRESHOLD = parseInt(process.env.BRIDGE_FAILURE_THRESHOLD ?? "10", 10);
+let bridgeFailureTimestamps: number[] = [];
+let bridgeBreachLogged = false;
+
+function recordBridgeFailure(): void {
+  const now = Date.now();
+  bridgeFailureTimestamps.push(now);
+  bridgeFailureTimestamps = bridgeFailureTimestamps.filter((t) => now - t <= BRIDGE_FAILURE_WINDOW_MS);
+  if (bridgeFailureTimestamps.length >= BRIDGE_FAILURE_THRESHOLD && !bridgeBreachLogged) {
+    bridgeBreachLogged = true;
+    logger.error("bridge_failure_sustained", {
+      failuresInWindow: bridgeFailureTimestamps.length,
+      windowMs: BRIDGE_FAILURE_WINDOW_MS,
+      threshold: BRIDGE_FAILURE_THRESHOLD,
+    });
+  }
+}
+
+function recordBridgeSuccess(): void {
+  if (bridgeFailureTimestamps.length > 0 || bridgeBreachLogged) {
+    bridgeFailureTimestamps = [];
+    bridgeBreachLogged = false;
+  }
+}
+
+export interface BridgeHealth {
+  configured: boolean;
+  failuresInWindow: number;
+  windowMs: number;
+  threshold: number;
+  degraded: boolean;
+}
+
+/** Health gauge consumed by /api/health — degraded when failures cross the threshold in the window. */
+export function getBridgeHealth(): BridgeHealth {
+  const now = Date.now();
+  bridgeFailureTimestamps = bridgeFailureTimestamps.filter((t) => now - t <= BRIDGE_FAILURE_WINDOW_MS);
+  const configured = isBridgeAvailable();
+  return {
+    configured,
+    failuresInWindow: bridgeFailureTimestamps.length,
+    windowMs: BRIDGE_FAILURE_WINDOW_MS,
+    threshold: BRIDGE_FAILURE_THRESHOLD,
+    degraded: configured && bridgeFailureTimestamps.length >= BRIDGE_FAILURE_THRESHOLD,
+  };
 }
 
 /** Safe wrapper — uses circuit breaker, logs and returns null on failure (never throws to callers) */
@@ -60,16 +135,72 @@ export async function safe<T>(
   path: string,
   body?: unknown
 ): Promise<T | null> {
+  if (!isBridgeAvailable()) {
+    // Bridge not configured (local dev / sandbox) — per-call null fallback,
+    // not counted as a failure: there is nothing to be "down".
+    return null;
+  }
   const cb = getCircuitBreaker("go-bridge", { failureThreshold: 5, recoveryTimeMs: 30_000 });
   try {
-    return await cb.execute(() => bridgeRequest<T>(method, path, body));
+    const result = await cb.execute(() => bridgeRequest<T>(method, path, body));
+    recordBridgeSuccess();
+    return result;
   } catch (err: any) {
+    recordBridgeFailure();
     if (err instanceof CircuitBreakerOpenError) {
       logger.warn("bridge_circuit_open", { path, message: err.message });
     } else {
       logger.warn("bridge_degraded", { method, path, error: err?.message });
     }
     return null;
+  }
+}
+
+/**
+ * bridgeCallStrict — MONEY-PATH variant of safe().
+ *
+ * Same transport + circuit breaker, but FAILS LOUD: throws
+ * TRPCError(SERVICE_UNAVAILABLE) when the bridge is unconfigured, unreachable,
+ * or the circuit is open, instead of returning null.
+ *
+ * Why: for ledger/payout/settlement/wallet writes a null return lets the
+ * caller silently skip the double-entry posting (or worse, report success
+ * against only the portal DB), which is a money-correctness bug. A 503 makes
+ * the degradation explicit and retryable.
+ *
+ * Scope (deliberately bounded): only the money-path helpers below use this;
+ * read-only status getters and dashboard/observability helpers stay on safe()
+ * so a bridge outage never breaks a read page.
+ */
+export async function bridgeCallStrict<T>(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  path: string,
+  body?: unknown
+): Promise<T> {
+  if (!isBridgeAvailable()) {
+    recordBridgeFailure();
+    logger.error("bridge_unconfigured_money_path", { method, path });
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — refusing money-path call ${method} ${path}`,
+    });
+  }
+  const cb = getCircuitBreaker("go-bridge", { failureThreshold: 5, recoveryTimeMs: 30_000 });
+  try {
+    const result = await cb.execute(() => bridgeRequest<T>(method, path, body));
+    recordBridgeSuccess();
+    return result;
+  } catch (err: any) {
+    recordBridgeFailure();
+    if (err instanceof CircuitBreakerOpenError) {
+      logger.error("bridge_circuit_open_money_path", { path, message: err.message });
+    } else {
+      logger.error("bridge_failed_money_path", { method, path, error: err?.message });
+    }
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Middleware bridge unavailable for money-path call ${method} ${path}: ${err?.message ?? "unknown error"}`,
+    });
   }
 }
 
@@ -94,8 +225,8 @@ export interface ApprovalStatusResponse {
 }
 
 /** Starts Temporal PayoutApprovalWorkflow: Permify → TigerBeetle reserve → Redis → Kafka/Dapr/Fluvio → Lakehouse */
-export async function initiatePayoutApproval(req: InitiateApprovalRequest): Promise<InitiateApprovalResponse | null> {
-  return safe<InitiateApprovalResponse>("POST", "/v1/payouts/initiate-approval", {
+export async function initiatePayoutApproval(req: InitiateApprovalRequest): Promise<InitiateApprovalResponse> {
+  return bridgeCallStrict<InitiateApprovalResponse>("POST", "/v1/payouts/initiate-approval", {
     payout_id: req.payoutId, merchant_id: req.merchantId, amount: req.amount,
     currency: req.currency, bank_code: req.bankCode, account_number: req.accountNumber,
     account_name: req.accountName, narration: req.narration ?? "",
@@ -104,15 +235,15 @@ export async function initiatePayoutApproval(req: InitiateApprovalRequest): Prom
 }
 
 /** Signals Temporal workflow (approved=true): TigerBeetle commit → bank transfer → Kafka/Dapr/Fluvio → Lakehouse */
-export async function approvePayoutViaMiddleware(payoutId: string, req: ApprovalDecisionRequest): Promise<ApprovalDecisionResponse | null> {
-  return safe<ApprovalDecisionResponse>("POST", `/v1/payouts/${payoutId}/approve`, {
+export async function approvePayoutViaMiddleware(payoutId: string, req: ApprovalDecisionRequest): Promise<ApprovalDecisionResponse> {
+  return bridgeCallStrict<ApprovalDecisionResponse>("POST", `/v1/payouts/${payoutId}/approve`, {
     approver_id: req.approverId, reason: req.reason ?? "",
   });
 }
 
 /** Signals Temporal workflow (approved=false): TigerBeetle void → Kafka/Dapr/Fluvio → Lakehouse */
-export async function rejectPayoutViaMiddleware(payoutId: string, req: ApprovalDecisionRequest): Promise<ApprovalDecisionResponse | null> {
-  return safe<ApprovalDecisionResponse>("POST", `/v1/payouts/${payoutId}/reject`, {
+export async function rejectPayoutViaMiddleware(payoutId: string, req: ApprovalDecisionRequest): Promise<ApprovalDecisionResponse> {
+  return bridgeCallStrict<ApprovalDecisionResponse>("POST", `/v1/payouts/${payoutId}/reject`, {
     approver_id: req.approverId, reason: req.reason ?? "",
   });
 }
@@ -136,8 +267,8 @@ export interface RecordTransactionResponse {
 }
 
 /** Records transaction in TigerBeetle, starts Temporal payment workflow, publishes Kafka payment.initiated → Dapr/Fluvio → Lakehouse */
-export async function recordTransactionViaMiddleware(req: RecordTransactionRequest): Promise<RecordTransactionResponse | null> {
-  return safe<RecordTransactionResponse>("POST", "/v1/transactions/record", {
+export async function recordTransactionViaMiddleware(req: RecordTransactionRequest): Promise<RecordTransactionResponse> {
+  return bridgeCallStrict<RecordTransactionResponse>("POST", "/v1/transactions/record", {
     transaction_id: req.transactionId, merchant_id: req.merchantId,
     customer_id: req.customerId ?? "", amount: req.amount,
     currency: req.currency, type: req.type, channel: req.channel,
@@ -154,8 +285,8 @@ export interface RefundTransactionResponse {
 }
 
 /** TigerBeetle reversal → Kafka payment.reversed → Dapr/Fluvio → Lakehouse */
-export async function refundTransactionViaMiddleware(req: RefundTransactionRequest): Promise<RefundTransactionResponse | null> {
-  return safe<RefundTransactionResponse>("POST", "/v1/transactions/refund", {
+export async function refundTransactionViaMiddleware(req: RefundTransactionRequest): Promise<RefundTransactionResponse> {
+  return bridgeCallStrict<RefundTransactionResponse>("POST", "/v1/transactions/refund", {
     transaction_id: req.transactionId, merchant_id: req.merchantId,
     amount: req.amount, reason: req.reason, initiator_id: req.initiatorId,
   });
@@ -175,8 +306,8 @@ export interface SubmitDisputeResponse {
 }
 
 /** Permify check → TigerBeetle reserve disputed amount → Kafka dispute.created → Dapr/Fluvio → Lakehouse */
-export async function submitDisputeViaMiddleware(req: SubmitDisputeRequest): Promise<SubmitDisputeResponse | null> {
-  return safe<SubmitDisputeResponse>("POST", "/v1/disputes/submit", {
+export async function submitDisputeViaMiddleware(req: SubmitDisputeRequest): Promise<SubmitDisputeResponse> {
+  return bridgeCallStrict<SubmitDisputeResponse>("POST", "/v1/disputes/submit", {
     dispute_id: req.disputeId, transaction_id: req.transactionId,
     merchant_id: req.merchantId, reason: req.reason, amount: req.amount,
     currency: req.currency, evidence_url: req.evidenceUrl ?? "",
@@ -194,8 +325,8 @@ export interface ResolveDisputeResponse {
 }
 
 /** Signals Temporal DisputeWorkflow: TigerBeetle commit/void → Kafka dispute.resolved → Dapr/Fluvio → Lakehouse */
-export async function resolveDisputeViaMiddleware(req: ResolveDisputeRequest): Promise<ResolveDisputeResponse | null> {
-  return safe<ResolveDisputeResponse>("POST", `/v1/disputes/${req.disputeId}/resolve`, {
+export async function resolveDisputeViaMiddleware(req: ResolveDisputeRequest): Promise<ResolveDisputeResponse> {
+  return bridgeCallStrict<ResolveDisputeResponse>("POST", `/v1/disputes/${req.disputeId}/resolve`, {
     merchant_id: req.merchantId, resolution: req.resolution,
     resolver_id: req.resolverId, refund_amount: req.refundAmount ?? 0,
   });
@@ -325,8 +456,8 @@ export interface FXConversionResponse {
 }
 
 /** TigerBeetle debit source + credit target → Kafka fx.conversion → Dapr/Fluvio → Lakehouse */
-export async function recordFXConversionViaMiddleware(req: FXConversionRequest): Promise<FXConversionResponse | null> {
-  return safe<FXConversionResponse>("POST", "/v1/fx/convert", {
+export async function recordFXConversionViaMiddleware(req: FXConversionRequest): Promise<FXConversionResponse> {
+  return bridgeCallStrict<FXConversionResponse>("POST", "/v1/fx/convert", {
     conversion_id: req.conversionId, merchant_id: req.merchantId,
     source_currency: req.sourceCurrency, target_currency: req.targetCurrency,
     source_amount: req.sourceAmount, exchange_rate: req.exchangeRate,
@@ -347,8 +478,8 @@ export interface WalletDebitResponse {
 }
 
 /** Permify check (wallet:debit) → Rust TigerBeetle FFI debit → Kafka ledger.transfer → Dapr/Fluvio → Lakehouse */
-export async function debitWalletViaMiddleware(req: WalletDebitRequest): Promise<WalletDebitResponse | null> {
-  return safe<WalletDebitResponse>("POST", "/v1/wallets/debit", {
+export async function debitWalletViaMiddleware(req: WalletDebitRequest): Promise<WalletDebitResponse> {
+  return bridgeCallStrict<WalletDebitResponse>("POST", "/v1/wallets/debit", {
     wallet_id: req.walletId, user_id: req.userId, amount: req.amount,
     currency: req.currency, reference: req.reference,
     description: req.description ?? "",
@@ -364,8 +495,8 @@ export interface WalletCreditResponse {
 }
 
 /** Rust TigerBeetle FFI credit → Kafka ledger.transfer → Dapr/Fluvio → Lakehouse */
-export async function creditWalletViaMiddleware(req: WalletCreditRequest): Promise<WalletCreditResponse | null> {
-  return safe<WalletCreditResponse>("POST", "/v1/wallets/credit", {
+export async function creditWalletViaMiddleware(req: WalletCreditRequest): Promise<WalletCreditResponse> {
+  return bridgeCallStrict<WalletCreditResponse>("POST", "/v1/wallets/credit", {
     wallet_id: req.walletId, user_id: req.userId, amount: req.amount,
     currency: req.currency, reference: req.reference,
     description: req.description ?? "",
@@ -382,8 +513,8 @@ export interface P2PTransferResponse {
 }
 
 /** Permify check → Temporal P2PWorkflow: TigerBeetle atomic debit+credit → Kafka ledger.transfer → Dapr/Fluvio → Lakehouse */
-export async function p2pTransferViaMiddleware(req: P2PTransferRequest): Promise<P2PTransferResponse | null> {
-  return safe<P2PTransferResponse>("POST", "/v1/wallets/p2p-transfer", {
+export async function p2pTransferViaMiddleware(req: P2PTransferRequest): Promise<P2PTransferResponse> {
+  return bridgeCallStrict<P2PTransferResponse>("POST", "/v1/wallets/p2p-transfer", {
     transfer_id: req.transferId, sender_wallet_id: req.senderWalletId,
     receiver_wallet_id: req.receiverWalletId, sender_user_id: req.senderUserId,
     receiver_user_id: req.receiverUserId, amount: req.amount,
@@ -520,8 +651,8 @@ export interface TriggerSettlementResponse {
 }
 
 /** Temporal SettlementWorkflow: TigerBeetle commit → bank transfer → Kafka payout.completed → Dapr/Fluvio → Python Lakehouse settlement audit */
-export async function triggerSettlementViaMiddleware(req: TriggerSettlementRequest): Promise<TriggerSettlementResponse | null> {
-  return safe<TriggerSettlementResponse>("POST", "/v1/settlements/trigger", {
+export async function triggerSettlementViaMiddleware(req: TriggerSettlementRequest): Promise<TriggerSettlementResponse> {
+  return bridgeCallStrict<TriggerSettlementResponse>("POST", "/v1/settlements/trigger", {
     settlement_id: req.settlementId, merchant_id: req.merchantId,
     amount: req.amount, currency: req.currency, bank_code: req.bankCode,
     account_number: req.accountNumber, account_name: req.accountName,
@@ -643,6 +774,61 @@ export async function nipNameEnquiryViaMiddleware(
     bank_code: bankCode,
     merchant_id: merchantId,
   });
+}
+
+// ─── NIP instant outflow (wallet-funded external bank transfer) ─────────────
+export interface NipInstantDebitResult {
+  status: string;           // "success" | "failed" | "simulated"
+  responseCode: string;
+  responseMessage: string;
+  sessionId?: string;
+  stan: string;
+  simulation?: boolean;
+}
+
+/**
+ * Execute a REAL NIP instant debit through the go-bridge (POST /v1/nip/instant-debit).
+ * STRICT: throws SERVICE_UNAVAILABLE when the bridge is down or the NIBSS gateway
+ * is not configured — never fabricate a completed transfer. The bridge itself only
+ * returns a simulated approval when PAYGATE_SIMULATION_MODE=true (explicit opt-in),
+ * and flags it with simulation:true.
+ *
+ * The debit leg is the platform nodal account (NIP_NODAL_ACCOUNT_NUMBER env) because
+ * the sender's funds were already debited from their ledger wallet.
+ */
+export async function nipInstantDebitViaMiddleware(req: {
+  creditAccountNumber: string;
+  creditBankCode: string;
+  amountKobo: number;
+  narration: string;
+  stan: string;
+  merchantId: string;
+}): Promise<NipInstantDebitResult> {
+  const nodalAccount = process.env.NIP_NODAL_ACCOUNT_NUMBER;
+  if (!nodalAccount || !/^\d{10}$/.test(nodalAccount)) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "NIP nodal account not configured (NIP_NODAL_ACCOUNT_NUMBER) — external transfers unavailable",
+    });
+  }
+  const resp = await bridgeCallStrict<NipInstantDebitResult & { session_id?: string; response_code?: string; response_message?: string; sessionId?: string }>(
+    "POST", "/v1/nip/instant-debit", {
+      debit_account_number: nodalAccount,
+      credit_account_number: req.creditAccountNumber,
+      credit_bank_code: req.creditBankCode,
+      amount_kobo: req.amountKobo,
+      narration: req.narration,
+      stan: req.stan,
+      merchant_id: req.merchantId,
+    });
+  return {
+    status: resp.status,
+    responseCode: resp.responseCode ?? resp.response_code ?? "",
+    responseMessage: resp.responseMessage ?? resp.response_message ?? "",
+    sessionId: resp.sessionId ?? resp.session_id,
+    stan: resp.stan,
+    simulation: resp.simulation,
+  };
 }
 
 
@@ -1683,7 +1869,7 @@ export async function listInsiderAlertsViaMiddleware(params: {
   merchantId: string; status?: string; riskLevel?: string; limit?: number; offset?: number;
 }): Promise<{ alerts: unknown[]; total: number } | null> {
   const qs = new URLSearchParams(
-    Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
+    Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)] as [string, string])
   ).toString();
   return safe("GET", `/v1/insider/alerts?${qs}`);
 }

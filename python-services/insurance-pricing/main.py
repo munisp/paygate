@@ -17,6 +17,29 @@ log = logging.getLogger("insurance-pricing")
 
 app = Flask(__name__)
 
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.before_request
+def _require_internal_api_key():
+    if request.path in _AUTH_EXEMPT_PATHS:
+        return None
+    if not _INTERNAL_AUTH_KEY:
+        return jsonify({"detail": "Service misconfigured: INTERNAL_API_KEY not set"}), 503
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return jsonify({"detail": "Unauthorized"}), 401
+    return None
+
+
 # Insurance product catalogue
 PRODUCTS = [
     {

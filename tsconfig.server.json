@@ -1,0 +1,22 @@
+{
+  "include": ["shared/**/*", "server/**/*", "drizzle/schema.ts", "drizzle/relations.ts"],
+  "exclude": ["node_modules", "build", "dist", "client", "**/*.test.ts"],
+  "compilerOptions": {
+    "incremental": false,
+    "noEmit": true,
+    "module": "ESNext",
+    "target": "ES2022",
+    "strict": true,
+    "lib": ["esnext"],
+    "jsx": "preserve",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "types": ["node"],
+    "paths": {
+      "@shared/*": ["./shared/*"]
+    }
+  }
+}

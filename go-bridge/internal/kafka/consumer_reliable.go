@@ -13,16 +13,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/IBM/sarama"
 )
 
 // ─── Rebalance Notifier ────────────────────────────────────────────────────────
 
 // RebalanceEvent is emitted when a consumer group rebalance occurs.
 type RebalanceEvent struct {
-	Type      string    `json:"type"`       // "assigned" | "revoked" | "lost"
+	Type      string    `json:"type"` // "assigned" | "revoked" | "lost"
 	Topics    []string  `json:"topics"`
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -115,8 +119,8 @@ type DLQRetryProcessor struct {
 	wg       sync.WaitGroup
 
 	// Metrics
-	retriedCount  atomic.Int64
-	discardCount  atomic.Int64
+	retriedCount atomic.Int64
+	discardCount atomic.Int64
 }
 
 // NewDLQRetryProcessor creates a new processor. Call Start() to begin.
@@ -167,23 +171,102 @@ func (p *DLQRetryProcessor) Stop() {
 // Metrics returns current retry/discard counts.
 func (p *DLQRetryProcessor) Metrics() map[string]int64 {
 	return map[string]int64{
-		"retried":  p.retriedCount.Load(),
+		"retried":   p.retriedCount.Load(),
 		"discarded": p.discardCount.Load(),
 	}
 }
 
-// processDLQBatch is a no-op stub when no real Kafka consumer is available.
-// In production this would use a sarama consumer to read from DLQ topics and
-// re-invoke the registered handlers.
+// dlqOffsets tracks the next offset to consume per DLQ topic-partition so
+// retried messages are not reprocessed in a tight loop.
+var dlqOffsets sync.Map // map[string]int64, key "topic:partition"
+
+// processDLQBatch reads up to 100 messages per partition from each registered
+// DLQ topic using a real sarama consumer and re-invokes the registered handler.
+// Messages older than MaxRetryAge are discarded (counted). When Kafka is not
+// reachable this logs an explicit error — DLQ messages are never silently
+// ignored.
 func (p *DLQRetryProcessor) processDLQBatch(ctx context.Context) {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-	for dlqTopic, handler := range p.handlers {
-		// In production: consume up to 100 messages from dlqTopic,
-		// decode DLQMessage, check age, re-invoke handler.
-		// Here we log that the processor is running (real impl requires sarama consumer).
-		_ = dlqTopic
-		_ = handler
+	handlers := make(map[string]MessageHandler, len(p.handlers))
+	for t, h := range p.handlers {
+		handlers[t] = h
+	}
+	p.mu.RUnlock()
+	if len(handlers) == 0 {
+		return
+	}
+
+	brokerStr := os.Getenv("KAFKA_BOOTSTRAP_SERVERS")
+	if brokerStr == "" {
+		slog.Error("[kafka-dlq] KAFKA_BOOTSTRAP_SERVERS unset — DLQ messages will NOT be retried")
+		return
+	}
+	brokers := strings.Split(brokerStr, ",")
+
+	cfg := sarama.NewConfig()
+	cfg.Consumer.Return.Errors = false
+	consumer, err := sarama.NewConsumer(brokers, cfg)
+	if err != nil {
+		slog.Error("[kafka-dlq] cannot connect to brokers — DLQ retry skipped", "err", err)
+		return
+	}
+	defer consumer.Close()
+
+	const maxPerPartition = 100
+	for dlqTopic, handler := range handlers {
+		partitions, err := consumer.Partitions(dlqTopic)
+		if err != nil {
+			slog.Error("[kafka-dlq] cannot list partitions", "topic", dlqTopic, "err", err)
+			continue
+		}
+		for _, part := range partitions {
+			offKey := fmt.Sprintf("%s:%d", dlqTopic, part)
+			offset := sarama.OffsetOldest
+			if v, ok := dlqOffsets.Load(offKey); ok {
+				offset = v.(int64)
+			}
+			pc, err := consumer.ConsumePartition(dlqTopic, part, offset)
+			if err != nil {
+				slog.Error("[kafka-dlq] cannot consume partition", "topic", dlqTopic, "partition", part, "err", err)
+				continue
+			}
+			processed := 0
+			timeout := time.After(5 * time.Second)
+		drain:
+			for processed < maxPerPartition {
+				select {
+				case <-ctx.Done():
+					break drain
+				case <-timeout:
+					break drain
+				case msg, ok := <-pc.Messages():
+					if !ok {
+						break drain
+					}
+					processed++
+					dlqOffsets.Store(offKey, msg.Offset+1)
+					var dlqMsg DLQMessage
+					if err := json.Unmarshal(msg.Value, &dlqMsg); err != nil {
+						slog.Error("[kafka-dlq] undecodable DLQ message discarded", "topic", dlqTopic, "offset", msg.Offset, "err", err)
+						p.discardCount.Add(1)
+						continue
+					}
+					if time.Since(dlqMsg.FailedAt) > p.cfg.MaxRetryAge {
+						slog.Warn("[kafka-dlq] DLQ message too old — discarded", "topic", dlqTopic, "offset", msg.Offset, "failed_at", dlqMsg.FailedAt)
+						p.discardCount.Add(1)
+						continue
+					}
+					if err := handler(ctx, dlqMsg.Key, dlqMsg.Payload); err != nil {
+						slog.Error("[kafka-dlq] retry handler failed — message left for next pass", "topic", dlqTopic, "offset", msg.Offset, "err", err)
+						// Rewind so this message is retried on the next batch.
+						dlqOffsets.Store(offKey, msg.Offset)
+						break drain
+					}
+					p.retriedCount.Add(1)
+				}
+			}
+			pc.Close()
+		}
 	}
 }
 

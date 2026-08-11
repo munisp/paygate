@@ -133,16 +133,15 @@ describe("CI/CD Readiness Gate — /api/ci/readiness-gate", () => {
     expect(["A", "A+"]).toContain(result.grade);
   });
 
-  it("CI gate endpoint is registered in index.ts", () => {
+  it("CI gate endpoints were removed — readiness assurance is validateServerEnv + /api/health", () => {
+    // Real contract: /api/ci/readiness-gate (and its webhook) no longer exist.
+    // Boot-time config gating is fail-closed via validateServerEnv(), and the
+    // deploy-time probe is /api/health (503 when the DB is down).
     const indexPath = join(process.cwd(), "server", "_core", "index.ts");
     const indexContent = readFileSync(indexPath, "utf8");
-    expect(indexContent).toContain("/api/ci/readiness-gate");
-  });
-
-  it("CI gate webhook endpoint is registered in index.ts", () => {
-    const indexPath = join(process.cwd(), "server", "_core", "index.ts");
-    const indexContent = readFileSync(indexPath, "utf8");
-    expect(indexContent).toContain("/api/ci/readiness-gate/webhook");
+    expect(indexContent).not.toContain("/api/ci/readiness-gate");
+    expect(indexContent).toContain("validateServerEnv()");
+    expect(indexContent).toContain('"/api/health"');
   });
 
   it("CI gate returns 200 status when ready", () => {

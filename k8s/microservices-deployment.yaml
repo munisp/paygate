@@ -86,8 +86,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: push-service
-          image: paygate/push-service:latest
-          imagePullPolicy: Always
+          image: paygate/push-service:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8096
           env:
@@ -204,8 +204,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: ussd-gateway
-          image: paygate/ussd-gateway:latest
-          imagePullPolicy: Always
+          image: paygate/ussd-gateway:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8095
           env:
@@ -302,8 +302,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: fraud-scoring
-          image: paygate/fraud-scoring:latest
-          imagePullPolicy: Always
+          image: paygate/fraud-scoring:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8083
           env:
@@ -395,8 +395,8 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: consumer-outbox-relay
-          image: paygate/go-bridge:latest
-          imagePullPolicy: Always
+          image: paygate/go-bridge:1.0.0
+          imagePullPolicy: IfNotPresent
           command: ["/app/consumer-outbox-relay"]
           env:
             - name: DATABASE_URL
@@ -455,8 +455,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: sync-relay
-          image: paygate/go-bridge:latest
-          imagePullPolicy: Always
+          image: paygate/go-bridge:1.0.0
+          imagePullPolicy: IfNotPresent
           command: ["/app/sync-relay"]
           ports:
             - containerPort: 8097
@@ -535,8 +535,8 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: lakehouse-audit
-          image: paygate/lakehouse-audit:latest
-          imagePullPolicy: Always
+          image: paygate/lakehouse-audit:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8098
           env:
@@ -599,8 +599,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: mpesa-connector
-          image: paygate/mpesa-connector:latest
-          imagePullPolicy: Always
+          image: paygate/mpesa-connector:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8099
           env:
@@ -670,8 +670,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: portal
-          image: paygate/portal:latest
-          imagePullPolicy: Always
+          image: paygate/portal:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
           env:
@@ -1046,7 +1046,7 @@ spec:
     spec:
       containers:
         - name: credit-scoring
-          image: paygate/credit-scoring:latest
+          image: paygate/credit-scoring:1.0.0
           ports:
             - containerPort: 8100
           env:
@@ -1135,7 +1135,7 @@ spec:
     spec:
       containers:
         - name: billing-engine
-          image: paygate/billing-engine:latest
+          image: paygate/billing-engine:1.0.0
           ports:
             - containerPort: 8101
           env:
@@ -1227,7 +1227,7 @@ spec:
     spec:
       containers:
         - name: fx-rate-feed
-          image: paygate/fx-rate-feed:latest
+          image: paygate/fx-rate-feed:1.0.0
           ports:
             - containerPort: 8102
           env:
@@ -1309,7 +1309,7 @@ spec:
     spec:
       containers:
         - name: reconciliation-engine
-          image: paygate/reconciliation-engine:latest
+          image: paygate/reconciliation-engine:1.0.0
           ports:
             - containerPort: 8103
           env:
@@ -1393,7 +1393,7 @@ spec:
     spec:
       containers:
         - name: aml-monitor
-          image: paygate/aml-monitor:latest
+          image: paygate/aml-monitor:1.0.0
           ports:
             - containerPort: 8104
           env:
@@ -1481,7 +1481,7 @@ spec:
     spec:
       containers:
         - name: session-risk
-          image: paygate/session-risk:latest
+          image: paygate/session-risk:1.0.0
           ports:
             - containerPort: 8105
           env:
@@ -1568,7 +1568,7 @@ spec:
     spec:
       containers:
         - name: loyalty-ledger
-          image: paygate/loyalty-ledger:latest
+          image: paygate/loyalty-ledger:1.0.0
           ports:
             - containerPort: 8106
           env:
@@ -1651,7 +1651,7 @@ spec:
     spec:
       containers:
         - name: ai-insights
-          image: paygate/ai-insights:latest
+          image: paygate/ai-insights:1.0.0
           ports:
             - containerPort: 8107
           env:
@@ -1736,7 +1736,7 @@ spec:
     spec:
       containers:
         - name: fraud-heatmap
-          image: paygate/fraud-heatmap:latest
+          image: paygate/fraud-heatmap:1.0.0
           ports:
             - containerPort: 8108
           env:
@@ -1840,7 +1840,7 @@ spec:
     spec:
       containers:
       - name: digital-gold-service
-        image: paygate/digital-gold-service:latest
+        image: paygate/digital-gold-service:1.0.0
         ports:
         - containerPort: 9020
         env:
@@ -1904,7 +1904,7 @@ spec:
     spec:
       containers:
       - name: mutual-funds-service
-        image: paygate/mutual-funds-service:latest
+        image: paygate/mutual-funds-service:1.0.0
         ports:
         - containerPort: 9021
         env:
@@ -1968,7 +1968,7 @@ spec:
     spec:
       containers:
       - name: insurance-service
-        image: paygate/insurance-service:latest
+        image: paygate/insurance-service:1.0.0
         ports:
         - containerPort: 9022
         env:
@@ -2030,7 +2030,7 @@ spec:
     spec:
       containers:
       - name: pension-service
-        image: paygate/pension-service:latest
+        image: paygate/pension-service:1.0.0
         ports:
         - containerPort: 9023
         env:
@@ -2094,7 +2094,7 @@ spec:
     spec:
       containers:
       - name: cashback-service
-        image: paygate/cashback-service:latest
+        image: paygate/cashback-service:1.0.0
         ports:
         - containerPort: 9024
         env:
@@ -2156,7 +2156,7 @@ spec:
     spec:
       containers:
       - name: voice-payments-service
-        image: paygate/voice-payments-service:latest
+        image: paygate/voice-payments-service:1.0.0
         ports:
         - containerPort: 9025
         env:
@@ -2218,7 +2218,7 @@ spec:
     spec:
       containers:
       - name: wealth-service
-        image: paygate/wealth-service:latest
+        image: paygate/wealth-service:1.0.0
         ports:
         - containerPort: 9026
         env:
@@ -2280,7 +2280,7 @@ spec:
     spec:
       containers:
       - name: emi-service
-        image: paygate/emi-service:latest
+        image: paygate/emi-service:1.0.0
         ports:
         - containerPort: 9027
         env:
@@ -2342,7 +2342,7 @@ spec:
     spec:
       containers:
       - name: bulk-collections-service
-        image: paygate/bulk-collections-service:latest
+        image: paygate/bulk-collections-service:1.0.0
         ports:
         - containerPort: 9028
         env:
@@ -2404,7 +2404,7 @@ spec:
     spec:
       containers:
       - name: salary-service
-        image: paygate/salary-service:latest
+        image: paygate/salary-service:1.0.0
         ports:
         - containerPort: 9029
         env:
@@ -2466,7 +2466,7 @@ spec:
     spec:
       containers:
       - name: privacy-payments-service
-        image: paygate/privacy-payments-service:latest
+        image: paygate/privacy-payments-service:1.0.0
         ports:
         - containerPort: 9030
         env:
@@ -2528,7 +2528,7 @@ spec:
     spec:
       containers:
       - name: reports-service
-        image: paygate/reports-service:latest
+        image: paygate/reports-service:1.0.0
         ports:
         - containerPort: 9031
         env:
@@ -2592,7 +2592,7 @@ spec:
     spec:
       containers:
       - name: ai-insights-v2-service
-        image: paygate/ai-insights-v2-service:latest
+        image: paygate/ai-insights-v2-service:1.0.0
         ports:
         - containerPort: 9032
         env:
@@ -2659,7 +2659,7 @@ spec:
     spec:
       containers:
       - name: nodal-accounts-service
-        image: paygate/nodal-accounts-service:latest
+        image: paygate/nodal-accounts-service:1.0.0
         ports:
         - containerPort: 9033
         env:
@@ -2721,7 +2721,7 @@ spec:
     spec:
       containers:
       - name: smart-retail-pos-service
-        image: paygate/smart-retail-pos-service:latest
+        image: paygate/smart-retail-pos-service:1.0.0
         ports:
         - containerPort: 9034
         env:
@@ -2783,7 +2783,7 @@ spec:
     spec:
       containers:
       - name: intl-remittance-service
-        image: paygate/intl-remittance-service:latest
+        image: paygate/intl-remittance-service:1.0.0
         ports:
         - containerPort: 9035
         env:
@@ -2849,7 +2849,7 @@ spec:
     spec:
       containers:
       - name: subscription-billing-v2-service
-        image: paygate/subscription-billing-v2-service:latest
+        image: paygate/subscription-billing-v2-service:1.0.0
         ports:
         - containerPort: 9036
         env:

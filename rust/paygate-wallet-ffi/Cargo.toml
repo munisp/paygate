@@ -27,9 +27,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 once_cell = "1"
 
 [features]
-default = []
-# Enable the real TigerBeetle client; when disabled, an in-process mock is used
-live = ["tigerbeetle-unofficial"]
+# The real TigerBeetle client is the DEFAULT backend. Production images must
+# never ship the in-memory mock: it is non-durable and exists only for local
+# development and `cargo test --no-default-features --features mock`.
+default = ["live"]
+live = ["dep:tigerbeetle-unofficial"]
+# DEV-ONLY opt-in: in-process mock ledger (no durability, single process).
+# Selecting this feature logs a loud WARN at startup. Mutually exclusive with `live`.
+mock = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "test-util"] }

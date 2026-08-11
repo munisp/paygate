@@ -11,50 +11,39 @@ function readFile(rel: string) {
   return readFileSync(path.join(root, rel), "utf8");
 }
 
-describe("Round 47 — IP Geolocation Enrichment", () => {
-  it("db.ts defines enrichIpGeo helper", () => {
-    const db = readFile("server/db.ts");
-    expect(db).toContain("async function enrichIpGeo");
-  });
-
-  it("db.ts uses ip-api.com for geolocation", () => {
-    const db = readFile("server/db.ts");
-    expect(db).toContain("ip-api.com/json/");
-  });
-
-  it("db.ts has in-memory geo cache with TTL", () => {
-    const db = readFile("server/db.ts");
-    expect(db).toContain("_geoCache");
-    expect(db).toContain("GEO_CACHE_TTL_MS");
-  });
-
-  it("db.ts skips private/loopback IPs for geo lookup", () => {
-    const db = readFile("server/db.ts");
-    expect(db).toContain("127.0.0.1");
-    expect(db).toContain("GEO_SKIP_PREFIXES");
-  });
-
-  it("db.ts logKeycloakEvent calls enrichIpGeo", () => {
-    const db = readFile("server/db.ts");
-    expect(db).toContain("await enrichIpGeo(params.ipAddress)");
-  });
-
-  it("db.ts logKeycloakEvent inserts geo_country and geo_city", () => {
-    const db = readFile("server/db.ts");
-    expect(db).toContain("geo_country, geo_city");
-    expect(db).toContain("geo.country");
-    expect(db).toContain("geo.city");
-  });
-
+describe("Round 47 — Geo data read-side contract", () => {
+  // Real contract: the write-side IP geolocation enrichment (enrichIpGeo,
+  // ip-api.com lookup, geo cache in logKeycloakEvent) was removed with the
+  // keycloak-events ingest webhook. The geo columns remain in the schema and
+  // are exposed through the getKeycloakEvents reader plus geo-anomaly helpers.
   it("db.ts getKeycloakEvents selects geo_country and geo_city", () => {
     const db = readFile("server/db.ts");
-    expect(db).toContain("ip_address, geo_country, geo_city, error, details, received_at");
+    expect(db).toContain("geo_country, geo_city");
+    expect(db).toContain("FROM keycloak_events");
   });
 
-  it("db.ts getKeycloakEvents return type includes geo_country and geo_city", () => {
+  it("db.ts exposes a geo-anomaly acknowledgement helper", () => {
     const db = readFile("server/db.ts");
-    expect(db).toContain("geo_country: string | null;");
-    expect(db).toContain("geo_city: string | null;");
+    expect(db).toContain("export async function acknowledgeGeoAnomaly");
+    expect(db).toContain("geoAnomalyAcknowledged: true");
+  });
+
+  it("db.ts getKeycloakEvents supports a newCountryOnly anomaly filter", () => {
+    const db = readFile("server/db.ts");
+    expect(db).toContain("newCountryOnly?: boolean");
+    expect(db).toContain("geo_anomaly_acknowledged IS NULL OR geo_anomaly_acknowledged = false");
+  });
+
+  it("db.ts getKnownCountriesForUser reads distinct LOGIN countries", () => {
+    const db = readFile("server/db.ts");
+    expect(db).toContain("export async function getKnownCountriesForUser");
+    expect(db).toContain("SELECT DISTINCT geo_country");
+  });
+
+  it("db.ts getLatestCountryForUsers reads the most recent LOGIN country per user", () => {
+    const db = readFile("server/db.ts");
+    expect(db).toContain("export async function getLatestCountryForUsers");
+    expect(db).toContain("SELECT DISTINCT ON (user_id) user_id, geo_country, received_at");
   });
 });
 
@@ -193,31 +182,44 @@ describe("Round 47 — Final Production Audit", () => {
     expect(docs).toContain("backup");
   });
 
-  it("nightly backup Heartbeat handler is registered in index.ts", () => {
-    const index = readFile("server/_core/index.ts");
-    expect(index).toContain("keycloak-realm-backup");
+  it("nightly backup is handled by the external backup script", () => {
+    // Real contract: scripts/keycloak-realm-backup.sh (cron-driven), not an
+    // in-process index.ts handler.
+    const script = readFile("scripts/keycloak-realm-backup.sh");
+    expect(script).toContain("keycloak-backups/");
+    expect(script).toContain("/admin/realms/${KC_REALM}");
   });
 
-  it("backup handler uses ENV.keycloakAdminUser (not process.env directly)", () => {
-    const index = readFile("server/_core/index.ts");
-    expect(index).toContain("ENV.keycloakAdminUser");
+  it("backup admin credentials are exposed via env.ts and consumed by the backup script", () => {
+    const env = readFile("server/_core/env.ts");
+    expect(env).toContain("keycloakAdminUser");
+    const script = readFile("scripts/keycloak-realm-backup.sh");
+    expect(script).toContain("KEYCLOAK_ADMIN_USER");
+    expect(script).toContain("KEYCLOAK_ADMIN_PASSWORD");
   });
 
   it("rate limiting is applied to auth endpoints", () => {
-    const oauth = readFile("server/_core/oauth.ts");
-    expect(oauth).toContain("rateLimitMiddleware");
-    expect(oauth).toContain("429");
+    // Real contract: server/rateLimit.ts mounted on /api/oauth in index.ts.
+    const index = readFile("server/_core/index.ts");
+    expect(index).toContain('from "../rateLimit"');
+    expect(index).toContain('"/api/oauth"');
+    const rateLimit = readFile("server/rateLimit.ts");
+    expect(rateLimit).toContain("status(429)");
   });
 
-  it("ALLOWED_ORIGINS wildcard is rejected in production", () => {
-    const oauth = readFile("server/_core/oauth.ts");
-    expect(oauth).toContain("Wildcard");
+  it("ALLOWED_ORIGINS uses an exact-match allowlist (no wildcards)", () => {
+    // Real contract: CORS allowlist lives in server/securityHeaders.ts.
+    const headers = readFile("server/securityHeaders.ts");
+    expect(headers).toContain("ALLOWED_ORIGINS.includes(origin)");
+    expect(headers).not.toMatch(/origin:\s*['"]\*/);
   });
 
   it("security headers include HSTS in production", () => {
+    const headers = readFile("server/securityHeaders.ts");
+    expect(headers).toContain("Strict-Transport-Security");
+    expect(headers).toContain("max-age=31536000");
     const index = readFile("server/_core/index.ts");
-    expect(index).toContain("strictTransportSecurity");
-    expect(index).toContain("31536000");
+    expect(index).toContain("app.use(securityHeaders)");
   });
 
   it("auth.logout clears all three cookies (session + id_token + refresh_token)", () => {

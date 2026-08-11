@@ -25,8 +25,24 @@ import {
   realtimeNotificationPreferences, realtimeNotificationHistory,
   qrPayments,
 } from "../drizzle/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
-import { debitWalletViaMiddleware, creditWalletViaMiddleware } from "./middlewareBridge";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { debitWalletViaMiddleware, creditWalletViaMiddleware, getCryptoRampQuoteViaMiddleware } from "./middlewareBridge";
+
+/**
+ * Live crypto→fiat rate from the ramp provider bridge. FAILS LOUD when the
+ * provider is unavailable — hardcoded rates must never be committed to real
+ * payout records.
+ */
+async function getLiveCryptoFiatRate(cryptoAsset: string, fiatCurrency: string): Promise<number> {
+  const quote = await getCryptoRampQuoteViaMiddleware(cryptoAsset, fiatCurrency, 1).catch(() => null);
+  if (!quote || typeof quote.rate !== "number" || quote.rate <= 0) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: `Live ${cryptoAsset}/${fiatCurrency} rate is unavailable (ramp provider unreachable). Off-ramp cannot be initiated.`,
+    });
+  }
+  return quote.rate;
+}
 
 // ─── 1. Open Banking V2 ───────────────────────────────────────────────────────
 const openBankingV2Router = router({
@@ -340,7 +356,8 @@ const cryptoOfframpV2Router = router({
   initiateOfframp: protectedProcedure.input(z.object({ cryptoAsset: z.string().default("USDT"), cryptoAmount: z.string(), fiatCurrency: z.string().default("NGN"), bankCode: z.string(), accountNumber: z.string(), walletAddress: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     if (!db) throw new Error('Database unavailable');
-    const rate = input.cryptoAsset === "USDT" ? 1650 : input.cryptoAsset === "BTC" ? 95000000 : 3200;
+    // Live rate from the ramp provider — never a hardcoded rate.
+    const rate = await getLiveCryptoFiatRate(input.cryptoAsset, input.fiatCurrency);
     const fiatAmount = Math.round(parseFloat(input.cryptoAmount) * rate);
     const [tx] = await db.insert(cryptoOfframpV2Transactions).values({ merchantId: ctx.user.id.toString().toString(), cryptoAsset: input.cryptoAsset, cryptoAmount: input.cryptoAmount, fiatCurrency: input.fiatCurrency, fiatAmount, exchangeRate: rate.toString(), bankCode: input.bankCode, accountNumber: input.accountNumber, walletAddress: input.walletAddress, status: "pending" }).returning();
     return { transaction: tx };
@@ -352,7 +369,17 @@ const cryptoOfframpV2Router = router({
     return { total: txs.length, completed: txs.filter(t => t.status === "completed").length, pending: txs.filter(t => t.status === "pending").length, totalFiatOut: txs.filter(t => t.status === "completed").reduce((s, t) => s + t.fiatAmount, 0) };
   }),
   getRates: protectedProcedure.query(async () => {
-    return { rates: [{ asset: "USDT", rate: 1650, change24h: 0.2 }, { asset: "BTC", rate: 95000000, change24h: -1.5 }, { asset: "ETH", rate: 3200000, change24h: 0.8 }, { asset: "USDC", rate: 1648, change24h: 0.1 }], updatedAt: new Date() };
+    // Live quotes from the ramp provider; assets with no live quote are omitted.
+    const assets = ["USDT", "BTC", "ETH", "USDC"];
+    const quotes = await Promise.all(assets.map(async (asset) => {
+      const q = await getCryptoRampQuoteViaMiddleware(asset, "NGN", 1).catch(() => null);
+      return q && typeof q.rate === "number" && q.rate > 0 ? { asset, rate: q.rate, change24h: null } : null;
+    }));
+    const rates = quotes.filter((q): q is NonNullable<typeof q> => q !== null);
+    if (rates.length === 0) {
+      throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Live crypto rates are unavailable (ramp provider unreachable)." });
+    }
+    return { rates, updatedAt: new Date() };
   }),
   cancelTransaction: protectedProcedure.input(z.object({ txId: z.string() })).mutation(async ({ input, ctx }) => {
     const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -400,21 +427,92 @@ const nfcPayRouter = router({
 });
 
 // ─── 10. QR Merchant Analytics ───────────────────────────────────────────────
+// All QR analytics are aggregated from the real qr_payments table — no
+// hardcoded or random figures. A "scan" is a created QR payment; a conversion
+// is one that reached "claimed" status. Amounts are kobo (minor units).
+function qrPeriodSince(period: string): Date {
+  const match = /^(\d+)([dm])$/.exec(period);
+  const days = match ? (match[2] === "m" ? Number(match[1]) * 30 : Number(match[1])) : 7;
+  return new Date(Date.now() - days * 86400000);
+}
 const qrMerchantAnalyticsRouter = router({
-  getOverview: protectedProcedure.input(z.object({ period: z.string().default("7d") })).query(async () => {
-    return { totalScans: 1240, uniqueCustomers: 387, totalRevenue: 4520000, avgTransactionValue: 11700, conversionRate: 68.4 };
+  getOverview: protectedProcedure.input(z.object({ period: z.string().default("7d") })).query(async ({ input, ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Database unavailable — QR analytics cannot be computed" });
+    const rows = await db.select().from(qrPayments).where(and(eq(qrPayments.merchantId, ctx.user.id.toString()), gte(qrPayments.createdAt, qrPeriodSince(input.period))));
+    const claimed = rows.filter(r => r.status === "claimed");
+    const totalRevenue = claimed.reduce((s, r) => s + (r.amount ?? 0), 0);
+    return {
+      totalScans: rows.length,
+      uniqueCustomers: new Set(claimed.map(r => r.claimedBy).filter((c): c is number => c != null)).size,
+      totalRevenue,
+      avgTransactionValue: claimed.length > 0 ? Math.round(totalRevenue / claimed.length) : 0,
+      conversionRate: rows.length > 0 ? Math.round((claimed.length / rows.length) * 1000) / 10 : 0,
+    };
   }),
-  getScanHeatmap: protectedProcedure.input(z.object({ period: z.string().default("7d") })).query(async () => {
-    return { heatmap: Array.from({ length: 24 }, (_, h) => ({ hour: h, scans: Math.floor(Math.random() * 80) + (h >= 9 && h <= 21 ? 50 : 5) })) };
+  getScanHeatmap: protectedProcedure.input(z.object({ period: z.string().default("7d") })).query(async ({ input, ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Database unavailable — QR analytics cannot be computed" });
+    const rows = await db.select({ createdAt: qrPayments.createdAt }).from(qrPayments).where(and(eq(qrPayments.merchantId, ctx.user.id.toString()), gte(qrPayments.createdAt, qrPeriodSince(input.period))));
+    const counts = new Array<number>(24).fill(0);
+    for (const r of rows) counts[new Date(r.createdAt).getHours()]++;
+    return { heatmap: counts.map((scans, hour) => ({ hour, scans })) };
   }),
-  getTopQrCodes: protectedProcedure.query(async () => {
-    return { codes: [{ id: "qr1", label: "Main Counter", scans: 420, revenue: 1850000 }, { id: "qr2", label: "Online Store", scans: 380, revenue: 1420000 }, { id: "qr3", label: "Mobile App", scans: 240, revenue: 890000 }] };
+  getTopQrCodes: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Database unavailable — QR analytics cannot be computed" });
+    const rows = await db.select().from(qrPayments).where(eq(qrPayments.merchantId, ctx.user.id.toString()));
+    const byId = new Map<string, { id: string; label: string; scans: number; revenue: number }>();
+    for (const r of rows) {
+      const entry = byId.get(r.id) ?? { id: r.id, label: r.description ?? `QR ${r.id.slice(0, 8)}`, scans: 0, revenue: 0 };
+      entry.scans++;
+      if (r.status === "claimed") entry.revenue += r.amount ?? 0;
+      byId.set(r.id, entry);
+    }
+    const codes = [...byId.values()].sort((a, b) => b.scans - a.scans).slice(0, 10);
+    return { codes };
   }),
-  getCustomerInsights: protectedProcedure.query(async () => {
-    return { newVsReturning: { new: 45, returning: 55 }, avgSessionDuration: 42, topLocations: ["Lagos Island", "Victoria Island", "Lekki"] };
+  getCustomerInsights: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Database unavailable — QR analytics cannot be computed" });
+    const claimed = await db.select({ claimedBy: qrPayments.claimedBy, claimedAt: qrPayments.claimedAt }).from(qrPayments)
+      .where(and(eq(qrPayments.merchantId, ctx.user.id.toString()), eq(qrPayments.status, "claimed")));
+    // New vs returning: a customer is "new" if their first-ever claim is within the last 30 days.
+    const firstClaimByCustomer = new Map<number, Date>();
+    for (const r of claimed) {
+      if (r.claimedBy == null || !r.claimedAt) continue;
+      const at = new Date(r.claimedAt);
+      const prev = firstClaimByCustomer.get(r.claimedBy);
+      if (!prev || at < prev) firstClaimByCustomer.set(r.claimedBy, at);
+    }
+    const cutoff = new Date(Date.now() - 30 * 86400000);
+    let newCount = 0;
+    for (const first of firstClaimByCustomer.values()) if (first >= cutoff) newCount++;
+    const returningCount = firstClaimByCustomer.size - newCount;
+    const total = firstClaimByCustomer.size;
+    return {
+      newVsReturning: {
+        new: total > 0 ? Math.round((newCount / total) * 100) : 0,
+        returning: total > 0 ? Math.round((returningCount / total) * 100) : 0,
+      },
+      // No session-duration or location data source exists — report honestly.
+      avgSessionDuration: null,
+      topLocations: [],
+    };
   }),
-  exportReport: protectedProcedure.input(z.object({ period: z.string(), format: z.string().default("csv") })).mutation(async ({ input }) => {
-    return { downloadUrl: `/api/reports/qr-analytics-${input.period}.${input.format}`, expiresAt: new Date(Date.now() + 3600000) };
+  exportReport: protectedProcedure.input(z.object({ period: z.string(), format: z.string().default("csv") })).mutation(async ({ input, ctx }) => {
+    const db = await getDb(); if (!db) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Database unavailable — QR report cannot be generated" });
+    const rows = (await db.select().from(qrPayments).where(and(eq(qrPayments.merchantId, ctx.user.id.toString()), gte(qrPayments.createdAt, qrPeriodSince(input.period)))))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const header = "id,created_at,amount_kobo,currency,status,claimed_by,claimed_at,description";
+    const csv = [header, ...rows.map(r => [
+      r.id,
+      new Date(r.createdAt).toISOString(),
+      r.amount ?? "",
+      r.currency,
+      r.status,
+      r.claimedBy ?? "",
+      r.claimedAt ? new Date(r.claimedAt).toISOString() : "",
+      `"${(r.description ?? "").replace(/"/g, '""')}"`,
+    ].join(","))].join("\n");
+    // Real export: CSV content is returned inline (no fabricated download URL).
+    return { format: input.format, period: input.period, generatedAt: new Date(), rowCount: rows.length, csv };
   }),
 });
 
@@ -448,7 +546,12 @@ const invoiceFinancingV2Router = router({
     return { success: true };
   }),
   getEligibility: protectedProcedure.query(async () => {
-    return { eligible: true, maxAmount: 10000000, interestRate: "3.5%", maxTenor: 90 };
+    // FAIL LOUD — no real underwriting integration exists; eligibility must
+    // never be unconditionally "approved".
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Invoice-financing eligibility check is temporarily unavailable (underwriting service not integrated).",
+    });
   }),
 });
 
@@ -589,11 +692,16 @@ const usdcV2Router = router({
     const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(usdcV2Transactions).where(eq(usdcV2Transactions.merchantId, ctx.user.id.toString()));
     return { transactions: txs, total: Number(count) };
   }),
-  initiateTransfer: protectedProcedure.input(z.object({ toAddress: z.string(), amountUsdc: z.string(), network: z.string().default("polygon") })).mutation(async ({ input, ctx }) => {
-    const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-    if (!db) throw new Error('Database unavailable');
-    const [tx] = await db.insert(usdcV2Transactions).values({ merchantId: ctx.user.id.toString().toString(), type: "send", amountUsdc: input.amountUsdc, toAddress: input.toAddress, network: input.network, status: "pending", txHash: `0x${Math.random().toString(16).slice(2, 66)}` }).returning();
-    return { transaction: tx };
+  initiateTransfer: protectedProcedure.input(z.object({ toAddress: z.string(), amountUsdc: z.string(), network: z.string().default("polygon") })).mutation(async () => {
+    // FAIL LOUD: no on-chain signer/broadcaster is configured for this rail,
+    // so no transaction record is created and no txHash is fabricated. A real
+    // txHash can only come from an actual broadcast (cf. usdc.initiatePayout,
+    // which records pending first and lets the Temporal workflow fill in the
+    // on-chain hash after broadcast).
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "on-chain broadcast not configured — no transfer was initiated and nothing was recorded",
+    });
   }),
   getStats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb(); if (!db) return { balance: "0", network: "polygon", totalReceived: "0", totalSent: "0", totalTransactions: 0 };
@@ -775,14 +883,16 @@ const grpcHealthCheckRouter = router({
   getHealthHistory: protectedProcedure.input(z.object({ serviceName: z.string(), period: z.string().default('24h') })).query(async ({ input }) => {
     const svc = GRPC_SERVICES.find(s => s.name === input.serviceName);
     if (!svc) throw new TRPCError({ code: 'NOT_FOUND', message: 'Service not found' });
-    // Generate history based on current health + simulated past data
+    // No persistent health-history store exists in the schema, so past data
+    // is never simulated: history is returned empty with an explicit note, and
+    // only the current live probe is reported.
     const current = await checkServiceHealth(svc.url);
-    const history = Array.from({ length: 24 }, (_, i) => ({
-      timestamp: new Date(Date.now() - i * 3600000),
-      status: i === 0 ? current.status : (Math.random() > 0.05 ? 'healthy' : 'degraded'),
-      latencyMs: i === 0 ? current.latencyMs : Math.floor(Math.random() * 50) + 5,
-    }));
-    return { serviceName: input.serviceName, history };
+    return {
+      serviceName: input.serviceName,
+      history: [] as Array<{ timestamp: Date; status: string; latencyMs: number }>,
+      current: { timestamp: new Date(), status: current.status, latencyMs: current.latencyMs },
+      note: "No persistent health-history store is configured; historical entries are unavailable and never simulated.",
+    };
   }),
   checkService: protectedProcedure.input(z.object({ serviceName: z.string(), url: z.string() })).mutation(async ({ input }) => {
     const health = await checkServiceHealth(input.url);

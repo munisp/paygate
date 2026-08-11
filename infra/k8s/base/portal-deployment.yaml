@@ -35,8 +35,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: portal
-          image: paygate/portal:latest
-          imagePullPolicy: Always
+          image: paygate/portal:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http

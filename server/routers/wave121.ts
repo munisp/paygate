@@ -638,7 +638,7 @@ export const invoiceFinV2Router = router({
         approvedAmount: input.approvedAmount,
         updatedAt: new Date(),
       }).where(and(eq(invoiceFinancingV2Applications.id, input.id), eq(invoiceFinancingV2Applications.merchantId, ctx.user.tenantId ?? "")));
-      publishAuditEvent({ action: 'invoice_financing.approved', actorId: ctx.user.openId, targetId: input.id, metadata: { approvedAmount: input.approvedAmount }, timestamp: new Date().toISOString() }).catch(() => {});
+      publishAuditEvent({ action: 'invoice_financing.approved', userId: ctx.user.openId, targetId: input.id, metadata: { approvedAmount: input.approvedAmount }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true };
     }),
 
@@ -763,7 +763,7 @@ export const loyaltyV3Router = router({
           eq(loyaltyV3Members.programId, input.programId),
           eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? "")
         ))
-        .orderBy(desc(loyaltyV3Members.totalPoints))
+        .orderBy(desc(loyaltyV3Members.lifetimePoints))
         .offset(offset).limit(input.limit);
       const [{ count }] = await db.select({ count: sql<number>`count(*)` })
         .from(loyaltyV3Members).where(and(
@@ -779,7 +779,7 @@ export const loyaltyV3Router = router({
       .from(loyaltyV3Programs).where(eq(loyaltyV3Programs.merchantId, ctx.user.tenantId ?? ""));
     const [{ members }] = await db.select({ members: sql<number>`count(*)` })
       .from(loyaltyV3Members).where(eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? ""));
-    const [{ totalPoints }] = await db.select({ totalPoints: sql<number>`sum(total_points)` })
+    const [{ totalPoints }] = await db.select({ totalPoints: sql<number>`sum(lifetime_points)` })
       .from(loyaltyV3Members).where(eq(loyaltyV3Members.merchantId, ctx.user.tenantId ?? ""));
     return {
       totalPrograms: Number(programs),

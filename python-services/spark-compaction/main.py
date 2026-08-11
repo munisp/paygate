@@ -2,6 +2,13 @@
 PayGate Spark Compaction Service
 Compacts Parquet files in the Lakehouse (Delta Lake / Iceberg style compaction)
 to maintain optimal read performance and reduce small-file overhead.
+
+NO FABRICATED METRICS: when no compaction backend is available (PySpark /
+Delta Lake not importable in this image), every endpoint reports
+status="skipped_no_backend" (or HTTP 503) instead of invented file counts.
+The deployed image (bitnami/spark) runs compact.py — the real PySpark job —
+directly; this HTTP wrapper only performs work when the same libraries are
+importable.
 """
 from __future__ import annotations
 
@@ -19,18 +26,42 @@ from pydantic import BaseModel
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "info").upper())
 log = logging.getLogger("spark-compaction")
 
-app = FastAPI(title="PayGate Spark Compaction Service", version="1.0.0")
+app = FastAPI(title="PayGate Spark Compaction Service", version="1.1.0")
 
-S3_ENDPOINT = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
-LAKEHOUSE_BUCKET = os.getenv("LAKEHOUSE_BUCKET", "paygate-lakehouse")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "paygate_internal_dev_key_2026")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT") or os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
+S3_BUCKET = os.getenv("S3_BUCKET") or os.getenv("LAKEHOUSE_BUCKET", "paygate-lakehouse")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+COMPACT_TARGET_SIZE_MB = int(os.getenv("COMPACT_TARGET_SIZE_MB", "128"))
+VACUUM_RETAIN_HOURS = int(os.getenv("VACUUM_RETAIN_HOURS", "168"))
+
+
+def _backend_available() -> bool:
+    """A compaction backend exists only if PySpark + Delta Lake are importable."""
+    try:
+        import pyspark  # noqa: F401
+        import delta.tables  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+BACKEND_AVAILABLE = _backend_available()
+if not BACKEND_AVAILABLE:
+    log.warning(
+        "NO COMPACTION BACKEND: pyspark/delta-spark not importable in this image. "
+        "Compaction endpoints will report status=skipped_no_backend — no lakehouse "
+        "maintenance is being performed. Deploy the bitnami/spark image running "
+        "compact.py for real nightly compaction."
+    )
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class CompactionRequest(BaseModel):
     table: str  # e.g. "transactions", "audit_events"
     partition: str | None = None  # e.g. "2026-04"
-    target_file_size_mb: int = 128
+    target_file_size_mb: int = COMPACT_TARGET_SIZE_MB
     dry_run: bool = False
 
 class CompactionResult(BaseModel):
@@ -41,12 +72,13 @@ class CompactionResult(BaseModel):
     bytes_saved: int
     duration_ms: int
     status: str
+    detail: str | None = None
     timestamp: str
 
 class CompactionStatus(BaseModel):
     job_id: str
     table: str
-    status: str  # running | completed | failed
+    status: str  # running | completed | failed | skipped_no_backend
     progress_pct: float
     started_at: str
     completed_at: str | None
@@ -59,53 +91,101 @@ _jobs: dict[str, CompactionStatus] = {}
 @app.get("/health")
 async def health():
     return {
-        "status": "healthy",
+        "status": "healthy" if BACKEND_AVAILABLE else "degraded_no_backend",
         "service": "spark-compaction",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "backend_available": BACKEND_AVAILABLE,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "s3_endpoint": S3_ENDPOINT,
-        "lakehouse_bucket": LAKEHOUSE_BUCKET,
+        "lakehouse_bucket": S3_BUCKET,
     }
+
+# ── Real compaction (only when the backend is importable) ─────────────────────
+
+def _run_real_compaction(req: CompactionRequest) -> dict[str, Any]:
+    """Execute real Delta Lake compaction via the compact.py job logic."""
+    import compact as job  # compact.py — real PySpark/Delta implementation
+
+    spark = job.get_spark()
+    try:
+        if req.dry_run:
+            os.environ["DRY_RUN"] = "true"
+        result = job.compact_table(spark, req.table)
+        return result
+    finally:
+        spark.stop()
+
+
+def _no_backend_result(req: CompactionRequest, start: float) -> CompactionResult:
+    duration_ms = int((time.time() - start) * 1000)
+    log.warning(
+        f"Compaction request for table={req.table} partition={req.partition} "
+        "NOT performed: no compaction backend in this image (skipped_no_backend)."
+    )
+    return CompactionResult(
+        table=req.table,
+        partition=req.partition,
+        files_before=0,
+        files_after=0,
+        bytes_saved=0,
+        duration_ms=duration_ms,
+        status="skipped_no_backend",
+        detail=(
+            "No PySpark/Delta Lake backend available in this container; compaction "
+            "was NOT performed and no metrics are reported. Run the compact.py "
+            "Spark job image for real compaction."
+        ),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
 
 # ── Compaction Endpoints ──────────────────────────────────────────────────────
 
 @app.post("/v1/compact", response_model=CompactionResult)
 async def compact_table(req: CompactionRequest):
-    """
-    Compact small Parquet files in a Lakehouse table partition into larger files.
-    Simulates Spark-style file compaction with configurable target file size.
-    """
+    """Compact small Parquet files in a Lakehouse table into larger files."""
     start = time.time()
-    log.info(f"Starting compaction for table={req.table} partition={req.partition} dry_run={req.dry_run}")
+    log.info(f"Compaction requested: table={req.table} partition={req.partition} dry_run={req.dry_run}")
 
-    # Simulate compaction work (in production, this would call PySpark or DuckDB)
-    await asyncio.sleep(0.1)
+    if not BACKEND_AVAILABLE:
+        return _no_backend_result(req, start)
 
-    # Simulated metrics
-    files_before = 47
-    files_after = 3 if not req.dry_run else files_before
-    bytes_saved = (files_before - files_after) * req.target_file_size_mb * 1024 * 1024 // 4
+    try:
+        result = await asyncio.to_thread(_run_real_compaction, req)
+    except Exception as e:
+        log.error(f"Real compaction failed for {req.table}: {e}")
+        raise HTTPException(status_code=500, detail=f"Compaction failed: {e}")
 
     duration_ms = int((time.time() - start) * 1000)
-
-    result = CompactionResult(
+    status = result.get("status", "error")
+    return CompactionResult(
         table=req.table,
         partition=req.partition,
-        files_before=files_before,
-        files_after=files_after,
-        bytes_saved=bytes_saved,
+        files_before=int(result.get("files_before") or 0),
+        files_after=int(result.get("files_after") or 0),
+        bytes_saved=int(result.get("bytes_saved") or 0),
         duration_ms=duration_ms,
-        status="dry_run" if req.dry_run else "completed",
+        status=status,
+        detail=result.get("error"),
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
-    log.info(f"Compaction complete: {files_before} → {files_after} files, saved {bytes_saved:,} bytes in {duration_ms}ms")
-    return result
 
 @app.post("/v1/compact/async")
 async def compact_table_async(req: CompactionRequest):
     """Start an async compaction job and return a job ID for polling."""
     import uuid
     job_id = str(uuid.uuid4())
+    if not BACKEND_AVAILABLE:
+        job = CompactionStatus(
+            job_id=job_id,
+            table=req.table,
+            status="skipped_no_backend",
+            progress_pct=0.0,
+            started_at=datetime.now(timezone.utc).isoformat(),
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        _jobs[job_id] = job
+        log.warning(f"Async compaction job {job_id} for {req.table}: skipped_no_backend")
+        return {"job_id": job_id, "status": "skipped_no_backend"}
     job = CompactionStatus(
         job_id=job_id,
         table=req.table,
@@ -130,48 +210,116 @@ async def list_jobs():
 
 @app.get("/v1/tables")
 async def list_tables():
-    """List all Lakehouse tables available for compaction."""
-    tables = [
-        {"name": "transactions", "partitions": ["2026-01", "2026-02", "2026-03", "2026-04"], "file_count": 47, "size_gb": 2.3},
-        {"name": "audit_events", "partitions": ["2026-04"], "file_count": 128, "size_gb": 0.8},
-        {"name": "fraud_scores", "partitions": ["2026-04"], "file_count": 23, "size_gb": 0.1},
-        {"name": "settlement_records", "partitions": ["2026-04"], "file_count": 12, "size_gb": 0.4},
-        {"name": "kyc_documents", "partitions": ["2026-04"], "file_count": 8, "size_gb": 1.2},
-    ]
-    return {"tables": tables, "total": len(tables)}
+    """List Lakehouse table directories actually present in the object store.
+
+    Returns real objects from S3/MinIO. When the object store is unreachable
+    the list is empty and explicitly marked unavailable — table file counts
+    are never invented.
+    """
+    if not (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY):
+        return {"tables": [], "total": 0, "source": "unavailable",
+                "detail": "Object-store credentials not configured"}
+    try:
+        import boto3
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=S3_ENDPOINT,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        )
+        resp = await asyncio.to_thread(s3.list_objects_v2, Bucket=S3_BUCKET, Delimiter="/")
+        prefixes = [p["Prefix"].rstrip("/") for p in resp.get("CommonPrefixes", [])]
+        tables = [{"name": name} for name in sorted(prefixes)]
+        return {"tables": tables, "total": len(tables), "source": "s3"}
+    except Exception as e:
+        log.error(f"Could not list lakehouse tables from object store: {e}")
+        return {"tables": [], "total": 0, "source": "unavailable", "detail": str(e)}
 
 @app.post("/v1/vacuum")
-async def vacuum_table(table: str, retain_hours: int = 168):
-    """
-    Vacuum old Parquet files that are no longer referenced (Delta Lake VACUUM equivalent).
-    Retains files newer than retain_hours (default 7 days).
-    """
-    log.info(f"Vacuuming table={table} retain_hours={retain_hours}")
-    await asyncio.sleep(0.05)
-    return {
-        "table": table,
-        "retain_hours": retain_hours,
-        "files_deleted": 12,
-        "bytes_freed": 256 * 1024 * 1024,
-        "status": "completed",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+async def vacuum_table(table: str, retain_hours: int = VACUUM_RETAIN_HOURS):
+    """Vacuum old Parquet files no longer referenced (Delta Lake VACUUM)."""
+    log.info(f"Vacuum requested: table={table} retain_hours={retain_hours}")
+    if not BACKEND_AVAILABLE:
+        log.warning(f"Vacuum of {table} NOT performed: no compaction backend (skipped_no_backend)")
+        return {
+            "table": table,
+            "retain_hours": retain_hours,
+            "files_deleted": 0,
+            "bytes_freed": 0,
+            "status": "skipped_no_backend",
+            "detail": "No PySpark/Delta Lake backend in this container; vacuum was NOT performed.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    try:
+        import compact as job
+        spark = job.get_spark()
+        try:
+            from delta.tables import DeltaTable
+            path = f"s3a://{S3_BUCKET}/{table}"
+            if not DeltaTable.isDeltaTable(spark, path):
+                return {"table": table, "status": "not_delta", "files_deleted": 0,
+                        "bytes_freed": 0, "timestamp": datetime.now(timezone.utc).isoformat()}
+            dt = DeltaTable.forPath(spark, path)
+            before = dt.detail().collect()[0]["numFiles"]
+            await asyncio.to_thread(dt.vacuum, retain_hours)
+            after = dt.detail().collect()[0]["numFiles"]
+            return {
+                "table": table,
+                "retain_hours": retain_hours,
+                "files_deleted": int(before - after),
+                "bytes_freed": 0,  # Delta vacuum does not report bytes; not invented
+                "status": "completed",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        finally:
+            spark.stop()
+    except Exception as e:
+        log.error(f"Vacuum failed for {table}: {e}")
+        raise HTTPException(status_code=500, detail=f"Vacuum failed: {e}")
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 async def _run_compaction_job(job_id: str, req: CompactionRequest):
-    """Background task simulating async compaction with progress updates."""
+    """Background task running a REAL compaction job (backend-gated by caller)."""
     job = _jobs[job_id]
     try:
-        for progress in [10, 30, 60, 80, 100]:
-            await asyncio.sleep(0.2)
-            job.progress_pct = float(progress)
-        job.status = "completed"
+        job.progress_pct = 10.0
+        result = await asyncio.to_thread(_run_real_compaction, req)
+        job.progress_pct = 100.0
+        job.status = "completed" if result.get("status") in ("compacted", "dry_run") else result.get("status", "failed")
         job.completed_at = datetime.now(timezone.utc).isoformat()
     except Exception as e:
         job.status = "failed"
         job.completed_at = datetime.now(timezone.utc).isoformat()
         log.error(f"Compaction job {job_id} failed: {e}")
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,7 +2,9 @@
 // for the PayGate bridge service.
 //
 // It exposes a CheckPermission helper that calls the Permify REST API.
-// If PERMIFY_URL is not set, all permission checks return true (dev mode).
+// Checks FAIL CLOSED by default: when PERMIFY_URL is unset or Permify errors,
+// permissions are DENIED. Setting PERMIFY_FAIL_OPEN=true restores the legacy
+// fail-open behaviour for non-money paths (loud WARN on every grant).
 package permify
 
 import (
@@ -71,11 +73,30 @@ type CheckRequest struct {
 	Subject string
 }
 
+// ErrUnavailable is returned when Permify is not configured or unreachable
+// and fail-open has not been explicitly enabled.
+var ErrUnavailable = fmt.Errorf("permify: authorization service unavailable")
+
+// FailOpen reports whether the operator has explicitly opted into fail-open
+// authorization via PERMIFY_FAIL_OPEN=true. Intended for non-money paths only;
+// money-movement callers should treat ANY CheckPermission error as a denial.
+func FailOpen() bool {
+	return os.Getenv("PERMIFY_FAIL_OPEN") == "true"
+}
+
 // CheckPermission returns true if the subject has the given permission on the entity.
-// Returns true in dev mode (PERMIFY_URL not set).
+// Fails CLOSED (deny + error) when Permify is unconfigured or unreachable,
+// unless PERMIFY_FAIL_OPEN=true is explicitly set.
 func (c *Client) CheckPermission(ctx context.Context, req CheckRequest) (bool, error) {
 	if !c.enabled {
-		return true, nil
+		if FailOpen() {
+			slog.Warn("[permify] DISABLED — granting via PERMIFY_FAIL_OPEN",
+				"entity", req.Entity, "permission", req.Permission, "subject", req.Subject)
+			return true, nil
+		}
+		slog.Error("[permify] DISABLED — denying check (set PERMIFY_FAIL_OPEN=true to override for non-money paths)",
+			"entity", req.Entity, "permission", req.Permission, "subject", req.Subject)
+		return false, ErrUnavailable
 	}
 
 	entityParts := splitEntityRef(req.Entity)
@@ -83,9 +104,9 @@ func (c *Client) CheckPermission(ctx context.Context, req CheckRequest) (bool, e
 
 	body := map[string]any{
 		"metadata": map[string]any{
-			"schema_version":  "",
-			"snap_token":      "",
-			"depth":           20,
+			"schema_version": "",
+			"snap_token":     "",
+			"depth":          20,
 		},
 		"entity": map[string]any{
 			"type": entityParts[0],
@@ -116,8 +137,13 @@ func (c *Client) CheckPermission(ctx context.Context, req CheckRequest) (bool, e
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		slog.Error("[permify] check failed", "err", err)
-		// Fail open on network error to avoid blocking payments
-		return true, nil
+		if FailOpen() {
+			slog.Warn("[permify] granting via PERMIFY_FAIL_OPEN despite outage",
+				"entity", req.Entity, "permission", req.Permission)
+			return true, nil
+		}
+		// Fail closed on network error: never authorise on doubt.
+		return false, fmt.Errorf("permify.CheckPermission: %w", ErrUnavailable)
 	}
 	defer resp.Body.Close()
 
