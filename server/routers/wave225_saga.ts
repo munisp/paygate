@@ -40,7 +40,7 @@ async function fetchTemporalWorkflow(workflowId: string, runId?: string) {
     });
 
     if (!res.ok) return null;
-    return await res.json();
+    return (await res.json()) as Record<string, any>;
   } catch {
     return null;
   }

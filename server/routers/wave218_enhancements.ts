@@ -418,7 +418,7 @@ const bulkStatusUpdateRouter = router({
     .input(z.object({
       domain: z.enum(["remittance", "healthcare", "insurance", "scf", "g2p", "energy", "cbdc"]),
       ids: z.array(z.string().uuid()).min(1).max(100),
-      newStatus: z.string(),
+      newStatus: z.enum(["PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED"]),
       reason: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -431,8 +431,9 @@ const bulkStatusUpdateRouter = router({
       const table = tableMap[input.domain];
       if (!table) throw new Error("Unknown domain");
       try {
-        const idList = input.ids.map(id => `'${id}'`).join(",");
-        await db.execute(sql.raw(`UPDATE ${table} SET status = '${input.newStatus}', updated_at = NOW() WHERE id IN (${idList})`));
+        // `table` is whitelisted via tableMap above (safe identifier); status
+        // and ids are bound parameters — no string interpolation of input.
+        await db.execute(sql`UPDATE ${sql.raw(table)} SET status = ${input.newStatus}, updated_at = NOW() WHERE id = ANY(${input.ids})`);
         // Audit log
         await db.execute(sql`INSERT INTO domain_audit_log (id, domain, action, actor_id, payload, created_at) VALUES (gen_random_uuid(), ${input.domain}, 'BULK_STATUS_UPDATE', ${ctx.user.id}, ${JSON.stringify({ ids: input.ids, newStatus: input.newStatus, reason: input.reason })}, NOW())`).catch(() => {});
       } catch { /* ok */ }

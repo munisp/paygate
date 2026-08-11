@@ -120,7 +120,7 @@ export async function checkLivenessSidecar(
       quality_hint: qualityHint ?? null,
     });
     if (!res.ok) throw new Error(`Sidecar /liveness returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<LivenessResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     // Graceful fallback: return neutral result so KYC flow continues
@@ -161,7 +161,7 @@ export async function verifyFaceSidecar(
       anti_spoofing: options?.anti_spoofing ?? false,
     });
     if (!res.ok) throw new Error(`Sidecar /verify-face returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<VerifyFaceResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     console.warn("[DeepFace Sidecar] /verify-face unavailable, using fallback:", err);
@@ -196,7 +196,7 @@ export async function registerFaceSidecar(
       detector_backend: options?.detector_backend ?? "retinaface",
     });
     if (!res.ok) throw new Error(`Sidecar /register returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<RegisterFaceResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     console.warn("[DeepFace Sidecar] /register unavailable:", err);
@@ -227,7 +227,7 @@ export async function searchFaceSidecar(
       top_k: options?.top_k ?? 5,
     });
     if (!res.ok) throw new Error(`Sidecar /search returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<SearchFaceResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     console.warn("[DeepFace Sidecar] /search unavailable:", err);
@@ -256,7 +256,7 @@ export async function analyzeFaceSidecar(
       detector_backend: "opencv",
     });
     if (!res.ok) throw new Error(`Sidecar /analyze returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<AnalyzeFaceResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     console.warn("[DeepFace Sidecar] /analyze unavailable:", err);
@@ -296,7 +296,7 @@ export async function getEmbeddingSidecar(
       detector_backend: options?.detector_backend ?? "retinaface",
     });
     if (!res.ok) throw new Error(`Sidecar /embedding returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<GetEmbeddingResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     console.warn("[DeepFace Sidecar] /embedding unavailable:", err);
@@ -335,7 +335,7 @@ export async function searchFaceEmbeddingSidecar(
       exclude_subject_id: options?.exclude_submission_id ?? null,
     });
     if (!res.ok) throw new Error(`Sidecar /search-embedding returned ${res.status}`);
-    const data = await res.json();
+    const data = (await res.json()) as Omit<EmbeddingSearchResult, "sidecar_available">;
     return { ...data, sidecar_available: true };
   } catch (err) {
     console.warn("[DeepFace Sidecar] /search-embedding unavailable:", err);
@@ -367,7 +367,7 @@ export async function sidecarHealth(): Promise<{
     });
     clearTimeout(timer);
     if (!res.ok) return { ok: false, deepface_ready: false, embedding_store_size: 0 };
-    return { ok: true, ...(await res.json()) };
+    return { ok: true, ...((await res.json()) as { deepface_ready: boolean; embedding_store_size: number }) };
   } catch {
     return { ok: false, deepface_ready: false, embedding_store_size: 0 };
   }

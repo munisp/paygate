@@ -1006,8 +1006,7 @@ export const splitBillConsumerRouter = router({
       const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
       const [session] = await db.insert(consumerSplitSessions).values({
         id: sessionId,
-        initiatorId: String(user.id),
-        creatorId: Number(user.id) || null,
+        creatorId: Number(user.id),
         title: input.title,
         totalAmountKobo: input.totalAmountKobo,
         currency: input.currency,
@@ -1344,7 +1343,7 @@ export const consumerStripeTopUpRouter = router({
       if (!stripeKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Stripe not configured" });
 
       const Stripe = (await import("stripe")).default;
-      const stripe = new Stripe(stripeKey, { apiVersion: "2026-02-25.clover" });
+      const stripe = new Stripe(stripeKey, { apiVersion: "2026-07-29.dahlia" });
 
       // Stripe works in smallest currency unit. NGN is not supported by Stripe,
       // so we charge in USD equivalent (1 USD ≈ 1600 NGN) for international testing.

@@ -303,7 +303,7 @@ export const hostedCheckoutRouter = router({
       bnplProvider: z.enum(["carbon", "fairmoney", "creditcorp"]).optional(),
       bnplInstallmentCount: z.number().int().min(2).max(12).optional(),
       // Metadata
-      metadata: z.record(z.string()).optional(),
+      metadata: z.record(z.string(), z.string()).optional(),
       ipAddress: z.string().optional(),
       userAgent: z.string().optional(),
     }))
@@ -536,7 +536,7 @@ export const hostedCheckoutRouter = router({
       stripeEventType: z.string(),
       stripePaymentIntentId: z.string().optional(),
       stripeChargeId: z.string().optional(),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input }) => {
       if (!input.stripePaymentIntentId) return { received: true, matched: false };

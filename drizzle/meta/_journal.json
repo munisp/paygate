@@ -568,6 +568,13 @@
       "when": 1783882916861,
       "tag": "0080_wealthy_squadron_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1786449561365,
+      "tag": "0081_slow_excalibur",
+      "breakpoints": true
     }
   ]
 }

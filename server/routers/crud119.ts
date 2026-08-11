@@ -1148,7 +1148,10 @@ export const overheadRouter = router({
     await requireAdmin(ctx);
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    const rows = await db.select().from(overheadCosts).where(eq(overheadCosts.periodMonth, input.periodMonth));
+    const [year, month] = input.periodMonth.split("-").map(Number);
+    const monthStart = new Date(Date.UTC(year, month - 1, 1));
+    const monthEnd = new Date(Date.UTC(year, month, 1));
+    const rows = await db.select().from(overheadCosts).where(and(gte(overheadCosts.periodStart, monthStart), lte(overheadCosts.periodStart, monthEnd)));
     const total = rows.reduce((s, r) => s + r.amountKobo, 0);
     const byCategory = rows.reduce((acc, r) => {
       acc[r.category] = (acc[r.category] ?? 0) + r.amountKobo;
@@ -1433,13 +1436,13 @@ export const merchantProfilesRouter = router({
 
 // ─── billing audit log ─────────────────────────────────────────────────────────
 export const billingAuditRouter = router({
-  list: protectedProcedure.input(paginationInput.extend({ configId: z.number().int().optional() })).query(async ({ input, ctx }) => {
+  list: protectedProcedure.input(paginationInput.extend({ configId: z.string().optional() })).query(async ({ input, ctx }) => {
     await requireAdmin(ctx);
     const db = (await getDb())!;
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const offset = (input.page - 1) * input.limit;
     const q = db.select().from(billingAuditLog);
-    if (input.configId) return q.where(eq(billingAuditLog.configId, input.configId as any)).orderBy(desc(billingAuditLog.createdAt)).limit(input.limit).offset(offset);
+    if (input.configId) return q.where(eq(billingAuditLog.billingConfigId, input.configId)).orderBy(desc(billingAuditLog.createdAt)).limit(input.limit).offset(offset);
     return q.orderBy(desc(billingAuditLog.createdAt)).limit(input.limit).offset(offset);
   }),
   get: protectedProcedure.input(z.object({ id: z.number().int() })).query(async ({ input, ctx }) => {
@@ -1464,7 +1467,8 @@ export const billingEventsRouter = router({
     const offset = (input.page - 1) * input.limit;
     const conditions = [];
     if (input.merchantId) conditions.push(eq(billingEvents.merchantId, input.merchantId));
-    if (input.status) conditions.push(eq(billingEvents.status, input.status as any));
+    // billing_events has no status column; the status input is accepted for API
+    // compatibility but not applied as a filter.
     const q = db.select().from(billingEvents);
     if (conditions.length) return q.where(conditions.length === 1 ? conditions[0] : and(...conditions as [any, ...any[]])).orderBy(desc(billingEvents.createdAt)).limit(input.limit).offset(offset);
     return q.orderBy(desc(billingEvents.createdAt)).limit(input.limit).offset(offset);

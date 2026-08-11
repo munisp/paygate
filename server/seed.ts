@@ -581,9 +581,6 @@ async function main() {
     await db.insert(schema.consumerLoyaltyAccounts).values({
       id: `loyalty_${loyaltyCount++}`,
       userId: Number(customer.id) || 1,
-      merchantId: merchantData[0].id,
-      customerId: customer.id,
-      programId: "default",
       pointsBalance: rand(0, 50000),
       lifetimePoints: rand(1000, 100000),
     }).onConflictDoNothing().catch(() => {});

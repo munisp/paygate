@@ -21,7 +21,7 @@ async function resolveUser(openId: string) {
 }
 
 async function requireMerchant(userId: number | string) {
-  const merchant = await getMerchantByOwnerId(String(userId));
+  const merchant = await getMerchantByOwnerId(typeof userId === "string" ? Number(userId) : userId);
   if (!merchant) throw new TRPCError({ code: 'NOT_FOUND', message: 'Merchant not found' });
   return merchant;
 }
@@ -88,8 +88,8 @@ export const pdfExportRouter = router({
   /** Export transactions as PDF */
   transactions: protectedProcedure
     .input(z.object({
-      from: z.string().optional(),
-      to: z.string().optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
       status: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
@@ -146,8 +146,8 @@ export const pdfExportRouter = router({
   /** Export settlements as PDF */
   settlements: protectedProcedure
     .input(z.object({
-      from: z.string().optional(),
-      to: z.string().optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
       status: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
@@ -475,8 +475,8 @@ export const cashbackRewardsRouter = router({
   /** Get cashback analytics summary */
   getAnalytics: protectedProcedure
     .input(z.object({
-      from: z.string().optional(),
-      to: z.string().optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);

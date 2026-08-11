@@ -183,7 +183,7 @@ const productsRouter = router({
         sku: z.string().optional(),
         priceKobo: z.number().int().positive(),
         inventoryQty: z.number().int().min(0).default(0),
-        options: z.record(z.string()).default({}),
+        options: z.record(z.string(), z.string()).default({}),
       })).default([]),
     }))
     .mutation(async ({ input }) => {
@@ -544,7 +544,7 @@ const checkoutRouter = router({
         creditAccountId: BigInt(2001),  // Merchant revenue account
         amountKobo: Number(session.amountKobo),
         code: 1100, // Order payment code
-        userData: BigInt(order.id.replace(/-/g, "").slice(0, 16), 16),
+        userData: BigInt("0x" + order.id.replace(/-/g, "").slice(0, 16)),
       });
 
       if (tbTransferId) {
@@ -689,7 +689,7 @@ const ordersRouter = router({
         message: input.notes ?? `Order status updated to ${input.status}`,
         trackingNumber: input.trackingNumber,
         trackingCarrier: input.trackingCarrier,
-        actorId: ctx.user.id,
+        actorId: String(ctx.user.id),
         actorType: "merchant",
         webhookSource: "manual",
       });
@@ -729,7 +729,7 @@ const ordersRouter = router({
         eventType: "cancelled",
         status: "cancelled",
         message: input.reason ?? "Order cancelled by merchant",
-        actorId: ctx.user.id,
+        actorId: String(ctx.user.id),
         actorType: "merchant",
         webhookSource: "manual",
       });
@@ -762,7 +762,7 @@ const ordersRouter = router({
           eventType: input.status,
           status: input.status,
           message: `Bulk status update to ${input.status}`,
-          actorId: ctx.user.id,
+          actorId: String(ctx.user.id),
           actorType: "merchant" as const,
           webhookSource: "manual",
         })));
@@ -781,7 +781,7 @@ const fulfilmentRouter = router({
       eventType: z.string(),
       orderId: z.string().optional(),
       paymentIntentId: z.string().optional(),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input }) => {
       let order: typeof orders.$inferSelect | undefined;

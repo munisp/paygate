@@ -519,8 +519,8 @@ const costCentreRouter = router({
 
   getSummary: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db.select().from(costCentres).where(eq(costCentres.merchantId, ctx.user.id.toString()));
-    const totalBudget = rows.reduce((a, r) => a + r.budgetAmount, 0);
-    const totalSpent = rows.reduce((a, r) => a + r.spentAmount, 0);
+    const totalBudget = rows.reduce((a, r) => a + (r.budgetAmount ?? 0), 0);
+    const totalSpent = rows.reduce((a, r) => a + (r.spentAmount ?? 0), 0);
     return { totalBudget, totalSpent, count: rows.length };
   }),
 });
