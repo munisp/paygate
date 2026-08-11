@@ -517,8 +517,8 @@ describe.skipIf(!PG_AVAILABLE)("Wave 30 UI Pages", () => {
     it(`${page}.tsx exists`, async () => {
       const { existsSync } = await import("fs");
       const paths = [
-        `/home/ubuntu/paygate-merchant-portal/client/src/pages/${page}.tsx`,
-        `/home/ubuntu/paygate-merchant-portal/client/src/pages/admin/${page}.tsx`,
+        `${__dirname}/../client/src/pages/${page}.tsx`,
+        `${__dirname}/../client/src/pages/admin/${page}.tsx`,
       ];
       const exists = paths.some(p => existsSync(p));
       expect(exists).toBe(true);
@@ -538,7 +538,7 @@ describe.skipIf(!PG_AVAILABLE)("Wave 30 Server Files", () => {
   for (const file of files) {
     it(`${file} exists`, async () => {
       const { existsSync } = await import("fs");
-      const exists = existsSync(`/home/ubuntu/paygate-merchant-portal/server/${file}`);
+      const exists = existsSync(`${__dirname}/../server/${file}`);
       expect(exists).toBe(true);
     });
   }

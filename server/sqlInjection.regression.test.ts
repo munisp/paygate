@@ -73,4 +73,20 @@ describe("P0-10 SQL injection regression guards", () => {
     expect(s).toMatch(/inArray\(scumlChecks\.id, expiredIds\)/);
     expect(s).not.toMatch(/ARRAY\[\$\{expiredIds/);
   });
+
+  // ── wave28/29 fixed sites ──────────────────────────────────────────────────
+  it("wave28 updateBranding builds its SET clause from literals and binds every value", () => {
+    const s = src("server/wave28Router.ts");
+    // Values are pushed to the params array alongside $N placeholders…
+    expect(s).toMatch(/updates\.push\(`primary_color = \$\$\{idx\+\+\}`\);\s*params\.push\(input\.primaryColor\)/);
+    // …and the final statement binds the params array — no interpolation of input.
+    expect(s).toMatch(/execRaw\(db,\s*`UPDATE tenants SET \$\{updates\.join\(", "\)\} WHERE id = \$\$\{idx\}`,\s*params\)/);
+    expect(s).not.toMatch(/UPDATE tenants SET[^`]*\$\{input\./);
+  });
+
+  it("wave28 saveBranding does not interpolate branding fields into SQL", () => {
+    const s = src("server/wave28Router.ts");
+    expect(s).not.toMatch(/logo_url\s*=\s*'\$\{input\./);
+    expect(s).not.toMatch(/primary_color\s*=\s*'\$\{input\./);
+  });
 });
