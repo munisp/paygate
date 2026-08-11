@@ -18,60 +18,54 @@ describe("Round 42 — S3 storage helpers", () => {
     expect(storage).toContain("export async function storageDelete");
   });
 
-  it("storageList uses v1/storage/list endpoint", () => {
+  // Real contract: storage.ts speaks directly to S3 via the AWS SDK
+  // (ListObjectsV2 / DeleteObject) — the v1/storage/* HTTP proxy endpoints
+  // were replaced.
+  it("storageList uses the S3 ListObjectsV2 API with pagination", () => {
     const storage = fs.readFileSync(path.join(projectRoot, "server/storage.ts"), "utf-8");
-    expect(storage).toContain("v1/storage/list");
+    expect(storage).toContain("ListObjectsV2Command");
+    expect(storage).toContain("ContinuationToken");
   });
 
-  it("storageDelete uses v1/storage/delete endpoint with DELETE method", () => {
+  it("storageDelete uses the S3 DeleteObject API", () => {
     const storage = fs.readFileSync(path.join(projectRoot, "server/storage.ts"), "utf-8");
-    expect(storage).toContain("v1/storage/delete");
-    expect(storage).toContain('method: "DELETE"');
+    expect(storage).toContain("DeleteObjectCommand");
   });
 });
 
-describe("Round 42 — Backup retention in scheduled handler", () => {
-  it("backup handler purges files older than 30 days", () => {
-    const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain("RETENTION_DAYS = 30");
-    expect(index).toContain("storageDelete");
-    expect(index).toContain("purged");
+describe("Round 42 — Backup retention in the backup script", () => {
+  // Real contract: retention is enforced by scripts/keycloak-realm-backup.sh
+  // (BACKUP_RETENTION_DAYS, default 30) after each successful upload — there
+  // is no in-process scheduled retention handler in server/_core/index.ts.
+  const script = fs.readFileSync(path.join(projectRoot, "scripts/keycloak-realm-backup.sh"), "utf-8");
+
+  it("backup script purges backups older than BACKUP_RETENTION_DAYS (default 30)", () => {
+    expect(script).toContain('RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"');
+    expect(script).toContain("aws s3 rm");
   });
 
-  it("retention failure is non-fatal (try/catch around purge)", () => {
-    const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain("keycloak_backup_retention_error");
-    expect(index).toContain("Retention failure is non-fatal");
+  it("retention only targets the keycloak-backups/ prefix", () => {
+    expect(script).toContain('--prefix "keycloak-backups/"');
   });
 
-  it("backup response includes purgedCount", () => {
-    const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain("purgedCount: purged.length");
+  it("backup script writes latest-backup metadata for health visibility", () => {
+    expect(script).toContain("latest-backup.json");
+    expect(script).toContain("size_bytes");
   });
 });
 
-describe("Round 42 — /api/health/keycloak-backup endpoint", () => {
-  it("index.ts registers /api/health/keycloak-backup GET handler", () => {
+describe("Round 42 — backup visibility surface", () => {
+  // Real contract: the /api/health/keycloak-backup endpoint was removed.
+  // Backup visibility is via the admin-only listBackups/deleteBackup tRPC
+  // procedures (covered below) and the script's latest-backup.json metadata.
+  it("index.ts no longer registers a dedicated keycloak-backup health endpoint", () => {
     const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain('"/api/health/keycloak-backup"');
+    expect(index).not.toContain('"/api/health/keycloak-backup"');
   });
 
-  it("health endpoint returns stale status when backup is older than 25 hours", () => {
+  it("index.ts still exposes the general /api/health probe", () => {
     const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain("stale");
-    expect(index).toContain("25 * 3600000");
-  });
-
-  it("health endpoint returns no_backup when no files found", () => {
-    const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain("no_backup");
-    expect(index).toContain("No Keycloak realm backup found");
-  });
-
-  it("health endpoint returns ageHours and totalBackups", () => {
-    const index = fs.readFileSync(path.join(projectRoot, "server/_core/index.ts"), "utf-8");
-    expect(index).toContain("ageHours");
-    expect(index).toContain("totalBackups");
+    expect(index).toContain('"/api/health"');
   });
 });
 

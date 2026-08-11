@@ -19,7 +19,7 @@ const tenantBillingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM tenant_plan_limits WHERE plan = $1`, [input.plan]);
+      const rows = await execRaw(db, `SELECT * FROM tenant_plan_limits WHERE plan = $1`, [input.plan]);
       return rows[0] ?? null;
     }),
 
@@ -38,7 +38,7 @@ const tenantBillingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT m.*, p.max_api_calls_per_month, p.max_tx_volume_per_month, p.max_users, p.max_corridors
+      const rows = await execRaw(db, `SELECT m.*, p.max_api_calls_per_month, p.max_tx_volume_per_month, p.max_users, p.max_corridors
          FROM tenant_usage_metrics m
          LEFT JOIN partner_tenants t ON t.id = m.tenant_id
          LEFT JOIN tenant_plan_limits p ON p.plan = t.plan
@@ -65,7 +65,7 @@ const tenantBillingRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const now = new Date();
-      const { rows } = await execRaw(db, `SELECT m.api_calls, m.tx_volume, p.max_api_calls_per_month, p.max_tx_volume_per_month
+      const rows = await execRaw(db, `SELECT m.api_calls, m.tx_volume, p.max_api_calls_per_month, p.max_tx_volume_per_month
          FROM tenant_usage_metrics m
          LEFT JOIN partner_tenants t ON t.id = m.tenant_id
          LEFT JOIN tenant_plan_limits p ON p.plan = t.plan
@@ -94,7 +94,7 @@ const tenantBillingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM tenant_billing_invoices
+      const rows = await execRaw(db, `SELECT * FROM tenant_billing_invoices
          WHERE tenant_id = $1
          ORDER BY period_year DESC, period_month DESC
          LIMIT $2`, [input.tenantId, input.limit]);
@@ -111,7 +111,7 @@ const tenantBillingRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       // Get usage and plan
-      const { rows: usageRows } = await execRaw(db, `SELECT m.*, p.max_api_calls_per_month, p.max_tx_volume_per_month, t.plan
+      const usageRows = await execRaw(db, `SELECT m.*, p.max_api_calls_per_month, p.max_tx_volume_per_month, t.plan
          FROM tenant_usage_metrics m
          LEFT JOIN partner_tenants t ON t.id = m.tenant_id
          LEFT JOIN tenant_plan_limits p ON p.plan = t.plan
@@ -128,7 +128,7 @@ const tenantBillingRouter = router({
       const apiOverage = Math.max(0, Number(usage.api_calls) - Number(usage.max_api_calls_per_month));
       const overageAmount = Math.round(apiOverage * 0.0001 * 100) / 100; // $0.0001 per extra call
 
-      const { rows: existing } = await execRaw(db, `SELECT id FROM tenant_billing_invoices WHERE tenant_id = $1 AND period_year = $2 AND period_month = $3`, [input.tenantId, input.year, input.month]);
+      const existing = await execRaw(db, `SELECT id FROM tenant_billing_invoices WHERE tenant_id = $1 AND period_year = $2 AND period_month = $3`, [input.tenantId, input.year, input.month]);
 
       if (existing.length > 0) {
         await execRaw(db, `UPDATE tenant_billing_invoices SET base_amount = $1, overage_amount = $2, total_amount = $3, updated_at = NOW()
@@ -145,7 +145,7 @@ const tenantBillingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT 
+      const rows = await execRaw(db, `SELECT 
            period_year, period_month,
            COUNT(*) as tenant_count,
            SUM(total_amount) as total_revenue,
@@ -167,7 +167,7 @@ const tenantBrandingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
+      const rows = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
          FROM partner_tenants WHERE slug = $1 AND status = 'active'`, [input.slug]);
       return rows[0] ?? null;
     }),
@@ -177,7 +177,7 @@ const tenantBrandingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
+      const rows = await execRaw(db, `SELECT id, name, slug, logo_url, primary_color, secondary_color, accent_color, font_family, custom_domain, plan, status
          FROM partner_tenants WHERE custom_domain = $1 AND status = 'active'`, [input.domain]);
       return rows[0] ?? null;
     }),
@@ -187,7 +187,7 @@ const tenantBrandingRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT primary_color, secondary_color, accent_color, font_family, logo_url FROM partner_tenants WHERE slug = $1`, [input.slug]);
+      const rows = await execRaw(db, `SELECT primary_color, secondary_color, accent_color, font_family, logo_url FROM partner_tenants WHERE slug = $1`, [input.slug]);
       if (!rows[0]) return { css: "" };
       const t = rows[0];
       const css = `:root {
@@ -235,7 +235,7 @@ const corridorManagementRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT c.*, 
+      const rows = await execRaw(db, `SELECT c.*, 
            COALESCE(SUM(s.tx_volume), 0) as week_volume,
            COALESCE(SUM(s.tx_count), 0) as week_tx_count
          FROM tenant_corridors c
@@ -258,7 +258,7 @@ const corridorManagementRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `INSERT INTO tenant_corridors (tenant_id, source_currency, dest_currency, fx_markup_pct, daily_limit_amount, is_enabled)
+      const rows = await execRaw(db, `INSERT INTO tenant_corridors (tenant_id, source_currency, dest_currency, fx_markup_pct, daily_limit_amount, is_enabled)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`, [input.tenantId, input.sourceCurrency, input.destCurrency,
          input.fxMarkupPct, input.dailyLimitAmount, input.isEnabled]);
@@ -298,7 +298,7 @@ const corridorManagementRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT s.*, c.source_currency, c.dest_currency
+      const rows = await execRaw(db, `SELECT s.*, c.source_currency, c.dest_currency
          FROM tenant_corridor_daily_stats s
          JOIN tenant_corridors c ON c.id = s.corridor_id
          WHERE s.tenant_id = $1 AND s.stat_date >= CURRENT_DATE - $2
@@ -311,7 +311,7 @@ const corridorManagementRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT c.source_currency, c.dest_currency,
+      const rows = await execRaw(db, `SELECT c.source_currency, c.dest_currency,
            SUM(s.tx_volume) as total_volume,
            SUM(s.tx_count) as total_count,
            COUNT(DISTINCT s.tenant_id) as tenant_count
@@ -332,7 +332,7 @@ const tenantSsoRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT id, tenant_id, provider, client_id, discovery_url, redirect_uri, scopes, is_enabled, created_at
+      const rows = await execRaw(db, `SELECT id, tenant_id, provider, client_id, discovery_url, redirect_uri, scopes, is_enabled, created_at
          FROM tenant_sso_configs WHERE tenant_id = $1`, [input.tenantId]);
       return rows[0] ?? null;
     }),
@@ -379,7 +379,7 @@ const webhookSigningRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT id, tenant_id, endpoint_url, algorithm, is_active, created_at FROM tenant_webhook_secrets WHERE tenant_id = $1`, [input.tenantId]);
+      const rows = await execRaw(db, `SELECT id, tenant_id, endpoint_url, algorithm, is_active, created_at FROM tenant_webhook_secrets WHERE tenant_id = $1`, [input.tenantId]);
       return rows;
     }),
 
@@ -419,7 +419,7 @@ const webhookSigningRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT signing_secret, algorithm FROM tenant_webhook_secrets WHERE tenant_id = $1 AND endpoint_url = $2 AND is_active = TRUE`, [input.tenantId, input.endpointUrl]);
+      const rows = await execRaw(db, `SELECT signing_secret, algorithm FROM tenant_webhook_secrets WHERE tenant_id = $1 AND endpoint_url = $2 AND is_active = TRUE`, [input.tenantId, input.endpointUrl]);
       if (!rows[0]) return { valid: false };
       const { signing_secret, algorithm } = rows[0] as any;
       const hmacAlgo = algorithm === "hmac-sha512" ? "sha512" : "sha256";
@@ -448,7 +448,7 @@ const tenantApiKeyRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT id, tenant_id, name, key_prefix, permissions, is_active, last_used_at, expires_at, created_at
+      const rows = await execRaw(db, `SELECT id, tenant_id, name, key_prefix, permissions, is_active, last_used_at, expires_at, created_at
          FROM tenant_api_keys WHERE tenant_id = $1 ORDER BY created_at DESC`, [input.tenantId]);
       return rows.map((r: any) => ({
         ...r,
@@ -474,7 +474,7 @@ const tenantApiKeyRouter = router({
       const expiresAt = input.expiresInDays
         ? new Date(Date.now() + input.expiresInDays * 86400000).toISOString()
         : null;
-      const { rows } = await execRaw(db, `INSERT INTO tenant_api_keys (tenant_id, name, key_prefix, key_hash, permissions, expires_at)
+      const rows = await execRaw(db, `INSERT INTO tenant_api_keys (tenant_id, name, key_prefix, key_hash, permissions, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [input.tenantId, input.name, prefix, keyHash, input.permissions, expiresAt]);
       return { id: rows[0].id, key: `${prefix}_${rawKey}`, prefix };
     }),
@@ -501,7 +501,7 @@ const loyaltyRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT la.*, lp.name as tier_name, lp.min_points, lp.cashback_pct
+      const rows = await execRaw(db, `SELECT la.*, lp.name as tier_name, lp.min_points, lp.cashback_pct
          FROM loyalty_accounts la
          LEFT JOIN loyalty_programs lp ON lp.tier = la.current_tier
          WHERE la.user_id = $1`, [input.userId]);
@@ -513,7 +513,7 @@ const loyaltyRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM loyalty_promotion_log WHERE user_id = $1 ORDER BY promoted_at DESC LIMIT 20`, [input.userId]);
+      const rows = await execRaw(db, `SELECT * FROM loyalty_promotion_log WHERE user_id = $1 ORDER BY promoted_at DESC LIMIT 20`, [input.userId]);
       return rows;
     }),
 
@@ -523,7 +523,7 @@ const loyaltyRouter = router({
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       // Get current points and tier
-      const { rows: acctRows } = await execRaw(db, `SELECT * FROM loyalty_accounts WHERE user_id = $1`, [input.userId]);
+      const acctRows = await execRaw(db, `SELECT * FROM loyalty_accounts WHERE user_id = $1`, [input.userId]);
       if (!acctRows[0]) return { promoted: false, reason: "no_account" };
       const acct = acctRows[0];
 
@@ -585,7 +585,7 @@ const bnplRepaymentRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT r.*, a.principal_amount, a.interest_rate, a.term_months, a.status as loan_status
+      const rows = await execRaw(db, `SELECT r.*, a.principal_amount, a.interest_rate, a.term_months, a.status as loan_status
          FROM bnpl_repayment_schedules r
          JOIN bnpl_applications a ON a.id = r.application_id
          WHERE r.application_id = $1
@@ -728,7 +728,7 @@ const disputeEscalationRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM consumer_disputes WHERE id = $1`, [input.disputeId]);
+      const rows = await execRaw(db, `SELECT * FROM consumer_disputes WHERE id = $1`, [input.disputeId]);
       if (!rows[0]) return null;
       const d = rows[0];
       const timeline = [
@@ -814,7 +814,7 @@ const slaRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT * FROM sla_metrics
+      const rows = await execRaw(db, `SELECT * FROM sla_metrics
          WHERE (tenant_id = $1 OR ($1::text IS NULL AND tenant_id IS NULL))
            AND metric_date >= CURRENT_DATE - $2
          ORDER BY metric_date DESC`, [input.tenantId ?? null, input.days]);
@@ -884,7 +884,7 @@ const jwtRevocationRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT id FROM jwt_revocation_list WHERE jti = $1 AND expires_at > NOW()`, [input.jti]);
+      const rows = await execRaw(db, `SELECT id FROM jwt_revocation_list WHERE jti = $1 AND expires_at > NOW()`, [input.jti]);
       return { revoked: rows.length > 0 };
     }),
 
@@ -1019,7 +1019,7 @@ const complianceExportRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT t.id, t.amount, t.currency, t.status, t.created_at, t.merchant_id
+      const rows = await execRaw(db, `SELECT t.id, t.amount, t.currency, t.status, t.created_at, t.merchant_id
          FROM transactions t
          WHERE t.created_at BETWEEN $1 AND $2
            AND t.amount > 1000000
@@ -1043,7 +1043,7 @@ const complianceExportRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const { rows } = await execRaw(db, `SELECT fa.*, t.amount, t.currency
+      const rows = await execRaw(db, `SELECT fa.*, t.amount, t.currency
          FROM fraud_alerts fa
          LEFT JOIN transactions t ON t.id = fa.transaction_id
          WHERE fa.created_at BETWEEN $1 AND $2

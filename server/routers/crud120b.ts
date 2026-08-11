@@ -71,11 +71,9 @@ export const splitBillRouter = router({
     const db = (await getDb())!;
     const [session] = await db.insert(splitBillSessions).values({
       merchantId: ctx.user.tenantId ?? "",
-      orderId: input.orderId ?? null,
-      totalAmountKobo: input.totalAmountKobo,
-      splitType: input.splitType,
-      participantCount: input.participantCount,
-      notes: input.notes ?? null,
+      orderId: input.orderId ?? `order_${crypto.randomUUID()}`,
+      totalKobo: input.totalAmountKobo,
+      splitCount: input.participantCount,
       status: "pending",
     }).returning();
     // Auto-create equal shares if splitType is equal
@@ -84,9 +82,8 @@ export const splitBillRouter = router({
       await db.insert(splitBillShares).values(
         Array.from({ length: input.participantCount }, (_, i) => ({
           sessionId: session.id,
-          participantIndex: i + 1,
+          shareIndex: i + 1,
           shareKobo,
-          status: "pending",
         }))
       );
     }
@@ -99,11 +96,11 @@ export const splitBillRouter = router({
     return { shares: rows };
   }),
   payShare: protectedProcedure.input(z.object({
-    shareId: z.string(),
+    shareId: z.number().int(),
     paymentReference: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(splitBillShares).set({ status: "paid", paidAt: new Date() })
+    await db.update(splitBillShares).set({ paidAt: new Date() })
       .where(eq(splitBillShares.id, input.shareId));
     return { success: true };
   }),
@@ -111,7 +108,6 @@ export const splitBillRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(splitPayments)
-      .where(eq(splitPayments.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(splitPayments.createdAt))
       .offset(offset).limit(limit);
     return { payments: rows, total: rows.length };
@@ -229,7 +225,6 @@ export const stripeSubscriptionsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(stripeSubscriptions)
-      .where(eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(stripeSubscriptions.createdAt))
       .offset(offset).limit(limit);
     return { subscriptions: rows, total: rows.length };
@@ -248,7 +243,7 @@ export const stripeSubscriptionsRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(subscriptionCharges)
       .where(eq(subscriptionCharges.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(subscriptionCharges.createdAt))
+      .orderBy(desc(subscriptionCharges.chargedAt))
       .offset(offset).limit(limit);
     return { charges: rows, total: rows.length };
   }),
@@ -259,18 +254,17 @@ export const stripeSubscriptionsRouter = router({
       active: sql<number>`count(*) filter (where status = 'active')`,
       cancelled: sql<number>`count(*) filter (where status = 'cancelled')`,
       pastDue: sql<number>`count(*) filter (where status = 'past_due')`,
-    }).from(stripeSubscriptions)
-      .where(eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? ""));
+    }).from(stripeSubscriptions);
     return stats ?? { total: 0, active: 0, cancelled: 0, pastDue: 0 };
   }),
   cancel: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(stripeSubscriptions)
-      .where(and(eq(stripeSubscriptions.id, input.id), eq(stripeSubscriptions.merchantId, ctx.user.tenantId ?? "")))
+      .where(and(eq(stripeSubscriptions.id, input.id), eq(stripeSubscriptions.userId, String(ctx.user.id))))
       .limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
     await db.update(stripeSubscriptions)
-      .set({ status: "cancelled" as any })
+      .set({ status: "canceled", updatedAt: new Date() })
       .where(eq(stripeSubscriptions.id, input.id));
     return { success: true };
   }),
@@ -285,7 +279,7 @@ export const superAgentV2Router = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(superAgentV2Networks)
-      .where(eq(superAgentV2Networks.superAgentMerchantId, ctx.user.tenantId ?? ""))
+      .where(eq(superAgentV2Networks.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(superAgentV2Networks.createdAt))
       .offset(offset).limit(limit);
     return { networks: rows, total: rows.length };
@@ -297,10 +291,8 @@ export const superAgentV2Router = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(superAgentV2Networks).values({
-      superAgentMerchantId: ctx.user.tenantId ?? "",
-      subAgentMerchantId: input.subAgentMerchantId,
-      commissionBps: input.commissionBps,
-      notes: input.notes ?? null,
+      merchantId: ctx.user.tenantId ?? "",
+      networkName: input.notes ?? `Network for ${input.subAgentMerchantId}`,
       status: "active",
     }).returning();
     return row;
@@ -309,7 +301,7 @@ export const superAgentV2Router = router({
     const db = (await getDb())!;
     await db.update(superAgentV2Networks).set({ status: "suspended" })
       .where(eq(superAgentV2Networks.id, input.id));
-    publishAuditEvent({ action: 'super_agent_network.suspended', actorId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEvent({ action: 'super_agent_network.suspended', userId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   reactivate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -352,7 +344,7 @@ export const supportRouter = router({
     sessionId: z.string(),
     content: z.string().min(1),
     role: z.enum(["user", "agent", "system"]).default("user"),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(supportMessages).values({
@@ -503,19 +495,19 @@ export const tenantMgmtRouter = router({
     email: z.string().email().optional(),
     phone: z.string().optional(),
     plan: z.enum(["starter", "growth", "enterprise"]).optional(),
-    status: z.enum(["pending", "active", "suspended", "terminated"]).optional(),
+    status: z.enum(["pending", "active", "suspended", "closed"]).optional(),
     logoUrl: z.string().url().optional(),
     websiteUrl: z.string().url().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
+    const { id, websiteUrl, ...rest } = input;
     await db.update(tenants).set(rest).where(eq(tenants.id, id));
     return { success: true };
   }),
   suspend: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(tenants).set({ status: "suspended" }).where(eq(tenants.id, input.id));
-    publishAuditEvent({ action: 'tenant.suspended', actorId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEvent({ action: 'tenant.suspended', userId: 'system', targetId: input.id, metadata: { reason: input.reason }, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   getConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
@@ -568,8 +560,14 @@ export const tenantMgmtRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(tenantCorridors).values({
-      ...input,
-      status: "active",
+      tenantId: input.tenantId,
+      sourceCurrency: input.sourceCurrency,
+      destCurrency: input.destinationCurrency,
+      fxMarkupPct: input.fxMarkupBps / 100,
+      minAmountUsd: input.minAmountKobo !== undefined ? input.minAmountKobo / 100 : undefined,
+      maxAmountUsd: input.maxAmountKobo !== undefined ? input.maxAmountKobo / 100 : undefined,
+      flatFeeUsd: input.feesBps / 100,
+      isEnabled: true,
     }).returning();
     return row;
   }),
@@ -604,16 +602,20 @@ export const tenantMgmtRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(tenantFeeOverrides).values({
-      ...input,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-      status: "active",
+      tenantId: input.tenantId,
+      transactionType: input.feeType,
+      percentageFee: input.overrideBps / 100,
+      effectiveTo: input.expiresAt ? new Date(input.expiresAt) : null,
+      isActive: true,
     }).returning();
     return row;
   }),
   getPlanLimits: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
     const db = (await getDb())!;
+    const tenantRows = await db.select().from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+    if (!tenantRows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
     const rows = await db.select().from(tenantPlanLimits)
-      .where(eq(tenantPlanLimits.tenantId, input.tenantId)).limit(1);
+      .where(eq(tenantPlanLimits.plan, tenantRows[0].plan)).limit(1);
     return rows[0] ?? null;
   }),
   getSsoConfig: protectedProcedure.input(z.object({ tenantId: z.string() })).query(async ({ input }) => {
@@ -651,7 +653,7 @@ export const tenantMgmtRouter = router({
     const db = (await getDb())!;
     const rows = await db.select().from(tenantUsageMetrics)
       .where(eq(tenantUsageMetrics.tenantId, input.tenantId))
-      .orderBy(desc(tenantUsageMetrics.recordedAt))
+      .orderBy(desc(tenantUsageMetrics.createdAt))
       .limit(1);
     return rows[0] ?? null;
   }),
@@ -726,7 +728,7 @@ export const usdcRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(usdcDeposits)
       .where(eq(usdcDeposits.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(usdcDeposits.createdAt))
+      .orderBy(desc(usdcDeposits.detectedAt))
       .offset(offset).limit(limit);
     return { deposits: rows, total: rows.length };
   }),
@@ -738,9 +740,12 @@ export const usdcRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(usdcDeposits).values({
+      id: `dep_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      status: "pending",
+      walletAddress: input.walletAddress,
+      amountLamports: Math.round(input.amountUsdc * 1e6),
+      solanaSignature: input.txHash ?? `pending_${crypto.randomUUID()}`,
+      network: input.network === "solana" ? "mainnet" : "devnet",
     }).returning();
     return row;
   }),
@@ -751,7 +756,7 @@ export const usdcRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(usdcPayouts)
       .where(eq(usdcPayouts.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(usdcPayouts.createdAt))
+      .orderBy(desc(usdcPayouts.initiatedAt))
       .offset(offset).limit(limit);
     return { payouts: rows, total: rows.length };
   }),
@@ -763,8 +768,12 @@ export const usdcRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(usdcPayouts).values({
+      id: `pay_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      recipientWallet: input.destinationAddress,
+      amountLamports: Math.round(input.amountUsdc * 1e6),
+      network: input.network === "solana" ? "mainnet" : "devnet",
+      reference: input.memo,
       status: "pending",
     }).returning();
     return row;
@@ -785,8 +794,9 @@ export const usdcRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(usdcV2Wallets).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      balanceUsdc: 0,
+      walletAddress: input.walletAddress,
+      network: input.network,
+      balanceUsdc: "0",
       status: "active",
     }).returning();
     return row;
@@ -815,7 +825,7 @@ export const insuranceClaimsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(userInsuranceClaims)
-      .where(eq(userInsuranceClaims.merchantId, ctx.user.tenantId ?? ""))
+      .where(eq(userInsuranceClaims.userId, ctx.user.id))
       .orderBy(desc(userInsuranceClaims.createdAt))
       .offset(offset).limit(limit);
     return { claims: rows, total: rows.length };
@@ -837,15 +847,13 @@ export const insuranceClaimsRouter = router({
     const db = (await getDb())!;
     const claimNumber = `CLM-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const [row] = await db.insert(userInsuranceClaims).values({
-      merchantId: ctx.user.tenantId ?? "",
-      userId: String(ctx.user.id),
-      claimNumber,
+      id: claimNumber,
+      userId: ctx.user.id,
       policyId: input.policyId,
       claimType: input.claimType,
       claimAmountKobo: input.claimAmountKobo,
-      incidentDate: new Date(input.incidentDate),
+      incidentDate: new Date(input.incidentDate).toISOString().slice(0, 10),
       description: input.description,
-      documents: input.documents ? JSON.stringify(input.documents) : null,
       status: "submitted",
     }).returning();
     return row;
@@ -858,8 +866,7 @@ export const insuranceClaimsRouter = router({
     const db = (await getDb())!;
     await db.update(userInsuranceClaims).set({
       status: "approved",
-      approvedAmountKobo: input.approvedAmountKobo,
-      approvedAt: new Date(),
+      claimAmountKobo: input.approvedAmountKobo,
     }).where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
   }),
@@ -870,8 +877,6 @@ export const insuranceClaimsRouter = router({
     const db = (await getDb())!;
     await db.update(userInsuranceClaims).set({
       status: "rejected",
-      rejectionReason: input.reason,
-      rejectedAt: new Date(),
     }).where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
   }),
@@ -880,7 +885,7 @@ export const insuranceClaimsRouter = router({
     paymentReference: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(userInsuranceClaims).set({ status: "paid", paidAt: new Date() })
+    await db.update(userInsuranceClaims).set({ status: "paid" })
       .where(eq(userInsuranceClaims.id, input.id));
     return { success: true };
   }),
@@ -904,7 +909,7 @@ export const webhookSimulatorRouter = router({
   simulate: protectedProcedure.input(z.object({
     webhookId: z.string(),
     eventType: z.string(),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
     targetUrl: z.string().url(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;

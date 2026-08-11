@@ -114,7 +114,8 @@ import {
   userInsuranceClaims,
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
-import { eq, desc, and, gte, lte, like, sql, isNull } from "drizzle-orm";
+import { eq, desc, and, or, gte, lte, like, sql, isNull } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 
 const paginationInput = z.object({
@@ -250,7 +251,7 @@ const auditEventsRouter = router({
     action: z.string(),
     resource: z.string(),
     resourceId: z.string().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     ipAddress: z.string().optional(),
     userAgent: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
@@ -275,7 +276,7 @@ const bnplRepaymentRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const conditions = [];
     if (input.bnplLoanId) conditions.push(eq(bnplRepaymentSchedules.bnplLoanId, input.bnplLoanId));
-    if (input.status) conditions.push(eq(bnplRepaymentSchedules.status, input.status));
+    if (input.status) conditions.push(eq(bnplRepaymentSchedules.status, input.status as "pending" | "failed" | "paid" | "overdue" | "waived"));
     const rows = await db.select().from(bnplRepaymentSchedules)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(bnplRepaymentSchedules.instalmentNumber)
@@ -319,7 +320,10 @@ const carbonCreditsV2Router = router({
     const db = (await getDb())!;
     const [row] = await db.insert(carbonCreditTransactionsV2).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      creditId: input.projectId,
+      type: input.txType,
+      quantity: Math.round(input.credits),
+      totalAmount: Math.round(input.credits * input.pricePerCredit),
       status: "pending",
     }).returning();
     return row;
@@ -344,29 +348,34 @@ const complianceReportsRouter = router({
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(complianceReports)
-      .where(eq(complianceReports.id, input.id)).limit(1);
+      .where(eq(complianceReports.reportId, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
   create: protectedProcedure.input(z.object({
     reportType: z.string(),
     period: z.string(),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(complianceReports).values({
+      reportId: `cr_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      data: input.data ? JSON.stringify(input.data) : null,
+      reportType: input.reportType,
+      findings: [
+        input.period ? `Period: ${input.period}` : null,
+        input.notes ?? null,
+        input.data ? JSON.stringify(input.data) : null,
+      ].filter(Boolean).join("\n") || null,
       status: "draft",
     }).returning();
     return row;
   }),
   submit: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(complianceReports).set({ status: "submitted", submittedAt: new Date() })
-      .where(eq(complianceReports.id, input.id));
+    await db.update(complianceReports).set({ status: "submitted", updatedAt: new Date() })
+      .where(eq(complianceReports.reportId, input.id));
     return { success: true };
   }),
 });
@@ -378,7 +387,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerBudgets)
-      .where(eq(consumerBudgets.userId, String(ctx.user.id)))
+      .where(eq(consumerBudgets.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { budgets: rows, total: rows.length };
   }),
@@ -390,8 +399,11 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerBudgets).values({
-      userId: String(ctx.user.id),
-      ...input,
+      userId: ctx.user.id,
+      category: input.category,
+      limitKobo: input.limitKobo,
+      period: input.period,
+      alertAt: input.alertThreshold,
       spentKobo: 0,
     }).returning();
     return row;
@@ -402,8 +414,11 @@ const consumerFinanceRouter = router({
     alertThreshold: z.number().min(0).max(100).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(consumerBudgets).set(rest).where(eq(consumerBudgets.id, id));
+    const { id, alertThreshold, ...rest } = input;
+    await db.update(consumerBudgets).set({
+      ...rest,
+      ...(alertThreshold !== undefined ? { alertAt: alertThreshold } : {}),
+    }).where(eq(consumerBudgets.id, id));
     return { success: true };
   }),
   deleteBudget: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -415,7 +430,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSavingsGoals)
-      .where(eq(consumerSavingsGoals.userId, String(ctx.user.id)))
+      .where(eq(consumerSavingsGoals.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { goals: rows, total: rows.length };
   }),
@@ -429,9 +444,13 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerSavingsGoals).values({
-      userId: String(ctx.user.id),
-      ...input,
-      currentKobo: 0,
+      userId: ctx.user.id,
+      name: input.name,
+      targetKobo: input.targetKobo,
+      autoSaveEnabled: input.autoSaveAmountKobo !== undefined,
+      autoSaveAmountKobo: input.autoSaveAmountKobo,
+      autoSaveFrequency: input.autoSaveFrequency,
+      savedKobo: 0,
       status: "active",
       targetDate: input.targetDate ? new Date(input.targetDate) : null,
     }).returning();
@@ -441,14 +460,14 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerRecurringPayments)
-      .where(eq(consumerRecurringPayments.userId, String(ctx.user.id)))
+      .where(eq(consumerRecurringPayments.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { payments: rows, total: rows.length };
   }),
   createRecurringPayment: protectedProcedure.input(z.object({
     name: z.string().min(1).max(500),
     amountKobo: z.number().int().positive(),
-    frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
+    frequency: z.enum(["daily", "weekly", "monthly"]),
     nextRunAt: z.number(),
     beneficiaryAccountNumber: z.string().optional(),
     beneficiaryBankCode: z.string().optional(),
@@ -457,16 +476,23 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerRecurringPayments).values({
-      userId: String(ctx.user.id),
-      ...input,
+      id: crypto.randomUUID(),
+      userId: ctx.user.id,
+      type: "p2p",
+      label: input.name,
+      amountKobo: input.amountKobo,
+      frequency: input.frequency,
       nextRunAt: new Date(input.nextRunAt),
-      status: "active",
+      recipientAccountNumber: input.beneficiaryAccountNumber,
+      recipientBankCode: input.beneficiaryBankCode,
+      recipientName: input.beneficiaryName,
+      isActive: true,
     }).returning();
     return row;
   }),
   cancelRecurringPayment: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(consumerRecurringPayments).set({ status: "cancelled" })
+    await db.update(consumerRecurringPayments).set({ isActive: false })
       .where(eq(consumerRecurringPayments.id, input.id));
     return { success: true };
   }),
@@ -476,7 +502,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerContacts)
-      .where(eq(consumerContacts.userId, String(ctx.user.id)))
+      .where(eq(consumerContacts.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { contacts: rows, total: rows.length };
   }),
@@ -490,8 +516,13 @@ const consumerFinanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(consumerContacts).values({
-      userId: String(ctx.user.id),
-      ...input,
+      id: crypto.randomUUID(),
+      userId: ctx.user.id,
+      nickname: input.nickname ?? input.name,
+      phone: input.phone,
+      accountNumber: input.accountNumber,
+      bankCode: input.bankCode,
+      bankName: input.bankName,
     }).returning();
     return row;
   }),
@@ -504,7 +535,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerSplitSessions)
-      .where(eq(consumerSplitSessions.initiatorId, String(ctx.user.id)))
+      .where(eq(consumerSplitSessions.creatorId, ctx.user.id))
       .orderBy(desc(consumerSplitSessions.createdAt))
       .offset(offset).limit(limit);
     return { sessions: rows, total: rows.length };
@@ -514,25 +545,29 @@ const consumerFinanceRouter = router({
     totalAmountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
     participants: z.array(z.object({
-      userId: z.string(),
+      userId: z.number().int(),
       shareKobo: z.number().int().positive(),
     })),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [session] = await db.insert(consumerSplitSessions).values({
-      initiatorId: String(ctx.user.id),
+      id: crypto.randomUUID(),
+      creatorId: ctx.user.id,
       title: input.title,
       totalAmountKobo: input.totalAmountKobo,
       currency: input.currency,
-      status: "pending",
+      expiresAt: new Date(Date.now() + 24 * 3600_000),
+      status: "open",
     }).returning();
     if (input.participants.length > 0) {
       await db.insert(consumerSplitParticipants).values(
         input.participants.map(p => ({
+          id: crypto.randomUUID(),
           sessionId: session.id,
           userId: p.userId,
-          shareKobo: p.shareKobo,
-          status: "pending",
+          name: `User ${p.userId}`,
+          shareAmountKobo: p.shareKobo,
+          status: "pending" as const,
         }))
       );
     }
@@ -542,7 +577,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerKycRecords)
-      .where(eq(consumerKycRecords.userId, String(ctx.user.id)))
+      .where(eq(consumerKycRecords.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { records: rows, total: rows.length };
   }),
@@ -550,7 +585,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerCards)
-      .where(eq(consumerCards.userId, String(ctx.user.id)))
+      .where(eq(consumerCards.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { cards: rows, total: rows.length };
   }),
@@ -558,7 +593,7 @@ const consumerFinanceRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(consumerLoyaltyAccounts)
-      .where(eq(consumerLoyaltyAccounts.userId, String(ctx.user.id)))
+      .where(eq(consumerLoyaltyAccounts.userId, ctx.user.id))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -584,8 +619,7 @@ const couponRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(couponRedemptions)
-      .where(eq(couponRedemptions.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(couponRedemptions.redeemedAt))
+      .orderBy(desc(couponRedemptions.createdAt))
       .offset(offset).limit(limit);
     return { redemptions: rows, total: rows.length };
   }),
@@ -596,10 +630,11 @@ const couponRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(couponRedemptions).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      status: "applied",
-      redeemedAt: new Date(),
+      id: crypto.randomUUID(),
+      couponId: input.couponCode,
+      userId: ctx.user.id,
+      referenceId: input.transactionId,
+      amountSavedKobo: input.discountKobo,
     }).returning();
     return row;
   }),
@@ -639,7 +674,14 @@ const cryptoOfframpRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(cryptoOfframpV2Transactions).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      cryptoAsset: input.cryptoCurrency,
+      cryptoAmount: String(input.cryptoAmount),
+      fiatCurrency: input.fiatCurrency,
+      fiatAmount: input.fiatAmountKobo,
+      walletAddress: input.walletAddress,
+      accountNumber: input.bankAccountNumber,
+      bankCode: input.bankCode,
+      exchangeRate: String(input.exchangeRate),
       status: "pending",
     }).returning();
     return row;
@@ -656,7 +698,6 @@ const emiLoansRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(emiLoans)
-      .where(eq(emiLoans.merchantId, input.merchantId ?? ctx.user.tenantId ?? ""))
       .orderBy(desc(emiLoans.createdAt))
       .offset(offset).limit(limit);
     return { loans: rows, total: rows.length };
@@ -668,7 +709,7 @@ const emiLoansRouter = router({
     return rows[0];
   }),
   createLoan: protectedProcedure.input(z.object({
-    customerId: z.string(),
+    customerId: z.number().int(),
     principalKobo: z.number().int().positive(),
     interestRateBps: z.number().int().min(0),
     tenureMonths: z.number().int().min(1).max(60),
@@ -681,20 +722,22 @@ const emiLoansRouter = router({
       ? Math.round(input.principalKobo * monthlyRate * Math.pow(1 + monthlyRate, input.tenureMonths) / (Math.pow(1 + monthlyRate, input.tenureMonths) - 1))
       : Math.round(input.principalKobo / input.tenureMonths);
     const [row] = await db.insert(emiLoans).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      emiAmountKobo: emi,
-      totalAmountKobo: emi * input.tenureMonths,
-      paidInstalments: 0,
+      id: crypto.randomUUID(),
+      userId: input.customerId,
+      principalKobo: input.principalKobo,
+      annualRatePct: Math.round(input.interestRateBps / 100),
+      tenureMonths: input.tenureMonths,
+      purpose: input.purpose ?? "general",
+      emiKobo: emi,
       status: "pending",
     }).returning();
     return row;
   }),
   approveLoan: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(emiLoans).set({ status: "active", disbursedAt: new Date() })
+    await db.update(emiLoans).set({ status: "active" })
       .where(eq(emiLoans.id, input.id));
-    publishAuditEvent({ action: 'emi_loan.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEvent({ action: 'emi_loan.approved', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   listRepayments: protectedProcedure.input(paginationInput.extend({
@@ -715,10 +758,15 @@ const emiLoansRouter = router({
     instalmentNumber: z.number().int().positive(),
     paymentReference: z.string().optional(),
     channel: z.string().default("bank_transfer"),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(emiRepayments).values({
-      ...input,
+      id: crypto.randomUUID(),
+      loanId: input.loanId,
+      userId: ctx.user.id,
+      instalmentNumber: input.instalmentNumber,
+      amountKobo: input.amountKobo,
+      paymentReference: input.paymentReference ?? `repay_${crypto.randomUUID().slice(0, 12)}`,
       status: "paid",
       paidAt: new Date(),
     }).returning();
@@ -735,14 +783,17 @@ const escrowRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(escrowContracts)
-      .where(eq(escrowContracts.merchantId, ctx.user.tenantId ?? ""))
+      .where(or(
+        eq(escrowContracts.buyerMerchantId, ctx.user.tenantId ?? ""),
+        eq(escrowContracts.sellerMerchantId, ctx.user.tenantId ?? ""),
+      ))
       .orderBy(desc(escrowContracts.createdAt))
       .offset(offset).limit(limit);
     return { contracts: rows, total: rows.length };
   }),
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const db = (await getDb())!;
-    const rows = await db.select().from(escrowContracts).where(eq(escrowContracts.id, input.id)).limit(1);
+    const rows = await db.select().from(escrowContracts).where(eq(escrowContracts.escrowId, input.id)).limit(1);
     if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND" });
     return rows[0];
   }),
@@ -761,9 +812,15 @@ const escrowRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(escrowContracts).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      milestones: input.milestones ? JSON.stringify(input.milestones) : null,
+      escrowId: `esc_${crypto.randomUUID()}`,
+      buyerMerchantId: input.buyerId,
+      sellerMerchantId: input.sellerId,
+      amountKobo: input.amountKobo,
+      currency: input.currency,
+      conditions: {
+        description: input.description,
+        milestones: input.milestones ?? [],
+      },
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
     }).returning();
@@ -772,13 +829,13 @@ const escrowRouter = router({
   release: protectedProcedure.input(z.object({ id: z.string(), notes: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(escrowContracts).set({ status: "released", releasedAt: new Date() })
-      .where(eq(escrowContracts.id, input.id));
+      .where(eq(escrowContracts.escrowId, input.id));
     return { success: true };
   }),
   dispute: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().max(5000) })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(escrowContracts).set({ status: "disputed" })
-      .where(eq(escrowContracts.id, input.id));
+      .where(eq(escrowContracts.escrowId, input.id));
     return { success: true };
   }),
   listV2: protectedProcedure.input(paginationInput).query(async ({ ctx, input }) => {
@@ -818,7 +875,7 @@ const featureFlagsRouter = router({
     enabled: z.boolean().default(false),
     rolloutPercentage: z.number().int().min(0).max(100).default(0),
     targetMerchantIds: z.string().optional(),
-    targetingRules: z.record(z.unknown()).optional(),
+    targetingRules: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(featureFlags).values({
@@ -836,7 +893,7 @@ const featureFlagsRouter = router({
     id: z.string(),
     rolloutPercentage: z.number().int().min(0).max(100).optional(),
     targetMerchantIds: z.string().optional(),
-    targetingRules: z.record(z.unknown()).optional(),
+    targetingRules: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const { id, targetingRules, ...rest } = input;
@@ -901,14 +958,17 @@ const geofenceRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(geofenceRules).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      enabled: true,
+      name: input.name,
+      centerLat: Math.round(input.lat * 1e6),
+      centerLng: Math.round(input.lng * 1e6),
+      radiusMeters: Math.round(input.radiusMeters),
+      active: true,
     }).returning();
     return row;
   }),
   toggle: protectedProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(geofenceRules).set({ enabled: input.enabled }).where(eq(geofenceRules.id, input.id));
+    await db.update(geofenceRules).set({ active: input.enabled }).where(eq(geofenceRules.id, input.id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -929,7 +989,7 @@ const helpSearchRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(helpSearchAnalytics)
-      .orderBy(desc(helpSearchAnalytics.searchedAt))
+      .orderBy(desc(helpSearchAnalytics.createdAt))
       .offset(offset).limit(limit);
     return { analytics: rows, total: rows.length };
   }),
@@ -943,8 +1003,11 @@ const helpSearchRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.insert(helpSearchAnalytics).values({
-      ...input,
-      searchedAt: new Date(),
+      query: input.query,
+      userType: input.userType,
+      userId: input.userId,
+      resultCount: input.resultsCount,
+      clickedSection: input.clickedResultId,
     });
     return { success: true };
   }),
@@ -971,7 +1034,6 @@ const inventoryRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inventoryTransactions)
-      .where(eq(inventoryTransactions.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inventoryTransactions.createdAt))
       .offset(offset).limit(limit);
     return { transactions: rows, total: rows.length };
@@ -986,8 +1048,14 @@ const inventoryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(inventoryTransactions).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      itemId: input.productId,
+      type: input.txType,
+      quantity: input.quantity,
+      orderId: input.referenceId,
+      note: [
+        input.notes ?? null,
+        input.unitCostKobo !== undefined ? `unitCostKobo: ${input.unitCostKobo}` : null,
+      ].filter(Boolean).join("; ") || null,
     }).returning();
     return row;
   }),
@@ -1010,9 +1078,12 @@ const inventoryRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(inventoryReservations).values({
+      reservationId: `rsv_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      itemId: input.productId,
+      quantity: input.quantity,
+      orderId: input.orderId,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 24 * 3600_000),
       status: "active",
     }).returning();
     return row;
@@ -1037,7 +1108,7 @@ const inviteCodesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(inviteCodes)
-      .where(eq(inviteCodes.merchantId, ctx.user.tenantId ?? ""))
+      .where(eq(inviteCodes.tenantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(inviteCodes.createdAt))
       .offset(offset).limit(limit);
     return { codes: rows, total: rows.length };
@@ -1051,32 +1122,32 @@ const inviteCodesRouter = router({
     const db = (await getDb())!;
     const code = `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(inviteCodes).values({
-      merchantId: ctx.user.tenantId ?? "",
+      tenantId: ctx.user.tenantId ?? "",
       code,
-      role: input.role,
-      email: input.email ?? null,
+      type: input.role === "admin" ? "admin" : "team_member",
+      metadata: input.email ?? null,
+      createdBy: String(ctx.user.id),
       expiresAt: new Date(Date.now() + input.expiresInHours * 3600000),
-      maxUses: input.maxUses,
-      usedCount: 0,
-      status: "active",
+      usesTotal: input.maxUses,
+      usesRemaining: input.maxUses,
     }).returning();
     return row;
   }),
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(inviteCodes).set({ status: "revoked" }).where(eq(inviteCodes.id, input.id));
-    publishAuditEvent({ action: 'invite_code.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    await db.update(inviteCodes).set({ isRevoked: true }).where(eq(inviteCodes.id, input.id));
+    publishAuditEvent({ action: 'invite_code.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   validate: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(inviteCodes)
-      .where(and(eq(inviteCodes.code, input.code), eq(inviteCodes.status, "active")))
+      .where(and(eq(inviteCodes.code, input.code), eq(inviteCodes.isRevoked, false)))
       .limit(1);
     if (!rows[0]) return { valid: false };
     const now = new Date();
     if (rows[0].expiresAt && rows[0].expiresAt < now) return { valid: false, reason: "expired" };
-    if (rows[0].usedCount >= rows[0].maxUses) return { valid: false, reason: "exhausted" };
+    if (rows[0].usesRemaining <= 0) return { valid: false, reason: "exhausted" };
     return { valid: true, invite: rows[0] };
   }),
 });
@@ -1114,9 +1185,9 @@ const invoiceFinancingRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(invoiceFinancingV2Applications).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      invoiceDueDate: new Date(input.invoiceDueDate),
-      documents: input.documents ? JSON.stringify(input.documents) : null,
+      invoiceId: input.invoiceId,
+      requestedAmount: input.requestedAmountKobo,
+      invoiceAmount: input.invoiceAmountKobo,
       status: "pending",
     }).returning();
     return row;
@@ -1129,9 +1200,9 @@ const invoiceFinancingRouter = router({
     const db = (await getDb())!;
     await db.update(invoiceFinancingV2Applications).set({
       status: "approved",
-      approvedAmountKobo: input.approvedAmountKobo,
-      interestRateBps: input.interestRateBps,
-      approvedAt: new Date(),
+      approvedAmount: input.approvedAmountKobo,
+      interestRate: String(input.interestRateBps / 100),
+      updatedAt: new Date(),
     }).where(eq(invoiceFinancingV2Applications.id, input.id));
     return { success: true };
   }),
@@ -1183,12 +1254,12 @@ const invoicesRouter = router({
       customerEmail: input.customerEmail ?? null,
       customerName: input.customerName ?? null,
       customerId: input.customerId ?? null,
-      lineItems: JSON.stringify(input.lineItems),
+      lineItems: input.lineItems,
       subtotalKobo: subtotal,
       taxKobo: tax,
       totalKobo: subtotal + tax,
       currency: input.currency,
-      dueDate: input.dueDate ? new Date(input.dueDate) : null,
+      dueDate: input.dueDate ? new Date(input.dueDate).toISOString().slice(0, 10) : null,
       notes: input.notes ?? null,
       status: "draft",
     }).returning();
@@ -1196,7 +1267,7 @@ const invoicesRouter = router({
   }),
   send: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(invoices).set({ status: "sent", sentAt: new Date() })
+    await db.update(invoices).set({ status: "sent", updatedAt: new Date() })
       .where(eq(invoices.invoiceId, input.id));
     return { success: true };
   }),
@@ -1238,9 +1309,9 @@ const kdsRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(kdsStations).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      categories: input.categories ? JSON.stringify(input.categories) : null,
-      status: "online",
+      name: input.name,
+      categories: input.categories ?? [],
+      active: true,
     }).returning();
     return row;
   }),
@@ -1250,8 +1321,11 @@ const kdsRouter = router({
     status: z.enum(["online", "offline", "maintenance"]).optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(kdsStations).set(rest).where(eq(kdsStations.id, id));
+    const { id, status, ...rest } = input;
+    await db.update(kdsStations).set({
+      ...rest,
+      ...(status !== undefined ? { active: status === "online" } : {}),
+    }).where(eq(kdsStations.id, id));
     return { success: true };
   }),
   delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
@@ -1282,9 +1356,9 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(loyaltyPrograms).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      tiers: input.tiers ? JSON.stringify(input.tiers) : null,
-      status: "active",
+      pointsPerKobo: Math.max(1, Math.round(input.pointsPerNaira)),
+      redeemRate: Math.max(1, Math.round(input.redeemRate * 100)),
+      active: true,
     }).returning();
     return row;
   }),
@@ -1294,7 +1368,7 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyAccounts)
-      .orderBy(desc(loyaltyAccounts.totalPoints))
+      .orderBy(desc(loyaltyAccounts.lifetimePoints))
       .offset(offset).limit(limit);
     return { accounts: rows, total: rows.length };
   }),
@@ -1318,9 +1392,11 @@ const loyaltyProgramsRouter = router({
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(loyaltyTransactions).values({
-      ...input,
-      balanceBefore: 0,
-      balanceAfter: input.points,
+      accountId: input.accountId,
+      type: input.txType,
+      points: input.points,
+      orderId: input.referenceId,
+      note: input.description,
     }).returning();
     return row;
   }),
@@ -1338,7 +1414,7 @@ const loyaltyProgramsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(loyaltyV3Members)
-      .orderBy(desc(loyaltyV3Members.totalPoints))
+      .orderBy(desc(loyaltyV3Members.lifetimePoints))
       .offset(offset).limit(limit);
     return { members: rows, total: rows.length };
   }),
@@ -1381,11 +1457,11 @@ const marketplaceRouter = router({
     const totalKobo = input.items.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const [row] = await db.insert(marketplaceOrders).values({
       merchantId: ctx.user.tenantId ?? "",
-      buyerId: input.buyerId,
-      sellerId: input.sellerId,
+      buyerEmail: input.buyerId,
+      sellerMerchantId: input.sellerId,
       items: JSON.stringify(input.items),
-      totalKobo,
-      notes: input.notes ?? null,
+      subtotal: totalKobo,
+      totalAmount: totalKobo,
       status: "pending",
     }).returning();
     return row;
@@ -1396,8 +1472,11 @@ const marketplaceRouter = router({
     trackingNumber: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(marketplaceOrders).set(rest).where(eq(marketplaceOrders.id, id));
+    const { id, trackingNumber, ...rest } = input;
+    await db.update(marketplaceOrders).set({
+      ...rest,
+      updatedAt: new Date(),
+    }).where(eq(marketplaceOrders.id, id));
     return { success: true };
   }),
 });
@@ -1409,7 +1488,7 @@ const merchantRiskRouter = router({
     const db = (await getDb())!;
     const rows = await db.select().from(merchantRiskScores)
       .where(eq(merchantRiskScores.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(merchantRiskScores.scoredAt))
+      .orderBy(desc(merchantRiskScores.calculatedAt))
       .limit(1);
     return rows[0] ?? null;
   }),
@@ -1418,7 +1497,7 @@ const merchantRiskRouter = router({
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(merchantStatusLog)
       .where(eq(merchantStatusLog.merchantId, ctx.user.tenantId ?? ""))
-      .orderBy(desc(merchantStatusLog.changedAt))
+      .orderBy(desc(merchantStatusLog.createdAt))
       .offset(offset).limit(limit);
     return { logs: rows, total: rows.length };
   }),
@@ -1434,9 +1513,11 @@ const merchantRiskRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(merchantSolanaWallets).values({
+      id: crypto.randomUUID(),
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      status: "active",
+      walletAddress: input.publicKey,
+      label: input.label,
+      isActive: true,
     }).returning();
     return row;
   }),
@@ -1452,13 +1533,13 @@ const moneyRequestsRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(moneyRequests)
-      .where(eq(moneyRequests.requesterId, ctx.user.tenantId ?? ""))
+      .where(eq(moneyRequests.requesterId, ctx.user.id))
       .orderBy(desc(moneyRequests.createdAt))
       .offset(offset).limit(limit);
     return { requests: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
-    payerId: z.string(),
+    payerId: z.number().int().optional(),
     amountKobo: z.number().int().positive(),
     currency: z.string().default("NGN"),
     description: z.string().max(5000),
@@ -1466,23 +1547,27 @@ const moneyRequestsRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(moneyRequests).values({
-      requesterId: ctx.user.tenantId ?? "",
-      ...input,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      id: crypto.randomUUID(),
+      requesterId: ctx.user.id,
+      payerUserId: input.payerId,
+      amountKobo: input.amountKobo,
+      currency: input.currency,
+      note: input.description,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 7 * 24 * 3600_000),
       status: "pending",
     }).returning();
     return row;
   }),
   approve: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "approved", approvedAt: new Date() })
+    await db.update(moneyRequests).set({ status: "paid", paidAt: new Date() })
       .where(eq(moneyRequests.id, input.id));
-    publishAuditEvent({ action: 'money_request.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEvent({ action: 'money_request.approved', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   decline: protectedProcedure.input(z.object({ id: z.string(), reason: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(moneyRequests).set({ status: "declined" }).where(eq(moneyRequests.id, input.id));
+    await db.update(moneyRequests).set({ status: "cancelled" }).where(eq(moneyRequests.id, input.id));
     return { success: true };
   }),
 });
@@ -1505,8 +1590,8 @@ const multiCurrencyRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerAccounts).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      balanceKobo: 0,
+      currency: input.currency,
+      balance: 0,
       status: "active",
     }).returning();
     return row;
@@ -1534,7 +1619,12 @@ const multiCurrencyRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(multiCurrencyLedgerEntries).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      accountId: input.accountId,
+      currency: input.currency,
+      amount: input.amountKobo,
+      type: input.entryType,
+      description: input.description,
+      reference: input.referenceId,
     }).returning();
     return row;
   }),
@@ -1565,7 +1655,11 @@ const mutualFundsRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(mutualFundTransactions).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      fundId: input.fundId,
+      type: input.txType,
+      amountKobo: input.amountKobo,
+      units: String(input.units ?? 0),
+      navAtTransaction: String(input.navPerUnit ?? 0),
       status: "pending",
     }).returning();
     return row;
@@ -1592,7 +1686,8 @@ const nfcRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(nfcDevices).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      deviceId: input.deviceId,
+      deviceName: input.label,
       status: "active",
     }).returning();
     return row;
@@ -1617,7 +1712,6 @@ const nftBadgesRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(nftBadges)
-      .where(eq(nftBadges.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { badges: rows, total: rows.length };
   }),
@@ -1625,15 +1719,22 @@ const nftBadgesRouter = router({
     name: z.string().min(1).max(500),
     description: z.string().optional(),
     imageUrl: z.string().url().optional(),
-    criteria: z.record(z.unknown()).optional(),
+    criteria: z.record(z.string(), z.unknown()).optional(),
     maxSupply: z.number().int().positive().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(nftBadges).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      criteria: input.criteria ? JSON.stringify(input.criteria) : null,
-      mintedCount: 0,
+      badgeId: `badge_${crypto.randomUUID()}`,
+      recipientId: ctx.user.tenantId ?? "",
+      recipientType: "merchant",
+      badgeType: "custom",
+      badgeName: input.name,
+      metadata: {
+        description: input.description ?? null,
+        imageUrl: input.imageUrl ?? null,
+        criteria: input.criteria ?? null,
+        maxSupply: input.maxSupply ?? null,
+      },
       status: "active",
     }).returning();
     return row;
@@ -1644,8 +1745,8 @@ const nftBadgesRouter = router({
     walletAddress: z.string().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(nftBadges).set({ mintedCount: sql`${nftBadges.mintedCount} + 1` })
-      .where(eq(nftBadges.id, input.badgeId));
+    await db.update(nftBadges).set({ status: "minted", mintedAt: new Date() })
+      .where(eq(nftBadges.badgeId, input.badgeId));
     return { success: true, badgeId: input.badgeId, recipientId: input.recipientId };
   }),
 });
@@ -1674,6 +1775,8 @@ const openBankingRouter = router({
   }),
   createConsent: protectedProcedure.input(z.object({
     customerId: z.string(),
+    bankCode: z.string(),
+    bankName: z.string(),
     permissions: z.array(z.string()),
     expiresAt: z.number().optional(),
     redirectUri: z.string().url(),
@@ -1682,10 +1785,10 @@ const openBankingRouter = router({
     const consentId = `CON-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const [row] = await db.insert(openBankingConsentsV2).values({
       merchantId: ctx.user.tenantId ?? "",
-      consentId,
-      customerId: input.customerId,
-      permissions: JSON.stringify(input.permissions),
-      redirectUri: input.redirectUri,
+      bankCode: input.bankCode,
+      bankName: input.bankName,
+      scopes: input.permissions.join(","),
+      consentToken: consentId,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       status: "pending",
     }).returning();
@@ -1693,9 +1796,9 @@ const openBankingRouter = router({
   }),
   revokeConsent: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(openBankingConsentsV2).set({ status: "revoked", revokedAt: new Date() })
+    await db.update(openBankingConsentsV2).set({ status: "revoked", updatedAt: new Date() })
       .where(eq(openBankingConsentsV2.id, input.id));
-    publishAuditEvent({ action: 'open_banking_consent.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEvent({ action: 'open_banking_consent.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
 });
@@ -1722,16 +1825,16 @@ const partnerOnboardingRouter = router({
   }),
   updateStep: protectedProcedure.input(z.object({
     id: z.string(),
-    currentStep: z.number().int().min(1).max(10),
-    stepData: z.record(z.unknown()).optional(),
+    currentStep: z.enum(["invite_code", "company_info", "branding", "fee_structure", "review", "completed"]).optional(),
+    stepData: z.record(z.string(), z.unknown()).optional(),
     completed: z.boolean().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(partnerOnboardingSessions).set({
-      currentStep: input.currentStep,
-      stepData: input.stepData ? JSON.stringify(input.stepData) : undefined,
+      ...(input.currentStep !== undefined ? { currentStep: input.currentStep } : {}),
       completedAt: input.completed ? new Date() : undefined,
-      status: input.completed ? "completed" : "in_progress",
+      isCompleted: input.completed ?? undefined,
+      updatedAt: new Date(),
     }).where(eq(partnerOnboardingSessions.id, input.id));
     return { success: true };
   }),
@@ -1770,22 +1873,24 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(payrollRuns).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      payDate: new Date(input.payDate),
+      periodStart: new Date(input.payDate),
+      periodEnd: new Date(input.payDate),
+      totalKobo: input.totalNetKobo,
+      staffCount: input.employeeCount,
       status: "draft",
     }).returning();
     return row;
   }),
   approveRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "approved", approvedAt: new Date() })
+    await db.update(payrollRuns).set({ status: "approved" })
       .where(eq(payrollRuns.id, input.id));
-    publishAuditEvent({ action: 'payroll_run.approved', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    publishAuditEvent({ action: 'payroll_run.approved', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   processRun: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(payrollRuns).set({ status: "processing", processedAt: new Date() })
+    await db.update(payrollRuns).set({ status: "paid" })
       .where(eq(payrollRuns.id, input.id));
     return { success: true };
   }),
@@ -1816,7 +1921,15 @@ const payrollRouter = router({
     const db = (await getDb())!;
     const [row] = await db.insert(payrollV3Employees).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
+      employeeId: `emp_${crypto.randomUUID().slice(0, 8)}`,
+      fullName: `${input.firstName} ${input.lastName}`,
+      email: input.email,
+      department: input.department,
+      bankCode: input.bankCode,
+      accountNumber: input.accountNumber,
+      grossSalary: input.grossSalaryKobo,
+      taxPin: input.taxId,
+      pensionPin: input.pensionId,
       status: "active",
     }).returning();
     return row;
@@ -1841,29 +1954,32 @@ const portfolioRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(portfolioRebalancingOrders)
-      .where(eq(portfolioRebalancingOrders.merchantId, ctx.user.tenantId ?? ""))
+      .where(eq(portfolioRebalancingOrders.userId, ctx.user.id))
       .orderBy(desc(portfolioRebalancingOrders.createdAt))
       .offset(offset).limit(limit);
     return { orders: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
     portfolioId: z.string(),
-    targetAllocations: z.record(z.number()),
+    targetAllocations: z.record(z.string(), z.number()),
     notes: z.string().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(portfolioRebalancingOrders).values({
-      merchantId: ctx.user.tenantId ?? "",
-      portfolioId: input.portfolioId,
-      targetAllocations: JSON.stringify(input.targetAllocations),
-      notes: input.notes ?? null,
+      id: `reb_${crypto.randomUUID()}`,
+      userId: ctx.user.id,
+      assetType: "mutual_fund",
+      direction: "buy",
+      amountKobo: 0,
+      targetAllocationPct: Object.values(input.targetAllocations)[0] ?? 0,
+      currentAllocationPct: 0,
       status: "pending",
     }).returning();
     return row;
   }),
   execute: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(portfolioRebalancingOrders).set({ status: "executed", executedAt: new Date() })
+    await db.update(portfolioRebalancingOrders).set({ status: "completed", executedAt: new Date() })
       .where(eq(portfolioRebalancingOrders.id, input.id));
     return { success: true };
   }),
@@ -1898,17 +2014,22 @@ const ptspRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(ptspBatches).values({
+      id: `ptsp_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      settlementDate: new Date(input.settlementDate),
+      totalAmountKobo: input.totalAmountKobo,
+      transactionCount: input.transactionCount,
+      settlementDate: new Date(input.settlementDate).toISOString().slice(0, 10),
       status: "pending",
     }).returning();
     return row;
   }),
   settle: protectedProcedure.input(z.object({ id: z.string(), reference: z.string().optional() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(ptspBatches).set({ status: "settled", settledAt: new Date() })
-      .where(eq(ptspBatches.id, input.id));
+    await db.update(ptspBatches).set({
+      status: "confirmed",
+      confirmedAt: new Date(),
+      nibssReference: input.reference,
+    }).where(eq(ptspBatches.id, input.id));
     return { success: true };
   }),
 });
@@ -1933,7 +2054,7 @@ const rateLimitEventsRouter = router({
     const db = (await getDb())!;
     const total = await db.select({ count: sql<number>`count(*)::int` }).from(rateLimitEvents);
     const blocked = await db.select({ count: sql<number>`count(*)::int` }).from(rateLimitEvents)
-      .where(eq(rateLimitEvents.action, "blocked"));
+      .where(eq(rateLimitEvents.blocked, true));
     return {
       total: total[0]?.count ?? 0,
       blocked: blocked[0]?.count ?? 0,
@@ -1951,51 +2072,60 @@ const realtimeNotifRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(realtimeNotificationHistory)
-      .where(eq(realtimeNotificationHistory.userId, String(ctx.user.id)))
+      .where(eq(realtimeNotificationHistory.merchantId, ctx.user.tenantId ?? ""))
       .orderBy(desc(realtimeNotificationHistory.createdAt))
       .offset(offset).limit(limit);
     return { notifications: rows, total: rows.length };
   }),
   markRead: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
+    await db.update(realtimeNotificationHistory).set({ deliveredAt: new Date(), status: "read" })
       .where(eq(realtimeNotificationHistory.id, input.id));
     return { success: true };
   }),
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
     const db = (await getDb())!;
-    await db.update(realtimeNotificationHistory).set({ readAt: new Date() })
+    await db.update(realtimeNotificationHistory).set({ deliveredAt: new Date(), status: "read" })
       .where(and(
-        eq(realtimeNotificationHistory.userId, String(ctx.user.id)),
-        isNull(realtimeNotificationHistory.readAt)
+        eq(realtimeNotificationHistory.merchantId, ctx.user.tenantId ?? ""),
+        isNull(realtimeNotificationHistory.deliveredAt)
       ));
     return { success: true };
   }),
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
     const db = (await getDb())!;
     const rows = await db.select().from(realtimeNotificationPreferences)
-      .where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id))).limit(1);
+      .where(eq(realtimeNotificationPreferences.merchantId, ctx.user.tenantId ?? "")).limit(1);
     return rows[0] ?? null;
   }),
   updatePreferences: protectedProcedure.input(z.object({
     pushEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
     smsEnabled: z.boolean().optional(),
-    categories: z.record(z.boolean()).optional(),
+    categories: z.record(z.string(), z.boolean()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
+    const flags = {
+      ...(input.pushEnabled !== undefined ? { pushEnabled: input.pushEnabled ? 1 : 0 } : {}),
+      ...(input.emailEnabled !== undefined ? { emailEnabled: input.emailEnabled ? 1 : 0 } : {}),
+      ...(input.smsEnabled !== undefined ? { smsEnabled: input.smsEnabled ? 1 : 0 } : {}),
+      ...(input.categories?.payment !== undefined ? { eventPayment: input.categories.payment ? 1 : 0 } : {}),
+      ...(input.categories?.dispute !== undefined ? { eventDispute: input.categories.dispute ? 1 : 0 } : {}),
+      ...(input.categories?.payout !== undefined ? { eventPayout: input.categories.payout ? 1 : 0 } : {}),
+      ...(input.categories?.fraud !== undefined ? { eventFraud: input.categories.fraud ? 1 : 0 } : {}),
+      ...(input.categories?.kyc !== undefined ? { eventKyc: input.categories.kyc ? 1 : 0 } : {}),
+    };
     const existing = await db.select().from(realtimeNotificationPreferences)
-      .where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id))).limit(1);
+      .where(eq(realtimeNotificationPreferences.merchantId, ctx.user.tenantId ?? "")).limit(1);
     if (existing.length > 0) {
       await db.update(realtimeNotificationPreferences).set({
-        ...input,
-        categories: input.categories ? JSON.stringify(input.categories) : undefined,
-      }).where(eq(realtimeNotificationPreferences.userId, String(ctx.user.id)));
+        ...flags,
+        updatedAt: new Date(),
+      }).where(eq(realtimeNotificationPreferences.merchantId, ctx.user.tenantId ?? ""));
     } else {
       await db.insert(realtimeNotificationPreferences).values({
-        userId: String(ctx.user.id),
-        ...input,
-        categories: input.categories ? JSON.stringify(input.categories) : null,
+        merchantId: ctx.user.tenantId ?? "",
+        ...flags,
       });
     }
     return { success: true };
@@ -2012,12 +2142,12 @@ const recipeRouter = router({
     const db = (await getDb())!;
     const { offset, limit } = paginate(input.page, input.limit);
     const rows = await db.select().from(recipeIngredients)
-      .where(eq(recipeIngredients.merchantId, ctx.user.tenantId ?? ""))
       .offset(offset).limit(limit);
     return { ingredients: rows, total: rows.length };
   }),
   create: protectedProcedure.input(z.object({
     recipeId: z.string(),
+    inventoryItemId: z.string(),
     name: z.string().min(1).max(500),
     quantity: z.number().positive(),
     unit: z.string(),
@@ -2027,23 +2157,25 @@ const recipeRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(recipeIngredients).values({
-      merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      allergens: input.allergens ? JSON.stringify(input.allergens) : null,
+      menuItemId: input.recipeId,
+      inventoryItemId: input.inventoryItemId,
+      quantityPerServing: Math.round(input.quantity * 100),
     }).returning();
     return row;
   }),
   update: protectedProcedure.input(z.object({
-    id: z.string(),
+    id: z.number().int(),
     quantity: z.number().positive().optional(),
     costPerUnitKobo: z.number().int().positive().optional(),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    const { id, ...rest } = input;
-    await db.update(recipeIngredients).set(rest).where(eq(recipeIngredients.id, id));
+    const { id, quantity } = input;
+    await db.update(recipeIngredients).set({
+      ...(quantity !== undefined ? { quantityPerServing: Math.round(quantity * 100) } : {}),
+    }).where(eq(recipeIngredients.id, id));
     return { success: true };
   }),
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+  delete: protectedProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.delete(recipeIngredients).where(eq(recipeIngredients.id, input.id));
     return { success: true };
@@ -2075,18 +2207,20 @@ const reconciliationRouter = router({
     id: z.string(),
     resolution: z.string(),
     notes: z.string().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     await db.update(reconciliationAlerts).set({
       status: "resolved",
-      resolution: input.resolution,
+      notes: input.notes ? `${input.resolution}\n${input.notes}` : input.resolution,
       resolvedAt: new Date(),
+      resolvedBy: String(ctx.user.id),
+      updatedAt: new Date(),
     }).where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
   }),
   dismiss: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(reconciliationAlerts).set({ status: "dismissed" })
+    await db.update(reconciliationAlerts).set({ status: "dismissed", updatedAt: new Date() })
       .where(eq(reconciliationAlerts.id, input.id));
     return { success: true };
   }),
@@ -2117,13 +2251,14 @@ const regulatoryReportsRouter = router({
   generate: protectedProcedure.input(z.object({
     reportType: z.enum(["cbn_returns", "fiu_str", "cac_annual", "firs_vat", "ndic_returns"]),
     period: z.string(),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const [row] = await db.insert(regulatoryReports).values({
       merchantId: ctx.user.tenantId ?? "",
-      ...input,
-      data: input.data ? JSON.stringify(input.data) : null,
+      reportType: input.reportType,
+      period: input.period,
+      reportData: input.data ? JSON.stringify(input.data) : null,
       status: "draft",
     }).returning();
     return row;
@@ -2198,18 +2333,18 @@ const restaurantRouter = router({
     const [order] = await db.insert(restaurantOrders).values({
       merchantId: ctx.user.tenantId ?? "",
       tableId: input.tableId ?? null,
-      items: JSON.stringify(input.items),
       totalKobo,
-      orderType: input.orderType,
       notes: input.notes ?? null,
-      status: "pending",
+      status: "open",
     }).returning();
     if (input.items.length > 0) {
       await db.insert(restaurantOrderItems).values(
         input.items.map(item => ({
           orderId: order.id,
-          merchantId: ctx.user.tenantId ?? "",
-          ...item,
+          name: item.name,
+          qty: item.quantity,
+          unitPriceKobo: item.unitPriceKobo,
+          notes: item.notes,
           status: "pending",
         }))
       );
@@ -2218,7 +2353,7 @@ const restaurantRouter = router({
   }),
   updateOrderStatus: protectedProcedure.input(z.object({
     id: z.string(),
-    status: z.enum(["pending", "confirmed", "preparing", "ready", "served", "paid", "cancelled"]),
+    status: z.enum(["open", "sent_to_kitchen", "ready", "paid", "voided"]),
   })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     await db.update(restaurantOrders).set({ status: input.status }).where(eq(restaurantOrders.id, input.id));
@@ -2255,29 +2390,30 @@ const sdkTokensRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
     const token = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
+    const tokenHash = createHash("sha256").update(token).digest("hex");
     const [row] = await db.insert(sdkTokens).values({
+      tokenId: `tok_${crypto.randomUUID()}`,
       merchantId: ctx.user.tenantId ?? "",
-      token,
-      label: input.label,
-      platform: input.platform,
-      permissions: input.permissions ? JSON.stringify(input.permissions) : null,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-      status: "active",
+      tokenHash,
+      scopes: input.permissions ?? null,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : new Date(Date.now() + 365 * 24 * 3600_000),
+      isRevoked: 0,
     }).returning();
-    return row;
+    return { ...row, token };
   }),
   revoke: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(sdkTokens).set({ status: "revoked", revokedAt: new Date() })
-      .where(eq(sdkTokens.id, input.id));
-    publishAuditEvent({ action: 'sdk_token.revoked', actorId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
+    await db.update(sdkTokens).set({ isRevoked: 1 })
+      .where(eq(sdkTokens.tokenId, input.id));
+    publishAuditEvent({ action: 'sdk_token.revoked', userId: 'system', targetId: input.id, metadata: {}, timestamp: new Date().toISOString() }).catch(() => {});
     return { success: true };
   }),
   rotate: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
     const newToken = `sdk_${crypto.randomUUID().replace(/-/g, "")}`;
-    await db.update(sdkTokens).set({ token: newToken, rotatedAt: new Date() })
-      .where(eq(sdkTokens.id, input.id));
+    const newTokenHash = createHash("sha256").update(newToken).digest("hex");
+    await db.update(sdkTokens).set({ tokenHash: newTokenHash, isRevoked: 0 })
+      .where(eq(sdkTokens.tokenId, input.id));
     return { success: true, token: newToken };
   }),
 });
@@ -2299,13 +2435,13 @@ const settlementSlaRouter = router({
   }),
   acknowledge: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(settlementSlaEvents).set({ status: "acknowledged", acknowledgedAt: new Date() })
+    await db.update(settlementSlaEvents).set({ status: "acknowledged", updatedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),
   resolve: protectedProcedure.input(z.object({ id: z.string(), resolution: z.string() })).mutation(async ({ input }) => {
     const db = (await getDb())!;
-    await db.update(settlementSlaEvents).set({ status: "resolved", resolvedAt: new Date() })
+    await db.update(settlementSlaEvents).set({ status: "resolved", notes: input.resolution, updatedAt: new Date() })
       .where(eq(settlementSlaEvents.id, input.id));
     return { success: true };
   }),

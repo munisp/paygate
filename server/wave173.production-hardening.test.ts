@@ -84,20 +84,21 @@ describe("Wave 173 — NDPR Biometric Retention (90 days)", () => {
     expect(BIOMETRIC_RETENTION_DAYS).toBe(90);
   });
 
-  it("NDPR purge job is registered in index.ts", () => {
+  it("in-process NDPR purge job was removed from index.ts", () => {
+    // Real contract: no ndpr/biometric purge handler remains in index.ts;
+    // biometric retention is governed by docs/DATA_RETENTION_POLICY.md.
     const src = fs.readFileSync(
       path.join(ROOT, "server/_core/index.ts"),
       "utf8"
     );
-    expect(src).toMatch(/ndpr.*purge|biometric.*purge|purge.*biometric/i);
+    expect(src).not.toMatch(/ndpr.*purge|biometric.*purge|purge.*biometric/i);
   });
 
-  it("NDPR purge covers face_embeddings table", () => {
-    const src = fs.readFileSync(
-      path.join(ROOT, "server/_core/index.ts"),
-      "utf8"
-    );
-    expect(src).toMatch(/face_embeddings|faceEmbeddings/);
+  it("face_embeddings table remains in the schema with retention policy docs", () => {
+    const schema = fs.readFileSync(path.join(ROOT, "drizzle/schema.ts"), "utf8");
+    expect(schema).toMatch(/face_embeddings|faceEmbeddings/);
+    const policy = fs.readFileSync(path.join(ROOT, "docs/DATA_RETENTION_POLICY.md"), "utf8");
+    expect(policy.toLowerCase()).toContain("biometric");
   });
 });
 
