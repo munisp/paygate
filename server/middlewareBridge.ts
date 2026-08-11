@@ -68,16 +68,78 @@ async function bridgeRequest<T>(
   return res.json() as Promise<T>;
 }
 
+// ─── Bridge failure visibility (safe() null-swallow gauge) ────────────────────
+// safe() intentionally returns null per call so domain code falls back to
+// direct DB operations — but a silently dead bridge must not stay invisible.
+// We keep a sliding-window failure count: sustained failure (>= threshold
+// failures inside the window) logs ERROR once and is surfaced via
+// getBridgeHealth() as `degraded` in /api/health.
+const BRIDGE_FAILURE_WINDOW_MS = parseInt(process.env.BRIDGE_FAILURE_WINDOW_MS ?? "300000", 10); // 5 min
+const BRIDGE_FAILURE_THRESHOLD = parseInt(process.env.BRIDGE_FAILURE_THRESHOLD ?? "10", 10);
+let bridgeFailureTimestamps: number[] = [];
+let bridgeBreachLogged = false;
+
+function recordBridgeFailure(): void {
+  const now = Date.now();
+  bridgeFailureTimestamps.push(now);
+  bridgeFailureTimestamps = bridgeFailureTimestamps.filter((t) => now - t <= BRIDGE_FAILURE_WINDOW_MS);
+  if (bridgeFailureTimestamps.length >= BRIDGE_FAILURE_THRESHOLD && !bridgeBreachLogged) {
+    bridgeBreachLogged = true;
+    logger.error("bridge_failure_sustained", {
+      failuresInWindow: bridgeFailureTimestamps.length,
+      windowMs: BRIDGE_FAILURE_WINDOW_MS,
+      threshold: BRIDGE_FAILURE_THRESHOLD,
+    });
+  }
+}
+
+function recordBridgeSuccess(): void {
+  if (bridgeFailureTimestamps.length > 0 || bridgeBreachLogged) {
+    bridgeFailureTimestamps = [];
+    bridgeBreachLogged = false;
+  }
+}
+
+export interface BridgeHealth {
+  configured: boolean;
+  failuresInWindow: number;
+  windowMs: number;
+  threshold: number;
+  degraded: boolean;
+}
+
+/** Health gauge consumed by /api/health — degraded when failures cross the threshold in the window. */
+export function getBridgeHealth(): BridgeHealth {
+  const now = Date.now();
+  bridgeFailureTimestamps = bridgeFailureTimestamps.filter((t) => now - t <= BRIDGE_FAILURE_WINDOW_MS);
+  const configured = isBridgeAvailable();
+  return {
+    configured,
+    failuresInWindow: bridgeFailureTimestamps.length,
+    windowMs: BRIDGE_FAILURE_WINDOW_MS,
+    threshold: BRIDGE_FAILURE_THRESHOLD,
+    degraded: configured && bridgeFailureTimestamps.length >= BRIDGE_FAILURE_THRESHOLD,
+  };
+}
+
 /** Safe wrapper — uses circuit breaker, logs and returns null on failure (never throws to callers) */
 export async function safe<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown
 ): Promise<T | null> {
+  if (!isBridgeAvailable()) {
+    // Bridge not configured (local dev / sandbox) — per-call null fallback,
+    // not counted as a failure: there is nothing to be "down".
+    return null;
+  }
   const cb = getCircuitBreaker("go-bridge", { failureThreshold: 5, recoveryTimeMs: 30_000 });
   try {
-    return await cb.execute(() => bridgeRequest<T>(method, path, body));
+    const result = await cb.execute(() => bridgeRequest<T>(method, path, body));
+    recordBridgeSuccess();
+    return result;
   } catch (err: any) {
+    recordBridgeFailure();
     if (err instanceof CircuitBreakerOpenError) {
       logger.warn("bridge_circuit_open", { path, message: err.message });
     } else {

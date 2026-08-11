@@ -1,6 +1,10 @@
 import "dotenv/config";
+// OpenTelemetry tracing must be initialised before instrumented libraries
+// (express, pg, ioredis) load. Gracefully no-ops when
+// OTEL_EXPORTER_OTLP_ENDPOINT is unset.
+import "../tracing";
 import express from "express";
-import { createServer } from "http";
+import { createServer, type Server } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -15,6 +19,9 @@ import { notifyOwner } from "./notification";
 import { ENV, validateServerEnv } from "./env";
 import { requestId, securityHeaders, corsMiddleware } from "../securityHeaders";
 import { wafMiddleware } from "../wafMiddleware";
+import { metricsMiddleware, metricsHandler } from "../metrics";
+import { stripeWebhookHandler } from "../stripe";
+import { getBridgeHealth } from "../middlewareBridge";
 
 // ─── Real infrastructure probes (raw RESP — no new dependencies) ─────────────
 
@@ -128,24 +135,49 @@ async function startServer() {
   app.use(requestId);
   app.use(securityHeaders);
   app.use(corsMiddleware);
+  app.use(metricsMiddleware);
 
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // ── Stripe inbound webhook ─────────────────────────────────────────────────
+  // MUST be mounted with the raw body parser BEFORE express.json — Stripe
+  // signature verification requires the exact unparsed payload bytes.
+  app.post(
+    "/api/webhooks/stripe",
+    express.raw({ type: "application/json" }),
+    (req, res) => { void stripeWebhookHandler(req, res); },
+  );
+
+  // ── Body parsers — scoped limits (P2-1) ────────────────────────────────────
+  // Large payloads only reach /api/trpc (dispute-evidence base64 uploads up to
+  // ~14 MB — see disputes.uploadEvidence in server/routers.ts). Every other
+  // route gets a 1 MB cap to bound memory-exhaustion surface.
+  app.use("/api/trpc", express.json({ limit: "25mb" }));
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
   // WAF inspects parsed bodies — must run after the body parsers.
   app.use(wafMiddleware);
 
+  // ── Prometheus scrape endpoint (k8s pod annotations target /api/metrics) ──
+  app.get("/api/metrics", (req, res) => { void metricsHandler(req, res); });
+
   // ── Health probe (Dockerfile HEALTHCHECK + k8s liveness/readiness) ────────
   app.get("/api/health", async (_req, res) => {
+    const bridge = getBridgeHealth();
     try {
       const db = await getDb();
       await db.execute(sql`SELECT 1`);
-      res.status(200).json({ status: "ok", db: "up", timestamp: new Date().toISOString() });
+      res.status(200).json({
+        status: bridge.degraded ? "degraded" : "ok",
+        db: "up",
+        bridge: bridge.degraded ? "degraded" : "up",
+        bridgeFailuresInWindow: bridge.failuresInWindow,
+        timestamp: new Date().toISOString(),
+      });
     } catch (err) {
       res.status(503).json({
         status: "unavailable",
         db: "down",
+        bridge: bridge.degraded ? "degraded" : "up",
         error: err instanceof Error ? err.message : String(err),
         timestamp: new Date().toISOString(),
       });
@@ -261,7 +293,144 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    if (!ENV.stripeWebhookSecret) {
+      console.warn(
+        "[boot] WARNING: STRIPE_WEBHOOK_SECRET is not set — POST /api/webhooks/stripe will return 503 and Stripe events will NOT be processed"
+      );
+    }
+    // Background workers start only after the HTTP server (and /api/health)
+    // is accepting traffic, so k8s readiness is not delayed by worker boot.
+    void startBackgroundWorkers();
   });
+
+  registerGracefulShutdown(server);
 }
 
 startServer().catch(console.error);
+
+// ─── Background workers ───────────────────────────────────────────────────────
+// Workers that are designed for in-process boot (each module's docstring says
+// "call once in server/_core/index.ts") but previously had zero call sites.
+// Each starter is internally idempotent; the workersStarted flag plus the
+// test-env guard prevents double-start when this module is imported by tests.
+type WorkerHandle = { start: () => void; stop?: () => void };
+const workerStops: Array<{ name: string; stop: () => void }> = [];
+let workersStarted = false;
+
+const WORKER_LOADERS: Array<{ name: string; load: () => Promise<WorkerHandle> }> = [
+  { name: "webhookRetry", load: async () => { const m = await import("../webhookRetry"); return { start: m.startWebhookRetryWorker, stop: m.stopWebhookRetryWorker }; } },
+  { name: "cronJobs", load: async () => { const m = await import("../cronJobs"); return { start: m.startCronJobs }; } },
+  { name: "sipProcessor", load: async () => { const m = await import("../jobs/sipProcessor"); return { start: m.startSIPProcessor, stop: m.stopSIPProcessor }; } },
+  { name: "idempotencyCleanup", load: async () => { const m = await import("../idempotencyCleanup"); return { start: m.startIdempotencyCleanupWorker, stop: m.stopIdempotencyCleanupWorker }; } },
+  { name: "nipBankRefresh", load: async () => { const m = await import("../nipBankRefresh"); return { start: m.startNipBankRefreshWorker, stop: m.stopNipBankRefreshWorker }; } },
+  { name: "notificationPurge", load: async () => { const m = await import("../notificationPurge"); return { start: m.startNotificationPurgeWorker, stop: m.stopNotificationPurgeWorker }; } },
+  { name: "pushTokenCleanup", load: async () => { const m = await import("../pushTokenCleanup"); return { start: m.startPushTokenCleanupWorker, stop: m.stopPushTokenCleanupWorker }; } },
+  { name: "reservationExpiry", load: async () => { const m = await import("../reservationExpiryWorker"); return { start: m.startReservationExpiryWorker }; } },
+  { name: "slaEscalation", load: async () => { const m = await import("../slaEscalation"); return { start: m.startSlaEscalationScheduler, stop: m.stopSlaEscalationScheduler }; } },
+  { name: "usdcBalanceMonitor", load: async () => { const m = await import("../usdcBalanceMonitor"); return { start: m.startUSDCBalanceMonitor, stop: m.stopUSDCBalanceMonitor }; } },
+];
+
+async function startBackgroundWorkers(): Promise<void> {
+  if (workersStarted) return;
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) {
+    console.info("[workers] test environment detected — background workers not started");
+    return;
+  }
+  workersStarted = true;
+  console.info(`[workers] starting ${WORKER_LOADERS.length} background workers`);
+  for (const def of WORKER_LOADERS) {
+    try {
+      const handle = await def.load();
+      handle.start();
+      if (handle.stop) workerStops.push({ name: def.name, stop: handle.stop });
+      console.info(`[workers] started: ${def.name}`);
+    } catch (err) {
+      // A worker that fails to start is loud but must not take down the API.
+      console.error(`[workers] FAILED to start ${def.name}:`, err instanceof Error ? err.message : err);
+    }
+  }
+}
+
+function stopBackgroundWorkers(): void {
+  for (const { name, stop } of workerStops) {
+    try {
+      stop();
+      console.info(`[shutdown] worker stopped: ${name}`);
+    } catch (err) {
+      console.warn(`[shutdown] worker stop failed (${name}):`, err instanceof Error ? err.message : err);
+    }
+  }
+  // cronJobs and reservationExpiry expose no stop handle; their intervals are
+  // cleared by process exit below.
+}
+
+// ─── Graceful shutdown (P1-11) ────────────────────────────────────────────────
+let shuttingDown = false;
+
+function registerGracefulShutdown(server: Server): void {
+  const onSignal = (signal: string) => {
+    void gracefulShutdown(signal, server);
+  };
+  process.on("SIGTERM", onSignal);
+  process.on("SIGINT", onSignal);
+}
+
+async function gracefulShutdown(signal: string, server: Server): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info(`[shutdown] ${signal} received — beginning graceful shutdown`);
+
+  // Hard backstop: never hang forever on a stuck connection.
+  const forceTimer = setTimeout(() => {
+    console.error("[shutdown] drain timed out after 15s — forcing exit(1)");
+    process.exit(1);
+  }, 15_000);
+  forceTimer.unref();
+
+  // 1. Stop accepting new connections; drain in-flight requests.
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      console.info("[shutdown] HTTP server closed — in-flight requests drained");
+      resolve();
+    });
+    // If there are no active connections server.close may never fire on some
+    // Node versions when keep-alive sockets linger — closeIdle handles that.
+    if (typeof (server as any).closeIdleConnections === "function") {
+      (server as any).closeIdleConnections();
+    }
+  });
+
+  // 2. Stop cron / background workers.
+  stopBackgroundWorkers();
+
+  // 3. Close Redis.
+  try {
+    const { getRedis } = await import("../redisClient");
+    const redis = await getRedis();
+    if (redis) {
+      redis.disconnect();
+      console.info("[shutdown] Redis connection closed");
+    } else {
+      console.info("[shutdown] Redis not configured — nothing to close");
+    }
+  } catch (err) {
+    console.warn("[shutdown] Redis close failed:", err instanceof Error ? err.message : err);
+  }
+
+  // 4. Kafka: the producer registers its own beforeExit disconnect hook in
+  // kafkaClient.ts; consumer stop handles are returned per-startConsumer call.
+  console.info("[shutdown] Kafka producer disconnect delegated to kafkaClient beforeExit hook");
+
+  // 5. Close the Postgres pool.
+  try {
+    const db = await getDb();
+    await (db as any).$client?.end?.({ timeout: 5 });
+    console.info("[shutdown] Postgres pool closed");
+  } catch (err) {
+    console.warn("[shutdown] Postgres close failed:", err instanceof Error ? err.message : err);
+  }
+
+  clearTimeout(forceTimer);
+  console.info("[shutdown] graceful shutdown complete — exiting 0");
+  process.exit(0);
+}
