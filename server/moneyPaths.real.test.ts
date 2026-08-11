@@ -341,7 +341,7 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
   // The three `it.fails` tests below pin the CORRECT contract so they flip
   // green once the ledger schema/code is fixed (e.g. per-leg reference or
   // including `type` in the constraint).
-  it.fails("debits sender and credits recipient atomically with a double-entry ledger", async () => {
+  it("debits sender and credits recipient atomically with a double-entry ledger", async () => {
     const caller = appRouter.createCaller(makeCtx());
     const res = await caller.wallet.sendMoney({ recipientId: "user-2", amount: 40, currency: "NGN" });
     expect(res.success).toBe(true);
@@ -350,8 +350,10 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
     const recipient = state.wallets.find((w) => w.id === "w_recipient")!;
     expect(sender.balance).toBe("60.00");
     expect(recipient.balance).toBe("50.00");
-    // Double-entry: one debit leg + one credit leg sharing the reference.
-    const legs = state.walletTxns.filter((t) => t.reference === res.reference);
+    // Double-entry: one debit leg + one credit leg grouped by the transfer
+    // reference with per-leg `:debit` / `:credit` suffixes (the
+    // (tenant_id, reference) unique constraint forbids identical references).
+    const legs = state.walletTxns.filter((t) => t.reference.startsWith(`${res.reference}:`));
     expect(legs).toHaveLength(2);
     expect(legs.map((l) => l.type).sort()).toEqual(["credit", "debit"]);
     expect(legs.find((l) => l.type === "debit")).toMatchObject({
@@ -372,7 +374,7 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
     expect(state.walletTxns).toHaveLength(0); // no orphan ledger rows
   });
 
-  it.fails("idempotent replay: same idempotency key executes exactly once", async () => {
+  it("idempotent replay: same idempotency key executes exactly once", async () => {
     const caller = appRouter.createCaller(makeCtx());
     const input = { recipientId: "user-2", amount: 40, currency: "NGN", idempotencyKey: "p2p-replay-key-1" };
     const r1 = await caller.wallet.sendMoney(input);
@@ -382,7 +384,7 @@ describe("wallet.sendMoney — atomic P2P transfer (real procedure)", () => {
     expect(state.walletTxns).toHaveLength(2); // single ledger pair
   });
 
-  it.fails("concurrent race: N debits on balance X — total debited never exceeds X", async () => {
+  it("concurrent race: N debits on balance X — total debited never exceeds X", async () => {
     const caller = appRouter.createCaller(makeCtx());
     // Staggered starts: works around a vitest dynamic-import mock race while
     // still overlapping the transactions (the fake yields inside tx.execute).

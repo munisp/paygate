@@ -2111,8 +2111,82 @@ const virtualCardsRouter = router({
       const card = await getVirtualCardById(input.id);
       if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       if (card.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "Card must be active to top up" });
-      const newBalance = Number(card.balance ?? 0) + input.amount;
-      await updateVirtualCard(input.id, { balance: newBalance });
+      // Card balance is stored in whole units (bigint column).
+      const creditUnits = Math.round(input.amount);
+      if (creditUnits <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Amount too small" });
+
+      // Funded top-up only: the merchant's settlement wallet in the card
+      // currency is debited (guarded, TOCTOU-safe) and the card balance is
+      // credited with a blind atomic increment — both in ONE transaction, so
+      // an unbacked card credit is impossible. The wallet ledger row carries
+      // a unique reference per top-up.
+      const database = await getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const debitAmount = creditUnits.toFixed(2);
+      const topUpRef = `VCARD-TOPUP-${input.id}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      const newBalance = await database.transaction(async (tx) => {
+        // Lock + locate the merchant's active settlement wallet for the card currency.
+        const walletRes: any = await tx.execute(sql`
+          SELECT id, balance, tenant_id AS "tenantId" FROM wallets
+          WHERE merchant_id = ${merchant.id}
+            AND currency = ${card.currency}
+            AND status = 'active'
+          ORDER BY id
+          LIMIT 1
+          FOR UPDATE
+        `);
+        const walletRows: any[] = walletRes?.rows ?? walletRes ?? [];
+        const wallet = walletRows[0];
+        if (!wallet) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `No active settlement wallet in ${card.currency} — card top-up requires a funded wallet`,
+          });
+        }
+        // Guarded debit — the balance check happens under the row lock.
+        const debitRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric - ${debitAmount}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id} AND balance::numeric >= ${debitAmount}::numeric
+          RETURNING balance
+        `);
+        const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+        if (!debitRows[0]) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Insufficient settlement wallet balance to fund this card top-up (${debitAmount} ${card.currency})`,
+          });
+        }
+        // Atomic blind increment on the card (no read-modify-write).
+        const creditRes: any = await tx.execute(sql`
+          UPDATE virtual_cards
+          SET balance = balance + ${creditUnits}, updated_at = now()
+          WHERE id = ${card.id} AND merchant_id = ${merchant.id} AND status = 'active'
+          RETURNING balance
+        `);
+        const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+        if (!creditRows[0]) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Card credit failed" });
+        }
+        // Wallet ledger row for the funding debit.
+        const { walletTransactions } = await import("../drizzle/schema");
+        await tx.insert(walletTransactions).values({
+          walletId: wallet.id,
+          tenantId: wallet.tenantId ?? card.tenantId,
+          type: "debit",
+          amount: debitAmount,
+          currency: card.currency,
+          balanceBefore: String(wallet.balance),
+          balanceAfter: String(debitRows[0].balance),
+          description: `Virtual card top-up (${card.maskedPan})`,
+          reference: topUpRef,
+          channel: "virtual_card",
+          counterpartyId: card.id,
+          status: "completed",
+        }).returning();
+        return Number(creditRows[0].balance);
+      });
+      publishAuditEvent({ action: 'virtual_card.topped_up', userId: ctx.user.openId, targetId: card.id, metadata: { merchantId: merchant.id, amount: creditUnits, currency: card.currency, reference: topUpRef }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true, newBalance };
     }),
 
@@ -5179,8 +5253,13 @@ const walletRouter = router({
         const ref = input.idempotencyKey
           ? `P2P-${input.idempotencyKey}`
           : `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+        // wallet_transactions is UNIQUE (tenant_id, reference) — the two
+        // double-entry legs therefore get per-leg references derived from the
+        // shared group reference. Replay lookups key off the debit leg.
+        const debitRef = `${ref}:debit`;
+        const creditRef = `${ref}:credit`;
         // Idempotency pre-check: if this reference was already processed, replay.
-        const existing = await getWalletTransactionByReference(senderWallet.tenantId, ref);
+        const existing = await getWalletTransactionByReference(senderWallet.tenantId, debitRef);
         if (existing) {
           return { success: true, reference: ref, transaction: existing, idempotentReplay: true };
         }
@@ -5225,7 +5304,9 @@ const walletRouter = router({
           }
           const recipientBalanceAfter = String(creditRows[0].balance);
 
-          // Double-entry ledger: one debit leg + one credit leg, same reference.
+          // Double-entry ledger: one debit leg + one credit leg, grouped by the
+          // shared transfer reference via per-leg suffixed references (the
+          // (tenant_id, reference) unique constraint forbids identical refs).
           const { walletTransactions } = await import("../drizzle/schema");
           const [debitLeg] = await tx.insert(walletTransactions).values({
             walletId: senderWallet.id,
@@ -5236,7 +5317,7 @@ const walletRouter = router({
             balanceBefore: senderWallet.balance,
             balanceAfter: senderBalanceAfter,
             description: input.note ?? `Transfer to ${input.recipientId}`,
-            reference: ref,
+            reference: debitRef,
             channel: "p2p",
             counterpartyId: input.recipientId,
             status: "completed",
@@ -5250,7 +5331,7 @@ const walletRouter = router({
             balanceBefore: recipientWallet.balance,
             balanceAfter: recipientBalanceAfter,
             description: input.note ?? `Transfer from ${ctx.user.openId}`,
-            reference: ref,
+            reference: creditRef,
             channel: "p2p",
             counterpartyId: String(ctx.user.id),
             status: "completed",
@@ -5259,7 +5340,7 @@ const walletRouter = router({
         }).catch(async (err: any) => {
           // Unique-violation on (tenant_id, reference) → concurrent replay.
           if (err?.code === "23505") {
-            const prior = await getWalletTransactionByReference(senderWallet.tenantId, ref);
+            const prior = await getWalletTransactionByReference(senderWallet.tenantId, debitRef);
             if (prior) return { replay: prior } as const;
           }
           throw err;
@@ -8940,7 +9021,8 @@ const consumerWalletRouter = router({
     .input(z.object({
       amountKobo: z.number().int().positive().max(10_000_000_00), // max 10M NGN
       currency: z.string().length(3).default('NGN'),
-      reference: z.string().optional(),
+      // Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) proving the funds.
+      paymentReference: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -8948,10 +9030,70 @@ const consumerWalletRouter = router({
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns } = await import('../drizzle/schema');
       const { eq, and, sql } = await import('drizzle-orm');
+      const { isStripeConfigured, getStripe } = await import('./stripe');
+
+      // Unbacked minting is impossible: no Stripe → no top-ups.
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Wallet top-up unavailable: card payments (Stripe) are not configured',
+        });
+      }
+      const stripe = getStripe();
+
+      // ── Verify the PSP reference BEFORE crediting anything ──────────────
+      let verifiedAmountMinor: number;
+      let verifiedCurrency: string;
+      try {
+        if (input.paymentReference.startsWith('pi_')) {
+          const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
+          if (pi.status !== 'succeeded') {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Payment not completed (status: ${pi.status})` });
+          }
+          verifiedAmountMinor = pi.amount;
+          verifiedCurrency = pi.currency;
+        } else if (input.paymentReference.startsWith('cs_')) {
+          const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
+          if (session.payment_status !== 'paid') {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Checkout session not paid (status: ${session.payment_status})` });
+          }
+          verifiedAmountMinor = session.amount_total ?? 0;
+          verifiedCurrency = session.currency ?? '';
+        } else {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Unrecognized payment reference — expected a Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) id',
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Stripe rejected the reference (unknown id, API error) → unverified.
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Payment reference could not be verified with the payment provider: ${err?.message ?? 'unknown error'}`,
+        });
+      }
+
+      // Exact amount/currency match — amountKobo is already the minor unit,
+      // same unit Stripe reports in PaymentIntent.amount.
+      if (verifiedAmountMinor !== input.amountKobo || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${input.amountKobo} ${input.currency.toUpperCase()})`,
+        });
+      }
+
       // P0-6: atomic credit — blind increment (no read-modify-write) + ledger
-      // row in one transaction.
-      const txRef = input.reference ?? nanoid('wt_');
-      const newBalance = await db.transaction(async (tx) => {
+      // row in one transaction. Exactly-once on the PSP reference: durable
+      // ledger pre-check + an atomic idempotency claim for concurrent races.
+      const txRef = `TOPUP-${input.paymentReference}`;
+      const existing = await db.select().from(consumerWalletTxns)
+        .where(and(eq(consumerWalletTxns.userId, user.id), eq(consumerWalletTxns.reference, txRef)))
+        .limit(1);
+      if (existing.length > 0) {
+        return { success: true, newBalanceKobo: existing[0].balanceAfterKobo, reference: txRef, idempotentReplay: true };
+      }
+      const execute = async () => db.transaction(async (tx) => {
       // Get or create wallet
       let [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
@@ -8981,11 +9123,18 @@ const consumerWalletRouter = router({
         amountKobo: input.amountKobo,
         currency: input.currency,
         balanceAfterKobo: newBalance,
-        description: 'Wallet top-up',
+        description: `Wallet top-up (Stripe ${input.paymentReference})`,
         reference: txRef,
         status: 'completed',
       });
       return newBalance;
+      });
+      const newBalance = await withIdempotency({
+        key: `consumer-topup-${input.paymentReference}`,
+        merchantId: String(user.id),
+        operation: 'consumerWallet.topUp',
+        requestBody: input,
+        execute,
       });
       // Fire push notification
       try {

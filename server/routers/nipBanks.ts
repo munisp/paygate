@@ -11,11 +11,16 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { db } from "../db";
 import {
+  getCachedNipNameEnquiry,
+  cacheNipNameEnquiry,
+  createNipVirtualAccount,
+  getNipVirtualAccountByReference,
+  listNipVirtualAccounts,
+} from "../db";
+import {
   nipBanks as nibssBanks,
-  nipVirtualAccounts,
-  nipNameEnquiryCache,
 } from "../../drizzle/schema";
-import { eq, and, gt, ilike, or } from "drizzle-orm";
+import { eq, and, ilike, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
 const NIBSS_GATEWAY_URL = process.env.NIBSS_GATEWAY_URL ?? "";
@@ -114,24 +119,16 @@ export const nipBanksRouter = router({
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      // Check cache
-      const cached = await database
-        .select()
-        .from(nipNameEnquiryCache)
-        .where(
-          and(
-            eq(nipNameEnquiryCache.bankNipCode, input.bankNipCode),
-            eq(nipNameEnquiryCache.accountNumber, input.accountNumber),
-            gt(nipNameEnquiryCache.expiresAt, new Date())
-          )
-        )
-        .limit(1);
+      // Check cache (real `nip_name_enquiry_cache` table via db helper —
+      // drizzle/schema.ts does not export this table, so the helper queries
+      // it with parameterized raw SQL).
+      const cached = await getCachedNipNameEnquiry(input.bankNipCode, input.accountNumber);
 
-      if (cached.length > 0) {
+      if (cached) {
         return {
-          accountName: cached[0].accountName,
-          bankVerificationNumber: cached[0].bankVerificationNumber,
-          kycLevel: cached[0].kycLevel,
+          accountName: cached.accountName,
+          bankVerificationNumber: cached.bankVerificationNumber,
+          kycLevel: cached.kycLevel,
           fromCache: true,
         };
       }
@@ -185,14 +182,14 @@ export const nipBanksRouter = router({
 
       // Cache result for 24 hours
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      await database.insert(nipNameEnquiryCache).values({
+      await cacheNipNameEnquiry({
         bankNipCode: input.bankNipCode,
         accountNumber: input.accountNumber,
         accountName,
         bankVerificationNumber: bvn,
         kycLevel,
         expiresAt,
-      }).onConflictDoNothing();
+      });
 
       return { accountName, bankVerificationNumber: bvn, kycLevel, fromCache: false };
     }),
@@ -278,8 +275,9 @@ export const nipBanksRouter = router({
         accountNumber = data.accountNumber;
       }
 
-      // Persist to DB
-      await database.insert(nipVirtualAccounts).values({
+      // Persist to DB (real `nip_virtual_accounts` table via db helper —
+      // drizzle/schema.ts does not export this table).
+      await createNipVirtualAccount({
         merchantId: resolvedMerchantId,
         paymentLinkId: input.paymentLinkId ?? null,
         checkoutSessionId: input.checkoutSessionId ?? null,
@@ -314,17 +312,13 @@ export const nipBanksRouter = router({
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      const va = await database
-        .select()
-        .from(nipVirtualAccounts)
-        .where(eq(nipVirtualAccounts.reference, input.reference))
-        .limit(1);
+      const va = await getNipVirtualAccountByReference(input.reference);
 
-      if (!va.length) {
+      if (!va) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Virtual account not found" });
       }
 
-      return va[0];
+      return va;
     }),
 
   /**
@@ -343,24 +337,10 @@ export const nipBanksRouter = router({
       const database = await db;
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
-      let query = database
-        .select()
-        .from(nipVirtualAccounts)
-        .where(eq(nipVirtualAccounts.merchantId, input.merchantId))
-        .$dynamic();
-
-      if (input.status !== "all") {
-        query = query.where(
-          and(
-            eq(nipVirtualAccounts.merchantId, input.merchantId),
-            eq(nipVirtualAccounts.status, input.status)
-          )
-        );
-      }
-
-      return query
-        .orderBy(nipVirtualAccounts.createdAt)
-        .limit(input.limit)
-        .offset(input.offset);
+      return listNipVirtualAccounts(input.merchantId, {
+        status: input.status === "all" ? null : input.status,
+        limit: input.limit,
+        offset: input.offset,
+      });
     }),
 });

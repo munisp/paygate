@@ -1411,6 +1411,118 @@ export async function cacheNipAccount(data: Record<string, any>) {
   return rows[0];
 }
 
+// ─── NIP Name-Enquiry Cache & Virtual Accounts ──────────────────────────────
+// The `nip_name_enquiry_cache` and `nip_virtual_accounts` tables exist in the
+// database (drizzle/0075_fast_spirit.sql) but are NOT exported from
+// drizzle/schema.ts, so they are queried here with parameterized raw SQL
+// against the real table names. Column aliases preserve the camelCase row
+// shape the drizzle table objects would have produced.
+
+/** Look up a non-expired NIP name-enquiry cache entry. */
+export async function getCachedNipNameEnquiry(bankNipCode: string, accountNumber: string) {
+  const database = requireDbSync();
+  const result: any = await database.execute(sql`
+    SELECT account_name AS "accountName",
+           bank_verification_number AS "bankVerificationNumber",
+           kyc_level AS "kycLevel",
+           expires_at AS "expiresAt"
+    FROM nip_name_enquiry_cache
+    WHERE bank_nip_code = ${bankNipCode}
+      AND account_number = ${accountNumber}
+      AND expires_at > now()
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+  const rows: any[] = result?.rows ?? result ?? [];
+  return rows[0] ?? null;
+}
+
+/** Cache a NIP name-enquiry result; refreshes any expired entry for the same key. */
+export async function cacheNipNameEnquiry(data: {
+  bankNipCode: string;
+  accountNumber: string;
+  accountName: string;
+  bankVerificationNumber: string | null;
+  kycLevel: string | null;
+  expiresAt: Date;
+}) {
+  const database = requireDbSync();
+  await database.execute(sql`
+    INSERT INTO nip_name_enquiry_cache
+      (bank_nip_code, account_number, account_name, bank_verification_number, kyc_level, expires_at)
+    VALUES
+      (${data.bankNipCode}, ${data.accountNumber}, ${data.accountName},
+       ${data.bankVerificationNumber}, ${data.kycLevel}, ${data.expiresAt})
+    ON CONFLICT (bank_nip_code, account_number)
+    DO UPDATE SET account_name = EXCLUDED.account_name,
+                  bank_verification_number = EXCLUDED.bank_verification_number,
+                  kyc_level = EXCLUDED.kyc_level,
+                  expires_at = EXCLUDED.expires_at
+  `);
+}
+
+/** Persist a freshly generated NIP virtual account (unique on reference). */
+export async function createNipVirtualAccount(data: {
+  merchantId: string;
+  paymentLinkId: string | null;
+  checkoutSessionId: string | null;
+  bankNipCode: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  amountExpected: number | null;
+  currency: string;
+  reference: string;
+  status: string;
+  expiresAt: Date;
+}) {
+  const database = requireDbSync();
+  await database.execute(sql`
+    INSERT INTO nip_virtual_accounts
+      (merchant_id, payment_link_id, checkout_session_id, bank_nip_code, bank_name,
+       account_number, account_name, amount_expected, currency, reference, status, expires_at)
+    VALUES
+      (${data.merchantId}, ${data.paymentLinkId}, ${data.checkoutSessionId}, ${data.bankNipCode},
+       ${data.bankName}, ${data.accountNumber}, ${data.accountName}, ${data.amountExpected},
+       ${data.currency}, ${data.reference}, ${data.status}, ${data.expiresAt})
+  `);
+}
+
+const NIP_VA_SELECT = sql`
+  SELECT id, merchant_id AS "merchantId", payment_link_id AS "paymentLinkId",
+         checkout_session_id AS "checkoutSessionId", bank_nip_code AS "bankNipCode",
+         bank_name AS "bankName", account_number AS "accountNumber",
+         account_name AS "accountName", amount_expected AS "amountExpected",
+         currency, reference, status, paid_at AS "paidAt", paid_amount AS "paidAmount",
+         nibss_reference AS "nibssReference", expires_at AS "expiresAt",
+         created_at AS "createdAt", updated_at AS "updatedAt"
+  FROM nip_virtual_accounts
+`;
+
+export async function getNipVirtualAccountByReference(reference: string) {
+  const database = requireDbSync();
+  const result: any = await database.execute(sql`${NIP_VA_SELECT} WHERE reference = ${reference} LIMIT 1`);
+  const rows: any[] = result?.rows ?? result ?? [];
+  return rows[0] ?? null;
+}
+
+export async function listNipVirtualAccounts(
+  merchantId: string,
+  opts: { status?: string | null; limit?: number; offset?: number } = {},
+) {
+  const database = requireDbSync();
+  const statusCond = opts.status ? sql`AND status = ${opts.status}` : sql``;
+  const result: any = await database.execute(sql`
+    ${NIP_VA_SELECT}
+    WHERE merchant_id = ${merchantId} ${statusCond}
+    ORDER BY created_at
+    LIMIT ${opts.limit ?? 20}
+    OFFSET ${opts.offset ?? 0}
+  `);
+  const rows: any[] = result?.rows ?? result ?? [];
+  return rows;
+}
+
 // ─── NIP Resolution Errors ────────────────────────────────────────────────────
 
 export async function createNipResolutionError(data: Record<string, any>) {
