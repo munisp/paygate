@@ -106,7 +106,7 @@ import {
   getDb,
 } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { protectedProcedure, publicProcedure, router, pbacProcedure } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router, pbacProcedure, adminProcedure } from "./_core/trpc";
 import { auditedProcedure } from "./_core/auditMiddleware";
 import { notifyOwner } from "./_core/notification";
 import {
@@ -179,6 +179,7 @@ import {
   forceTerminateWorkflowViaMiddleware,
   sendPayoutApprovalEmailViaMiddleware,
   nipNameEnquiryViaMiddleware,
+  nipInstantDebitViaMiddleware,
   escalateFraudRingViaMiddleware,
 } from "./middlewareBridge";
 import { notificationPreferencesRouter } from './routers/notificationPreferences';
@@ -3670,8 +3671,17 @@ const fraudRiskRouter = router({
     }),
   // Seed realistic demo fraud alerts for first-time dashboard population.
   // Only inserts when the merchant has fewer than 3 existing alerts.
-  seedDemoAlerts: protectedProcedure
+  // ADMIN-ONLY + explicit env opt-in: seeds FABRICATED fraud alerts. Any
+  // authenticated merchant being able to inject fake fraud signals into the
+  // alerts feed would corrupt risk dashboards and downstream ML features.
+  seedDemoAlerts: adminProcedure
     .mutation(async ({ ctx }) => {
+      if (process.env.ALLOW_DEMO_SEED !== 'true') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Demo alert seeding is disabled. Set ALLOW_DEMO_SEED=true to enable (never in production).',
+        });
+      }
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
@@ -9230,6 +9240,27 @@ const p2pRouter = router({
       const { eq, and, gte } = await import('drizzle-orm');
       // Idempotency guard — prevents double-debit on network retries
       const _p2pExecute = async () => {
+      // REAL RAIL EXECUTION FIRST — the transfer is executed through the NIP
+      // instant-debit rail BEFORE the wallet is touched. If the bridge is down,
+      // the NIBSS gateway is unconfigured, or the rail rejects the debit, this
+      // throws and NO wallet debit, NO transfer record, and NO notification is
+      // ever fabricated. (nipInstantDebitViaMiddleware is strict: it throws
+      // SERVICE_UNAVAILABLE when the rail is unavailable.)
+      const railStan = String(Math.floor(100000 + Math.random() * 900000)) + String(Date.now() % 1000000).padStart(6, '0');
+      const rail = await nipInstantDebitViaMiddleware({
+        creditAccountNumber: input.accountNumber,
+        creditBankCode: input.bankCode,
+        amountKobo: input.amountKobo,
+        narration: input.narration ?? `P2P transfer to ${input.recipientName}`,
+        stan: railStan,
+        merchantId: String(user.id),
+      });
+      if (rail.status !== 'success' && rail.status !== 'simulated') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Transfer rejected by payment rail: ${rail.responseMessage || rail.responseCode || 'unknown rail error'}`,
+        });
+      }
         // P0-6: single atomic transaction. The balance check is folded into the
         // debit itself (guarded UPDATE ... WHERE balance_kobo >= amount) so the
         // check cannot race a concurrent debit (TOCTOU-safe), mirroring
@@ -9249,9 +9280,11 @@ const p2pRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
       }
       const newBalance = debitRows[0].balanceKobo;
-      // Create transfer record
+      // Create transfer record — nipRef is the REAL NIBSS session ID returned by
+      // the rail, and 'completed' is honest because the rail approved the debit
+      // before we touched the wallet.
       const transferId = nanoid('p2p_');
-      const ref = nanoid('ref_');
+      const ref = rail.sessionId || railStan;
       await tx.insert(p2pTransfers).values({
         id: transferId,
         senderId: user.id,
@@ -9305,40 +9338,12 @@ const p2pRouter = router({
       return { transferId, ref, newBalance };
       });
       };
-      // Wrap the atomic transaction so notifications only fire after commit.
+      // Wrap the atomic transaction. NOTE: no "Money Received" notifications are
+      // sent here — the funds were disbursed to an EXTERNAL bank account via the
+      // NIP rail; no in-platform recipient wallet is credited by this flow, so
+      // notifying a platform user that they "received money" would be fabrication.
       const _p2pExecuteWithNotify = async () => {
         const { transferId, ref, newBalance } = await _p2pExecute();
-      // Fire-and-forget push notification to recipient
-      const amountNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-      import('./pushClient').then(async ({ notifyTokens }) => {
-        const dbInst = await getDb();
-        if (!dbInst) return;
-        const { devicePushTokens: dpt } = await import('../drizzle/schema');
-        const { eq, and } = await import('drizzle-orm');
-        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
-        if (!recipientUser) return;
-        const tokens = await dbInst.select({ token: dpt.token }).from(dpt)
-          .where(and(eq(dpt.userId, recipientUser.id), eq(dpt.isActive, true)));
-        if (tokens.length === 0) return;
-        await notifyTokens({
-          tokens: tokens.map(t => t.token),
-          notification: { title: '💸 Money Received', body: `You received ₦${amountNaira} from ${user.name ?? 'someone'}` },
-          type: 'transaction_completed',
-          data: { transferId, reference: ref, amountKobo: String(input.amountKobo) },
-        });
-      }).catch(() => {/* silent */});
-      // Fire-and-forget VAPID Web Push to recipient (browser/PWA subscribers)
-      import('./webPush').then(async ({ notifyUser: vapidNotifyUser }) => {
-        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
-        if (!recipientUser) return;
-        const amtFmt = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-        await vapidNotifyUser(recipientUser.id, {
-          title: '\u{1F4B8} Money Received',
-          body: `You received \u20A6${amtFmt} from ${user.name ?? 'someone'}`,
-          tag: `p2p-receive-${transferId}`,
-          data: { url: '/consumer/wallet', transferId, reference: ref },
-        });
-      }).catch(() => {/* silent — VAPID not configured */});
         return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
       };
       if (input.idempotencyKey) {

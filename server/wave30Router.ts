@@ -806,7 +806,8 @@ const middlewareLogsRouter = router({
       if (input.success !== undefined) { conditions.push(`success = $${idx++}`); params.push(input.success); }
       params.push(input.limit, input.offset);
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const { rows } = (await db.execute(sql.raw(`SELECT * FROM middleware_integration_logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx+1}`))) as any;
+      // execRaw binds the $n placeholders — sql.raw would send them unbound (broken query).
+      const { rows } = await execRaw(db, `SELECT * FROM middleware_integration_logs ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, params);
       return rows;
     }),
 

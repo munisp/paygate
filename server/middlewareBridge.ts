@@ -776,6 +776,61 @@ export async function nipNameEnquiryViaMiddleware(
   });
 }
 
+// ─── NIP instant outflow (wallet-funded external bank transfer) ─────────────
+export interface NipInstantDebitResult {
+  status: string;           // "success" | "failed" | "simulated"
+  responseCode: string;
+  responseMessage: string;
+  sessionId?: string;
+  stan: string;
+  simulation?: boolean;
+}
+
+/**
+ * Execute a REAL NIP instant debit through the go-bridge (POST /v1/nip/instant-debit).
+ * STRICT: throws SERVICE_UNAVAILABLE when the bridge is down or the NIBSS gateway
+ * is not configured — never fabricate a completed transfer. The bridge itself only
+ * returns a simulated approval when PAYGATE_SIMULATION_MODE=true (explicit opt-in),
+ * and flags it with simulation:true.
+ *
+ * The debit leg is the platform nodal account (NIP_NODAL_ACCOUNT_NUMBER env) because
+ * the sender's funds were already debited from their ledger wallet.
+ */
+export async function nipInstantDebitViaMiddleware(req: {
+  creditAccountNumber: string;
+  creditBankCode: string;
+  amountKobo: number;
+  narration: string;
+  stan: string;
+  merchantId: string;
+}): Promise<NipInstantDebitResult> {
+  const nodalAccount = process.env.NIP_NODAL_ACCOUNT_NUMBER;
+  if (!nodalAccount || !/^\d{10}$/.test(nodalAccount)) {
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "NIP nodal account not configured (NIP_NODAL_ACCOUNT_NUMBER) — external transfers unavailable",
+    });
+  }
+  const resp = await bridgeCallStrict<NipInstantDebitResult & { session_id?: string; response_code?: string; response_message?: string; sessionId?: string }>(
+    "POST", "/v1/nip/instant-debit", {
+      debit_account_number: nodalAccount,
+      credit_account_number: req.creditAccountNumber,
+      credit_bank_code: req.creditBankCode,
+      amount_kobo: req.amountKobo,
+      narration: req.narration,
+      stan: req.stan,
+      merchant_id: req.merchantId,
+    });
+  return {
+    status: resp.status,
+    responseCode: resp.responseCode ?? resp.response_code ?? "",
+    responseMessage: resp.responseMessage ?? resp.response_message ?? "",
+    sessionId: resp.sessionId ?? resp.session_id,
+    stan: resp.stan,
+    simulation: resp.simulation,
+  };
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // INSURANCE (merchant + consumer)
