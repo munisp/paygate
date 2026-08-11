@@ -53,27 +53,29 @@ async def lifespan(app: FastAPI):
     logger.info("Warming up DeepFace models …")
     try:
         from deepface import DeepFace
-        import cv2
 
-        # Warm up ArcFace + RetinaFace with a 1×1 dummy image
+        # Warm up ArcFace + RetinaFace with a 1×1 dummy image.
+        # A warm-up failure is FATAL to readiness: this service must never
+        # serve fabricated KYC results, so any model-load failure leaves
+        # _deepface_ready = False and every inference endpoint returns 503.
         dummy = np.zeros((100, 100, 3), dtype=np.uint8)
         dummy[40:60, 40:60] = 200  # rough face region
-        try:
-            DeepFace.represent(
-                img_path=dummy,
-                model_name="ArcFace",
-                detector_backend="opencv",
-                enforce_detection=False,
-            )
-        except Exception:
-            pass  # warm-up failure is non-fatal
+        DeepFace.represent(
+            img_path=dummy,
+            model_name="ArcFace",
+            detector_backend="opencv",
+            enforce_detection=False,
+        )
 
         _deepface_ready = True
         logger.info("DeepFace models ready.")
-    except ImportError:
-        logger.warning(
-            "deepface package not installed — running in MOCK mode. "
-            "Install with: pip install deepface"
+    except Exception as e:
+        _deepface_ready = False
+        logger.error(
+            "DeepFace unavailable (%s) — sidecar is NOT READY. "
+            "All KYC inference endpoints will return HTTP 503 (fail closed). "
+            "Install/ fix with: pip install deepface && pre-download models.",
+            e,
         )
     yield
     logger.info("DeepFace sidecar shutting down.")
@@ -245,45 +247,23 @@ DUPLICATE_THRESHOLD = 0.25  # Facenet512 cosine — conservative for fraud preve
 
 
 # ---------------------------------------------------------------------------
-# Mock responses (used when deepface is not installed)
+# Fail-closed guard
 # ---------------------------------------------------------------------------
+# KYC identity decisions must NEVER be fabricated.  When the DeepFace model
+# stack is unavailable, every inference endpoint returns HTTP 503 with an
+# explicit error instead of an auto-approve / canned response.
 
-def _mock_liveness(frames, quality_hint) -> LivenessResponse:
-    noise = (quality_hint or {}).get("noiseLevel", "low")
-    score = 0.82 if noise == "high" else 0.91
-    return LivenessResponse(
-        is_real=score > 0.5,
-        confidence=score,
-        antispoof_scores=[score] * len(frames),
-        ensemble_score=score,
-        noise_level=noise,
-        model="mock",
-        latency_ms=1.0,
-    )
-
-
-def _mock_verify() -> VerifyFaceResponse:
-    return VerifyFaceResponse(
-        verified=True,
-        distance=0.21,
-        threshold=0.68,
-        model="ArcFace-mock",
-        detector_backend="mock",
-        similarity_metric="cosine",
-        confidence=0.87,
-        latency_ms=1.0,
-    )
-
-
-def _mock_analyze() -> AnalyzeResponse:
-    return AnalyzeResponse(
-        age=28.0,
-        gender="Man",
-        dominant_emotion="neutral",
-        dominant_race=None,
-        is_minor=False,
-        latency_ms=1.0,
-    )
+def _require_deepface(endpoint: str) -> None:
+    if not _deepface_ready:
+        logger.error(f"{endpoint} called while DeepFace is unavailable — failing closed (503)")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Face-recognition model stack is unavailable; refusing to return "
+                "a fabricated KYC result. Retry after the sidecar reports ready "
+                "(see GET /health → deepface_ready)."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -293,10 +273,19 @@ def _mock_analyze() -> AnalyzeResponse:
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
+        "status": "ok" if _deepface_ready else "degraded",
         "deepface_ready": _deepface_ready,
         "embedding_store_size": sum(len(v) for v in _embedding_store.values()),
     }
+
+
+@app.get("/ready")
+def ready():
+    """Kubernetes readiness probe: the pod must not serve KYC traffic until
+    the model stack is loaded."""
+    if not _deepface_ready:
+        raise HTTPException(status_code=503, detail="deepface models not ready")
+    return {"status": "ready", "deepface_ready": True}
 
 
 @app.post("/liveness", response_model=LivenessResponse)
@@ -309,8 +298,7 @@ def liveness(req: LivenessRequest):
     t0 = time.perf_counter()
     noise_level = (req.quality_hint or {}).get("noiseLevel", "low")
 
-    if not _deepface_ready:
-        return _mock_liveness(req.frames, req.quality_hint)
+    _require_deepface("/liveness")
 
     try:
         from deepface import DeepFace
@@ -327,14 +315,24 @@ def liveness(req: LivenessRequest):
                 if face_objs:
                     # antispoof_score: 1.0 = definitely real, 0.0 = definitely fake
                     face = face_objs[0]
-                    score = float(face.get("antispoof_score", 0.5))
-                    scores.append(score)
+                    if "antispoof_score" not in face:
+                        raise RuntimeError(
+                            "anti-spoofing model returned no score — failing closed"
+                        )
+                    scores.append(float(face["antispoof_score"]))
+            except HTTPException:
+                raise
             except Exception as e:
-                logger.warning(f"Frame analysis failed: {e}")
-                scores.append(0.5)  # neutral on error
+                # Fail closed: a failed frame must never silently become a
+                # "neutral" 0.5 that can average out to a pass.
+                logger.error(f"/liveness frame analysis failed: {e}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Liveness inference failed on a frame: {e}",
+                )
 
         if not scores:
-            scores = [0.5]
+            raise HTTPException(status_code=503, detail="No liveness scores produced")
 
         # Ensemble: drop lowest outlier if ≥3 frames
         if len(scores) >= 3:
@@ -377,8 +375,7 @@ def verify_face(req: VerifyFaceRequest):
     """
     t0 = time.perf_counter()
 
-    if not _deepface_ready:
-        return _mock_verify()
+    _require_deepface("/verify-face")
 
     try:
         from deepface import DeepFace
@@ -427,16 +424,7 @@ def register(req: RegisterRequest):
     """
     t0 = time.perf_counter()
 
-    if not _deepface_ready:
-        emb_id = str(uuid.uuid4())
-        _embedding_store.setdefault(req.subject_id, {})[emb_id] = np.zeros(512)
-        return RegisterResponse(
-            subject_id=req.subject_id,
-            embedding_id=emb_id,
-            embedding_dim=512,
-            model=req.model_name + "-mock",
-            latency_ms=1.0,
-        )
+    _require_deepface("/register")
 
     try:
         from deepface import DeepFace
@@ -480,13 +468,7 @@ def search(req: SearchRequest):
     t0 = time.perf_counter()
     threshold = req.threshold or DUPLICATE_THRESHOLD
 
-    if not _deepface_ready:
-        return SearchResponse(
-            matches=[],
-            query_embedding_dim=512,
-            model=req.model_name + "-mock",
-            latency_ms=1.0,
-        )
+    _require_deepface("/search")
 
     try:
         from deepface import DeepFace
@@ -547,8 +529,7 @@ def analyze(req: AnalyzeRequest):
     """
     t0 = time.perf_counter()
 
-    if not _deepface_ready:
-        return _mock_analyze()
+    _require_deepface("/analyze")
 
     try:
         from deepface import DeepFace
@@ -600,13 +581,7 @@ class EmbeddingRequest(BaseModel):
 def get_embedding(req: EmbeddingRequest):
     """Extract a raw face embedding vector from an image (Wave 178 duplicate detection)."""
     t0 = time.perf_counter()
-    if not _deepface_ready:
-        return {
-            "embedding": [0.0] * 512,
-            "embedding_dim": 512,
-            "model": req.model_name + "-mock",
-            "latency_ms": 1.0,
-        }
+    _require_deepface("/embedding")
     try:
         from deepface import DeepFace
         img = _url_or_b64(req.img)

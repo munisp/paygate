@@ -183,18 +183,22 @@ describe("Wave 78 — Portal Billing Router", () => {
 describe("Wave 78 — Seed Data File", () => {
   it("should have seed-wave78.mjs file", async () => {
     const fs = await import("fs");
-    const exists = fs.existsSync("/home/ubuntu/paygate-merchant-portal/seed-wave78.mjs");
+    const exists = fs.existsSync(`${__dirname}/../seed-wave78-fixed.mjs`);
     expect(exists).toBe(true);
   });
 
-  it("seed-wave78.mjs should reference all 10 new feature tables", async () => {
+  it("seed-wave78-fixed.mjs should reference the wave-78 feature tables", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/seed-wave78.mjs", "utf-8");
-    // Check for actual SQL table names used in the seed file
-    const tables = ["digital_gold_holdings", "mutual_fund_holdings", "pension_accounts", "cashback_balances", "soundbox_devices", "wealth_goals", "emi_contracts", "bulk_collections", "salary_accounts", "remittance_transfers"];
+    const content = fs.readFileSync(`${__dirname}/../seed-wave78-fixed.mjs`, "utf-8");
+    // Actual SQL table names used in the fixed seed file
+    const tables = ["digital_gold_holdings", "mutual_fund_holdings", "pension_accounts", "cashback_balances", "soundbox_devices", "wealth_risk_profiles", "emi_contracts", "bulk_collections", "salary_accounts", "nodal_accounts"];
     for (const table of tables) {
       expect(content).toContain(table);
     }
+    // wealth_goals / remittance_transfers are seeded by the schema extension seed
+    const ext = fs.readFileSync(`${__dirname}/../drizzle/seed-extension.ts`, "utf-8");
+    expect(ext).toContain("wealth_goals");
+    expect(ext).toContain("remittance_transfers");
   });
 });
 
@@ -216,25 +220,25 @@ describe("Wave 78 — Python Microservices", () => {
   for (const svc of services) {
     it(`should have main.py for ${svc.name} service`, async () => {
       const fs = await import("fs");
-      const path = `/home/ubuntu/paygate-merchant-portal/python-services/${svc.name}/main.py`;
+      const path = `${__dirname}/../python-services/${svc.name}/main.py`;
       expect(fs.existsSync(path)).toBe(true);
     });
 
     it(`should have Dockerfile for ${svc.name} service`, async () => {
       const fs = await import("fs");
-      const path = `/home/ubuntu/paygate-merchant-portal/python-services/${svc.name}/Dockerfile`;
+      const path = `${__dirname}/../python-services/${svc.name}/Dockerfile`;
       expect(fs.existsSync(path)).toBe(true);
     });
 
     it(`should have requirements.txt for ${svc.name} service`, async () => {
       const fs = await import("fs");
-      const path = `/home/ubuntu/paygate-merchant-portal/python-services/${svc.name}/requirements.txt`;
+      const path = `${__dirname}/../python-services/${svc.name}/requirements.txt`;
       expect(fs.existsSync(path)).toBe(true);
     });
 
     it(`${svc.name} Dockerfile should expose port ${svc.port}`, async () => {
       const fs = await import("fs");
-      const dockerfile = fs.readFileSync(`/home/ubuntu/paygate-merchant-portal/python-services/${svc.name}/Dockerfile`, "utf-8");
+      const dockerfile = fs.readFileSync(`${__dirname}/../python-services/${svc.name}/Dockerfile`, "utf-8");
       expect(dockerfile).toContain(`EXPOSE ${svc.port}`);
     });
   }
@@ -244,7 +248,7 @@ describe("Wave 78 — Python Microservices", () => {
 describe("Wave 78 — Prometheus Configuration", () => {
   it("should have prometheus.yml with all Wave 78 scrape targets", async () => {
     const fs = await import("fs");
-    const config = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/infra/prometheus/prometheus.yml", "utf-8");
+    const config = fs.readFileSync(`${__dirname}/../infra/prometheus/prometheus.yml`, "utf-8");
     const jobs = ["paygate-digital-gold", "paygate-mutual-funds", "paygate-pension-nps", "paygate-cashback-rewards", "paygate-soundbox", "paygate-wealth-management", "paygate-emi-service", "paygate-bulk-collections", "paygate-salary-accounts", "paygate-intl-remittance"];
     for (const job of jobs) {
       expect(config).toContain(job);
@@ -253,7 +257,7 @@ describe("Wave 78 — Prometheus Configuration", () => {
 
   it("should have alert-rules.yaml with Wave 78 alert rules", async () => {
     const fs = await import("fs");
-    const rules = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/infra/prometheus/alert-rules.yaml", "utf-8");
+    const rules = fs.readFileSync(`${__dirname}/../infra/prometheus/alert-rules.yaml`, "utf-8");
     expect(rules).toContain("DigitalGoldServiceDown");
     expect(rules).toContain("MutualFundsServiceDown");
     expect(rules).toContain("PensionNPSServiceDown");
@@ -264,7 +268,7 @@ describe("Wave 78 — Prometheus Configuration", () => {
 
   it("should have Wave 78 Grafana dashboard JSON", async () => {
     const fs = await import("fs");
-    const path = "/home/ubuntu/paygate-merchant-portal/infra/grafana/paygate-wave78-dashboard.json";
+    const path = `${__dirname}/../infra/grafana/paygate-wave78-dashboard.json`;
     expect(fs.existsSync(path)).toBe(true);
     const dashboard = JSON.parse(fs.readFileSync(path, "utf-8"));
     expect(dashboard.title).toContain("Wave 78");
@@ -276,7 +280,7 @@ describe("Wave 78 — Prometheus Configuration", () => {
 describe("Wave 78 — Docker Compose", () => {
   it("should have all Wave 78 services in docker-compose.prod.yml", async () => {
     const fs = await import("fs");
-    const compose = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/infra/docker-compose.prod.yml", "utf-8");
+    const compose = fs.readFileSync(`${__dirname}/../infra/docker-compose.prod.yml`, "utf-8");
     // Use actual service names from docker-compose (may differ from python-services dir names)
     const services = ["digital-gold-service", "mutual-funds-service", "pension-service", "cashback-service", "voice-payments-service", "wealth-service", "emi-service", "bulk-collections-service", "salary-service", "intl-remittance-service"];
     for (const svc of services) {
@@ -289,7 +293,7 @@ describe("Wave 78 — Docker Compose", () => {
 describe("Wave 78 — Kubernetes Manifests", () => {
   it("should have Wave 78 services in k8s microservices-deployment.yaml", async () => {
     const fs = await import("fs");
-    const k8s = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/k8s/microservices-deployment.yaml", "utf-8");
+    const k8s = fs.readFileSync(`${__dirname}/../k8s/microservices-deployment.yaml`, "utf-8");
     expect(k8s).toContain("digital-gold");
     expect(k8s).toContain("pension-service");
   });
@@ -299,25 +303,25 @@ describe("Wave 78 — Kubernetes Manifests", () => {
 describe("Wave 78 — newFeaturesRouter Webhook Integration", () => {
   it("should import webhookEventHooks in newFeaturesRouter", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/server/newFeaturesRouter.ts", "utf-8");
+    const content = fs.readFileSync(`${__dirname}/../server/newFeaturesRouter.ts`, "utf-8");
     expect(content).toContain("webhookEventHooks");
   });
 
   it("should call onGoldPurchase in buyGold mutation", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/server/newFeaturesRouter.ts", "utf-8");
+    const content = fs.readFileSync(`${__dirname}/../server/newFeaturesRouter.ts`, "utf-8");
     expect(content).toContain("onGoldPurchase");
   });
 
   it("should call onRemittanceInitiated in initiateTransfer mutation", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/server/newFeaturesRouter.ts", "utf-8");
+    const content = fs.readFileSync(`${__dirname}/../server/newFeaturesRouter.ts`, "utf-8");
     expect(content).toContain("onRemittanceInitiated");
   });
 
   it("should call EMI webhook hook in initiateEMI mutation", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/server/newFeaturesRouter.ts", "utf-8");
+    const content = fs.readFileSync(`${__dirname}/../server/newFeaturesRouter.ts`, "utf-8");
     // The hook is named onEmiContractCreated
     expect(content.includes("onEmiContractCreated") || content.includes("onEMIInitiation") || content.includes("onEMIInitiated")).toBe(true);
   });
@@ -327,18 +331,18 @@ describe("Wave 78 — newFeaturesRouter Webhook Integration", () => {
 describe("Wave 78 — Billing Page", () => {
   it("should have Billing.tsx page", async () => {
     const fs = await import("fs");
-    expect(fs.existsSync("/home/ubuntu/paygate-merchant-portal/client/src/pages/Billing.tsx")).toBe(true);
+    expect(fs.existsSync(`${__dirname}/../client/src/pages/Billing.tsx`)).toBe(true);
   });
 
   it("Billing.tsx should reference portalBilling tRPC procedures", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/client/src/pages/Billing.tsx", "utf-8");
+    const content = fs.readFileSync(`${__dirname}/../client/src/pages/Billing.tsx`, "utf-8");
     expect(content).toContain("portalBilling");
   });
 
   it("should have /billing route in App.tsx", async () => {
     const fs = await import("fs");
-    const content = fs.readFileSync("/home/ubuntu/paygate-merchant-portal/client/src/App.tsx", "utf-8");
+    const content = fs.readFileSync(`${__dirname}/../client/src/App.tsx`, "utf-8");
     expect(content).toContain("/billing");
     expect(content).toContain("Billing");
   });

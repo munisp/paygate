@@ -66,14 +66,14 @@ func isLegalTransition(from, to string) bool {
 
 // ChargebackTimelineEntry records a single state change in the lifecycle.
 type ChargebackTimelineEntry struct {
-	ID          string    `json:"id"`
-	ChargebackID string   `json:"chargeback_id"`
-	FromState   string    `json:"from_state"`
-	ToState     string    `json:"to_state"`
-	ActorID     string    `json:"actor_id"`
-	Notes       string    `json:"notes"`
-	StripeRef   string    `json:"stripe_ref,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	ChargebackID string    `json:"chargeback_id"`
+	FromState    string    `json:"from_state"`
+	ToState      string    `json:"to_state"`
+	ActorID      string    `json:"actor_id"`
+	Notes        string    `json:"notes"`
+	StripeRef    string    `json:"stripe_ref,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // ─── AdvanceChargebackState ───────────────────────────────────────────────────
@@ -177,7 +177,7 @@ func AdvanceChargebackState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish Kafka event
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
 		"chargeback_id": chargebackID,
 		"from_state":    currentState,
@@ -188,7 +188,7 @@ func AdvanceChargebackState(w http.ResponseWriter, r *http.Request) {
 		"stripe_ref":    req.StripeRef,
 		"timestamp":     time.Now().UTC(),
 	})
-	_ = kc.Publish(ctx, "chargeback.state_changed", string(eventData))
+	_ = kc.Publish(ctx, "chargeback.state_changed", "", string(eventData))
 
 	// Append to timeline in Redis list
 	timelineKey := fmt.Sprintf("chargeback:timeline:%s", chargebackID)
@@ -203,9 +203,9 @@ func AdvanceChargebackState(w http.ResponseWriter, r *http.Request) {
 	)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"chargeback_id": chargebackID,
-		"from_state":    currentState,
-		"to_state":      req.ToState,
+		"chargeback_id":  chargebackID,
+		"from_state":     currentState,
+		"to_state":       req.ToState,
 		"timeline_entry": entry,
 	})
 }
@@ -244,7 +244,7 @@ func SyncChargebackFromStripe(w http.ResponseWriter, r *http.Request) {
 	internalState := mapStripeStatusToInternal(stripeDispute.Status)
 
 	// Publish sync event to Kafka
-	kc := kafka.Get()
+	kc := kafka.GetProducer()
 	eventData, _ := json.Marshal(map[string]any{
 		"chargeback_id":     chargebackID,
 		"stripe_dispute_id": req.StripeDisputeID,
@@ -254,7 +254,7 @@ func SyncChargebackFromStripe(w http.ResponseWriter, r *http.Request) {
 		"stripe_amount":     stripeDispute.Amount,
 		"synced_at":         time.Now().UTC(),
 	})
-	_ = kc.Publish(ctx, "chargeback.stripe_synced", string(eventData))
+	_ = kc.Publish(ctx, "chargeback.stripe_synced", "", string(eventData))
 
 	slog.Info("[chargeback] Stripe sync complete",
 		"chargeback_id", chargebackID,

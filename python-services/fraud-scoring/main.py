@@ -95,8 +95,71 @@ LARGE_AMOUNT_KOBO = 1_000_000_00  # 1M NGN
 # USDC thresholds
 USDC_LARGE_PAYOUT_LAMPORTS = 10_000 * 1_000_000  # 10,000 USDC
 USDC_VERY_LARGE_PAYOUT_LAMPORTS = 100_000 * 1_000_000  # 100,000 USDC
-# Known high-risk Solana wallets (placeholder — populate from OFAC SDN list)
-USDC_SANCTIONED_WALLETS: set[str] = set()
+
+
+def _load_sanctioned_wallets() -> set[str]:
+    """Load the OFAC / internal USDC wallet blocklist at startup.
+
+    Sources (merged):
+      SANCTIONED_WALLETS       — comma-separated wallet addresses
+      SANCTIONED_WALLETS_FILE  — path to a newline-delimited blocklist file
+
+    FAIL-CLOSED semantics:
+      * If a source is CONFIGURED but cannot be loaded (missing/unreadable
+        file), startup raises — a half-loaded sanctions screen is worse than
+        a down service.
+      * An EMPTY blocklist is only legal when the operator explicitly sets
+        SANCTIONS_SCREENING_DISABLED=1. Otherwise a configured-but-empty
+        screen would silently let sanctioned-wallet payouts through while
+        appearing to exist.
+    """
+    disabled = os.getenv("SANCTIONS_SCREENING_DISABLED", "").lower() in ("1", "true", "yes")
+    wallets: set[str] = set()
+
+    env_list = os.getenv("SANCTIONED_WALLETS", "")
+    if env_list.strip():
+        wallets.update(w.strip() for w in env_list.split(",") if w.strip())
+
+    file_path = os.getenv("SANCTIONED_WALLETS_FILE", "")
+    if file_path:
+        if not os.path.exists(file_path):
+            raise RuntimeError(
+                f"SANCTIONED_WALLETS_FILE={file_path} is configured but does not exist — "
+                "refusing to start with an unloadable sanctions list (fail closed)"
+            )
+        try:
+            with open(file_path, "r", encoding="utf-8") as fh:
+                wallets.update(
+                    line.strip() for line in fh if line.strip() and not line.startswith("#")
+                )
+        except OSError as e:
+            raise RuntimeError(
+                f"SANCTIONED_WALLETS_FILE={file_path} could not be read: {e} — "
+                "refusing to start with an unloadable sanctions list (fail closed)"
+            ) from e
+
+    if not wallets:
+        if disabled:
+            logger.warning(
+                "SANCTIONS SCREENING EXPLICITLY DISABLED (SANCTIONS_SCREENING_DISABLED=1): "
+                "USDC payouts will NOT be screened against a wallet blocklist."
+            )
+        else:
+            logger.error(
+                "USDC sanctions blocklist is EMPTY and SANCTIONS_SCREENING_DISABLED is not set. "
+                "Sanctioned-wallet blocking is INERT. Configure SANCTIONED_WALLETS / "
+                "SANCTIONED_WALLETS_FILE, or explicitly set SANCTIONS_SCREENING_DISABLED=1 "
+                "to acknowledge running without a sanctions screen."
+            )
+    else:
+        logger.info(f"Loaded {len(wallets)} sanctioned USDC wallet(s) into the blocklist")
+    return wallets
+
+
+# OFAC / internal blocklist of sanctioned Solana wallets. Loaded at startup
+# from env/file; EMPTY ONLY WHEN EXPLICITLY DISABLED (see _load_sanctioned_wallets).
+USDC_SANCTIONED_WALLETS: set[str] = _load_sanctioned_wallets()
+SANCTIONS_SCREENING_ACTIVE = bool(USDC_SANCTIONED_WALLETS)
 
 
 def score_transaction(tx: TransactionInput) -> ScoreResponse:
@@ -140,6 +203,10 @@ def score_transaction(tx: TransactionInput) -> ScoreResponse:
     # ─── USDC payout-specific rules ───────────────────────────────────────────
     if tx.channel == "usdc_payout":
         # Sanctioned wallet check (OFAC / internal blocklist)
+        if not SANCTIONS_SCREENING_ACTIVE:
+            # Transparency: the screen is configured-off, so this payout was
+            # NOT checked against any sanctions blocklist.
+            signals.append("usdc_sanctions_screening_disabled")
         if tx.usdc_recipient_wallet and tx.usdc_recipient_wallet in USDC_SANCTIONED_WALLETS:
             signals.append("usdc_sanctioned_wallet")
             score += 100  # Always block
@@ -209,7 +276,13 @@ app = FastAPI(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "fraud-scoring"}
+    return {
+        "status": "ok",
+        "service": "fraud-scoring",
+        "engine": "rule-based",  # no ML model is loaded — see MODEL_PATH note
+        "sanctions_screening_active": SANCTIONS_SCREENING_ACTIVE,
+        "sanctioned_wallets_loaded": len(USDC_SANCTIONED_WALLETS),
+    }
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
@@ -241,6 +314,34 @@ async def batch_score(req: BatchScoreRequest):
     results = [score_transaction(tx) for tx in req.transactions]
     duration_ms = int((time.time() - start) * 1000)
     return BatchScoreResponse(results=results, total=len(results), duration_ms=duration_ms)
+
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 if __name__ == "__main__":

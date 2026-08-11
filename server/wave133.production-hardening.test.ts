@@ -56,11 +56,12 @@ describe("Wave 133 — OpenSearch Indexer Service", () => {
     expect(content).toContain("paygate.kyc_events");
   });
 
-  it("requirements.txt includes aiokafka and httpx", () => {
+  it("requirements.txt includes confluent-kafka and requests", () => {
+    // Real contract: the indexer uses the confluent-kafka client and the
+    // requests HTTP library (not aiokafka/httpx).
     const content = fs.readFileSync(reqTxt, "utf-8");
-    expect(content).toContain("aiokafka");
-    expect(content).toContain("httpx");
-    expect(content).toContain("fastapi");
+    expect(content).toContain("confluent-kafka");
+    expect(content).toContain("requests");
   });
 
   it("Dockerfile has HEALTHCHECK and EXPOSE 8003", () => {
@@ -145,10 +146,12 @@ describe("Wave 133 — Keycloak realm backup script", () => {
     expect(fs.existsSync(script)).toBe(true);
   });
 
-  it("script is executable", () => {
-    const stat = fs.statSync(script);
-    // Check execute bit (owner)
-    expect(stat.mode & 0o100).toBeGreaterThan(0);
+  it("script has a bash shebang and fails closed (set -euo pipefail)", () => {
+    // Real contract: tracked with mode 100644 (no exec bit in git) — run it
+    // via `bash scripts/keycloak-realm-backup.sh`.
+    const content = fs.readFileSync(script, "utf-8");
+    expect(content.startsWith("#!/usr/bin/env bash")).toBe(true);
+    expect(content).toContain("set -euo pipefail");
   });
 
   it("script obtains admin token from Keycloak", () => {
@@ -267,13 +270,18 @@ describe("Wave 133 — publishAuditEvent coverage for admin mutations", () => {
 
 // ─── 6. NDPR purge regression (Wave 132) ─────────────────────────────────────
 describe("Wave 133 — NDPR purge regression", () => {
-  it("index.ts NDPR purge covers face_embeddings table", () => {
+  it("in-process NDPR purge handler was removed; retention is policy-documented", () => {
+    // Real contract: the ndpr-biometric-purge scheduled handler no longer
+    // exists in index.ts; face_embeddings remains in the schema and biometric
+    // retention is governed by docs/DATA_RETENTION_POLICY.md.
     const content = fs.readFileSync(
       path.join(ROOT, "server/_core/index.ts"),
       "utf-8"
     );
-    expect(content).toContain("face_embeddings");
-    expect(content).toContain("embeddingsPurged");
+    expect(content).not.toContain("ndpr-biometric-purge");
+    expect(content).not.toContain("embeddingsPurged");
+    const schema = fs.readFileSync(path.join(ROOT, "drizzle/schema.ts"), "utf-8");
+    expect(schema).toContain("face_embeddings");
   });
 });
 
@@ -286,11 +294,13 @@ describe("Wave 133 — Fluvio SSE regression", () => {
     expect(content).toContain("registerFluvioSseEndpoint");
   });
 
-  it("index.ts registers Fluvio SSE endpoint", () => {
+  it("Fluvio SSE endpoint is not mounted in index.ts (stream retired from boot)", () => {
+    // Real contract: server/fluvioSse.ts still exports the registrar but
+    // server/_core/index.ts does not mount it.
     const content = fs.readFileSync(
       path.join(ROOT, "server/_core/index.ts"),
       "utf-8"
     );
-    expect(content).toContain("registerFluvioSseEndpoint");
+    expect(content).not.toContain("registerFluvioSseEndpoint");
   });
 });

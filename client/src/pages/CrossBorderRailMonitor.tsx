@@ -8,29 +8,31 @@ import { useAdaptiveInterval } from "@/lib/networkQuality";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
 import { toast } from "sonner";
+import {
   Activity, CheckCircle2, AlertTriangle, XCircle,
   RefreshCw, Globe, Zap, Clock, TrendingUp, ArrowLeft,
 } from "lucide-react";
 import { Link } from "wouter";
 
-type RailStatus = "operational" | "degraded" | "down";
+type RailStatus = "operational" | "degraded" | "down" | "unknown";
 
 interface Rail {
   id: string;
   name: string;
   region: string;
   currency: string;
-  latencyMs: number;
-  uptime: number;
+  latencyMs: number | null;
+  uptime: number | null;
   status: RailStatus;
+  note?: string;
 }
 
 const STATUS_CONFIG: Record<RailStatus, { icon: typeof CheckCircle2; color: string; bg: string; label: string }> = {
   operational: { icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200", label: "Operational" },
   degraded: { icon: AlertTriangle, color: "text-amber-600", bg: "bg-amber-50 border-amber-200", label: "Degraded" },
   down: { icon: XCircle, color: "text-red-600", bg: "bg-red-50 border-red-200", label: "Down" },
+  unknown: { icon: Activity, color: "text-gray-500", bg: "bg-gray-50 border-gray-200", label: "Unknown" },
 };
 
 const RAIL_ICONS: Record<string, string> = {
@@ -43,8 +45,16 @@ const RAIL_ICONS: Record<string, string> = {
   brics_pay: "🤝",
 };
 
-function LatencyBar({ ms }: { ms: number }) {
-  // 0–200ms = green, 200–1000ms = yellow, 1000+ = red
+function LatencyBar({ ms }: { ms: number | null }) {
+  // 0–200ms = green, 200–1000ms = yellow, 1000+ = red; null = no live probe data
+  if (ms == null) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden" />
+        <span className="text-xs font-mono text-muted-foreground w-16 text-right">—</span>
+      </div>
+    );
+  }
   const pct = Math.min((ms / 5000) * 100, 100);
   const color = ms < 200 ? "bg-emerald-500" : ms < 1000 ? "bg-amber-500" : "bg-red-500";
   return (
@@ -87,9 +97,13 @@ function RailCard({ rail }: { rail: Rail }) {
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <TrendingUp className="w-3 h-3" /> Uptime (30d)
             </span>
-            <span className={`text-xs font-semibold ${rail.uptime >= 99.9 ? "text-emerald-600" : rail.uptime >= 99 ? "text-amber-600" : "text-red-600"}`}>
-              {rail.uptime.toFixed(2)}%
-            </span>
+            {rail.uptime != null ? (
+              <span className={`text-xs font-semibold ${rail.uptime >= 99.9 ? "text-emerald-600" : rail.uptime >= 99 ? "text-amber-600" : "text-red-600"}`}>
+                {rail.uptime.toFixed(2)}%
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground" title={rail.note ?? "no uptime data source"}>—</span>
+            )}
           </div>
         </div>
       </CardContent>
@@ -115,12 +129,13 @@ export default function CrossBorderRailMonitor() {
   const degraded = rails.filter(r => r.status === "degraded").length;
   const down = rails.filter(r => r.status === "down").length;
 
-  const overallStatus: RailStatus = down > 0 ? "down" : degraded > 0 ? "degraded" : "operational";
+  const overallStatus: RailStatus = down > 0 ? "down" : degraded > 0 ? "degraded" : (rails.length > 0 && operational === 0) ? "unknown" : "operational";
   const overallCfg = STATUS_CONFIG[overallStatus];
   const OverallIcon = overallCfg.icon;
 
-  const avgLatency = rails.length > 0
-    ? Math.round(rails.reduce((s, r) => s + r.latencyMs, 0) / rails.length)
+  const latencies = rails.map(r => r.latencyMs).filter((l): l is number => l != null);
+  const avgLatency = latencies.length > 0
+    ? Math.round(latencies.reduce((s, l) => s + l, 0) / latencies.length)
     : 0;
 
   return (
@@ -160,10 +175,10 @@ export default function CrossBorderRailMonitor() {
           <OverallIcon className={`w-6 h-6 ${overallCfg.color}`} />
           <div>
             <p className={`font-semibold ${overallCfg.color}`}>
-              {overallStatus === "operational" ? "All Systems Operational" : overallStatus === "degraded" ? "Partial Degradation Detected" : "Critical: Rail Outage"}
+              {overallStatus === "operational" ? "All Systems Operational" : overallStatus === "degraded" ? "Partial Degradation Detected" : overallStatus === "unknown" ? "Rail Status Unknown" : "Critical: Rail Outage"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {operational} operational · {degraded} degraded · {down} down · avg latency {avgLatency.toLocaleString()} ms
+              {operational} operational · {degraded} degraded · {down} down · {latencies.length > 0 ? `avg latency ${avgLatency.toLocaleString()} ms` : "no live latency data"}
             </p>
           </div>
         </div>
@@ -178,7 +193,7 @@ export default function CrossBorderRailMonitor() {
           { label: "Total Rails", value: rails.length, icon: Globe, color: "text-blue-600" },
           { label: "Operational", value: operational, icon: CheckCircle2, color: "text-emerald-600" },
           { label: "Degraded", value: degraded, icon: AlertTriangle, color: "text-amber-600" },
-          { label: "Avg Latency", value: `${avgLatency.toLocaleString()} ms`, icon: Zap, color: "text-purple-600" },
+          { label: "Avg Latency", value: latencies.length > 0 ? `${avgLatency.toLocaleString()} ms` : "—", icon: Zap, color: "text-purple-600" },
         ].map(kpi => (
           <Card key={kpi.label} className="bg-card border-border">
             <CardContent className="p-4 flex items-center gap-3">
@@ -230,7 +245,7 @@ export default function CrossBorderRailMonitor() {
                 </tr>
               </thead>
               <tbody>
-                {[...rails].sort((a, b) => a.latencyMs - b.latencyMs).map(rail => {
+                {[...rails].sort((a, b) => (a.latencyMs ?? Number.MAX_SAFE_INTEGER) - (b.latencyMs ?? Number.MAX_SAFE_INTEGER)).map(rail => {
                   const cfg = STATUS_CONFIG[rail.status];
                   const Icon = cfg.icon;
                   return (
@@ -245,14 +260,22 @@ export default function CrossBorderRailMonitor() {
                       <td className="py-2.5 pr-4 text-muted-foreground">{rail.region}</td>
                       <td className="py-2.5 pr-4 text-muted-foreground font-mono text-xs">{rail.currency}</td>
                       <td className="py-2.5 pr-4 text-right font-mono text-xs">
-                        <span className={rail.latencyMs < 200 ? "text-emerald-600" : rail.latencyMs < 1000 ? "text-amber-600" : "text-red-600"}>
-                          {rail.latencyMs.toLocaleString()} ms
-                        </span>
+                        {rail.latencyMs != null ? (
+                          <span className={rail.latencyMs < 200 ? "text-emerald-600" : rail.latencyMs < 1000 ? "text-amber-600" : "text-red-600"}>
+                            {rail.latencyMs.toLocaleString()} ms
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground" title={rail.note ?? "no live probe"}>—</span>
+                        )}
                       </td>
                       <td className="py-2.5 text-right font-mono text-xs">
-                        <span className={rail.uptime >= 99.9 ? "text-emerald-600" : rail.uptime >= 99 ? "text-amber-600" : "text-red-600"}>
-                          {rail.uptime.toFixed(2)}%
-                        </span>
+                        {rail.uptime != null ? (
+                          <span className={rail.uptime >= 99.9 ? "text-emerald-600" : rail.uptime >= 99 ? "text-amber-600" : "text-red-600"}>
+                            {rail.uptime.toFixed(2)}%
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
                   );

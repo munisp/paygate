@@ -47,20 +47,20 @@ type mojaParty struct {
 }
 
 type mojaQuoteRequest struct {
-	QuoteID            string    `json:"quoteId"`
-	TransactionID      string    `json:"transactionId"`
-	Payer              mojaParty `json:"payer"`
-	Payee              mojaParty `json:"payee"`
-	AmountType         string    `json:"amountType"` // SEND | RECEIVE
-	Amount             mojaMoney `json:"amount"`
-	TransactionType    mojaTransactionType `json:"transactionType"`
-	Note               string    `json:"note,omitempty"`
+	QuoteID         string              `json:"quoteId"`
+	TransactionID   string              `json:"transactionId"`
+	Payer           mojaParty           `json:"payer"`
+	Payee           mojaParty           `json:"payee"`
+	AmountType      string              `json:"amountType"` // SEND | RECEIVE
+	Amount          mojaMoney           `json:"amount"`
+	TransactionType mojaTransactionType `json:"transactionType"`
+	Note            string              `json:"note,omitempty"`
 }
 
 type mojaTransactionType struct {
-	Scenario    string `json:"scenario"`    // TRANSFER
-	SubScenario string `json:"subScenario,omitempty"`
-	Initiator   string `json:"initiator"`   // PAYER
+	Scenario      string `json:"scenario"` // TRANSFER
+	SubScenario   string `json:"subScenario,omitempty"`
+	Initiator     string `json:"initiator"`     // PAYER
 	InitiatorType string `json:"initiatorType"` // BUSINESS | CONSUMER
 }
 
@@ -74,19 +74,19 @@ type mojaQuoteResponse struct {
 }
 
 type mojaTransferRequest struct {
-	TransferID     string    `json:"transferId"`
-	PayerFSP       string    `json:"payerFsp"`
-	PayeeFSP       string    `json:"payeeFsp"`
-	Amount         mojaMoney `json:"amount"`
-	ILPPacket      string    `json:"ilpPacket"`
-	Condition      string    `json:"condition"`
-	Expiration     string    `json:"expiration"`
+	TransferID string    `json:"transferId"`
+	PayerFSP   string    `json:"payerFsp"`
+	PayeeFSP   string    `json:"payeeFsp"`
+	Amount     mojaMoney `json:"amount"`
+	ILPPacket  string    `json:"ilpPacket"`
+	Condition  string    `json:"condition"`
+	Expiration string    `json:"expiration"`
 }
 
 type mojaTransferResponse struct {
-	TransferID  string `json:"transferId"`
-	TransferState string `json:"transferState"` // RECEIVED | RESERVED | COMMITTED | ABORTED
-	Fulfilment  string `json:"fulfilment,omitempty"`
+	TransferID         string `json:"transferId"`
+	TransferState      string `json:"transferState"` // RECEIVED | RESERVED | COMMITTED | ABORTED
+	Fulfilment         string `json:"fulfilment,omitempty"`
 	CompletedTimestamp string `json:"completedTimestamp,omitempty"`
 }
 
@@ -179,7 +179,7 @@ func (a *ActivitySet) GetCrossBorderQuoteReal(ctx context.Context, input CrossBo
 		return "quote_" + input.TransferID, nil
 	}
 
-		quoteID := fmt.Sprintf("qid_%s_%d", input.TransferID, time.Now().UnixMilli())
+	quoteID := fmt.Sprintf("qid_%s_%d", input.TransferID, time.Now().UnixMilli())
 	_ = time.Now().UTC().Add(30 * time.Second).Format(time.RFC3339) // expiration for future use
 	reqBody := mojaQuoteRequest{
 		QuoteID:       quoteID,
@@ -250,7 +250,12 @@ func (a *ActivitySet) ExecuteMojalloopTransferReal(ctx context.Context, input Cr
 	}
 
 	if mojaloopURL == "" {
-		slog.Warn("[mojaloop] ExecuteMojalloopTransferReal: MOJALOOP_URL not set — simulating transfer",
+		if !allowSimulation() {
+			slog.Error("[mojaloop] ExecuteMojalloopTransferReal: MOJALOOP_URL not set and ALLOW_SIMULATION != true — failing (no fake transfer)",
+				"transfer_id", input.TransferID)
+			return fmt.Errorf("ExecuteMojalloopTransferReal: MOJALOOP_URL not configured")
+		}
+		slog.Warn("[mojaloop] ExecuteMojalloopTransferReal: ALLOW_SIMULATION=true — SIMULATED transfer, NO MONEY MOVED",
 			"transfer_id", input.TransferID)
 		return nil
 	}

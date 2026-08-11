@@ -8,7 +8,7 @@
  * the PostgreSQL operational projection and orchestrates the settlement workflow.
  */
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { pbacProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   settlementWindows,
@@ -24,7 +24,7 @@ import { TRPCError } from "@trpc/server";
 export const nexthubSettlementRouter = router({
 
   /** List all settlement windows with pagination */
-  listWindows: protectedProcedure
+  listWindows: pbacProcedure("trigger_settlement")
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
@@ -61,7 +61,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Get a single settlement window with its net positions */
-  getWindow: protectedProcedure
+  getWindow: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -84,7 +84,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Open a new settlement window */
-  openWindow: protectedProcedure
+  openWindow: pbacProcedure("trigger_settlement")
     .input(z.object({
       windowType: z.enum(["RTGS", "DNS_INTRADAY", "DNS_EOD"]),
       currency: z.string().default("NGN"),
@@ -119,7 +119,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Close a settlement window and compute net positions */
-  closeWindow: protectedProcedure
+  closeWindow: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -205,7 +205,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Trigger settlement for a closed window (posts to TigerBeetle + CBN rail) */
-  settleWindow: protectedProcedure
+  settleWindow: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -238,7 +238,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** Get settlement statistics for the dashboard */
-  getStats: protectedProcedure
+  getStats: pbacProcedure("trigger_settlement")
     .query(async () => {
       const db = await getDb();
 
@@ -254,7 +254,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** createWindow — alias for openWindow with extended input */
-  createWindow: protectedProcedure
+  createWindow: pbacProcedure("trigger_settlement")
     .input(z.object({
       windowType: z.enum(["RTGS", "ACH", "INSTANT", "BATCH", "DNS_INTRADAY", "DNS_EOD", "DEFERRED_NET", "GROSS"]),
       currency: z.string().default("NGN"),
@@ -273,7 +273,7 @@ export const nexthubSettlementRouter = router({
     }),
 
   /** getNetPositions — list net positions for a settlement window */
-  getNetPositions: protectedProcedure
+  getNetPositions: pbacProcedure("trigger_settlement")
     .input(z.object({ windowId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();

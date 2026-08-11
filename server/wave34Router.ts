@@ -588,47 +588,31 @@ export const consumerFinancialRouter = router({
         grams: z.number().min(0.001).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        // Try middleware bridge first
+        // Gold purchases MUST go through the real provider bridge — never book
+        // DB holdings at a hardcoded price.
         if (isBridgeAvailable()) {
           const result = await buyDigitalGoldViaMiddleware(ctx.user.id, ctx.user.id, input.amountKobo / 100);
           if (result) return { success: true, grams: result.grams, amountKobo: input.amountKobo, txId: result.txId };
         }
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-
-        const pricePerGram = 8500000; // ₦850/gram in kobo
-        const grams = input.grams ?? input.amountKobo / pricePerGram;
-
-        await db.execute(sql`
-          INSERT INTO digital_gold_holdings (id, user_id, grams, purchase_price_kobo, current_value_kobo, status, created_at)
-          VALUES (${nanoid("gold_")}, ${ctx.user.id}, ${grams}, ${input.amountKobo}, ${input.amountKobo}, 'active', NOW())
-          ON CONFLICT DO NOTHING
-        `);
-
-        return { success: true, grams, amountKobo: input.amountKobo };
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Digital gold purchase is temporarily unavailable (gold provider unreachable). No purchase was made.",
+        });
       }),
 
     sell: protectedProcedure
       .input(z.object({ holdingId: z.string(), grams: z.number().min(0.001) }))
       .mutation(async ({ input, ctx }) => {
-        // Try middleware bridge first
+        // Gold sales MUST go through the real provider bridge — never settle at
+        // a hardcoded price.
         if (isBridgeAvailable()) {
           const result = await sellDigitalGoldViaMiddleware(ctx.user.id, ctx.user.id, input.grams);
           if (result) return { success: true, proceedsKobo: result.amountNGN * 100, txId: result.txId };
         }
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-
-        const pricePerGram = 8330000; // sell price in kobo
-        const proceedsKobo = Math.round(input.grams * pricePerGram);
-
-        await db.execute(sql`
-          UPDATE digital_gold_holdings
-          SET status = 'sold', sold_at = NOW(), sold_value_kobo = ${proceedsKobo}
-          WHERE id = ${input.holdingId} AND user_id = ${ctx.user.id}
-        `);
-
-        return { success: true, proceedsKobo };
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Digital gold sale is temporarily unavailable (gold provider unreachable). No sale was made.",
+        });
       }),
   }),
 

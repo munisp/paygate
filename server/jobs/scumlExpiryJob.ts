@@ -22,7 +22,7 @@ import { publishEvent, KAFKA_TOPICS } from "../kafkaClient";
 import { logger } from "../logger";
 // Cron authentication uses direct header check instead of sdk
 import { scumlChecks } from "../../drizzle/schema";
-import { and, lte, eq, gte, sql } from "drizzle-orm";
+import { and, lte, eq, gte, inArray } from "drizzle-orm";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WARNING_DAYS = 30;  // notify when expiry is within 30 days
@@ -153,7 +153,7 @@ export async function scumlExpiryJobHandler(req: Request, res: Response) {
         .set({ status: "error", flagReason: "Registration lapsed — renewal required" })
         .where(
           and(
-            sql`${scumlChecks.id} = ANY(${sql.raw(`ARRAY[${expiredIds.map(id => `'${id}'`).join(",")}]`)})`,
+            inArray(scumlChecks.id, expiredIds),
             eq(scumlChecks.status, "cleared"),
           )
         );

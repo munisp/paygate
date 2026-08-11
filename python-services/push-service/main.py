@@ -154,6 +154,10 @@ class DispatchResult(BaseModel):
     failure_count: int
     total_tokens: int
     invalid_tokens: list[str] = Field(default_factory=list)
+    # True when NO real delivery happened (FCM unconfigured). Callers and
+    # metrics must treat simulated=True as delivery failure — never success.
+    simulated: bool = False
+    detail: Optional[str] = None
 
 # ─── FCM dispatch ─────────────────────────────────────────────────────────────
 def send_fcm_multicast(tokens: list[str], notification: PushNotification, data: dict) -> DispatchResult:
@@ -162,8 +166,18 @@ def send_fcm_multicast(tokens: list[str], notification: PushNotification, data: 
         return DispatchResult(success_count=0, failure_count=0, total_tokens=0)
     app = get_fcm_app()
     if app is None:
-        logger.info(f"[FCM] Simulated push to {len(tokens)} tokens: {notification.title}")
-        return DispatchResult(success_count=len(tokens), failure_count=0, total_tokens=len(tokens))
+        # FAIL LOUD: report total failure — never fabricate delivery of
+        # debit/fraud/OTP alerts that were never sent.
+        logger.error(
+            f"[FCM] UNCONFIGURED — push to {len(tokens)} tokens NOT delivered: {notification.title}"
+        )
+        return DispatchResult(
+            success_count=0,
+            failure_count=len(tokens),
+            total_tokens=len(tokens),
+            simulated=True,
+            detail="FCM is not configured (no Firebase credentials); notification was NOT delivered",
+        )
     try:
         from firebase_admin import messaging
         # Convert data values to strings (FCM requirement)
@@ -217,8 +231,14 @@ def send_fcm_topic(topic: str, notification: PushNotification, data: dict) -> Di
     """Send FCM topic message."""
     app = get_fcm_app()
     if app is None:
-        logger.info(f"[FCM] Simulated topic push to {topic}: {notification.title}")
-        return DispatchResult(success_count=1, failure_count=0, total_tokens=1)
+        logger.error(f"[FCM] UNCONFIGURED — topic push to {topic} NOT delivered: {notification.title}")
+        return DispatchResult(
+            success_count=0,
+            failure_count=1,
+            total_tokens=1,
+            simulated=True,
+            detail="FCM is not configured (no Firebase credentials); topic message was NOT delivered",
+        )
     try:
         from firebase_admin import messaging
         str_data = {k: str(v) for k, v in data.items()}
@@ -282,7 +302,13 @@ def verify_api_key(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Push service starting up")
-    get_fcm_app()  # Eager init
+    if get_fcm_app() is None:
+        # Loud startup alert: every notification will report simulated=True /
+        # failure_count=total until Firebase credentials are configured.
+        logger.error(
+            "FCM IS UNCONFIGURED (no FIREBASE_CREDENTIALS_JSON / FIREBASE_CREDENTIALS / ADC). "
+            "Push notifications will NOT be delivered; dispatches report failure_count=total."
+        )
     yield
     logger.info("Push service shutting down")
 
@@ -319,7 +345,7 @@ async def notify_merchant(req: NotifyMerchantRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type, "merchant_id": req.merchant_id}
     result = send_fcm_multicast(tokens, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="merchant", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="merchant", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     logger.info(f"[push] merchant={req.merchant_id} sent={result.success_count} failed={result.failure_count}")
     return result
@@ -336,7 +362,7 @@ async def notify_consumer(req: NotifyConsumerRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type, "user_id": str(req.user_id)}
     result = send_fcm_multicast(tokens, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="consumer", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="consumer", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     logger.info(f"[push] consumer user_id={req.user_id} sent={result.success_count} failed={result.failure_count}")
     return result
@@ -348,7 +374,7 @@ async def notify_tokens(req: NotifyTokensRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type}
     result = send_fcm_multicast(req.tokens, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="tokens", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="tokens", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     return result
 
@@ -359,7 +385,7 @@ async def notify_topic(req: NotifyTopicRequest, request: Request):
     data = {**req.data, "notification_type": req.notification_type}
     result = send_fcm_topic(req.topic, req.notification, data)
     if METRICS_ENABLED:
-        PUSH_REQUESTS.labels(channel="topic", result="success" if result.failure_count == 0 else "partial").inc()
+        PUSH_REQUESTS.labels(channel="topic", result=("success" if result.failure_count == 0 and not result.simulated else ("failed" if result.success_count == 0 else "partial"))).inc()
         PUSH_LATENCY.observe(time.time() - start)
     return result
 
@@ -368,8 +394,13 @@ async def register_token(req: RegisterTokenRequest, request: Request):
     verify_api_key(request)
     db = await get_db()
     if db is None:
-        logger.info(f"[push] Simulated token registration: {req.device_id}")
-        return {"registered": True, "simulated": True}
+        # FAIL LOUD: a token that is not persisted can never receive pushes —
+        # pretending it registered breaks every future notification to this device.
+        logger.error(f"[push] Token registration FAILED (DB unavailable): device={req.device_id}")
+        raise HTTPException(
+            status_code=503,
+            detail="Token store unavailable — device token was NOT registered",
+        )
     try:
         await db.execute(
             """
@@ -396,7 +427,11 @@ async def deregister_token(req: DeregisterTokenRequest, request: Request):
     verify_api_key(request)
     db = await get_db()
     if db is None:
-        return {"deregistered": True, "simulated": True}
+        logger.error("[push] Token deregistration FAILED (DB unavailable)")
+        raise HTTPException(
+            status_code=503,
+            detail="Token store unavailable — device token was NOT deregistered",
+        )
     try:
         await db.execute(
             "UPDATE device_push_tokens SET is_active = false, updated_at = NOW() WHERE token = $1",
@@ -406,6 +441,34 @@ async def deregister_token(req: DeregisterTokenRequest, request: Request):
     except Exception as e:
         logger.error(f"[push] Token deregistration error: {e}")
         raise HTTPException(status_code=500, detail="Token deregistration failed")
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8096"))

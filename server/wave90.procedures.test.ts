@@ -195,11 +195,11 @@ describe("loyaltyMwRouter fallbacks (bridge unavailable)", () => {
     expect(result).toMatchObject({ balance: 0, currency: "NGN", pendingBalance: 0 });
   });
 
-  it("redeem returns success with newBalance=0 when bridge unavailable", async () => {
-    const result = await callMutation(loyaltyMwRouter, "redeem", { amountNGN: 500 });
-    expect(result).toMatchObject({ success: true, newBalance: 0 });
-    expect(typeof result.redemptionId).toBe("string");
-    expect(result.redemptionId.length).toBeGreaterThan(0);
+  it("redeem FAILS LOUD (SERVICE_UNAVAILABLE) when bridge unavailable — never fabricates a redemption", async () => {
+    // Real contract: wave90Router.bridgeUnavailable() throws instead of
+    // returning a fabricated redemptionId/newBalance.
+    await expect(callMutation(loyaltyMwRouter, "redeem", { amountNGN: 500 }))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
   it("evaluateTierPromotion returns bronze for 0 points", async () => {
@@ -245,15 +245,14 @@ describe("tenantBrandingApiRouter", () => {
     expect(result.customDomain).toBe("mybank.example.com");
   });
 
-  it("upsert returns saved=true with updatedAt", async () => {
-    const result = await callMutation(tenantBrandingApiRouter, "upsert", {
+  it("upsert FAILS LOUD (NOT_FOUND) when tenant does not exist — never reports saved:true without persisting", async () => {
+    // Real contract: upsert throws NOT_FOUND when getTenantBySlug finds no
+    // tenant (see wave90Router: "branding was NOT saved").
+    await expect(callMutation(tenantBrandingApiRouter, "upsert", {
       slug: "acme",
       primaryColor: "#123456",
       fontFamily: "Lato",
-    });
-    expect(result.saved).toBe(true);
-    expect(result.slug).toBe("acme");
-    expect(result.updatedAt).toBeInstanceOf(Date);
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("upsert calls updateTenantBranding when tenant exists", async () => {
@@ -270,56 +269,50 @@ describe("tenantBrandingApiRouter", () => {
 
 // ─── Gold Fallbacks ───────────────────────────────────────────────────────────
 
-describe("goldMwRouter fallbacks (bridge unavailable)", () => {
-  it("buy returns grams, rate, txId", async () => {
-    const result = await callMutation(goldMwRouter, "buy", { amountKobo: 95_000_00 });
-    expect(typeof result.grams).toBe("number");
-    expect(result.grams).toBeGreaterThan(0);
-    expect(typeof result.txId).toBe("string");
+// Real contract: gold procedures FAIL LOUD with SERVICE_UNAVAILABLE when the
+// bridge is unavailable — a fabricated trade/holding at a hardcoded price
+// must never be shown as real (wave90Router.bridgeUnavailable).
+describe("goldMwRouter fail-loud (bridge unavailable)", () => {
+  it("buy throws SERVICE_UNAVAILABLE instead of fabricating a trade", async () => {
+    await expect(callMutation(goldMwRouter, "buy", { amountKobo: 95_000_00 }))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("sell returns amountNGN and txId", async () => {
-    const result = await callMutation(goldMwRouter, "sell", { grams: 1 });
-    expect(result.amountNGN).toBeGreaterThan(0);
-    expect(typeof result.txId).toBe("string");
+  it("sell throws SERVICE_UNAVAILABLE instead of fabricating a sale", async () => {
+    await expect(callMutation(goldMwRouter, "sell", { grams: 1 }))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("holdings returns zero holdings", async () => {
-    const result = await callQuery(goldMwRouter, "holdings");
-    expect(result).toMatchObject({ grams: 0, valueNGN: 0, currentRate: 95000 });
+  it("holdings throws SERVICE_UNAVAILABLE instead of fabricating zero holdings", async () => {
+    await expect(callQuery(goldMwRouter, "holdings"))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("createSIP returns sipId and active status", async () => {
-    const result = await callMutation(goldMwRouter, "createSIP", {
+  it("createSIP throws SERVICE_UNAVAILABLE instead of fabricating a SIP", async () => {
+    await expect(callMutation(goldMwRouter, "createSIP", {
       monthlyAmountNGN: 10_000,
       dayOfMonth: 15,
-    });
-    expect(result.status).toBe("active");
-    expect(typeof result.sipId).toBe("string");
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 });
 
 // ─── Remittance Fallbacks ─────────────────────────────────────────────────────
 
-describe("remittanceMwRouter fallbacks (bridge unavailable)", () => {
-  it("corridors returns 4 default corridors", async () => {
-    const result = await callQuery(remittanceMwRouter, "corridors");
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBe(4);
-    expect(result[0]).toHaveProperty("id");
-    expect(result[0]).toHaveProperty("rate");
+// Real contract: corridor list and remittance creation FAIL LOUD when the
+// bridge is unavailable; only history degrades to an empty list.
+describe("remittanceMwRouter fail-loud (bridge unavailable)", () => {
+  it("corridors throws SERVICE_UNAVAILABLE instead of fabricating rates", async () => {
+    await expect(callQuery(remittanceMwRouter, "corridors"))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("create returns remittanceId, status=pending, trackingCode", async () => {
-    const result = await callMutation(remittanceMwRouter, "create", {
+  it("create throws SERVICE_UNAVAILABLE instead of fabricating a remittance", async () => {
+    await expect(callMutation(remittanceMwRouter, "create", {
       recipientId: "rec-1",
       amountNGN: 50_000,
       currency: "GBP",
       corridor: "NGN-GBP",
-    });
-    expect(result.status).toBe("pending");
-    expect(typeof result.remittanceId).toBe("string");
-    expect(result.trackingCode).toMatch(/^TRK/);
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
   it("history returns empty array when bridge unavailable", async () => {
@@ -330,75 +323,49 @@ describe("remittanceMwRouter fallbacks (bridge unavailable)", () => {
 
 // ─── Insurance Fallbacks ──────────────────────────────────────────────────────
 
-describe("insuranceMwRouter fallbacks (bridge unavailable)", () => {
-  it("products returns 4 default insurance products", async () => {
-    const result = await callQuery(insuranceMwRouter, "products");
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBe(4);
-    expect(result[0]).toHaveProperty("id");
-    expect(result[0]).toHaveProperty("name");
+// Real contract: insurance procedures FAIL LOUD with SERVICE_UNAVAILABLE —
+// fabricated policies/claims/payouts must never be shown as real.
+describe("insuranceMwRouter fail-loud (bridge unavailable)", () => {
+  it("products throws SERVICE_UNAVAILABLE instead of fabricating a catalog", async () => {
+    await expect(callQuery(insuranceMwRouter, "products"))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("purchase returns policyId, premium, startDate, endDate", async () => {
-    const result = await callMutation(insuranceMwRouter, "purchase", {
+  it("purchase throws SERVICE_UNAVAILABLE instead of fabricating a policy", async () => {
+    await expect(callMutation(insuranceMwRouter, "purchase", {
       productId: "ins_life_term",
       coverageAmountKobo: 10_000_000_000,
-    });
-    expect(typeof result.policyId).toBe("string");
-    expect(result.premium).toBeGreaterThan(0);
-    expect(typeof result.startDate).toBe("string");
-    expect(typeof result.endDate).toBe("string");
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("fileClaim returns claimId, status=filed, estimatedPayout", async () => {
-    const result = await callMutation(insuranceMwRouter, "fileClaim", {
+  it("fileClaim throws SERVICE_UNAVAILABLE instead of fabricating a claim", async () => {
+    await expect(callMutation(insuranceMwRouter, "fileClaim", {
       policyId: "pol-1",
       claimType: "health",
       amountKobo: 1_000_000,
       description: "Hospital admission",
       documents: ["https://example.com/doc1.pdf"],
-    });
-    expect(typeof result.claimId).toBe("string");
-    expect(result.status).toBe("filed");
-    expect(result.estimatedPayout).toBe(800_000); // 80% of 1,000,000
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 });
 
 // ─── EMI Fallbacks ────────────────────────────────────────────────────────────
 
-describe("emiMwRouter fallbacks (bridge unavailable)", () => {
-  it("plans returns 4 default EMI plans", async () => {
-    const result = await callQuery(emiMwRouter, "plans");
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBe(4);
-    expect(result[0]).toHaveProperty("id");
-    expect(result[0]).toHaveProperty("months");
+// Real contract: EMI plan list and applications FAIL LOUD with
+// SERVICE_UNAVAILABLE — a fabricated credit approval must never be issued.
+// Only the amortisation schedule read degrades to an empty schedule.
+describe("emiMwRouter fail-loud (bridge unavailable)", () => {
+  it("plans throws SERVICE_UNAVAILABLE instead of fabricating credit plans", async () => {
+    await expect(callQuery(emiMwRouter, "plans"))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("applyForEmi returns applicationId, status=approved, schedule", async () => {
-    const result = await callMutation(emiMwRouter, "applyForEmi", {
+  it("applyForEmi throws SERVICE_UNAVAILABLE instead of fabricating an approval", async () => {
+    await expect(callMutation(emiMwRouter, "applyForEmi", {
       planId: "emi_6m",
       amountNGN: 600_000,
       purpose: "Electronics purchase",
-    });
-    expect(typeof result.applicationId).toBe("string");
-    expect(result.status).toBe("approved");
-    expect(Array.isArray(result.schedule)).toBe(true);
-    expect(result.schedule.length).toBe(6);
-  });
-
-  it("applyForEmi schedule entries have correct structure", async () => {
-    const result = await callMutation(emiMwRouter, "applyForEmi", {
-      planId: "emi_3m",
-      amountNGN: 300_000,
-      purpose: "Test",
-    });
-    result.schedule.forEach((entry: any) => {
-      expect(entry).toHaveProperty("instalment");
-      expect(entry).toHaveProperty("dueDate");
-      expect(entry).toHaveProperty("amountNGN");
-      expect(entry.status).toBe("pending");
-    });
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
   it("schedule returns empty schedule when bridge unavailable", async () => {
@@ -410,39 +377,32 @@ describe("emiMwRouter fallbacks (bridge unavailable)", () => {
 
 // ─── Subscriptions Fallbacks ──────────────────────────────────────────────────
 
-describe("subscriptionsMwRouter fallbacks (bridge unavailable)", () => {
-  it("plans returns 3 default subscription plans", async () => {
-    const result = await callQuery(subscriptionsMwRouter, "plans");
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBe(3);
-    expect(result.map((p: any) => p.name)).toContain("Starter");
-    expect(result.map((p: any) => p.name)).toContain("Enterprise");
+// Real contract: subscription plan list and cancellation FAIL LOUD with
+// SERVICE_UNAVAILABLE when the bridge is unavailable.
+describe("subscriptionsMwRouter fail-loud (bridge unavailable)", () => {
+  it("plans throws SERVICE_UNAVAILABLE instead of fabricating plans", async () => {
+    await expect(callQuery(subscriptionsMwRouter, "plans"))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 
-  it("cancel returns success=true and cancelledAt", async () => {
-    const result = await callMutation(subscriptionsMwRouter, "cancel", {
+  it("cancel throws SERVICE_UNAVAILABLE instead of fabricating a cancellation", async () => {
+    await expect(callMutation(subscriptionsMwRouter, "cancel", {
       subscriptionId: "sub-1",
       reason: "Too expensive",
-    });
-    expect(result.success).toBe(true);
-    expect(typeof result.cancelledAt).toBe("string");
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 });
 
 // ─── Virtual Cards Fallbacks ──────────────────────────────────────────────────
 
-describe("virtualCardsMwRouter fallbacks (bridge unavailable)", () => {
-  it("issue returns cardId, maskedPan, status=active", async () => {
-    const result = await callMutation(virtualCardsMwRouter, "issue", {
+// Real contract: card issuance FAILS LOUD with SERVICE_UNAVAILABLE — a
+// fabricated PAN must never be issued.
+describe("virtualCardsMwRouter fail-loud (bridge unavailable)", () => {
+  it("issue throws SERVICE_UNAVAILABLE instead of fabricating a card", async () => {
+    await expect(callMutation(virtualCardsMwRouter, "issue", {
       cardType: "virtual",
       currency: "NGN",
-    });
-    expect(typeof result.cardId).toBe("string");
-    expect(result.cardId.length).toBeGreaterThan(0);
-    expect(typeof result.maskedPan).toBe("string");
-    expect(result.maskedPan).toMatch(/\*{4}/);
-    expect(result.status).toBe("active");
-    expect(result.currency).toBe("NGN");
+    })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
   });
 });
 
@@ -464,21 +424,18 @@ describe("partnerOnboardingRouter", () => {
     expect(result.step).toBe(1);
   });
 
-  it("saveStep returns saved=true and nextStep", async () => {
-    const result = await callMutation(partnerOnboardingRouter, "saveStep", {
+  it("saveStep FAILS LOUD (NOT_IMPLEMENTED) — no session store exists, never reports saved:true", async () => {
+    // Real contract: partnerOnboardingRouter.saveStep calls notImplemented()
+    // because there is no onboarding-session persistence.
+    await expect(callMutation(partnerOnboardingRouter, "saveStep", {
       sessionId: "sess-1",
       step: 2,
       data: { companyName: "Acme Corp" },
-    });
-    expect(result.saved).toBe(true);
-    expect(result.nextStep).toBe(3);
-    expect(result.step).toBe(2);
+    })).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
   });
 
-  it("complete returns tenantId and status=active", async () => {
-    const result = await callMutation(partnerOnboardingRouter, "complete", { sessionId: "sess-1" });
-    expect(typeof result.tenantId).toBe("string");
-    expect(result.status).toBe("active");
-    expect(result.dashboardUrl).toContain(result.tenantId);
+  it("complete FAILS LOUD (NOT_IMPLEMENTED) — tenant provisioning is not implemented", async () => {
+    await expect(callMutation(partnerOnboardingRouter, "complete", { sessionId: "sess-1" }))
+      .rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
   });
 });

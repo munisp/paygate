@@ -6,7 +6,7 @@
  * Auto-resolution SLAs: Timing 2h, Amount 4h, Missing Debit 1h, Duplicate Credit 30min.
  */
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { pbacProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { reconciliationExceptions, settlementWindows } from "../../drizzle/schema";
 import { eq, desc, sql, and, isNull } from "drizzle-orm";
@@ -22,7 +22,7 @@ const BREAK_SLA_MINUTES: Record<string, number> = {
 export const nexthubReconciliationRouter = router({
 
   /** List reconciliation exceptions with filters */
-  listExceptions: protectedProcedure
+  listExceptions: pbacProcedure("trigger_settlement")
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
@@ -63,7 +63,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** Get a single reconciliation exception */
-  getException: protectedProcedure
+  getException: pbacProcedure("trigger_settlement")
     .input(z.object({ exceptionId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -77,7 +77,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** Raise a new reconciliation exception */
-  raiseException: protectedProcedure
+  raiseException: pbacProcedure("trigger_settlement")
     .input(z.object({
       windowId: z.string(),
       transferId: z.string().optional(),
@@ -117,7 +117,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** Resolve an exception (manual or auto) */
-  resolveException: protectedProcedure
+  resolveException: pbacProcedure("trigger_settlement")
     .input(z.object({
       exceptionId: z.string(),
       resolutionNotes: z.string().optional(),
@@ -145,7 +145,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** Escalate an exception to a compliance officer */
-  escalateException: protectedProcedure
+  escalateException: pbacProcedure("trigger_settlement")
     .input(z.object({
       exceptionId: z.string(),
       assignedTo: z.string(),
@@ -170,7 +170,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** Get reconciliation dashboard statistics */
-  getStats: protectedProcedure
+  getStats: pbacProcedure("trigger_settlement")
     .input(z.object({}).optional())
     .query(async () => {
       const db = await getDb();
@@ -199,7 +199,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** Auto-resolve exceptions that have passed their SLA (called by Temporal heartbeat) */
-  autoResolveSlaBreaches: protectedProcedure
+  autoResolveSlaBreaches: pbacProcedure("trigger_settlement")
     .mutation(async () => {
       const db = await getDb();
 
@@ -221,7 +221,7 @@ export const nexthubReconciliationRouter = router({
     }),
 
   /** createException — log a new reconciliation break */
-  createException: protectedProcedure
+  createException: pbacProcedure("trigger_settlement")
     .input(z.object({
       windowId: z.string(),
       transferId: z.string().optional(),

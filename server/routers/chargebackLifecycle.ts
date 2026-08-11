@@ -4,7 +4,12 @@
  * Full DB-backed chargeback lifecycle router.
  * Manages dispute evidence submission, timeline events, and escalations.
  */
-import { router, protectedProcedure } from '../_core/trpc';
+import { router, pbacProcedure } from '../_core/trpc';
+
+// PBAC: chargeback reads require chargeback:view; evidence/escalation writes
+// require chargeback:manage (admin + finance_manager per server/pbac.ts).
+const viewChargebacks = pbacProcedure('view_chargebacks');
+const manageChargebacks = pbacProcedure('manage_chargebacks');
 import { z } from 'zod';
 import { getUserByOpenId, getMerchantByOwnerId, getDb } from '../db';
 import * as schema from '../../drizzle/schema';
@@ -26,7 +31,7 @@ async function getDbInstance() {
 
 export const chargebackLifecycleRouter = router({
   /** List chargebacks with pagination */
-  list: protectedProcedure
+  list: viewChargebacks
     .input(z.object({
       page: z.number().min(1).default(1),
       pageSize: z.number().min(1).max(100).default(20),
@@ -50,7 +55,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Get a single chargeback with its evidence and timeline */
-  get: protectedProcedure
+  get: viewChargebacks
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const merchantId = await resolveMerchantId(ctx.user!.openId);
@@ -70,7 +75,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Submit evidence for a chargeback */
-  submitEvidence: protectedProcedure
+  submitEvidence: manageChargebacks
     .input(z.object({
       chargebackId: z.string(),
       evidenceType: z.string(),
@@ -118,7 +123,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Escalate a chargeback to a higher stage */
-  escalate: protectedProcedure
+  escalate: manageChargebacks
     .input(z.object({
       chargebackId: z.string(),
       reason: z.string().min(1),
@@ -151,7 +156,7 @@ export const chargebackLifecycleRouter = router({
     }),
 
   /** Summary stats for the chargeback dashboard */
-  stats: protectedProcedure.query(async ({ ctx }) => {
+  stats: viewChargebacks.query(async ({ ctx }) => {
     const merchantId = await resolveMerchantId(ctx.user!.openId);
     const rows = await (await getDbInstance()).select({ status: schema.chargebacks.status, total: count() })
       .from(schema.chargebacks)

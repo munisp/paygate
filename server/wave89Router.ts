@@ -260,33 +260,106 @@ export const adminTenantRevenueRouter = router({
       merchantId: z.string().optional(),
     }))
     .query(async ({ input }) => {
-      // Business rule: PayGate takes 1.5% on NGN, 2.5% on USD/GBP/EUR, 1.8% on mobile money
-      const feeRates = { NGN: 0.015, USD: 0.025, GBP: 0.025, EUR: 0.025, KES: 0.018, GHS: 0.018 };
+      // Computed from the real transactions table: revenue = actual recorded
+      // processing fees (feeAmount, kobo) on completed NGN transactions in the
+      // requested period. No fabricated figures — empty state is honest zeros.
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Database unavailable — tenant revenue cannot be computed" });
+      const { transactions, merchants } = await import("../drizzle/schema");
+      const { and, eq, gte, sql } = await import("drizzle-orm");
+
+      const periodDays: Record<string, number> = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 };
+      const days = periodDays[input.period] ?? 30;
+      const since = new Date(Date.now() - days * 86400000);
+
+      const conds = [
+        gte(transactions.createdAt, since),
+        eq(transactions.status, "completed"),
+        eq(transactions.currency, "NGN"),
+      ];
+      if (input.merchantId) conds.push(eq(transactions.merchantId, input.merchantId));
+
+      const dayExpr = sql<string>`to_char(${transactions.createdAt}, 'YYYY-MM-DD')`;
+      let rows;
+      try {
+        rows = await db
+          .select({
+            merchantId: transactions.merchantId,
+            merchantName: merchants.businessName,
+            channel: transactions.channel,
+            day: dayExpr,
+            revenueKobo: sql<number>`coalesce(sum(${transactions.feeAmount}), 0)`,
+            volumeKobo: sql<number>`coalesce(sum(${transactions.amount}), 0)`,
+            txCount: sql<number>`count(*)`,
+          })
+          .from(transactions)
+          .leftJoin(merchants, eq(transactions.merchantId, merchants.id))
+          .where(and(...conds))
+          .groupBy(transactions.merchantId, merchants.businessName, transactions.channel, dayExpr);
+      } catch (e: any) {
+        throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `Tenant revenue query failed: ${e?.message ?? "database error"}` });
+      }
+
+      // Aggregate grouped rows into the response shape (kobo → naira).
+      const merchantMap = new Map<string, { merchantId: string; merchantName: string; revenueNgn: number; volumeNgn: number; txCount: number }>();
+      const dayMap = new Map<string, { date: string; revenueNgn: number; volumeNgn: number; txCount: number }>();
+      const channelMap = new Map<string, number>();
+      let totalRevenueKobo = 0;
+      let totalVolumeKobo = 0;
+      let totalTransactions = 0;
+
+      for (const r of rows) {
+        const rev = Number(r.revenueKobo) || 0;
+        const vol = Number(r.volumeKobo) || 0;
+        const cnt = Number(r.txCount) || 0;
+        totalRevenueKobo += rev;
+        totalVolumeKobo += vol;
+        totalTransactions += cnt;
+
+        const m = merchantMap.get(r.merchantId) ?? { merchantId: r.merchantId, merchantName: r.merchantName ?? r.merchantId, revenueNgn: 0, volumeNgn: 0, txCount: 0 };
+        m.revenueNgn += rev / 100;
+        m.volumeNgn += vol / 100;
+        m.txCount += cnt;
+        merchantMap.set(r.merchantId, m);
+
+        const d = dayMap.get(r.day) ?? { date: r.day, revenueNgn: 0, volumeNgn: 0, txCount: 0 };
+        d.revenueNgn += rev / 100;
+        d.volumeNgn += vol / 100;
+        d.txCount += cnt;
+        dayMap.set(r.day, d);
+
+        channelMap.set(r.channel, (channelMap.get(r.channel) ?? 0) + rev);
+      }
+
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const revenueByMerchant = [...merchantMap.values()]
+        .sort((a, b) => b.revenueNgn - a.revenueNgn)
+        .map(m => ({
+          ...m,
+          revenueNgn: round2(m.revenueNgn),
+          volumeNgn: round2(m.volumeNgn),
+          feeRate: m.volumeNgn > 0 ? round2(m.revenueNgn / m.volumeNgn) : 0,
+        }));
+      const revenueByDay = [...dayMap.values()]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(d => ({ ...d, revenueNgn: round2(d.revenueNgn), volumeNgn: round2(d.volumeNgn) }));
+      const revenueByChannel = [...channelMap.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([channel, revKobo]) => ({
+          channel,
+          revenueNgn: round2(revKobo / 100),
+          pct: totalRevenueKobo > 0 ? round2((revKobo / totalRevenueKobo) * 100) : 0,
+        }));
 
       return {
-        totalRevenueNgn: 48750000,
-        totalTransactionVolume: 3250000000,
-        totalTransactions: 12847,
-        avgFeeRate: 0.015,
-        revenueByMerchant: [
-          { merchantId: "mer_001", merchantName: "Acme Payments Ltd", revenueNgn: 12500000, volumeNgn: 833333333, txCount: 3200, feeRate: 0.015 },
-          { merchantId: "mer_002", merchantName: "TechPay Solutions", revenueNgn: 10200000, volumeNgn: 408000000, txCount: 2100, feeRate: 0.025 },
-          { merchantId: "mer_003", merchantName: "QuickPay Africa", revenueNgn: 8750000, volumeNgn: 583333333, txCount: 2800, feeRate: 0.015 },
-          { merchantId: "mer_004", merchantName: "SwiftPay NG", revenueNgn: 7300000, volumeNgn: 486666667, txCount: 2347, feeRate: 0.015 },
-          { merchantId: "mer_005", merchantName: "PayEasy Africa", revenueNgn: 10000000, volumeNgn: 400000000, txCount: 2400, feeRate: 0.025 },
-        ],
-        revenueByDay: Array.from({ length: 30 }, (_, i) => ({
-          date: new Date(Date.now() - (29 - i) * 86400000).toISOString().split("T")[0],
-          revenueNgn: Math.floor(Math.random() * 2000000) + 1000000,
-          volumeNgn: Math.floor(Math.random() * 100000000) + 50000000,
-          txCount: Math.floor(Math.random() * 500) + 200,
-        })),
-        revenueByChannel: [
-          { channel: "card", revenueNgn: 22000000, pct: 45.1 },
-          { channel: "bank_transfer", revenueNgn: 15000000, pct: 30.8 },
-          { channel: "mobile_money", revenueNgn: 8000000, pct: 16.4 },
-          { channel: "ussd", revenueNgn: 3750000, pct: 7.7 },
-        ],
+        totalRevenueNgn: round2(totalRevenueKobo / 100),
+        totalTransactionVolume: round2(totalVolumeKobo / 100),
+        totalTransactions,
+        avgFeeRate: totalVolumeKobo > 0 ? round2(totalRevenueKobo / totalVolumeKobo) : 0,
+        revenueByMerchant,
+        revenueByDay,
+        revenueByChannel,
+        currencyScope: "NGN",
         period: input.period,
       };
     }),

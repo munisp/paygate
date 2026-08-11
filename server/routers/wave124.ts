@@ -1185,7 +1185,7 @@ export const referralsRouter = router({
     .mutation(async ({ input }) => {
       await db.update(schema.referrals)
         .set({ status: "completed" as any, updatedAt: new Date() } as any)
-        .where(inArray(schema.referrals.referralId, input.ids));
+        .where(inArray(schema.referrals.id, input.ids));
       return { updated: input.ids.length };
     }),
   bulkReject: protectedProcedure
@@ -1193,13 +1193,13 @@ export const referralsRouter = router({
     .mutation(async ({ input }) => {
       await db.update(schema.referrals)
         .set({ status: "cancelled" as any, updatedAt: new Date() } as any)
-        .where(inArray(schema.referrals.referralId, input.ids));
+        .where(inArray(schema.referrals.id, input.ids));
       return { updated: input.ids.length };
     }),
   bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
     .mutation(async ({ input }) => {
-      await db.delete(schema.referrals).where(inArray(schema.referrals.referralId, input.ids));
+      await db.delete(schema.referrals).where(inArray(schema.referrals.id, input.ids));
       return { deleted: input.ids.length };
     }),
   bulkComplete: protectedProcedure
@@ -1207,7 +1207,7 @@ export const referralsRouter = router({
     .mutation(async ({ input }) => {
       await db.update(schema.referrals)
         .set({ status: "completed" as any, updatedAt: new Date() } as any)
-        .where(inArray(schema.referrals.referralId, input.ids));
+        .where(inArray(schema.referrals.id, input.ids));
       return { updated: input.ids.length };
     }),
 });

@@ -282,9 +282,14 @@ func GenerateCBNReportDocumentActivity(ctx context.Context, input CBNReportWorkf
 
 // SubmitCBNReportActivity submits the report to the CBN regulatory portal.
 func SubmitCBNReportActivity(ctx context.Context, reportID, reportType string) error {
-	// In production: submit via CBN's RAAS portal or NIBSS gateway
-	slog.Info("CBN report submitted (simulated)", "report_id", reportID, "type", reportType)
-	return pgdb.UpdateComplianceReportStatus(ctx, reportID, "submitted")
+	if !allowSimulation() {
+		slog.Error("CBN report submission requested but no regulator portal is wired and ALLOW_SIMULATION != true — failing",
+			"report_id", reportID, "type", reportType)
+		return fmt.Errorf("SubmitCBNReportActivity: CBN portal integration not configured; refusing to mark report %s as submitted", reportID)
+	}
+	slog.Warn("CBN report marked submitted in SIMULATION ONLY (ALLOW_SIMULATION=true) — no regulator submission occurred",
+		"report_id", reportID, "type", reportType)
+	return pgdb.UpdateComplianceReportStatus(ctx, reportID, "simulated_submitted")
 }
 
 // NotifyComplianceTeamActivity sends a Kafka notification to the compliance team.

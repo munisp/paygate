@@ -885,8 +885,8 @@ const tenantRateLimitsRouter = router({
       if (!updates.length) return { success: false, reason: "No fields to update" };
       updates.push(`updated_at=NOW()`);
       params.push(input.tenantId);
-      // Build parameterized query using sql template
-      await db.execute(sql.raw(`UPDATE tenants SET ${updates.join(",")} WHERE id='${input.tenantId}'`));
+      // Column names above are hardcoded literals; values are bound params.
+      await execRaw(db, `UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`, params);
       return { success: true };
     }),
 });
@@ -913,11 +913,11 @@ const auditLogExportRouter = router({
       if (input.userId) { conditions.push(`user_id = $${idx++}`); params.push(input.userId); }
       const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
       params.push(input.limit);
-      const result = await db.execute(sql.raw(`
+      // Column names are hardcoded literals; all values bound as params.
+      const rows = await execRaw(db, `
         SELECT id, event_type, user_id, resource_type, resource_id, action, ip_address, user_agent, metadata, created_at
-        FROM audit_logs ${where} ORDER BY created_at DESC LIMIT ${input.limit}
-      `));
-      const rows = (result as any).rows;
+        FROM audit_logs ${where} ORDER BY created_at DESC LIMIT $${idx}
+      `, params);
       // Build CSV
       const headers = ["id", "event_type", "user_id", "resource_type", "resource_id", "action", "ip_address", "created_at"];
       const csvLines = [headers.join(",")];
@@ -1106,7 +1106,7 @@ const securityScoreRouter = router({
 
 // ─── Wave 27 Root Router ──────────────────────────────────────────────────────
 // ─── Frontend Alias Routers (kyb, fxHedge, compliance) ───────────────────────
-import { and, desc, eq, count , sql } from "drizzle-orm";
+import { and, desc, eq, count } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { kycSubmissions, fxRates } from "../drizzle/schema";
 

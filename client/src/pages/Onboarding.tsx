@@ -34,25 +34,37 @@ const DOC_TYPES = [
 
 type DocState = Record<string, { file: File | null; status: "idle" | "uploading" | "done" | "error" }>;
 
-function LivenessCheck({ onComplete }: { onComplete: () => void }) {
+function LivenessCheck({ onComplete, submissionId }: { onComplete: () => void; submissionId?: string | null }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [phase, setPhase] = useState<"intro" | "camera" | "blink" | "turn_left" | "turn_right" | "smile" | "done" | "error" | "saving">("intro");
+  const [phase, setPhase] = useState<"intro" | "camera" | "blink" | "turn_left" | "turn_right" | "smile" | "verifying" | "done" | "failed">("intro");
   const [progress, setProgress] = useState(0);
   const [livenessScore, setLivenessScore] = useState<number | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [failReason, setFailReason] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Real camera frames captured per challenge step (base64 JPEG, no data-URL prefix)
+  const framesRef = useRef<string[]>([]);
 
-  const saveLivenessMutation = trpc.complianceKyc.saveLivenessResult.useMutation({
-    onSuccess: (data) => {
-      setPhase("done");
-      toast.success(`Liveness verified! Score: ${((livenessScore ?? 0.984) * 100).toFixed(1)}%`);
+  const createSubmissionMutation = trpc.complianceKyc.createSubmission.useMutation();
+  const checkLivenessMutation = trpc.complianceKyc.checkLiveness.useMutation({
+    onSuccess: (result: any) => {
+      if (result?.decision === "real") {
+        setLivenessScore(typeof result.liveness_score === "number" ? result.liveness_score : null);
+        setPhase("done");
+        toast.success("Liveness verified by the identity service");
+      } else {
+        setFailReason(
+          result?.decision === "spoof"
+            ? "The verification service flagged this attempt as a possible spoof. Please ensure you are in good lighting and remove any face coverings."
+            : "The verification service could not confirm liveness. Please try again."
+        );
+        setPhase("failed");
+      }
     },
     onError: (err) => {
-      // Even if save fails, allow the user to continue — manual review will flag it
-      console.error('[liveness] save failed:', err.message);
-      setSaveError(err.message);
-      setPhase("done");
+      // Fail closed: a verification-service error must never become a pass.
+      setFailReason(err.message ?? "Liveness verification service unavailable");
+      setPhase("failed");
     },
   });
 
@@ -67,7 +79,8 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
       setPhase("blink");
       runLivenessSequence();
     } catch {
-      setPhase("error");
+      setPhase("failed");
+      setFailReason("Camera access denied. Please allow camera access in your browser settings and try again.");
     }
   };
 
@@ -78,7 +91,50 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
     }
   }, []);
 
+  /** Capture the current video frame as a base64 JPEG (no data-URL prefix). */
+  const captureFrame = (): string | null => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.videoWidth === 0) return null;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    return dataUrl.split(",")[1] ?? null;
+  };
+
+  /** Send the captured challenge frames to the real liveness service (fail-closed). */
+  const submitLiveness = async () => {
+    const frames = framesRef.current.filter(Boolean).slice(0, 5);
+    if (frames.length === 0) {
+      setFailReason("No camera frames could be captured. Please check your camera and try again.");
+      setPhase("failed");
+      return;
+    }
+    setPhase("verifying");
+    try {
+      let subId = submissionId ?? null;
+      if (!subId) {
+        const created = await createSubmissionMutation.mutateAsync({ docType: "selfie" });
+        subId = created.submissionId;
+      }
+      checkLivenessMutation.mutate({
+        submissionId: subId,
+        mode: "active",
+        challenge: "blink",
+        multiFrameB64: frames,
+        challengeFramesBase64: frames,
+      });
+    } catch (e: any) {
+      setFailReason(e?.message ?? "Could not initialize liveness verification");
+      setPhase("failed");
+    }
+  };
+
   const runLivenessSequence = () => {
+    framesRef.current = [];
     const sequence: Array<{ phase: typeof phase; duration: number; prog: number }> = [
       { phase: "blink", duration: 2500, prog: 25 },
       { phase: "turn_left", duration: 2500, prog: 50 },
@@ -88,23 +144,16 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
     let delay = 0;
     sequence.forEach(({ phase: p, duration, prog }) => {
       setTimeout(() => { setPhase(p); setProgress(prog - 25); }, delay);
+      // Capture a real frame mid-challenge so each challenge step is evidenced
+      setTimeout(() => { const f = captureFrame(); if (f) framesRef.current.push(f); }, delay + Math.floor(duration / 2));
       setTimeout(() => setProgress(prog), delay + duration - 200);
       delay += duration;
     });
+    // Final frame right before the camera stops
+    setTimeout(() => { const f = captureFrame(); if (f) framesRef.current.push(f); }, delay - 250);
     setTimeout(() => {
-      setPhase("saving");
       stopCamera();
-      // Simulate a realistic liveness score (0.92–0.99) for the wizard flow
-      // In production this comes from the real liveness microservice
-      const score = 0.92 + Math.random() * 0.07;
-      setLivenessScore(score);
-      saveLivenessMutation.mutate({
-        livenessScore: score,
-        livenessMode: 'active',
-        livenessChallengeType: 'blink',
-        passed: score >= 0.7,
-        sessionId: `wizard_${Date.now()}`,
-      });
+      submitLiveness();
     }, delay);
   };
 
@@ -118,7 +167,6 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
     turn_right: { title: "Turn your head right", sub: "Slowly turn to your right side", color: "text-violet-600" },
     smile: { title: "Give us a smile!", sub: "Hold your smile for a moment", color: "text-emerald-600" },
     done: { title: "Liveness verified!", sub: "Your identity has been confirmed", color: "text-emerald-600" },
-    error: { title: "Camera access denied", sub: "Please allow camera access and try again", color: "text-red-600" },
   };
 
   if (phase === "intro") {
@@ -147,36 +195,34 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
     );
   }
 
-  if (phase === "error") {
+  if (phase === "failed") {
     return (
       <div className="text-center space-y-4 py-4">
         <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto">
           <AlertCircle className="w-8 h-8 text-red-500" />
         </div>
         <div>
-          <h3 className="font-semibold text-red-600">Camera Access Required</h3>
-          <p className="text-sm text-muted-foreground mt-1">Please allow camera access in your browser settings and try again.</p>
+          <h3 className="font-semibold text-red-600">Liveness Verification Failed</h3>
+          <p className="text-sm text-muted-foreground mt-1">{failReason ?? "We could not verify your liveness. Please try again in good lighting."}</p>
         </div>
         <div className="flex gap-3 justify-center">
-          <Button variant="outline" onClick={() => setPhase("intro")}>Try Again</Button>
+          <Button variant="outline" onClick={() => { setFailReason(null); setProgress(0); setPhase("intro"); }}>Try Again</Button>
           <Button onClick={() => { toast.info("Skipped — manual review will be required"); onComplete(); }}>Skip (Manual Review)</Button>
         </div>
       </div>
     );
   }
 
-  if (phase === "saving") {
+  if (phase === "verifying") {
     return (
       <div className="text-center space-y-4 py-8">
         <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto" />
-        <p className="text-sm text-muted-foreground">Saving liveness result…</p>
+        <p className="text-sm text-muted-foreground">Verifying your liveness with the identity service…</p>
       </div>
     );
   }
 
   if (phase === "done") {
-    const score = livenessScore ?? 0.984;
-    const pct = (score * 100).toFixed(1);
     return (
       <div className="text-center space-y-4 py-4">
         <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto">
@@ -184,8 +230,11 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
         </div>
         <div>
           <h3 className="text-lg font-semibold text-emerald-700" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Identity Verified!</h3>
-          <p className="text-sm text-muted-foreground mt-1">Liveness check passed with <strong>{pct}%</strong> confidence score</p>
-          {saveError && <p className="text-xs text-amber-600 mt-1">Score saved locally — will sync on next login</p>}
+          {livenessScore != null ? (
+            <p className="text-sm text-muted-foreground mt-1">Liveness check passed with <strong>{(livenessScore * 100).toFixed(1)}%</strong> confidence score</p>
+          ) : (
+            <p className="text-sm text-muted-foreground mt-1">Liveness check passed the identity service verification</p>
+          )}
         </div>
         <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto">
           {[{ label: "Blink Detection", val: "✓" }, { label: "Head Pose", val: "✓" }, { label: "Depth Analysis", val: "✓" }].map(c => (
@@ -195,16 +244,18 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
             </div>
           ))}
         </div>
-        {/* Confidence bar */}
-        <div className="max-w-xs mx-auto space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Confidence</span>
-            <span className="font-semibold text-emerald-600">{pct}%</span>
+        {/* Confidence bar — only shown when the service returned a real score */}
+        {livenessScore != null && (
+          <div className="max-w-xs mx-auto space-y-1">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Confidence</span>
+              <span className="font-semibold text-emerald-600">{(livenessScore * 100).toFixed(1)}%</span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{ width: `${livenessScore * 100}%` }} />
+            </div>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
+        )}
         <Button onClick={onComplete}>Continue <ArrowRight className="w-4 h-4 ml-2" /></Button>
       </div>
     );
@@ -216,6 +267,8 @@ function LivenessCheck({ onComplete }: { onComplete: () => void }) {
     <div className="space-y-4">
       <div className="relative rounded-2xl overflow-hidden bg-black aspect-video max-w-md mx-auto">
         <video ref={videoRef} className="w-full h-full object-cover scale-x-[-1]" muted playsInline />
+        {/* Off-screen canvas used to capture real frames for the liveness service */}
+        <canvas ref={canvasRef} className="hidden" />
         {/* Face oval overlay */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-48 h-64 rounded-full border-4 border-white/60 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]" />
@@ -760,7 +813,7 @@ export default function Onboarding() {
                   <h2 className="text-2xl font-bold" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Identity verification</h2>
                   <p className="text-muted-foreground text-sm mt-1">Complete a quick liveness check to verify your identity</p>
                 </div>
-                <LivenessCheck onComplete={() => setStep(5)} />
+                <LivenessCheck onComplete={() => setStep(5)} submissionId={kycSubmissionId} />
               </div>
             )}
 

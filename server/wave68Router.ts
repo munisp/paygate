@@ -852,50 +852,13 @@ export const consumerCardRouter = router({
         });
         if (result) return result;
       }
-      const db = (await getDb())!;
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      const { consumerCards, consumerKycRecords } = await import("../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
-
-      // KYC check
-      const [kyc] = await db.select().from(consumerKycRecords).where(eq(consumerKycRecords.userId, user.id)).limit(1);
-      if (!kyc || kyc.status !== "approved") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "KYC verification required before issuing a virtual card" });
-      }
-
-      // Check existing active cards
-      const existing = await db.select().from(consumerCards).where(eq(consumerCards.userId, user.id));
-      if (existing.filter(c => c.isActive).length >= 3) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Maximum of 3 active virtual cards allowed" });
-      }
-
-      // Get wallet
-      const wallet = await getConsumerWallet(user.id, input.currency);
-      if (!wallet) throw new TRPCError({ code: "BAD_REQUEST", message: "Please create a wallet first" });
-
-      // Generate card details (in production, this would call a card issuer API like Sudo Africa or Union54)
-      const cardNumber = Array.from({ length: 16 }, (_, i) =>
-        i === 0 ? (input.cardBrand === "visa" ? "4" : "5") : Math.floor(Math.random() * 10).toString()
-      ).join("");
-      const maskedPan = cardNumber.slice(0, 4) + " **** **** " + cardNumber.slice(-4);
-      const now = new Date();
-      const expiryYear = String(now.getFullYear() + 3).slice(-2);
-      const expiryMonth = String(now.getMonth() + 1).padStart(2, "0");
-
-      const [card] = await db.insert(consumerCards).values({
-        id: nanoid("cc_"),
-        userId: user.id,
-        walletId: wallet.id,
-        maskedPan,
-        cardBrand: input.cardBrand,
-        expiryMonth,
-        expiryYear,
-        cardholderName: (user.name ?? "PAYGATE USER").toUpperCase(),
-        spendingLimitKobo: input.spendingLimitKobo ?? null,
-        isActive: true,
-        isFrozen: false,
-      }).returning();
-      return card;
+      // FAIL LOUD — a virtual card MUST be issued by a real card issuer via the
+      // middleware bridge. Never generate a random PAN locally and store it as
+      // an active card: the number exists nowhere at any issuer.
+      throw new TRPCError({
+        code: "SERVICE_UNAVAILABLE",
+        message: "Virtual card issuance is temporarily unavailable (card issuer unreachable). Please try again later.",
+      });
     }),
 
   freeze: protectedProcedure
@@ -1043,8 +1006,7 @@ export const splitBillConsumerRouter = router({
       const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
       const [session] = await db.insert(consumerSplitSessions).values({
         id: sessionId,
-        initiatorId: String(user.id),
-        creatorId: Number(user.id) || null,
+        creatorId: Number(user.id),
         title: input.title,
         totalAmountKobo: input.totalAmountKobo,
         currency: input.currency,
@@ -1381,7 +1343,7 @@ export const consumerStripeTopUpRouter = router({
       if (!stripeKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Stripe not configured" });
 
       const Stripe = (await import("stripe")).default;
-      const stripe = new Stripe(stripeKey, { apiVersion: "2026-02-25.clover" });
+      const stripe = new Stripe(stripeKey, { apiVersion: "2026-07-29.dahlia" });
 
       // Stripe works in smallest currency unit. NGN is not supported by Stripe,
       // so we charge in USD equivalent (1 USD ≈ 1600 NGN) for international testing.

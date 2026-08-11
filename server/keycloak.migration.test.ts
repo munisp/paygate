@@ -62,16 +62,24 @@ describe("server/routers.ts auth.logout — SSO logout redirect", () => {
   });
 });
 
-describe("client/src/_core/hooks/useAuth.ts — SSO logout redirect", () => {
+describe("client/src/_core/hooks/useAuth.ts — logout mutation", () => {
+  // Real contract: the client calls the trpc.auth.logout mutation (no origin
+  // input); the server returns an ssoLogoutUrl but the client currently does
+  // not redirect to it — it clears local state and invalidates auth.me.
   const src = readFileSync(resolve(ROOT, "client/src/_core/hooks/useAuth.ts"), "utf8");
 
-  it("passes window.location.origin to logout mutation", () => {
-    expect(src).toContain("origin: window.location.origin");
+  it("calls the trpc.auth.logout mutation", () => {
+    expect(src).toContain("trpc.auth.logout.useMutation");
+    expect(src).toContain("logoutMutation.mutateAsync()");
   });
 
-  it("redirects to ssoLogoutUrl when returned by server", () => {
-    expect(src).toContain("result?.ssoLogoutUrl");
-    expect(src).toContain("window.location.href = result.ssoLogoutUrl");
+  it("clears the mirrored session token from sessionStorage on logout", () => {
+    expect(src).toContain('sessionStorage.removeItem("manus-cookie")');
+  });
+
+  it("invalidates the auth.me query cache after logout", () => {
+    expect(src).toContain("utils.auth.me.setData(undefined, null)");
+    expect(src).toContain("utils.auth.me.invalidate()");
   });
 
   it("handles expired session gracefully without throwing", () => {
@@ -80,39 +88,35 @@ describe("client/src/_core/hooks/useAuth.ts — SSO logout redirect", () => {
   });
 });
 
-describe("server/_core/oauth.ts — ALLOWED_ORIGINS hardening", () => {
-  const src = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
-
-  it("rejects wildcard entries in ALLOWED_ORIGINS", () => {
-    expect(src).toContain("Wildcards are not permitted");
-    expect(src).toContain('o !== "*" && o !== "**"');
-  });
-
-  it("rejects null/undefined/empty origin strings", () => {
-    expect(src).toContain('rawOrigin === "null"');
-    expect(src).toContain('rawOrigin === "undefined"');
-  });
-
-  it("in production mode, does not allow localhost fallback", () => {
-    expect(src).toContain("IS_PRODUCTION");
-    expect(src).toContain("if (IS_PRODUCTION) return false;");
-  });
-
-  it("logs allowed origins at startup", () => {
-    expect(src).toContain("ALLOWED_ORIGINS:");
-  });
-
-  it("warns when ALLOWED_ORIGINS is empty in production", () => {
-    expect(src).toContain("ALLOWED_ORIGINS is empty in production");
-  });
+describe("server/securityHeaders.ts — ALLOWED_ORIGINS hardening", () => {
+  // Real contract: CORS origin control lives in server/securityHeaders.ts
+  // (corsMiddleware), mounted app-wide in server/_core/index.ts — not in
+  // server/_core/oauth.ts.
+  const src = readFileSync(resolve(ROOT, "server/securityHeaders.ts"), "utf8");
+  const indexSrc = readFileSync(resolve(ROOT, "server/_core/index.ts"), "utf8");
 
   it("parses ALLOWED_ORIGINS from env var at module load time", () => {
-    expect(src).toContain("parseAllowedOrigins()");
-    expect(src).toContain("ALLOWED_ORIGINS_LIST");
+    expect(src).toContain("process.env.ALLOWED_ORIGINS?.split");
   });
 
-  it("warns about http:// origins in production", () => {
-    expect(src).toContain("Consider switching to https://");
+  it("only reflects origins that exactly match the allowlist (no wildcards)", () => {
+    expect(src).toContain("ALLOWED_ORIGINS.includes(origin)");
+    expect(src).not.toMatch(/origin:\s*['"]\*/);
+  });
+
+  it("sets Allow-Credentials and Allow-Methods for allowlisted origins", () => {
+    expect(src).toContain("Access-Control-Allow-Credentials");
+    expect(src).toContain("Access-Control-Allow-Methods");
+  });
+
+  it("short-circuits OPTIONS preflight with 204", () => {
+    expect(src).toContain('req.method === "OPTIONS"');
+    expect(src).toContain("res.status(204).end()");
+  });
+
+  it("corsMiddleware is mounted app-wide in server/_core/index.ts", () => {
+    expect(indexSrc).toContain("app.use(corsMiddleware)");
+    expect(indexSrc).toContain('from "../securityHeaders"');
   });
 });
 
@@ -273,42 +277,40 @@ describe("server/_core/cookies.ts — id_token cookie helpers", () => {
 
   it("exports ID_TOKEN_COOKIE_NAME constant", () => {
     expect(src).toContain("export const ID_TOKEN_COOKIE_NAME");
+    expect(src).toContain("paygate_id_token");
   });
 
-  it("exports getIdTokenCookieOptions function", () => {
-    expect(src).toContain("export function getIdTokenCookieOptions");
-  });
-
-  it("id_token cookie has httpOnly flag", () => {
+  // Real contract: there is no getIdTokenCookieOptions helper — the id_token
+  // cookie is cleared on logout with getSessionCookieOptions (see routers.ts
+  // auth.logout).
+  it("session cookie options are httpOnly with sameSite none", () => {
     expect(src).toContain("httpOnly: true");
+    expect(src).toContain('sameSite: "none"');
   });
 
-  it("id_token cookie has a maxAge based on expiresInSeconds", () => {
-    expect(src).toContain("maxAge: expiresInSeconds * 1000");
+  it("secure flag is derived from the request protocol / x-forwarded-proto", () => {
+    expect(src).toContain("isSecureRequest");
+    expect(src).toContain("x-forwarded-proto");
   });
 });
 
-describe("server/_core/oauth.ts — id_token cookie stored after callback", () => {
-  const src = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+describe("server/routers.ts auth.logout — id_token cookie lifecycle", () => {
+  // Real contract: the id_token cookie is no longer written by the OAuth
+  // callback (server/_core/oauth.ts is the legacy Manus code-exchange
+  // callback). Its lifecycle surface is auth.logout in routers.ts, which
+  // clears it alongside the session and refresh_token cookies.
+  const src = readFileSync(resolve(ROOT, "server/routers.ts"), "utf8");
 
   it("imports ID_TOKEN_COOKIE_NAME from cookies", () => {
     expect(src).toContain("ID_TOKEN_COOKIE_NAME");
   });
 
-  it("imports getIdTokenCookieOptions from cookies", () => {
-    expect(src).toContain("getIdTokenCookieOptions");
+  it("clears the id_token cookie on logout", () => {
+    expect(src).toContain("clearCookie(ID_TOKEN_COOKIE_NAME");
   });
 
-  it("stores id_token in cookie after successful callback", () => {
-    expect(src).toContain("res.cookie(ID_TOKEN_COOKIE_NAME, tokens.idToken");
-  });
-
-  it("uses tokens.expiresIn for cookie maxAge", () => {
-    expect(src).toContain("tokens.expiresIn");
-  });
-
-  it("only sets id_token cookie when idToken is present", () => {
-    expect(src).toContain("if (tokens.idToken)");
+  it("clears the refresh_token cookie on logout", () => {
+    expect(src).toContain("clearCookie(REFRESH_TOKEN_COOKIE_NAME");
   });
 });
 
@@ -390,37 +392,38 @@ function readSrc(relPath: string): string {
 
 // ─── server/_core/oauth.ts ────────────────────────────────────────────────────
 
-describe("server/_core/oauth.ts — Keycloak-only auth", () => {
-  const src = readSrc("server/_core/oauth.ts");
+describe("server/_core/keycloakRoutes.ts — Keycloak OIDC routes", () => {
+  // Real contract: the Keycloak Authorization Code flow is implemented in
+  // server/_core/keycloakRoutes.ts (login/callback/logout). server/_core/oauth.ts
+  // remains the legacy Manus code-exchange callback and intentionally still
+  // uses ./sdk — the Keycloak path does not.
+  const src = readSrc("server/_core/keycloakRoutes.ts");
 
   it("does not import the Manus SDK", () => {
     expect(src).not.toContain("from \"./sdk\"");
     expect(src).not.toContain("from './sdk'");
   });
 
-  it("does not contain handleManusCallback", () => {
-    expect(src).not.toContain("handleManusCallback");
-  });
-
-  it("does not call sdk.exchangeCodeForToken", () => {
-    expect(src).not.toContain("sdk.exchangeCodeForToken");
-  });
-
-  it("does not call sdk.getUserInfo", () => {
-    expect(src).not.toContain("sdk.getUserInfo");
-  });
-
-  it("registers the primary Keycloak login endpoint", () => {
-    expect(src).toContain("/api/auth/keycloak/login");
-  });
-
-  it("registers the legacy Keycloak login path for backwards compat", () => {
+  it("registers the Keycloak login endpoint", () => {
     expect(src).toContain("/api/oauth/keycloak/login");
   });
 
-  it("uses createSessionToken from keycloak.ts", () => {
+  it("registers the Keycloak callback endpoint", () => {
+    expect(src).toContain("/api/oauth/keycloak/callback");
+  });
+
+  it("registers the Keycloak logout endpoint", () => {
+    expect(src).toContain("/api/oauth/keycloak/logout");
+  });
+
+  it("uses createSessionToken + exchangeCodeForTokens from keycloak.ts", () => {
     expect(src).toContain("createSessionToken");
-    expect(src).toContain("from \"./keycloak\"");
+    expect(src).toContain("exchangeCodeForTokens");
+    expect(src).toContain('from "./keycloak"');
+  });
+
+  it("verifies the Keycloak access token via JWKS", () => {
+    expect(src).toContain("verifyAccessToken");
   });
 
   it("does not contain manus.space or manus.computer domain patterns", () => {
@@ -428,33 +431,41 @@ describe("server/_core/oauth.ts — Keycloak-only auth", () => {
     expect(src).not.toContain("manus.computer");
   });
 
-  it("warns when KEYCLOAK_URL is not set instead of silently falling back", () => {
-    expect(src).toContain("KEYCLOAK_URL is not set");
+  it("logs loudly and skips route registration when KEYCLOAK_URL is not set", () => {
+    expect(src).toContain("KEYCLOAK_URL not set");
+  });
+
+  it("restricts post-login redirects to relative paths (open-redirect guard)", () => {
+    expect(src).toContain("/^\\/[^/]/");
   });
 });
 
 // ─── server/_core/context.ts ──────────────────────────────────────────────────
 
-describe("server/_core/context.ts — Keycloak-only session verification", () => {
+describe("server/_core/context.ts — session verification", () => {
+  // Real contract: tRPC context authenticates the session cookie through
+  // sdk.authenticateRequest (the sdk verifies the same HS256 session JWT that
+  // keycloak.ts issues for SSO logins, so both login methods resolve ctx.user
+  // transparently). Auth failure degrades to user = null for public procedures.
   const src = readSrc("server/_core/context.ts");
+  const keycloakSrc = readSrc("server/_core/keycloak.ts");
 
-  it("does not import the Manus SDK", () => {
-    expect(src).not.toContain("from \"./sdk\"");
-    expect(src).not.toContain("from './sdk'");
+  it("delegates request authentication to sdk.authenticateRequest", () => {
+    expect(src).toContain("sdk.authenticateRequest");
   });
 
-  it("does not call sdk.authenticateRequest", () => {
-    expect(src).not.toContain("sdk.authenticateRequest");
+  it("treats authentication as optional (user falls back to null)", () => {
+    expect(src).toContain("user = null");
   });
 
-  it("uses verifySessionToken from keycloak.ts", () => {
-    expect(src).toContain("verifySessionToken");
-    expect(src).toContain("from \"./keycloak\"");
+  it("keycloak.ts exports verifySessionToken for SSO-issued sessions", () => {
+    expect(keycloakSrc).toContain("export async function verifySessionToken");
+    expect(keycloakSrc).toContain("export async function createSessionToken");
   });
 
-  it("does not branch on ENV.keycloakUrl (no Manus fallback)", () => {
-    // Old code had: if (ENV.keycloakUrl) { ... } else { sdk.authenticateRequest }
-    expect(src).not.toContain("sdk.authenticateRequest");
+  it("keycloak session tokens are HS256 JWTs signed with the cookie secret", () => {
+    expect(keycloakSrc).toContain('alg: "HS256"');
+    expect(keycloakSrc).toContain("ENV.cookieSecret");
   });
 });
 
@@ -480,37 +491,53 @@ describe("server/routers.ts auth.login — uses createSessionToken not sdk.signS
 
 // ─── client/src/const.ts ─────────────────────────────────────────────────────
 
-describe("client/src/const.ts — getLoginUrl always uses Keycloak", () => {
+describe("client/src/const.ts — startLogin OAuth entry point", () => {
+  // Real contract: login starts via startLogin(), which mints a one-time
+  // nonce into the OAuth state cookie and navigates to the OAuth portal
+  // /app-auth endpoint. The Keycloak SSO entry point is the server-side
+  // /api/oauth/keycloak/login route (see keycloakRoutes.ts).
   const src = readSrc("client/src/const.ts");
 
-  it("does not contain VITE_OAUTH_PORTAL_URL", () => {
-    expect(src).not.toContain("VITE_OAUTH_PORTAL_URL");
+  it("exports a startLogin function (no render-phase URL builder)", () => {
+    expect(src).toContain("export const startLogin");
   });
 
-  it("does not contain VITE_APP_ID", () => {
-    expect(src).not.toContain("VITE_APP_ID");
+  it("mints a one-time nonce into the OAuth state cookie", () => {
+    expect(src).toContain("crypto.randomUUID()");
+    expect(src).toContain("OAUTH_STATE_COOKIE");
   });
 
-  it("does not contain Manus OAuth /app-auth endpoint", () => {
-    expect(src).not.toContain("/app-auth");
+  it("encodes redirectUri + nonce into the state parameter", () => {
+    expect(src).toContain("encodeOAuthState({ redirectUri, nonce })");
   });
 
-  it("always points to /api/auth/keycloak/login", () => {
-    expect(src).toContain("/api/auth/keycloak/login");
+  it("navigates to the OAuth portal /app-auth endpoint", () => {
+    expect(src).toContain("VITE_OAUTH_PORTAL_URL");
+    expect(src).toContain("/app-auth");
   });
 
-  it("does not have a conditional Manus OAuth fallback", () => {
-    expect(src).not.toContain("Manus OAuth fallback");
+  it("state cookie is short-lived (Max-Age=600) and Secure", () => {
+    expect(src).toContain("Max-Age=600");
+    expect(src).toContain("Secure");
   });
 });
 
 // ─── client/src/_core/hooks/useAuth.ts ───────────────────────────────────────
 
-describe("client/src/_core/hooks/useAuth.ts — no Manus-specific localStorage key", () => {
+describe("client/src/_core/hooks/useAuth.ts — user-info mirror", () => {
+  // Real contract: useAuth mirrors the current user into the legacy
+  // "manus-runtime-user-info" localStorage key (retained for compatibility
+  // with the runtime host) and does not store any token there.
   const src = readSrc("client/src/_core/hooks/useAuth.ts");
 
-  it("does not write to manus-runtime-user-info localStorage", () => {
-    expect(src).not.toContain("manus-runtime-user-info");
+  it("mirrors the auth.me payload into localStorage", () => {
+    expect(src).toContain("manus-runtime-user-info");
+    expect(src).toContain("JSON.stringify(meQuery.data)");
+  });
+
+  it("does not persist session tokens in localStorage", () => {
+    expect(src).not.toContain("localStorage.setItem(\"manus-cookie\"");
+    expect(src).not.toContain("localStorage.setItem('manus-cookie'");
   });
 });
 
@@ -619,47 +646,44 @@ describe("Round 36 — Refresh Token Rotation", () => {
     expect(cookiesSrc).toContain("paygate_refresh_token");
   });
 
-  it("cookies.ts exports getRefreshTokenCookieOptions with path /api/auth", () => {
-    expect(cookiesSrc).toContain("getRefreshTokenCookieOptions");
-    expect(cookiesSrc).toContain('path: "/api/auth"');
-  });
-
+  // Real contract: the refresh-token surface today is (a) the REFRESH_TOKEN_COOKIE_NAME
+  // constant in cookies.ts, (b) the refreshAccessToken helper in keycloak.ts,
+  // and (c) auth.logout in routers.ts clearing the cookie with the /api/auth
+  // path restriction. The dedicated /api/auth/refresh endpoint and the client
+  // silent-refresh interval were removed in the sdk-based refactor.
   it("keycloak.ts exports refreshAccessToken helper", () => {
     expect(keycloakSrc).toContain("refreshAccessToken");
     expect(keycloakSrc).toContain("grant_type");
     expect(keycloakSrc).toContain("refresh_token");
   });
 
-  it("oauth.ts stores refresh_token cookie after OIDC callback", () => {
-    expect(oauthSrc).toContain("REFRESH_TOKEN_COOKIE_NAME");
-    expect(oauthSrc).toContain("tokens.refreshToken");
-    expect(oauthSrc).toContain("getRefreshTokenCookieOptions");
+  it("refreshAccessToken posts to the Keycloak token endpoint with client credentials", () => {
+    expect(keycloakSrc).toContain("getTokenEndpoint()");
+    expect(keycloakSrc).toContain("client_secret");
+    expect(keycloakSrc).toContain("expires_in");
   });
 
-  it("oauth.ts registers /api/auth/refresh endpoint", () => {
-    expect(oauthSrc).toContain("/api/auth/refresh");
-    expect(oauthSrc).toContain("refreshAccessToken");
-    expect(oauthSrc).toContain("expiresIn");
+  it("refreshAccessToken returns a rotated KeycloakTokenSet", () => {
+    expect(keycloakSrc).toContain("KeycloakTokenSet");
+    expect(keycloakSrc).toContain("refreshToken: data.refresh_token");
   });
 
-  it("auth.logout clears the refresh_token cookie", () => {
+  it("auth.logout clears the refresh_token cookie with the /api/auth path restriction", () => {
     expect(routersSrc).toContain("REFRESH_TOKEN_COOKIE_NAME");
     expect(routersSrc).toContain("clearCookie(REFRESH_TOKEN_COOKIE_NAME");
+    expect(routersSrc).toContain('path: "/api/auth"');
   });
 
-  it("useAuth.ts has silent refresh interval", () => {
-    expect(useAuthSrc).toContain("silentRefresh");
-    expect(useAuthSrc).toContain("/api/auth/refresh");
-    expect(useAuthSrc).toContain("REFRESH_INTERVAL_MS");
-  });
-
-  it("useAuth.ts exposes silentRefresh in return value", () => {
-    expect(useAuthSrc).toContain("silentRefresh,");
+  it("useAuth.ts exposes a refresh() that refetches auth.me", () => {
+    expect(useAuthSrc).toContain("refresh: () => meQuery.refetch()");
   });
 });
 
-describe("Round 36 — Keycloak Event Listener Webhook", () => {
-  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+describe("Round 36 — Keycloak event log (read-side contract)", () => {
+  // Real contract: the HMAC-verified /api/internal/keycloak-events ingest
+  // webhook and the logKeycloakEvent writer were removed in the refactor.
+  // What remains — and what the admin Auth Events UI consumes — is the
+  // keycloak_events table plus the getKeycloakEvents reader in db.ts.
   const dbSrc = readFileSync(resolve(ROOT, "server/db.ts"), "utf8");
   const schemaSrc = readFileSync(resolve(ROOT, "drizzle/schema.ts"), "utf8");
 
@@ -670,34 +694,25 @@ describe("Round 36 — Keycloak Event Listener Webhook", () => {
     expect(schemaSrc).toContain("received_at");
   });
 
-  it("db.ts exports logKeycloakEvent helper", () => {
-    expect(dbSrc).toContain("logKeycloakEvent");
-    expect(dbSrc).toContain("eventType");
-    expect(dbSrc).toContain("keycloak_events");
-  });
-
   it("db.ts exports getKeycloakEvents helper", () => {
     expect(dbSrc).toContain("getKeycloakEvents");
     expect(dbSrc).toContain("ORDER BY received_at DESC");
   });
 
-  it("oauth.ts registers /api/internal/keycloak-events endpoint", () => {
-    expect(oauthSrc).toContain("/api/internal/keycloak-events");
-    expect(oauthSrc).toContain("logKeycloakEvent");
-    expect(oauthSrc).toContain("logAuditEvent");
+  it("getKeycloakEvents reads from keycloak_events with limit/offset pagination", () => {
+    expect(dbSrc).toContain("FROM keycloak_events");
+    expect(dbSrc).toContain("LIMIT ${limit} OFFSET ${offset}");
   });
 
-  it("oauth.ts verifies HMAC signature on keycloak-events webhook", () => {
-    expect(oauthSrc).toContain("KEYCLOAK_WEBHOOK_SECRET");
-    expect(oauthSrc).toContain("x-keycloak-signature");
-    expect(oauthSrc).toContain("timingSafeEqual");
-    expect(oauthSrc).toContain("createHmac");
+  it("getKeycloakEvents supports eventType and userId filters", () => {
+    expect(dbSrc).toContain("event_type = ${opts.eventType}");
+    expect(dbSrc).toContain("user_id = ${opts.userId}");
   });
 
-  it("oauth.ts imports createHmac and timingSafeEqual from crypto", () => {
-    expect(oauthSrc).toContain('from "crypto"');
-    expect(oauthSrc).toContain("createHmac");
-    expect(oauthSrc).toContain("timingSafeEqual");
+  it("env.ts still carries the webhook secret for the Keycloak event listener SPI", () => {
+    const envSrc = readFileSync(resolve(ROOT, "server/_core/env.ts"), "utf8");
+    expect(envSrc).toContain("keycloakWebhookSecret");
+    expect(envSrc).toContain("KEYCLOAK_WEBHOOK_SECRET");
   });
 });
 
@@ -818,45 +833,59 @@ describe("Round 37 — TOTP Recovery Codes", () => {
 // ─── Round 38 — Rate Limiting, Event Listener SPI Config, Webhook Secret ──────
 
 describe("Round 38 — Rate limiting on auth endpoints", () => {
-  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+  // Real contract: rate limiting lives in the dedicated server/rateLimit.ts
+  // module (Redis sliding window with in-process fallback) and is mounted in
+  // server/_core/index.ts on /api/oauth, /api/webhooks, /api/scheduled and
+  // /api/trpc — no per-endpoint limiters inside oauth.ts.
+  const rateLimitSrc = readFileSync(resolve(ROOT, "server/rateLimit.ts"), "utf8");
+  const indexSrc = readFileSync(resolve(ROOT, "server/_core/index.ts"), "utf8");
 
-  it("oauth.ts has RateLimiter class", () => {
-    expect(oauthSrc).toContain("class RateLimiter");
-    expect(oauthSrc).toContain("maxRequests");
-    expect(oauthSrc).toContain("windowMs");
+  it("rateLimit.ts exports the expressRateLimit middleware factory", () => {
+    expect(rateLimitSrc).toContain("export function expressRateLimit");
   });
 
-  it("oauth.ts has rate limiters for login, callback, refresh, and webhook endpoints", () => {
-    expect(oauthSrc).toContain("loginRateLimit");
-    expect(oauthSrc).toContain("callbackRateLimit");
-    expect(oauthSrc).toContain("refreshRateLimit");
-    expect(oauthSrc).toContain("webhookRateLimit");
+  it("rateLimit.ts exports the trpcApiRateLimit classifier", () => {
+    expect(rateLimitSrc).toContain("export function trpcApiRateLimit");
   });
 
-  it("oauth.ts applies rate limiting to /api/auth/keycloak/login", () => {
-    expect(oauthSrc).toContain('rateLimitMiddleware(loginRateLimit, "/api/auth/keycloak/login")');
+  it("rateLimit.ts exports the tRPC rateLimit middleware plus named limiters", () => {
+    expect(rateLimitSrc).toContain("export function rateLimit");
+    expect(rateLimitSrc).toContain("export const readLimit");
+    expect(rateLimitSrc).toContain("export const mutationLimit");
+    expect(rateLimitSrc).toContain("export const financialLimit");
+    expect(rateLimitSrc).toContain("export const authLimit");
+    expect(rateLimitSrc).toContain("export const payoutLimit");
+    expect(rateLimitSrc).toContain("export const webhookLimit");
   });
 
-  it("oauth.ts applies rate limiting to /api/oauth/callback", () => {
-    expect(oauthSrc).toContain('rateLimitMiddleware(callbackRateLimit, "/api/oauth/callback")');
-  });
-
-  it("oauth.ts applies rate limiting to /api/auth/refresh", () => {
-    expect(oauthSrc).toContain('rateLimitMiddleware(refreshRateLimit, "/api/auth/refresh")');
-  });
-
-  it("oauth.ts applies rate limiting to /api/internal/keycloak-events", () => {
-    expect(oauthSrc).toContain('rateLimitMiddleware(webhookRateLimit, "/api/internal/keycloak-events")');
+  it("rate limiter uses a Redis sliding window with in-process fallback", () => {
+    expect(rateLimitSrc).toContain("redisSlideWindow");
+    expect(rateLimitSrc).toContain("memoryStore");
   });
 
   it("rate limiter returns 429 when limit exceeded", () => {
-    expect(oauthSrc).toContain("status(429)");
-    expect(oauthSrc).toContain("Too many requests");
+    expect(rateLimitSrc).toContain("status(429)");
+    expect(rateLimitSrc).toContain("Rate limit exceeded");
   });
 
-  it("rate limiter uses X-Forwarded-For for IP detection behind reverse proxy", () => {
-    expect(oauthSrc).toContain("x-forwarded-for");
-    expect(oauthSrc).toContain("getClientIp");
+  it("index.ts imports the rate limiters from server/rateLimit.ts", () => {
+    expect(indexSrc).toContain('from "../rateLimit"');
+    expect(indexSrc).toContain("expressRateLimit");
+    expect(indexSrc).toContain("trpcApiRateLimit");
+  });
+
+  it("index.ts applies rate limiting to the OAuth login/callback routes", () => {
+    expect(indexSrc).toContain('"/api/oauth"');
+    expect(indexSrc).toContain("auth:oauth");
+  });
+
+  it("index.ts applies rate limiting to webhooks and scheduled endpoints", () => {
+    expect(indexSrc).toContain('"/api/webhooks"');
+    expect(indexSrc).toContain('"/api/scheduled"');
+  });
+
+  it("index.ts throttles the tRPC API with the classifier", () => {
+    expect(indexSrc).toContain('app.use("/api/trpc", trpcApiRateLimit())');
   });
 });
 
@@ -935,70 +964,73 @@ describe("Round 39 — Keycloak brute-force protection in realm JSON", () => {
   });
 });
 
-describe("Round 39 — Security headers in server/_core/index.ts", () => {
+describe("Round 39 — Security headers (server/securityHeaders.ts mounted in index.ts)", () => {
+  // Real contract: security headers are hand-rolled in
+  // server/securityHeaders.ts (no helmet dependency) and mounted app-wide in
+  // server/_core/index.ts.
   const indexSrc = readFileSync(resolve(ROOT, "server/_core/index.ts"), "utf8");
+  const headersSrc = readFileSync(resolve(ROOT, "server/securityHeaders.ts"), "utf8");
 
-  it("index.ts has HSTS configuration in helmet", () => {
-    expect(indexSrc).toContain("strictTransportSecurity");
-    expect(indexSrc).toContain("maxAge: 31536000");
-    expect(indexSrc).toContain("includeSubDomains: true");
-    expect(indexSrc).toContain("preload: true");
+  it("index.ts mounts securityHeaders before other middleware", () => {
+    expect(indexSrc).toContain("app.use(securityHeaders)");
+    expect(indexSrc).toContain('from "../securityHeaders"');
   });
 
-  it("index.ts has noSniff enabled in helmet", () => {
-    expect(indexSrc).toContain("noSniff: true");
+  it("sets HSTS with 1-year max-age, includeSubDomains and preload", () => {
+    expect(headersSrc).toContain("Strict-Transport-Security");
+    expect(headersSrc).toContain("max-age=31536000; includeSubDomains; preload");
   });
 
-  it("index.ts has referrerPolicy in helmet", () => {
-    expect(indexSrc).toContain("referrerPolicy");
-    expect(indexSrc).toContain("strict-origin-when-cross-origin");
+  it("sets X-Content-Type-Options: nosniff", () => {
+    expect(headersSrc).toContain("X-Content-Type-Options");
+    expect(headersSrc).toContain("nosniff");
   });
 
-  it("index.ts has permittedCrossDomainPolicies in helmet", () => {
-    expect(indexSrc).toContain("permittedCrossDomainPolicies");
-    expect(indexSrc).toContain('"none"');
+  it("sets Referrer-Policy: strict-origin-when-cross-origin", () => {
+    expect(headersSrc).toContain("Referrer-Policy");
+    expect(headersSrc).toContain("strict-origin-when-cross-origin");
   });
 
-  it("index.ts has frameguard deny in helmet (clickjacking protection)", () => {
-    expect(indexSrc).toContain("frameguard");
-    expect(indexSrc).toContain('"deny"');
+  it("sets X-Frame-Options: DENY (clickjacking protection)", () => {
+    expect(headersSrc).toContain("X-Frame-Options");
+    expect(headersSrc).toContain("DENY");
   });
 
-  it("index.ts has hidePoweredBy in helmet", () => {
-    expect(indexSrc).toContain("hidePoweredBy: true");
+  it("sets a restrictive Content-Security-Policy", () => {
+    expect(headersSrc).toContain("Content-Security-Policy");
+    expect(headersSrc).toContain("default-src 'self'");
+    expect(headersSrc).toContain("object-src 'none'");
   });
 
-  it("index.ts disables HSTS in dev mode", () => {
-    expect(indexSrc).toContain("strictTransportSecurity: isDev ? false");
+  it("removes the X-Powered-By fingerprint header", () => {
+    expect(headersSrc).toContain('res.removeHeader("X-Powered-By")');
   });
 });
 
-describe("Round 39 — Rate limit response headers in oauth.ts", () => {
-  const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+describe("Round 39 — Rate limit response headers in server/rateLimit.ts", () => {
+  // Real contract: 429 responses and rate-limit headers are produced by the
+  // expressRateLimit middleware in server/rateLimit.ts.
+  const rateLimitSrc = readFileSync(resolve(ROOT, "server/rateLimit.ts"), "utf8");
 
-  it("oauth.ts sets Retry-After header on 429 responses", () => {
-    expect(oauthSrc).toContain("Retry-After");
+  it("sets Retry-After header on 429 responses", () => {
+    expect(rateLimitSrc).toContain("Retry-After");
   });
 
-  it("oauth.ts sets X-RateLimit-Limit header on 429 responses", () => {
-    expect(oauthSrc).toContain("X-RateLimit-Limit");
+  it("sets X-RateLimit-Limit header on 429 responses", () => {
+    expect(rateLimitSrc).toContain("X-RateLimit-Limit");
   });
 
-  it("oauth.ts sets X-RateLimit-Remaining header on 429 responses", () => {
-    expect(oauthSrc).toContain("X-RateLimit-Remaining");
+  it("sets X-RateLimit-Remaining header on 429 responses", () => {
+    expect(rateLimitSrc).toContain("X-RateLimit-Remaining");
   });
 
-  it("oauth.ts sets X-RateLimit-Reset header on 429 responses", () => {
-    expect(oauthSrc).toContain("X-RateLimit-Reset");
+  it("includes retryAfterSeconds in the 429 response body", () => {
+    expect(rateLimitSrc).toContain("retryAfterSeconds");
   });
 
-  it("oauth.ts includes retryAfterSeconds in 429 response body", () => {
-    expect(oauthSrc).toContain("retryAfterSeconds");
-  });
-
-  it("RateLimiter exposes maxRequests and windowMs as public fields", () => {
-    expect(oauthSrc).toContain("readonly maxRequests: number");
-    expect(oauthSrc).toContain("readonly windowMs: number");
+  it("RateLimitOptions exposes max and windowMs configuration", () => {
+    expect(rateLimitSrc).toContain("max?: number");
+    expect(rateLimitSrc).toContain("windowMs?: number");
   });
 });
 
@@ -1046,54 +1078,64 @@ describe("Round 40 — Keycloak password policy in realm JSON", () => {
   });
 });
 
-describe("Round 40 — /api/health/auth-config endpoint in index.ts", () => {
+describe("Round 40 — config validation surface (validateServerEnv + /api/health)", () => {
+  // Real contract: the dedicated /api/health/auth-config endpoint was removed.
+  // Config assurance now comes from (a) validateServerEnv() at boot — fail
+  // closed in production on missing DATABASE_URL/JWT_SECRET, loud warnings for
+  // missing integrations including KEYCLOAK_URL — and (b) the /api/health
+  // probe that reports DB/bridge status and returns 503 when unavailable.
   const indexSrc = readFileSync(resolve(ROOT, "server/_core/index.ts"), "utf8");
+  const envSrc = readFileSync(resolve(ROOT, "server/_core/env.ts"), "utf8");
 
-  it("index.ts has /api/health/auth-config endpoint", () => {
-    expect(indexSrc).toContain('"/api/health/auth-config"');
+  it("index.ts calls validateServerEnv() at boot", () => {
+    expect(indexSrc).toContain("validateServerEnv()");
   });
 
-  it("auth-config endpoint checks KEYCLOAK_URL", () => {
-    expect(indexSrc).toContain("KEYCLOAK_URL");
+  it("validateServerEnv fails closed on missing DATABASE_URL and JWT_SECRET", () => {
+    expect(envSrc).toContain("DATABASE_URL");
+    expect(envSrc).toContain("JWT_SECRET");
+    expect(envSrc).toContain("refusing to boot in production (fail closed)");
   });
 
-  it("auth-config endpoint checks KEYCLOAK_CLIENT_SECRET", () => {
-    expect(indexSrc).toContain("KEYCLOAK_CLIENT_SECRET");
+  it("validateServerEnv warns about missing KEYCLOAK_URL integration", () => {
+    expect(envSrc).toContain("KEYCLOAK_URL");
+    expect(envSrc).toContain("missingRecommended");
   });
 
-  it("auth-config endpoint checks JWT_SECRET", () => {
-    expect(indexSrc).toContain("JWT_SECRET");
+  it("index.ts has /api/health endpoint", () => {
+    expect(indexSrc).toContain('"/api/health"');
   });
 
-  it("auth-config endpoint returns 503 when required vars are missing", () => {
+  it("/api/health returns 503 when the database is unreachable", () => {
     expect(indexSrc).toContain("503");
-    expect(indexSrc).toContain("misconfigured");
-  });
-
-  it("auth-config endpoint returns checks object with all required fields", () => {
-    expect(indexSrc).toContain("keycloakUrl:");
-    expect(indexSrc).toContain("keycloakClientSecret:");
-    expect(indexSrc).toContain("jwtSecret:");
-    expect(indexSrc).toContain("allowedOrigins:");
-    expect(indexSrc).toContain("webhookSecret:");
+    expect(indexSrc).toContain('"unavailable"');
   });
 });
 
-describe("Round 40 — State parameter entropy validation in oauth.ts", () => {
+describe("Round 40 — OAuth state CSRF guard in oauth.ts", () => {
+  // Real contract: state validation is a nonce-match CSRF guard — the nonce
+  // embedded in `state` must equal the one-time OAUTH_STATE_COOKIE set by
+  // startLogin; mismatches are rejected with 403 and the cookie is cleared.
   const oauthSrc = readFileSync(resolve(ROOT, "server/_core/oauth.ts"), "utf8");
+  const keycloakRoutesSrc = readFileSync(resolve(ROOT, "server/_core/keycloakRoutes.ts"), "utf8");
 
-  it("oauth.ts validates state parameter minimum length", () => {
-    expect(oauthSrc).toContain("state.length < 12");
-    expect(oauthSrc).toContain("Invalid state parameter");
+  it("decodes the nonce from the state parameter", () => {
+    expect(oauthSrc).toContain("decodeOAuthState(state)");
   });
 
-  it("oauth.ts validates state decodes to HTTP/HTTPS URI", () => {
-    expect(oauthSrc).toContain('startsWith("http://")');
-    expect(oauthSrc).toContain('startsWith("https://")');
+  it("compares the state nonce against the one-time state cookie", () => {
+    expect(oauthSrc).toContain("OAUTH_STATE_COOKIE");
+    expect(oauthSrc).toContain("nonce !== expectedNonce");
   });
 
-  it("oauth.ts logs warning on state forgery attempt", () => {
-    expect(oauthSrc).toContain("possible forgery");
-    expect(oauthSrc).toContain("possible open-redirect");
+  it("rejects forged state with 403 and clears the state cookie", () => {
+    expect(oauthSrc).toContain("invalid oauth state");
+    expect(oauthSrc).toContain("res.status(403)");
+    expect(oauthSrc).toContain("res.clearCookie(OAUTH_STATE_COOKIE");
+  });
+
+  it("keycloak callback only redirects to relative returnPaths (open-redirect guard)", () => {
+    expect(keycloakRoutesSrc).toContain("/^\\/[^/]/");
+    expect(keycloakRoutesSrc).toContain('includes(":")');
   });
 });

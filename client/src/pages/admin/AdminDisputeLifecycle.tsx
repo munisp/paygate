@@ -2,7 +2,6 @@
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,16 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle, Clock, DollarSign, FileText, MessageSquare, RefreshCw, Search, Shield, XCircle } from "lucide-react";
-
-const DISPUTES = [
-  { id: "DSP-2026-04-001", merchant: "TechMart Nigeria", customer: "Adebayo Okonkwo", amount: 45000, currency: "NGN", reason: "Unauthorized Transaction", status: "evidence_submitted", daysOpen: 3, dueDate: "2026-04-27", cardNetwork: "Visa", chargebackCode: "10.4", priority: "high" },
-  { id: "DSP-2026-04-002", merchant: "Konga Marketplace", customer: "Fatima Aliyu", amount: 12800, currency: "NGN", reason: "Item Not Received", status: "under_review", daysOpen: 7, dueDate: "2026-04-24", cardNetwork: "Mastercard", chargebackCode: "13.1", priority: "medium" },
-  { id: "DSP-2026-04-003", merchant: "Jumia Food", customer: "Emeka Nwosu", amount: 8500, currency: "NGN", reason: "Duplicate Charge", status: "won", daysOpen: 14, dueDate: "2026-04-20", cardNetwork: "Visa", chargebackCode: "12.1", priority: "low" },
-  { id: "DSP-2026-04-004", merchant: "Paystack Partners", customer: "Ngozi Eze", amount: 125000, currency: "NGN", reason: "Credit Not Processed", status: "lost", daysOpen: 21, dueDate: "2026-04-18", cardNetwork: "Mastercard", chargebackCode: "13.6", priority: "high" },
-  { id: "DSP-2026-04-005", merchant: "Flutterwave", customer: "Chukwuemeka Obi", amount: 67000, currency: "NGN", reason: "Goods/Services Not as Described", status: "open", daysOpen: 1, dueDate: "2026-05-04", cardNetwork: "Verve", chargebackCode: "13.3", priority: "medium" },
-  { id: "DSP-2026-04-006", merchant: "GTBank Merchants", customer: "Aisha Bello", amount: 230000, currency: "NGN", reason: "Unauthorized Transaction", status: "arbitration", daysOpen: 28, dueDate: "2026-04-22", cardNetwork: "Visa", chargebackCode: "10.4", priority: "critical" },
-];
+import { AlertTriangle, CheckCircle, DollarSign, FileText, MessageSquare, RefreshCw, Search, XCircle } from "lucide-react";
 
 const LIFECYCLE_STAGES = [
   { stage: "Open", description: "Dispute filed, awaiting merchant response", days: "Day 0", color: "bg-blue-100 text-blue-700" },
@@ -42,13 +32,6 @@ const STATUS_COLORS: Record<string, string> = {
   lost: "bg-red-100 text-red-700",
 };
 
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: "bg-red-100 text-red-700",
-  high: "bg-orange-100 text-orange-700",
-  medium: "bg-amber-100 text-amber-700",
-  low: "bg-gray-100 text-gray-700",
-};
-
 export default function AdminDisputeLifecycle() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -56,8 +39,8 @@ export default function AdminDisputeLifecycle() {
   const [selectedDispute, setSelectedDispute] = useState<any | null>(null);
   const [evidenceNote, setEvidenceNote] = useState("");
 
-  // Real tRPC data
-  const { data: disputesData, isLoading: disputesLoading, refetch: refetchDisputes } = trpc.disputes.list.useQuery({
+  // Real tRPC data — live disputes only, no static fallback.
+  const { data: disputesData, isLoading: disputesLoading, isError: disputesError, error: disputesErrorObj, refetch: refetchDisputes } = trpc.disputes.list.useQuery({
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 50,
     offset: 0,
@@ -76,13 +59,13 @@ export default function AdminDisputeLifecycle() {
     onError: (e) => toast.error(`Failed to submit response: ${e.message}`),
   });
 
-  // Use live data if available, fall back to static mock for display
-  const displayDisputes = liveDisputes.length > 0 ? liveDisputes : DISPUTES;
+  const displayDisputes = liveDisputes;
 
   const filtered = displayDisputes.filter((d: any) => {
     const matchSearch = (d.id ?? "").toLowerCase().includes(search.toLowerCase()) ||
-      (d.merchant ?? d.merchantId ?? "").toLowerCase().includes(search.toLowerCase()) ||
-      (d.customer ?? d.customerId ?? "").toLowerCase().includes(search.toLowerCase());
+      (d.reference ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (d.transactionId ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (d.merchantId ?? "").toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || d.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -94,6 +77,17 @@ export default function AdminDisputeLifecycle() {
     won: displayDisputes.filter((d: any) => d.status === "won").length,
     lost: displayDisputes.filter((d: any) => d.status === "lost").length,
     totalAmount: displayDisputes.reduce((s: number, d: any) => s + (Number(d.amount) || 0), 0),
+  };
+
+  const daysOpen = (d: any) => d.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(d.createdAt).getTime()) / 86400000)) : null;
+
+  const submitResponse = () => {
+    if (!selectedDispute) return;
+    if (evidenceNote.trim().length < 10) {
+      toast.error("Response must be at least 10 characters");
+      return;
+    }
+    respondMutation.mutate({ id: selectedDispute.id, merchantResponse: evidenceNote.trim() });
   };
 
   return (
@@ -153,39 +147,46 @@ export default function AdminDisputeLifecycle() {
             </Select>
           </div>
 
+          {disputesError && (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-700">Could not load disputes</p>
+                <p className="text-xs text-red-600 mt-0.5">{disputesErrorObj?.message}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetchDisputes()}>Retry</Button>
+            </div>
+          )}
+
           <Card>
             <CardContent className="pt-0">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Dispute ID</TableHead>
-                    <TableHead>Merchant</TableHead>
-                    <TableHead>Customer</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Transaction</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Reason</TableHead>
-                    <TableHead>Network</TableHead>
-                    <TableHead>Code</TableHead>
                     <TableHead>Days Open</TableHead>
                     <TableHead>Due Date</TableHead>
-                    <TableHead>Priority</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(d => (
+                  {filtered.map(d => {
+                    const open = daysOpen(d);
+                    return (
                     <TableRow key={d.id}>
                       <TableCell className="font-mono text-xs">{d.id}</TableCell>
-                      <TableCell className="text-sm">{d.merchant}</TableCell>
-                      <TableCell className="text-sm">{d.customer}</TableCell>
+                      <TableCell className="font-mono text-xs">{d.reference ?? "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{d.transactionId ?? "—"}</TableCell>
                       <TableCell className="font-semibold">{formatNGN(d.amount)}</TableCell>
-                      <TableCell className="text-xs max-w-32 truncate">{d.reason}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-xs">{d.cardNetwork}</Badge></TableCell>
-                      <TableCell className="font-mono text-xs">{d.chargebackCode}</TableCell>
-                      <TableCell className={d.daysOpen > 20 ? "text-red-600 font-semibold" : ""}>{d.daysOpen}d</TableCell>
-                      <TableCell className="text-xs">{d.dueDate}</TableCell>
-                      <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[d.priority]}`}>{d.priority}</span></TableCell>
-                      <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[d.status]}`}>{d.status.replace("_", " ")}</span></TableCell>
+                      <TableCell className="text-xs max-w-32 truncate">{d.reason ?? "—"}</TableCell>
+                      <TableCell className={(open ?? 0) > 20 ? "text-red-600 font-semibold" : ""}>{open != null ? `${open}d` : "—"}</TableCell>
+                      <TableCell className="text-xs">{d.dueDate ? new Date(d.dueDate).toLocaleDateString() : "—"}</TableCell>
+                      <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[d.status] ?? "bg-gray-100 text-gray-700"}`}>{(d.status ?? "").replace("_", " ")}</span></TableCell>
                       <TableCell>
                         <Dialog>
                           <DialogTrigger asChild>
@@ -199,37 +200,46 @@ export default function AdminDisputeLifecycle() {
                             </DialogHeader>
                             <div className="space-y-4">
                               <div className="grid grid-cols-2 gap-3 text-sm">
-                                <div><p className="text-muted-foreground">Merchant</p><p className="font-medium">{d.merchant}</p></div>
+                                <div><p className="text-muted-foreground">Reference</p><p className="font-mono text-xs">{d.reference ?? "—"}</p></div>
                                 <div><p className="text-muted-foreground">Amount</p><p className="font-medium">{formatNGN(d.amount)}</p></div>
-                                <div><p className="text-muted-foreground">Reason</p><p className="font-medium">{d.reason}</p></div>
-                                <div><p className="text-muted-foreground">Chargeback Code</p><p className="font-mono">{d.chargebackCode}</p></div>
+                                <div><p className="text-muted-foreground">Reason</p><p className="font-medium">{d.reason ?? "—"}</p></div>
+                                <div><p className="text-muted-foreground">Status</p><p className="font-medium capitalize">{(d.status ?? "").replace("_", " ")}</p></div>
                               </div>
-                              <div>
-                                <p className="text-sm font-medium mb-2">Update Status</p>
-                                <div className="flex gap-2 flex-wrap">
-                                  {["evidence_requested", "evidence_submitted", "under_review", "arbitration", "won", "lost"].map(s => (
-                                    <Button key={s} size="sm" variant="outline"
-                                      onClick={() => { toast.success(`Dispute ${d.id} moved to ${s.replace("_", " ")}`); }}>
-                                      {s.replace("_", " ")}
-                                    </Button>
-                                  ))}
+                              {d.merchantResponse && (
+                                <div>
+                                  <p className="text-sm font-medium mb-1">Existing Merchant Response</p>
+                                  <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">{d.merchantResponse}</p>
                                 </div>
-                              </div>
+                              )}
                               <div>
-                                <p className="text-sm font-medium mb-2">Add Evidence Note</p>
-                                <Textarea placeholder="Describe the evidence or action taken…" value={evidenceNote} onChange={e => setEvidenceNote(e.target.value)} rows={3} />
+                                <p className="text-sm font-medium mb-2">Respond to Dispute</p>
+                                <Textarea placeholder="Describe the evidence or response (min. 10 characters)…" value={evidenceNote} onChange={e => setEvidenceNote(e.target.value)} rows={3} />
+                                <p className="text-xs text-muted-foreground mt-1">Submitting moves the dispute to under review and records your response.</p>
                               </div>
-                              <Button className="w-full" onClick={() => { toast.success("Evidence note saved"); setEvidenceNote(""); }}>
-                                Save Note & Notify Merchant
+                              <Button className="w-full" onClick={submitResponse} disabled={respondMutation.isPending}>
+                                {respondMutation.isPending ? "Submitting…" : "Submit Response"}
                               </Button>
                             </div>
                           </DialogContent>
                         </Dialog>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
+              {!disputesLoading && !disputesError && filtered.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <CheckCircle className="w-8 h-8 mb-2 opacity-40" />
+                  <p className="text-sm">{displayDisputes.length === 0 ? "No disputes on record." : "No disputes match the current filters."}</p>
+                </div>
+              )}
+              {disputesLoading && (
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                  <p className="text-sm">Loading disputes…</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

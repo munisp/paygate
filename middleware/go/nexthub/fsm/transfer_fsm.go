@@ -11,7 +11,10 @@
 package fsm
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -264,13 +267,44 @@ func NewTransfer(
 	}
 }
 
-// validateFulfilment checks that SHA-256(fulfilment) == condition.
-// In production, use the crypto/sha256 package and base64url encoding.
+// decodeBase64URL decodes a base64url-encoded value, accepting both the
+// unpadded (RFC 4648 §5, as used by Mojaloop/ILP) and padded variants.
+func decodeBase64URL(s string) ([]byte, error) {
+	if b, err := base64.RawURLEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	return base64.URLEncoding.DecodeString(s)
+}
+
+// validateFulfilment implements the Mojaloop FSPIOP fulfilment check:
+// a fulfilment is valid iff base64url(SHA-256(fulfilment)) equals the
+// transfer's condition, where the condition is the base64url encoding of
+// a 32-byte SHA-256 digest. It fails closed: malformed base64url input,
+// a non-32-byte condition, or any digest mismatch is rejected.
 func validateFulfilment(condition, fulfilment string) error {
-	// TODO: implement SHA-256(base64url(fulfilment)) == condition
-	// This is a stub that accepts any non-empty fulfilment.
 	if fulfilment == "" {
 		return errors.New("fulfilment must not be empty")
+	}
+	if condition == "" {
+		return errors.New("condition must not be empty")
+	}
+
+	condBytes, err := decodeBase64URL(condition)
+	if err != nil {
+		return fmt.Errorf("condition is not valid base64url: %w", err)
+	}
+	if len(condBytes) != sha256.Size {
+		return fmt.Errorf("condition must decode to a %d-byte SHA-256 digest, got %d bytes", sha256.Size, len(condBytes))
+	}
+
+	fulfilBytes, err := decodeBase64URL(fulfilment)
+	if err != nil {
+		return fmt.Errorf("fulfilment is not valid base64url: %w", err)
+	}
+
+	digest := sha256.Sum256(fulfilBytes)
+	if !bytes.Equal(digest[:], condBytes) {
+		return errors.New("fulfilment does not satisfy the transfer condition (SHA-256 mismatch)")
 	}
 	return nil
 }

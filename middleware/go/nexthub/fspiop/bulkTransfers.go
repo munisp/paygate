@@ -4,8 +4,10 @@ package fspiop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,6 +66,23 @@ type FSPIOPError struct {
 	ErrorCode        string `json:"errorCode"`
 	ErrorDescription string `json:"errorDescription"`
 }
+
+// bulkTransferRecord is the last known state of a bulk transfer as observed
+// by this process from POST /bulkTransfers (prepare) and PUT /bulkTransfers/{ID}
+// (fulfilment callback) requests.
+type bulkTransferRecord struct {
+	State              BulkTransferState
+	CompletedTimestamp *string
+	UpdatedAt          time.Time
+}
+
+// bulkTransferStore is the read model backing GET /bulkTransfers/{ID}.
+// It records only states that were actually observed by the POST/PUT handlers;
+// IDs never seen fail closed with FSPIOP error 3200 rather than a fabricated
+// state. Durable cross-process state lives in the Temporal BulkTransferWorkflow
+// (fed by the nexthub.bulk-transfers Fluvio topic); a shared Redis/DB read
+// model is the follow-up for multi-replica deployments.
+var bulkTransferStore sync.Map // key: bulkTransferID, value: bulkTransferRecord
 
 // BulkTransfersHandler handles POST /bulkTransfers — initiates a bulk two-phase transfer.
 // The handler validates the request, publishes to Fluvio topic nexthub.bulk-transfers,
@@ -129,6 +148,11 @@ func BulkTransfersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bulkTransferStore.Store(req.BulkTransferID, bulkTransferRecord{
+		State:     BulkTransferReceived,
+		UpdatedAt: time.Now().UTC(),
+	})
+
 	w.Header().Set("Content-Type", "application/vnd.interoperability.bulkTransfers+json;version=1.1")
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -166,6 +190,23 @@ func BulkTransferFulfilmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record the observed fulfilment state; fall back to PROCESSING when the
+	// callback omits a state rather than inventing one.
+	observedState := fulfilment.BulkTransferState
+	if observedState == "" {
+		observedState = BulkTransferProcessing
+	}
+	var completedTs *string
+	if fulfilment.CompletedTimestamp != "" {
+		ts := fulfilment.CompletedTimestamp
+		completedTs = &ts
+	}
+	bulkTransferStore.Store(bulkTransferID, bulkTransferRecord{
+		State:              observedState,
+		CompletedTimestamp: completedTs,
+		UpdatedAt:          time.Now().UTC(),
+	})
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -182,10 +223,10 @@ func BulkTransferGetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lookup from Redis cache first, then PostgreSQL
+	// Look up the observed state; unknown IDs fail closed with FSPIOP 3200.
 	status, err := lookupBulkTransferStatus(bulkTransferID)
 	if err != nil {
-		writeFSPIOPError(w, http.StatusNotFound, "3208", fmt.Sprintf("Bulk transfer %s not found", bulkTransferID))
+		writeFSPIOPError(w, http.StatusNotFound, "3200", fmt.Sprintf("Generic ID not found — bulk transfer %s is unknown", bulkTransferID))
 		return
 	}
 
@@ -197,11 +238,14 @@ func BulkTransferGetHandler(w http.ResponseWriter, r *http.Request) {
 // --- helpers ---
 
 func lookupBulkTransferStatus(id string) (map[string]interface{}, error) {
-	// In production: check Redis cache, then query PostgreSQL nexthub_bulk_transfers table.
-	// Returns stub for now — replaced by real DB lookup in the full implementation.
+	v, ok := bulkTransferStore.Load(id)
+	if !ok {
+		return nil, errors.New("unknown bulk transfer ID")
+	}
+	rec := v.(bulkTransferRecord)
 	return map[string]interface{}{
-		"bulkTransferId":    id,
-		"bulkTransferState": BulkTransferProcessing,
-		"completedTimestamp": nil,
+		"bulkTransferId":     id,
+		"bulkTransferState":  rec.State,
+		"completedTimestamp": rec.CompletedTimestamp,
 	}, nil
 }

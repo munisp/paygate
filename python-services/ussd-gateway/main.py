@@ -15,10 +15,15 @@ Consumer flows:
 
 Environment variables:
   PORT                  — HTTP port (default: 8095)
-  BRIDGE_URL            — Go bridge base URL
+  BRIDGE_URL            — Go bridge base URL (REQUIRED — service refuses to
+                          start without it; money movement is never simulated
+                          in production)
   BRIDGE_INTERNAL_KEY   — Bridge authentication key
   AT_USERNAME           — Africa's Talking username
   AT_API_KEY            — Africa's Talking API key
+  USSD_ALLOW_SIMULATION — DEV-ONLY escape hatch ("1"/"true"): allows running
+                          without a bridge; every simulated result is marked
+                          simulated:true and a loud WARN is logged at startup.
   LOG_LEVEL             — Logging level (default: INFO)
 """
 import logging
@@ -40,6 +45,24 @@ logging.basicConfig(
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "").rstrip("/")
 BRIDGE_KEY = os.getenv("BRIDGE_INTERNAL_KEY", "")
+ALLOW_SIMULATION = os.getenv("USSD_ALLOW_SIMULATION", "").lower() in ("1", "true", "yes")
+
+if not BRIDGE_URL and not ALLOW_SIMULATION:
+    # FAIL FAST: without a bridge, balance lookups would return 0 and P2P /
+    # bill-pay would report fabricated success references. That is never
+    # acceptable outside an explicitly gated dev session.
+    raise RuntimeError(
+        "BRIDGE_URL is not set. The USSD gateway cannot move real money or read "
+        "real balances without the Go bridge, and it will not fabricate success. "
+        "Set BRIDGE_URL (e.g. http://bridge-1:8080) or, for local development "
+        "ONLY, set USSD_ALLOW_SIMULATION=1."
+    )
+
+if not BRIDGE_URL and ALLOW_SIMULATION:
+    logger.warning(
+        "USSD ALLOW_SIMULATION ACTIVE: BRIDGE_URL unset — balance/P2P/bill-pay "
+        "responses are SIMULATED (simulation:true). Never enable in production."
+    )
 
 sessions: dict[str, dict] = {}
 
@@ -74,19 +97,24 @@ def _bridge_headers() -> dict:
 
 def get_consumer_balance(phone: str) -> Optional[dict]:
     if not BRIDGE_URL:
-        return {"balance_kobo": 0, "currency": "NGN", "simulated": True}
+        # Only reachable behind the explicit USSD_ALLOW_SIMULATION dev gate.
+        logger.warning(f"[simulation] balance lookup for {phone} — no bridge configured")
+        return {"balance_kobo": 0, "currency": "NGN", "simulated": True, "simulation": True}
     try:
         resp = httpx.post(f"{BRIDGE_URL}/v1/consumer/wallet/balance", json={"phone": phone}, headers=_bridge_headers(), timeout=5.0)
         if resp.status_code == 200:
             return resp.json()
+        logger.error(f"[bridge] get_consumer_balance HTTP {resp.status_code}: {resp.text[:300]}")
     except Exception as e:
-        logger.warning(f"[bridge] get_consumer_balance: {e}")
+        logger.error(f"[bridge] get_consumer_balance: {e}")
     return None
 
 
 def initiate_p2p_transfer(phone: str, recipient_phone: str, amount_kobo: int) -> Optional[dict]:
     if not BRIDGE_URL:
-        return {"success": True, "reference": f"USSD-{int(time.time())}", "simulated": True}
+        # Only reachable behind the explicit USSD_ALLOW_SIMULATION dev gate.
+        logger.warning(f"[simulation] P2P {phone}->{recipient_phone} {amount_kobo}k — no bridge configured")
+        return {"success": True, "reference": f"SIM-USSD-{int(time.time())}", "simulated": True, "simulation": True}
     try:
         resp = httpx.post(
             f"{BRIDGE_URL}/v1/consumer/transfer/p2p",
@@ -95,14 +123,17 @@ def initiate_p2p_transfer(phone: str, recipient_phone: str, amount_kobo: int) ->
         )
         if resp.status_code == 200:
             return resp.json()
+        logger.error(f"[bridge] initiate_p2p_transfer HTTP {resp.status_code}: {resp.text[:300]}")
     except Exception as e:
-        logger.warning(f"[bridge] initiate_p2p_transfer: {e}")
+        logger.error(f"[bridge] initiate_p2p_transfer: {e}")
     return None
 
 
 def pay_bill(phone: str, biller_code: str, customer_ref: str, amount_kobo: int) -> Optional[dict]:
     if not BRIDGE_URL:
-        return {"success": True, "reference": f"BILL-{int(time.time())}", "simulated": True}
+        # Only reachable behind the explicit USSD_ALLOW_SIMULATION dev gate.
+        logger.warning(f"[simulation] billpay {biller_code} for {phone} {amount_kobo}k — no bridge configured")
+        return {"success": True, "reference": f"SIM-BILL-{int(time.time())}", "simulated": True, "simulation": True}
     try:
         resp = httpx.post(
             f"{BRIDGE_URL}/v1/consumer/bill-pay",
@@ -111,8 +142,9 @@ def pay_bill(phone: str, biller_code: str, customer_ref: str, amount_kobo: int) 
         )
         if resp.status_code == 200:
             return resp.json()
+        logger.error(f"[bridge] pay_bill HTTP {resp.status_code}: {resp.text[:300]}")
     except Exception as e:
-        logger.warning(f"[bridge] pay_bill: {e}")
+        logger.error(f"[bridge] pay_bill: {e}")
     return None
 
 
@@ -130,12 +162,16 @@ def get_transaction_history(phone: str) -> list[dict]:
 
 def change_pin(phone: str, old_pin: str, new_pin: str) -> bool:
     if not BRIDGE_URL:
-        return True
+        # Never fabricate a credential change, even in simulation mode.
+        logger.warning(f"[simulation] PIN change for {phone} REFUSED — no bridge configured")
+        return False
     try:
         resp = httpx.post(f"{BRIDGE_URL}/v1/consumer/pin/change", json={"phone": phone, "old_pin": old_pin, "new_pin": new_pin}, headers=_bridge_headers(), timeout=5.0)
+        if resp.status_code != 200:
+            logger.error(f"[bridge] change_pin HTTP {resp.status_code}: {resp.text[:300]}")
         return resp.status_code == 200
     except Exception as e:
-        logger.warning(f"[bridge] change_pin: {e}")
+        logger.error(f"[bridge] change_pin: {e}")
     return False
 
 
@@ -323,6 +359,34 @@ async def metrics():
         f"paygate_ussd_active_sessions {len(sessions)}\n",
         media_type="text/plain",
     )
+
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 if __name__ == "__main__":

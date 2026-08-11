@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/munisp/paygate/go-bridge/internal/caddy"
+	"github.com/paygate/go-bridge/internal/caddy"
 )
 
 // CaddyAdminHandler provides REST endpoints for Caddy management.

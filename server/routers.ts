@@ -106,7 +106,7 @@ import {
   getDb,
 } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { protectedProcedure, publicProcedure, router, pbacProcedure } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router, pbacProcedure, adminProcedure } from "./_core/trpc";
 import { auditedProcedure } from "./_core/auditMiddleware";
 import { notifyOwner } from "./_core/notification";
 import {
@@ -179,6 +179,7 @@ import {
   forceTerminateWorkflowViaMiddleware,
   sendPayoutApprovalEmailViaMiddleware,
   nipNameEnquiryViaMiddleware,
+  nipInstantDebitViaMiddleware,
   escalateFraudRingViaMiddleware,
 } from "./middlewareBridge";
 import { notificationPreferencesRouter } from './routers/notificationPreferences';
@@ -926,6 +927,64 @@ const customersRouter = router({
 
 // ─── Payouts Router ───────────────────────────────────────────────────────────
 
+/**
+ * Derives a deterministic idempotency key from the merchant + request payload.
+ * P0-7a: when the client does NOT supply an idempotencyKey, payout creation is
+ * still recorded under this hash-derived key, so a network retry of the exact
+ * same payload within 24h replays the original result instead of creating a
+ * second payout. A client that intentionally wants two identical payouts must
+ * pass an explicit, distinct idempotencyKey.
+ */
+function derivePayoutIdempotencyKey(operation: string, merchantId: string, payload: unknown): string {
+  const hash = crypto.createHash("sha256")
+    .update(JSON.stringify({ operation, merchantId, payload }))
+    .digest("hex");
+  return `auto_${operation}_${hash.slice(0, 48)}`;
+}
+// Exported for unit tests (money-correctness.test.ts).
+export const __payoutIdempotencyInternals = { derivePayoutIdempotencyKey };
+
+/**
+ * P1-7: maker-checker metadata persisted on the payout record.
+ * The payouts table has no dedicated initiator column, so the initiator (and
+ * the Temporal workflow id, when the bridge is used) are encoded in the
+ * free-text failure_reason column as `workflow:<id>|initiator:<openId>`.
+ * The column is only used for its original purpose once the payout reaches a
+ * terminal state (rejected/failed), at which point the meta is obsolete.
+ */
+function encodePayoutMeta(parts: { workflowId?: string | null; initiatorId?: string | null }): string | undefined {
+  const segs: string[] = [];
+  if (parts.workflowId) segs.push(`workflow:${parts.workflowId}`);
+  if (parts.initiatorId) segs.push(`initiator:${parts.initiatorId}`);
+  return segs.length > 0 ? segs.join("|") : undefined;
+}
+function parsePayoutMeta(failureReason: string | null | undefined): { workflowId?: string; initiatorId?: string } {
+  const out: { workflowId?: string; initiatorId?: string } = {};
+  if (!failureReason) return out;
+  for (const seg of failureReason.split("|")) {
+    if (seg.startsWith("workflow:")) out.workflowId = seg.slice("workflow:".length);
+    else if (seg.startsWith("initiator:")) out.initiatorId = seg.slice("initiator:".length);
+  }
+  return out;
+}
+
+/**
+ * P1-7 maker-checker: throws FORBIDDEN when the approver is the recorded
+ * initiator of the payout. Legacy rows without initiator metadata are allowed
+ * (nothing to compare against).
+ */
+function assertApproverIsNotInitiator(failureReason: string | null | undefined, approverOpenId: string): void {
+  const meta = parsePayoutMeta(failureReason);
+  if (meta.initiatorId && meta.initiatorId === approverOpenId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Separation of duties: the payout initiator cannot approve their own payout",
+    });
+  }
+}
+// Exported for unit tests (money-correctness.test.ts).
+export const __payoutMetaInternals = { encodePayoutMeta, parsePayoutMeta, assertApproverIsNotInitiator };
+
 const payoutsRouter = router({
   list: protectedProcedure
     .input(z.object({
@@ -957,10 +1016,16 @@ const payoutsRouter = router({
       accountNumber: z.string().optional(),
       accountName: z.string().optional(),
       narration: z.string().optional(),
+      // P0-7a: optional idempotency key. When provided it is honored (replay
+      // returns the original payout; a different payload with the same key is
+      // rejected). When omitted, a deterministic key is derived from the
+      // request hash so exact-payload retries within 24h still dedupe.
+      idempotencyKey: z.string().min(8).max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      const execute = async () => {
       const feeAmount = Math.round(input.amount * 0.005);
       const payoutId = nanoid("pyo_");
       const reference = nanoid("PYO_");
@@ -986,6 +1051,8 @@ const payoutsRouter = router({
         narration: input.narration,
         feeAmount,
         status,
+        // P1-7: persist the initiator for maker-checker enforcement on approve.
+        ...(requiresApproval ? { failureReason: encodePayoutMeta({ initiatorId: ctx.user.openId }) } : {}),
       });
 
       // Fire-and-forget Kafka event for downstream consumers
@@ -1023,7 +1090,7 @@ const payoutsRouter = router({
             initiatorId: ctx.user.openId,
           });
           // Store the Temporal workflow ID on the payout record for status polling
-          if (workflowResp) await updatePayout(payoutId, { failureReason: `workflow:${workflowResp.workflowId}` });
+          if (workflowResp) await updatePayout(payoutId, { failureReason: encodePayoutMeta({ workflowId: workflowResp.workflowId, initiatorId: ctx.user.openId }) });
         } catch (bridgeErr) {
           // Non-fatal: payout is already in pending_approval state in DB.
           // The portal UI will show the approval queue; the bridge can be
@@ -1034,6 +1101,29 @@ const payoutsRouter = router({
 
       publishAuditEvent({ userId: ctx.user?.openId ?? 'unknown', merchantId: merchant.id, action: 'payout.created', resource: 'payout', resourceId: payoutId, result: 'success', metadata: { amount: input.amount, currency: input.currency, status } }).catch(() => {});
       return payout;
+      };
+
+      // P0-7a: idempotency — pre-check BEFORE executing; on replay return the
+      // original payout. The underlying store uses INSERT ... ON CONFLICT DO
+      // NOTHING, so a same-key race (unique violation) replays the winner's
+      // result instead of double-creating.
+      const idemKey = input.idempotencyKey
+        ?? derivePayoutIdempotencyKey("payouts.create", merchant.id, {
+          amount: input.amount,
+          currency: input.currency,
+          bankCode: input.bankCode ?? null,
+          accountNumber: input.accountNumber ?? null,
+          accountName: input.accountName ?? null,
+          narration: input.narration ?? null,
+        });
+      return withIdempotency({
+        key: idemKey,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        operation: "payouts.create",
+        requestBody: { ...input, idempotencyKey: idemKey },
+        execute,
+      });
     }),
 
   createBulk: pbacProcedure('create_payout')
@@ -1046,10 +1136,14 @@ const payoutsRouter = router({
         accountName: z.string().optional(),
         narration: z.string().optional(),
       })).min(1).max(500),
+      // P0-7a: optional idempotency key for the whole batch (same semantics as
+      // payouts.create; when omitted a hash-derived key dedupes exact retries).
+      idempotencyKey: z.string().min(8).max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+      const execute = async () => {
       const results: Array<{ index: number; success: boolean; id?: string; error?: string }> = [];
       for (let i = 0; i < input.rows.length; i++) {
         const row = input.rows[i];
@@ -1079,6 +1173,17 @@ const payoutsRouter = router({
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
       return { total: input.rows.length, succeeded, failed, results };
+      };
+      const idemKey = input.idempotencyKey
+        ?? derivePayoutIdempotencyKey("payouts.createBulk", merchant.id, input.rows);
+      return withIdempotency({
+        key: idemKey,
+        merchantId: merchant.id,
+        tenantId: merchant.tenantId ?? "ten_default",
+        operation: "payouts.createBulk",
+        requestBody: { ...input, idempotencyKey: idemKey },
+        execute,
+      });
     }),
 
   approve: pbacProcedure('approve_payout')
@@ -1092,6 +1197,10 @@ const payoutsRouter = router({
       const payout = await getPayoutById(input.id);
       if (!payout || payout.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       if (payout.status !== "pending_approval") throw new TRPCError({ code: "BAD_REQUEST", message: "Payout is not awaiting approval" });
+
+      // P1-7 maker-checker (separation of duties): the user who initiated the
+      // payout may not approve it. Applies to both bridge and DB fallback paths.
+      assertApproverIsNotInitiator(payout.failureReason, ctx.user.openId);
 
       // If bridge is available, send Temporal signal which triggers:
       //   TigerBeetle CommitPayout → bank transfer → Kafka payout.approved
@@ -1110,8 +1219,58 @@ const payoutsRouter = router({
         }
       }
 
-      // Fallback: direct DB update (dev/sandbox or bridge unavailable)
-      await updatePayout(input.id, { status: "pending", processedAt: new Date() });
+      // Fallback: direct DB update (dev/sandbox or bridge unavailable).
+      // P1-7: no approval without a fund reservation — atomically reserve
+      // (payout amount + fee) from the merchant's settlement wallet and flip
+      // the status in the SAME transaction. The guarded UPDATE ... WHERE
+      // balance >= total makes the debit TOCTOU-safe under concurrency.
+      const database = await getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const { payouts: payoutsTable } = await import("../drizzle/schema");
+      const reserveTotal = (Number(payout.amount) + Number(payout.feeAmount ?? 0)).toFixed(2);
+      await database.transaction(async (tx) => {
+        // Locate the merchant's active settlement wallet for this currency (locked).
+        const walletRes: any = await tx.execute(sql`
+          SELECT id, balance FROM wallets
+          WHERE merchant_id = ${merchant.id}
+            AND currency = ${payout.currency ?? 'NGN'}
+            AND status = 'active'
+          ORDER BY id
+          LIMIT 1
+          FOR UPDATE
+        `);
+        const walletRows: any[] = walletRes?.rows ?? walletRes ?? [];
+        const wallet = walletRows[0];
+        if (!wallet) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `No active settlement wallet in ${payout.currency ?? 'NGN'} for this merchant — funds cannot be reserved, so the payout cannot be approved`,
+          });
+        }
+        // Guarded reservation debit — fails atomically if funds are insufficient.
+        const debitRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric - ${reserveTotal}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id} AND balance::numeric >= ${reserveTotal}::numeric
+          RETURNING balance
+        `);
+        const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+        if (!debitRows[0]) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Insufficient settlement wallet balance to reserve ${reserveTotal} ${payout.currency ?? 'NGN'} for this payout`,
+          });
+        }
+        // Conditional status flip: only if still pending_approval (guards
+        // against a concurrent approve/reject racing this transaction).
+        const flipped = await tx.update(payoutsTable)
+          .set({ status: "pending", processedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(payoutsTable.id, input.id), eq(payoutsTable.status, "pending_approval")))
+          .returning({ id: payoutsTable.id });
+        if (flipped.length === 0) {
+          throw new TRPCError({ code: "CONFLICT", message: "Payout status changed concurrently — approval aborted" });
+        }
+      });
       const { logAuditEvent: logPayoutAudit } = await import('./db');
       await logPayoutAudit({
         merchantId: merchant.id,
@@ -1953,8 +2112,82 @@ const virtualCardsRouter = router({
       const card = await getVirtualCardById(input.id);
       if (!card || card.merchantId !== merchant.id) throw new TRPCError({ code: "NOT_FOUND" });
       if (card.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "Card must be active to top up" });
-      const newBalance = Number(card.balance ?? 0) + input.amount;
-      await updateVirtualCard(input.id, { balance: newBalance });
+      // Card balance is stored in whole units (bigint column).
+      const creditUnits = Math.round(input.amount);
+      if (creditUnits <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Amount too small" });
+
+      // Funded top-up only: the merchant's settlement wallet in the card
+      // currency is debited (guarded, TOCTOU-safe) and the card balance is
+      // credited with a blind atomic increment — both in ONE transaction, so
+      // an unbacked card credit is impossible. The wallet ledger row carries
+      // a unique reference per top-up.
+      const database = await getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const debitAmount = creditUnits.toFixed(2);
+      const topUpRef = `VCARD-TOPUP-${input.id}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      const newBalance = await database.transaction(async (tx) => {
+        // Lock + locate the merchant's active settlement wallet for the card currency.
+        const walletRes: any = await tx.execute(sql`
+          SELECT id, balance, tenant_id AS "tenantId" FROM wallets
+          WHERE merchant_id = ${merchant.id}
+            AND currency = ${card.currency}
+            AND status = 'active'
+          ORDER BY id
+          LIMIT 1
+          FOR UPDATE
+        `);
+        const walletRows: any[] = walletRes?.rows ?? walletRes ?? [];
+        const wallet = walletRows[0];
+        if (!wallet) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `No active settlement wallet in ${card.currency} — card top-up requires a funded wallet`,
+          });
+        }
+        // Guarded debit — the balance check happens under the row lock.
+        const debitRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric - ${debitAmount}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id} AND balance::numeric >= ${debitAmount}::numeric
+          RETURNING balance
+        `);
+        const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+        if (!debitRows[0]) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Insufficient settlement wallet balance to fund this card top-up (${debitAmount} ${card.currency})`,
+          });
+        }
+        // Atomic blind increment on the card (no read-modify-write).
+        const creditRes: any = await tx.execute(sql`
+          UPDATE virtual_cards
+          SET balance = balance + ${creditUnits}, updated_at = now()
+          WHERE id = ${card.id} AND merchant_id = ${merchant.id} AND status = 'active'
+          RETURNING balance
+        `);
+        const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+        if (!creditRows[0]) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Card credit failed" });
+        }
+        // Wallet ledger row for the funding debit.
+        const { walletTransactions } = await import("../drizzle/schema");
+        await tx.insert(walletTransactions).values({
+          walletId: wallet.id,
+          tenantId: wallet.tenantId ?? card.tenantId,
+          type: "debit",
+          amount: debitAmount,
+          currency: card.currency,
+          balanceBefore: String(wallet.balance),
+          balanceAfter: String(debitRows[0].balance),
+          description: `Virtual card top-up (${card.maskedPan})`,
+          reference: topUpRef,
+          channel: "virtual_card",
+          counterpartyId: card.id,
+          status: "completed",
+        }).returning();
+        return Number(creditRows[0].balance);
+      });
+      publishAuditEvent({ action: 'virtual_card.topped_up', userId: ctx.user.openId, targetId: card.id, metadata: { merchantId: merchant.id, amount: creditUnits, currency: card.currency, reference: topUpRef }, timestamp: new Date().toISOString() }).catch(() => {});
       return { success: true, newBalance };
     }),
 
@@ -2542,14 +2775,14 @@ const merchantAnalyticsRouter = router({
       if (input.groupBy === 'rail') {
         const rows = await db
           .select({
-            rail: interchangeFeeRecords.rail,
-            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            rail: interchangeFeeRecords.scheme,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
             txnCount: drizzleSql<number>`count(*)`,
           })
           .from(interchangeFeeRecords)
           .where(baseWhere)
-          .groupBy(interchangeFeeRecords.rail);
+          .groupBy(interchangeFeeRecords.scheme);
         const totalFee = rows.reduce((s, r) => s + Number(r.totalFeeKobo), 0);
         const totalCost = rows.reduce((s, r) => s + Number(r.totalSchemeKobo), 0);
         return { groupBy: 'rail', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
@@ -2559,8 +2792,8 @@ const merchantAnalyticsRouter = router({
         const rows = await db
           .select({
             cardType: interchangeFeeRecords.cardType,
-            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+            totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+            totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
             txnCount: drizzleSql<number>`count(*)`,
           })
           .from(interchangeFeeRecords)
@@ -2571,16 +2804,16 @@ const merchantAnalyticsRouter = router({
         return { groupBy: 'cardType', rows, summary: { totalFeeKobo: totalFee, totalSchemeCostKobo: totalCost, netPLKobo: totalFee - totalCost } };
       }
 
-      // day or month grouping — use DATE_FORMAT for MySQL-compatible syntax
+      // day or month grouping — Postgres to_char (not MySQL date_format)
       const truncFn = input.groupBy === 'month'
-        ? drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m')`
-        : drizzleSql<string>`date_format(${interchangeFeeRecords.createdAt}, '%Y-%m-%d')`;
+        ? drizzleSql<string>`to_char(${interchangeFeeRecords.createdAt}, 'YYYY-MM')`
+        : drizzleSql<string>`to_char(${interchangeFeeRecords.createdAt}, 'YYYY-MM-DD')`;
 
       const rows = await db
         .select({
           period: truncFn,
-          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeAmountKobo}), 0)`,
-          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.schemeCostKobo}), 0)`,
+          totalFeeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.feeKobo}), 0)`,
+          totalSchemeKobo: drizzleSql<number>`coalesce(sum(${interchangeFeeRecords.percentageFeeKobo}), 0)`,
           txnCount: drizzleSql<number>`count(*)`,
         })
         .from(interchangeFeeRecords)
@@ -2613,13 +2846,13 @@ const merchantAnalyticsRouter = router({
       const [strBacklog, recentBreaches, activeSchemes] = await Promise.all([
         db.select({ count: drizzleSql<number>`count(*)` })
           .from(strRecords)
-          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.status, 'pending'))),
+          .where(drizzleAnd(drizzleEq(strRecords.merchantId, merchant.id), drizzleEq(strRecords.submissionStatus, 'pending'))),
         db.select({ count: drizzleSql<number>`count(*)` })
           .from(velocityBreaches)
           .where(drizzleAnd(drizzleEq(velocityBreaches.merchantId, merchant.id), drizzleGte(velocityBreaches.createdAt, since24h))),
         db.select({ scheme: schemeMemberships.scheme, status: schemeMemberships.status })
           .from(schemeMemberships)
-          .where(drizzleEq(schemeMemberships.merchantId, merchant.id)),
+          .where(drizzleEq(schemeMemberships.memberId, merchant.id)),
       ]);
 
       return {
@@ -2654,6 +2887,47 @@ async function bridgeFetch(path: string, method: string, body?: unknown) {
     // Bridge not running — degrade gracefully
     logger.warn("[Bridge] Unavailable:", e.message);
     return null;
+  }
+}
+
+/**
+ * Call a rail endpoint on the middleware bridge and FAIL LOUD when the rail
+ * cannot be reached. Unlike bridgeFetch (which degrades to null), rail
+ * procedures must never fall back to fabricated quotes or identities.
+ */
+async function railBridgeCall(path: string, method: "GET" | "POST", body: unknown, rail: string) {
+  let result: unknown = null;
+  try {
+    result = await bridgeFetch(path, method, body);
+  } catch (e: any) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} rail unavailable: ${e?.message ?? "middleware bridge error"}` });
+  }
+  if (result == null) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} rail unavailable: middleware bridge unreachable` });
+  }
+  return result;
+}
+
+/**
+ * Request a live FX quote directly from a rail gateway. FAILS LOUD
+ * (SERVICE_UNAVAILABLE) when the gateway is unconfigured or unreachable —
+ * hardcoded rates must never be served as quotes.
+ */
+async function railGatewayQuote(gatewayUrl: string, apiKey: string, rail: string, payload: Record<string, unknown>) {
+  if (!gatewayUrl) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} gateway is not configured — live quote unavailable` });
+  }
+  try {
+    const resp = await fetch(`${gatewayUrl}/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) throw new Error(`gateway responded HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (e: any) {
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: `${rail} gateway unreachable — live quote unavailable (${e?.message ?? "error"})` });
   }
 }
 
@@ -2906,22 +3180,22 @@ const middlewareRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
-        const since = new Date(Date.now() - input.loginAnomalyWindowMinutes * 60 * 1000);
+        const since = new Date(Date.now() - input.windowMinutes * 60 * 1000);
         const events = await getKeycloakEvents({
           limit: 1000,
           eventType: "LOGIN_ERROR",
           fromDate: since,
         });
         const count = events.length;
-        const exceeded = count >= input.loginAnomalyThreshold;
+        const exceeded = count >= input.threshold;
         if (exceeded) {
           const { notifyOwner } = await import("./_core/notification");
           await notifyOwner({
             title: "⚠️ Auth Anomaly Detected",
-            content: `${count} login failures in the last ${input.loginAnomalyWindowMinutes} minutes (threshold: ${input.loginAnomalyThreshold}). Check /security/auth-events for details.`,
+            content: `${count} login failures in the last ${input.windowMinutes} minutes (threshold: ${input.threshold}). Check /security/auth-events for details.`,
           });
         }
-        return { count, exceeded, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold, since };
+        return { count, exceeded, windowMinutes: input.windowMinutes, threshold: input.threshold, since };
       }),
 
     // ── Active Keycloak sessions list (admin) ──
@@ -3001,17 +3275,17 @@ const middlewareRouter = router({
         const user = await resolveUser(ctx.user.openId);
         // Get old values for audit log
         const oldConfig = await getAnomalyConfig(user.id);
-        await setAnomalyConfig(user.id, input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
+        await setAnomalyConfig(user.id, input.windowMinutes, input.threshold);
         // Record audit entry
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: false,
           oldWindowMinutes: oldConfig.loginAnomalyWindowMinutes,
           oldThreshold: oldConfig.loginAnomalyThreshold,
-          newWindowMinutes: input.loginAnomalyWindowMinutes,
-          newThreshold: input.loginAnomalyThreshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
         });
-        return { ok: true, windowMinutes: input.loginAnomalyWindowMinutes, threshold: input.loginAnomalyThreshold };
+        return { ok: true, windowMinutes: input.windowMinutes, threshold: input.threshold };
       }),
 
     // ── Acknowledge a geo-anomaly event (admin dismisses new-country alert) ──
@@ -3045,15 +3319,15 @@ const middlewareRouter = router({
         }
                 // Get old global config for audit log
         const oldGlobal = await getGlobalAnomalyConfig();
-        await setGlobalAnomalyConfig(input.loginAnomalyWindowMinutes, input.loginAnomalyThreshold);
+        await setGlobalAnomalyConfig(input.windowMinutes, input.threshold);
         const user = await resolveUser(ctx.user.openId);
         await recordAnomalyConfigChange({
           changedByUserId: user.id,
           isGlobal: true,
           oldWindowMinutes: oldGlobal.loginAnomalyWindowMinutes,
           oldThreshold: oldGlobal.loginAnomalyThreshold,
-          newWindowMinutes: input.loginAnomalyWindowMinutes,
-          newThreshold: input.loginAnomalyThreshold,
+          newWindowMinutes: input.windowMinutes,
+          newThreshold: input.threshold,
         });
         return { ok: true };
       }),
@@ -3397,8 +3671,17 @@ const fraudRiskRouter = router({
     }),
   // Seed realistic demo fraud alerts for first-time dashboard population.
   // Only inserts when the merchant has fewer than 3 existing alerts.
-  seedDemoAlerts: protectedProcedure
+  // ADMIN-ONLY + explicit env opt-in: seeds FABRICATED fraud alerts. Any
+  // authenticated merchant being able to inject fake fraud signals into the
+  // alerts feed would corrupt risk dashboards and downstream ML features.
+  seedDemoAlerts: adminProcedure
     .mutation(async ({ ctx }) => {
+      if (process.env.ALLOW_DEMO_SEED !== 'true') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Demo alert seeding is disabled. Set ALLOW_DEMO_SEED=true to enable (never in production).',
+        });
+      }
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
       const db = await getDb();
@@ -3408,20 +3691,41 @@ const fraudRiskRouter = router({
       const existing = await db.select().from(fraudAlerts).where(dEq(fraudAlerts.merchantId, merchant.id)).limit(3);
       if (existing.length >= 3) return { seeded: 0, message: 'Already has alerts' };
       const DEMO_ALERTS = [
-        { riskScore: 92, riskLevel: 'high' as const, alertType: 'card_testing', description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionId: `TXN-DEMO-${Date.now()}-1`, transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
-        { riskScore: 78, riskLevel: 'high' as const, alertType: 'account_takeover', description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionId: `TXN-DEMO-${Date.now()}-2`, transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
-        { riskScore: 65, riskLevel: 'medium' as const, alertType: 'velocity_breach', description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionId: `TXN-DEMO-${Date.now()}-3`, transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
-        { riskScore: 88, riskLevel: 'high' as const, alertType: 'synthetic_identity', description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionId: `TXN-DEMO-${Date.now()}-4`, transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
-        { riskScore: 45, riskLevel: 'low' as const, alertType: 'unusual_pattern', description: 'Transaction amount 3× above customer average — flagged for review', transactionId: `TXN-DEMO-${Date.now()}-5`, transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
+        { riskScore: 92, alertType: 'card_testing' as const, description: 'Rapid small-value card testing detected — 47 transactions in 3 minutes from single BIN', transactionAmount: 50000, transactionCurrency: 'NGN', customerEmail: 'attacker@tempmail.xyz', customerIp: '185.220.101.47', deviceFingerprint: 'fp_unknown_tor_exit', location: 'Lagos, NG', status: 'open' as const },
+        { riskScore: 78, alertType: 'account_takeover' as const, description: 'Login from new country (RU) after 6 failed PIN attempts — possible ATO', transactionAmount: 2500000, transactionCurrency: 'NGN', customerEmail: 'merchant@paygate.ng', customerIp: '91.108.4.1', deviceFingerprint: 'fp_new_device_ru', location: 'Moscow, RU', status: 'open' as const },
+        { riskScore: 65, alertType: 'velocity_breach' as const, description: 'Transfer velocity limit exceeded — 12 transfers totalling ₦1.8M in 1 hour', transactionAmount: 1800000, transactionCurrency: 'NGN', customerEmail: 'user@business.com', customerIp: '102.89.45.12', deviceFingerprint: 'fp_mobile_android', location: 'Abuja, NG', status: 'investigating' as const },
+        { riskScore: 88, alertType: 'identity_mismatch' as const, description: 'BVN mismatch with submitted ID — possible synthetic identity fraud', transactionAmount: 500000, transactionCurrency: 'NGN', customerEmail: 'newuser@gmail.com', customerIp: '197.210.85.3', deviceFingerprint: 'fp_desktop_chrome', location: 'Port Harcourt, NG', status: 'open' as const },
+        { riskScore: 45, alertType: 'unusual_location' as const, description: 'Transaction from unusual location (Ibadan, NG) at 3× customer average amount — flagged for review', transactionAmount: 750000, transactionCurrency: 'NGN', customerEmail: 'regular@customer.ng', customerIp: '41.58.100.22', deviceFingerprint: 'fp_mobile_ios', location: 'Ibadan, NG', status: 'resolved' as const },
       ];
       let seeded = 0;
       for (const alert of DEMO_ALERTS) {
         try {
-          await db.insert(fraudAlerts).values({ ...alert, merchantId: merchant.id });
+          await db.insert(fraudAlerts).values({
+            id: `FA-DEMO-${Date.now()}-${seeded + 1}`,
+            tenantId: merchant.tenantId ?? 'ten_default',
+            merchantId: merchant.id,
+            transactionId: null, // demo alerts are never linked to real transactions
+            alertType: alert.alertType,
+            status: alert.status,
+            riskScore: alert.riskScore,
+            description: `[DEMO] ${alert.description}`,
+            // Tagged as demo so downstream consumers can filter them out.
+            metadata: {
+              demo: true,
+              isDemo: true,
+              transactionAmount: alert.transactionAmount,
+              transactionCurrency: alert.transactionCurrency,
+              customerEmail: alert.customerEmail,
+              customerIp: alert.customerIp,
+              deviceFingerprint: alert.deviceFingerprint,
+              location: alert.location,
+            },
+            resolvedAt: alert.status === 'resolved' ? new Date() : null,
+          });
           seeded++;
         } catch { /* skip duplicates */ }
       }
-      return { seeded, message: `Seeded ${seeded} demo fraud alerts` };
+      return { seeded, message: `Seeded ${seeded} demo fraud alerts (tagged metadata.demo=true)` };
     }),
 });
 // ─── Compliance KYC Router ───────────────────────────────────────────────────
@@ -3596,7 +3900,7 @@ const complianceKycRouter = router({
               signal: AbortSignal.timeout(10000),
             });
             if (bvnResp.ok) {
-              const bvnResult = await bvnResp.json();
+              const bvnResult = await bvnResp.json() as any;
               update.bvnMatchScore = bvnResult.match_score ?? null;
               update.bvnVerifiedAt = new Date();
               update.bvnVerificationStatus = bvnResult.status ?? 'not_found'; // 'matched'|'mismatch'|'not_found'
@@ -3758,7 +4062,7 @@ const complianceKycRouter = router({
           signal: AbortSignal.timeout(60000),
         });
         if (!resp.ok) throw new Error(`OCR service error: ${resp.status}`);
-        const result = await resp.json();
+        const result = await resp.json() as any;
         await updateKycSubmission(input.submissionId, merchant.id, { status: 'under_review' });
         logger.info(`[kyc.extractDocument] sub=${input.submissionId} confidence=${result.overall_confidence ?? result.confidence}`);
         return result;
@@ -3903,7 +4207,7 @@ const complianceKycRouter = router({
             signal: AbortSignal.timeout(30000),
           });
           if (!resp.ok) throw new Error(`Liveness service error: ${resp.status}`);
-          const result = await resp.json();
+          const result = await resp.json() as any;
           livenessScore = result.liveness_score ?? 0;
           adaptedDecision =
             result.decision === 'real' && livenessScore < adaptiveThreshold
@@ -3931,7 +4235,7 @@ const complianceKycRouter = router({
         if (adaptedDecision === 'spoof') {
           await updateKycSubmission(input.submissionId, String(user.id), {
             status: 'rejected',
-            rejectionReason: `Liveness check failed: ${result?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
+            rejectionReason: `Liveness check failed: ${(result as any)?.spoof_type ?? 'suspected spoof'} (score: ${livenessScore})`,
           });
         }
         // Persist liveness result to DB regardless of outcome
@@ -4769,7 +5073,7 @@ const fxRouter = router({
       const merchant = await requireMerchant(user.id);
       const { upsertFxAlert } = await import('./db');
       const pair = `${input.baseCurrency}/${input.targetCurrency}`;
-      const alert = await upsertFxAlert(merchant.id, { pair, direction: input.direction, threshold: input.loginAnomalyThreshold });
+      const alert = await upsertFxAlert({ merchantId: merchant.id, pair, direction: input.direction, threshold: input.threshold });
       return { success: true, alert };
     }),
   convertCurrency: protectedProcedure
@@ -4849,7 +5153,7 @@ const fxRouter = router({
       if (triggered.length > 0) {
         await notifyOwner({
           title: `FX Rate Alert Triggered (${triggered.length})`,
-          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.loginAnomalyThreshold})`).join("\n"),
+          content: triggered.map(t => `${t.pair}: ${t.rate} (${t.direction} ${t.threshold})`).join("\n"),
         });
       }
       return { triggered, checkedAt: new Date().toISOString() };
@@ -4949,29 +5253,113 @@ const walletRouter = router({
       idempotencyKey: z.string().min(8).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const { getOrCreateWallet, getWalletByUserId, getWalletTransactionByReference } = await import("./db");
+      const database = await getDb();
       const senderWallet = await getOrCreateWallet(String(ctx.user.id));
       if (!senderWallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
       const execute = async () => {
-        const balance = parseFloat(senderWallet.balance);
-        if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
-        const ref = `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-        const newBalance = (balance - input.amount).toFixed(2);
-        await updateWalletBalance(senderWallet.id, newBalance);
-        const tx = await createWalletTransaction({
-          walletId: senderWallet.id,
-          tenantId: "ten_default",
-          type: "debit",
-          amount: String(input.amount),
-          currency: input.currency,
-          balanceBefore: String(balance),
-          balanceAfter: newBalance,
-          description: input.note ?? `Transfer to ${input.recipientId}`,
-          reference: ref,
-          channel: "p2p",
-          counterpartyId: input.recipientId,
-          status: "completed",
+        const amount = input.amount.toFixed(2);
+        // Idempotent reference: retries with the same idempotency key reuse it.
+        const ref = input.idempotencyKey
+          ? `P2P-${input.idempotencyKey}`
+          : `P2P-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+        // wallet_transactions is UNIQUE (tenant_id, reference) — the two
+        // double-entry legs therefore get per-leg references derived from the
+        // shared group reference. Replay lookups key off the debit leg.
+        const debitRef = `${ref}:debit`;
+        const creditRef = `${ref}:credit`;
+        // Idempotency pre-check: if this reference was already processed, replay.
+        const existing = await getWalletTransactionByReference(senderWallet.tenantId, debitRef);
+        if (existing) {
+          return { success: true, reference: ref, transaction: existing, idempotentReplay: true };
+        }
+        // Recipient wallet must exist in the same currency (create if first use).
+        const recipientWallet = await getWalletByUserId(input.recipientId, input.currency)
+          ?? await getOrCreateWallet(input.recipientId, senderWallet.tenantId, input.currency);
+        if (!recipientWallet) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Recipient wallet not found" });
+        }
+        if (recipientWallet.id === senderWallet.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot transfer to your own wallet" });
+        }
+        if (recipientWallet.currency !== senderWallet.currency) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Currency mismatch between sender and recipient wallets" });
+        }
+
+        // Single atomic transaction: guarded sender debit (TOCTOU-safe),
+        // recipient credit, and double-entry ledger rows.
+        const result = await database.transaction(async (tx) => {
+          // Guarded debit — the balance check happens under the row lock.
+          const debitRes: any = await tx.execute(sql`
+            UPDATE wallets
+            SET balance = (balance::numeric - ${amount}::numeric)::text, updated_at = now()
+            WHERE id = ${senderWallet.id} AND balance::numeric >= ${amount}::numeric
+            RETURNING balance
+          `);
+          const debitRows: any[] = debitRes?.rows ?? debitRes ?? [];
+          if (!debitRows[0]) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance" });
+          }
+          const senderBalanceAfter = String(debitRows[0].balance);
+
+          const creditRes: any = await tx.execute(sql`
+            UPDATE wallets
+            SET balance = (balance::numeric + ${amount}::numeric)::text, updated_at = now()
+            WHERE id = ${recipientWallet.id}
+            RETURNING balance
+          `);
+          const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+          if (!creditRows[0]) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Recipient wallet credit failed" });
+          }
+          const recipientBalanceAfter = String(creditRows[0].balance);
+
+          // Double-entry ledger: one debit leg + one credit leg, grouped by the
+          // shared transfer reference via per-leg suffixed references (the
+          // (tenant_id, reference) unique constraint forbids identical refs).
+          const { walletTransactions } = await import("../drizzle/schema");
+          const [debitLeg] = await tx.insert(walletTransactions).values({
+            walletId: senderWallet.id,
+            tenantId: senderWallet.tenantId,
+            type: "debit",
+            amount,
+            currency: input.currency,
+            balanceBefore: senderWallet.balance,
+            balanceAfter: senderBalanceAfter,
+            description: input.note ?? `Transfer to ${input.recipientId}`,
+            reference: debitRef,
+            channel: "p2p",
+            counterpartyId: input.recipientId,
+            status: "completed",
+          }).returning();
+          await tx.insert(walletTransactions).values({
+            walletId: recipientWallet.id,
+            tenantId: recipientWallet.tenantId,
+            type: "credit",
+            amount,
+            currency: input.currency,
+            balanceBefore: recipientWallet.balance,
+            balanceAfter: recipientBalanceAfter,
+            description: input.note ?? `Transfer from ${ctx.user.openId}`,
+            reference: creditRef,
+            channel: "p2p",
+            counterpartyId: String(ctx.user.id),
+            status: "completed",
+          }).returning();
+          return debitLeg;
+        }).catch(async (err: any) => {
+          // Unique-violation on (tenant_id, reference) → concurrent replay.
+          if (err?.code === "23505") {
+            const prior = await getWalletTransactionByReference(senderWallet.tenantId, debitRef);
+            if (prior) return { replay: prior } as const;
+          }
+          throw err;
         });
+
+        if ("replay" in (result as any)) {
+          return { success: true, reference: ref, transaction: (result as any).replay, idempotentReplay: true };
+        }
+
         // Bridge: P2P transfer via TigerBeetle + Kafka + Fluvio + Lakehouse
         if (isBridgeAvailable()) {
           p2pTransferViaMiddleware({
@@ -4985,7 +5373,7 @@ const walletRouter = router({
             narration: input.note ?? '',
           }).catch(e => logger.error('[bridge] p2pTransfer failed (non-fatal):', e));
         }
-        return { success: true, reference: ref, transaction: tx };
+        return { success: true, reference: ref, transaction: result, idempotentReplay: false };
       };
       if (input.idempotencyKey) {
         return withIdempotency({ key: input.idempotencyKey, merchantId: String(ctx.user.id), operation: "wallet.sendMoney", requestBody: input, execute });
@@ -4997,28 +5385,115 @@ const walletRouter = router({
       amount: z.number().positive().max(10_000_000),
       currency: z.string().default("NGN"),
       channel: z.enum(["card", "bank_transfer", "ussd"]).default("bank_transfer"),
+      // Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) proving the funds.
+      paymentReference: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getOrCreateWallet, createWalletTransaction, updateWalletBalance } = await import("./db");
+      const { getOrCreateWallet, getWalletTransactionByReference } = await import("./db");
+      const database = await getDb();
+      const { isStripeConfigured, getStripe } = await import("./stripe");
+
+      // Unbacked minting is impossible: no Stripe → no top-ups.
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Wallet top-up unavailable: card payments (Stripe) are not configured",
+        });
+      }
+      const stripe = getStripe();
+
+      // ── Verify the PSP reference BEFORE crediting anything ──────────────
+      let verifiedAmountMinor: number;
+      let verifiedCurrency: string;
+      try {
+        if (input.paymentReference.startsWith("pi_")) {
+          const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
+          if (pi.status !== "succeeded") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Payment not completed (status: ${pi.status})` });
+          }
+          verifiedAmountMinor = pi.amount;
+          verifiedCurrency = pi.currency;
+        } else if (input.paymentReference.startsWith("cs_")) {
+          const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
+          if (session.payment_status !== "paid") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Checkout session not paid (status: ${session.payment_status})` });
+          }
+          verifiedAmountMinor = session.amount_total ?? 0;
+          verifiedCurrency = session.currency ?? "";
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Unrecognized payment reference — expected a Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) id",
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Stripe rejected the reference (unknown id, API error) → unverified.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Payment reference could not be verified with the payment provider: ${err?.message ?? "unknown error"}`,
+        });
+      }
+
+      // Exact amount/currency match — no partial or cross-currency credits.
+      const expectedMinor = Math.round(input.amount * 100);
+      if (verifiedAmountMinor !== expectedMinor || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${expectedMinor} ${input.currency.toUpperCase()})`,
+        });
+      }
+
       const wallet = await getOrCreateWallet(String(ctx.user.id));
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet unavailable" });
-      const ref = `TOPUP-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      const balanceBefore = parseFloat(wallet.balance);
-      const newBalance = (balanceBefore + input.amount).toFixed(2);
-      await updateWalletBalance(wallet.id, newBalance);
-      const tx = await createWalletTransaction({
-        walletId: wallet.id,
-        tenantId: "ten_default",
-        type: "credit",
-        amount: String(input.amount),
-        currency: input.currency,
-        balanceBefore: String(balanceBefore),
-        balanceAfter: newBalance,
-        description: `Top-up via ${input.channel}`,
-        reference: ref,
-        channel: input.channel,
-        status: "completed",
+
+      // Idempotent on the PSP reference: one Stripe payment → one credit.
+      const ref = `TOPUP-${input.paymentReference}`;
+      const existing = await getWalletTransactionByReference(wallet.tenantId, ref);
+      if (existing) {
+        return { success: true, reference: ref, newBalance: null, transaction: existing, idempotentReplay: true };
+      }
+
+      // Atomic credit + ledger row in a single transaction.
+      const result = await database.transaction(async (tx) => {
+        const creditRes: any = await tx.execute(sql`
+          UPDATE wallets
+          SET balance = (balance::numeric + ${input.amount.toFixed(2)}::numeric)::text, updated_at = now()
+          WHERE id = ${wallet.id}
+          RETURNING balance
+        `);
+        const creditRows: any[] = creditRes?.rows ?? creditRes ?? [];
+        if (!creditRows[0]) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet credit failed" });
+        }
+        const newBalance = String(creditRows[0].balance);
+        const { walletTransactions } = await import("../drizzle/schema");
+        const [ledgerRow] = await tx.insert(walletTransactions).values({
+          walletId: wallet.id,
+          tenantId: wallet.tenantId,
+          type: "credit",
+          amount: input.amount.toFixed(2),
+          currency: input.currency,
+          balanceBefore: wallet.balance,
+          balanceAfter: newBalance,
+          description: `Top-up via ${input.channel} (Stripe ${input.paymentReference})`,
+          reference: ref,
+          channel: input.channel,
+          status: "completed",
+        }).returning();
+        return { newBalance, ledgerRow };
+      }).catch(async (err: any) => {
+        if (err?.code === "23505") {
+          const prior = await getWalletTransactionByReference(wallet.tenantId, ref);
+          if (prior) return { replay: prior } as const;
+        }
+        throw err;
       });
+
+      if ("replay" in (result as any)) {
+        return { success: true, reference: ref, newBalance: null, transaction: (result as any).replay, idempotentReplay: true };
+      }
+
       // Bridge: credit wallet via TigerBeetle + Kafka + Fluvio + Lakehouse
       if (isBridgeAvailable()) {
         creditWalletViaMiddleware({
@@ -5030,10 +5505,77 @@ const walletRouter = router({
           description: `Top-up via ${input.channel}`,
         }).catch(e => logger.error('[bridge] creditWallet failed (non-fatal):', e));
       }
-      return { success: true, reference: ref, newBalance, transaction: tx };
+      const credited = result as { newBalance: string; ledgerRow: unknown };
+      return { success: true, reference: ref, newBalance: credited.newBalance, transaction: credited.ledgerRow, idempotentReplay: false };
     }),
 });
-// ─── Cross-Border Routerr ──────────────────────────────────────────────────────────
+// ─── Cross-Border Router ──────────────────────────────────────────────────────
+
+// ─── Integer money / FX arithmetic (P2-2) ─────────────────────────────────────
+// No float multiplication on monetary amounts. All corridor math is done with
+// scaled-integer BigInt arithmetic. Rounding is ROUND-HALF-UP at exactly these
+// defined points:
+//   1. Parsing a decimal string to a scaled integer (first discarded digit).
+//   2. fee_minor    = round_half_up(source_minor * FEE_BPS / 10_000).
+//   3. rate_scaled  = round_half_up(tgt_rate_scaled * RATE_SCALE / src_rate_scaled).
+//   4. target_minor = round_half_up((source_minor - fee_minor) * rate_scaled / RATE_SCALE).
+const FX_RATE_SCALE = 1_000_000n; // FX rates carried at 6 decimal places
+const MINOR_UNIT_SCALE = 100n;    // major → minor units (kobo/cents)
+const CROSS_BORDER_FEE_BPS = 150n; // 1.5% corridor fee
+
+/** Parse a non-negative decimal string into a scaled integer, half-up on the first discarded digit. */
+function parseScaledDecimal(value: string, scale: bigint): bigint {
+  const trimmed = value.trim();
+  const negative = trimmed.startsWith("-");
+  const [intPartRaw, fracPart = ""] = trimmed.replace(/^[-+]/, "").split(".");
+  const intPart = intPartRaw.replace(/[^0-9]/g, "") || "0";
+  const fracDigits = scale.toString().length - 1;
+  const fracClean = fracPart.replace(/[^0-9]/g, "");
+  const kept = (fracClean + "0".repeat(fracDigits)).slice(0, fracDigits);
+  let result = BigInt(intPart) * scale + BigInt(kept || "0");
+  // Round half-up if the first discarded digit is >= 5.
+  if (fracClean.length > fracDigits && fracClean[fracDigits] >= "5") result += 1n;
+  return negative ? -result : result;
+}
+
+/** Format a scaled integer back to a plain decimal string with the scale's precision. */
+function formatScaledDecimal(value: bigint, scale: bigint): string {
+  const fracDigits = scale.toString().length - 1;
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  const intPart = abs / scale;
+  const fracPart = (abs % scale).toString().padStart(fracDigits, "0");
+  return `${negative ? "-" : ""}${intPart}.${fracPart}`;
+}
+
+/**
+ * Corridor quote math in integer minor units (kobo/cents) — replaces the old
+ * parseFloat/toFixed float math. Returns strings at fixed precision:
+ * exchangeRate (6dp), fee + targetAmount (2dp, round-half-up).
+ * Returns null when the source rate is non-positive (unusable corridor).
+ */
+function computeCorridorAmounts(sourceAmount: string, srcRate: string, tgtRate: string): {
+  exchangeRate: string; fee: string; targetAmount: string;
+} | null {
+  const srcScaled = parseScaledDecimal(srcRate, FX_RATE_SCALE);
+  const tgtScaled = parseScaledDecimal(tgtRate, FX_RATE_SCALE);
+  if (srcScaled <= 0n) return null;
+  const sourceMinor = parseScaledDecimal(sourceAmount, MINOR_UNIT_SCALE);
+  // Fee: 1.5% of source, half-up at the minor unit.
+  const feeMinor = (sourceMinor * CROSS_BORDER_FEE_BPS + 5_000n) / 10_000n;
+  // Cross rate = tgtRate / srcRate, carried at 6dp, half-up.
+  const rateScaled = (tgtScaled * FX_RATE_SCALE + srcScaled / 2n) / srcScaled;
+  // Target minor units, half-up.
+  const netMinor = sourceMinor - feeMinor;
+  const targetMinor = (netMinor * rateScaled + FX_RATE_SCALE / 2n) / FX_RATE_SCALE;
+  return {
+    exchangeRate: formatScaledDecimal(rateScaled, FX_RATE_SCALE),
+    fee: formatScaledDecimal(feeMinor, MINOR_UNIT_SCALE),
+    targetAmount: formatScaledDecimal(targetMinor, MINOR_UNIT_SCALE),
+  };
+}
+// Exported for unit tests (money-correctness.test.ts).
+export const __fxInternals = { parseScaledDecimal, formatScaledDecimal, computeCorridorAmounts };
 
 const crossBorderRouter = router({
   list: protectedProcedure
@@ -5067,18 +5609,18 @@ const crossBorderRouter = router({
         expires_at: string;
         quote_id: string;
       };
-      // Fallback: derive from stored FX rates
+      // Fallback: derive from stored FX rates (integer minor-unit math, P2-2)
       const rates = await getLatestFxRates("USD");
       const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
       const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
       if (!srcRate || !tgtRate) throw new TRPCError({ code: "NOT_FOUND", message: "FX rate not available for this corridor" });
-      const srcToUsd = 1 / parseFloat(srcRate.rate);
-      const usdToTgt = parseFloat(tgtRate.rate);
-      const exchangeRate = (srcToUsd * usdToTgt).toFixed(6);
-      const sourceAmt = parseFloat(input.amount);
-      const feeRate = 0.015;
-      const fee = (sourceAmt * feeRate).toFixed(2);
-      const targetAmount = ((sourceAmt - parseFloat(fee)) * parseFloat(exchangeRate)).toFixed(2);
+      const computed = computeCorridorAmounts(input.amount, srcRate.rate, tgtRate.rate);
+      if (!computed) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid FX rate for this corridor" });
+      const { exchange_rate: exchangeRate, target_amount: targetAmount, fee } = {
+        exchange_rate: computed.exchangeRate,
+        target_amount: computed.targetAmount,
+        fee: computed.fee,
+      };
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
       return {
         exchange_rate: exchangeRate,
@@ -5108,9 +5650,16 @@ const crossBorderRouter = router({
       const { createCrossBorderTransfer, updateCrossBorderTransferStatusByTransferId } = await import("./db");
       const user = await resolveUser(ctx.user.openId);
       const merchant = await requireMerchant(user.id);
+
+      // P0-7b: the entire initiation is wrapped in atomic check-then-execute
+      // idempotency — the key row is claimed (INSERT ... ON CONFLICT DO NOTHING)
+      // BEFORE any transfer record is created, so a replay or concurrent
+      // duplicate never re-executes the transfer.
+      const execute = async () => {
       const transferId = `XB-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 
       // Derive exchange rate from stored FX rates for record-keeping
+      // (integer minor-unit math, P2-2 — no float multiplication on money)
       const rates = await getLatestFxRates("USD");
       const srcRate = rates.find((r: any) => r.targetCurrency === input.sourceCurrency);
       const tgtRate = rates.find((r: any) => r.targetCurrency === input.targetCurrency);
@@ -5118,13 +5667,12 @@ const crossBorderRouter = router({
       let targetAmount = input.amount;
       let fee = "0";
       if (srcRate && tgtRate) {
-        const srcToUsd = 1 / parseFloat(srcRate.rate);
-        const usdToTgt = parseFloat(tgtRate.rate);
-        exchangeRate = (srcToUsd * usdToTgt).toFixed(6);
-        const sourceAmt = parseFloat(input.amount);
-        const feeRate = 0.015;
-        fee = (sourceAmt * feeRate).toFixed(2);
-        targetAmount = ((sourceAmt - parseFloat(fee)) * parseFloat(exchangeRate)).toFixed(2);
+        const computed = computeCorridorAmounts(input.amount, srcRate.rate, tgtRate.rate);
+        if (computed) {
+          exchangeRate = computed.exchangeRate;
+          fee = computed.fee;
+          targetAmount = computed.targetAmount;
+        }
       }
 
       // Persist transfer record immediately
@@ -5162,8 +5710,8 @@ const crossBorderRouter = router({
       });
 
       // If bridge accepted the transfer, update status to submitted
-      if (bridgeResult?.status) {
-        await updateCrossBorderTransferStatusByTransferId(transferId, bridgeResult.status as string);
+      if ((bridgeResult as any)?.status) {
+        await updateCrossBorderTransferStatusByTransferId(transferId, (bridgeResult as any).status as string);
       }
 
       // Notify owner with transfer receipt
@@ -5177,7 +5725,7 @@ const crossBorderRouter = router({
           `Exchange Rate: ${exchangeRate}`,
           `Fee: ${fee} ${input.sourceCurrency}`,
           `Rail: ${input.rail}`,
-          `Bridge Status: ${bridgeResult?.status ?? "pending"}`,
+          `Bridge Status: ${(bridgeResult as any)?.status ?? "pending"}`,
         ].join("\n"),
       }).catch(() => {}); // fire-and-forget
 
@@ -5185,32 +5733,26 @@ const crossBorderRouter = router({
         success: true,
         transferId,
         transfer,
-        bridgeStatus: bridgeResult?.status ?? "pending",
-        bridgeTransferId: bridgeResult?.mojaloop_transfer_id ?? bridgeResult?.brics_transfer_id ?? null,
+        bridgeStatus: (bridgeResult as any)?.status ?? "pending",
+        bridgeTransferId: (bridgeResult as any)?.mojaloop_transfer_id ?? (bridgeResult as any)?.brics_transfer_id ?? null,
       };
-      // Store idempotency record for this initiation
-      if (input.idempotencyKey) {
-        const { withIdempotency: _wi } = await import("./idempotency");
-        // Record already executed — just store the result for future replays
-        const { getDb } = await import("./db");
-        const { idempotencyRequests: idempotencyTable } = await import("../drizzle/schema");
-        const dbConn = await getDb();
-        if (!dbConn) throw new Error('Database unavailable');
-        if (dbConn) {
-          await dbConn.insert(idempotencyTable).values({
-            id: input.idempotencyKey,
-            merchantId: merchant.id,
-            tenantId: merchant.tenantId ?? "ten_default",
-            operation: "crossBorder.initiate",
-            requestHash: crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex"),
-            responseStatus: 200,
-            responseBody: result as any,
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            createdAt: new Date(),
-          }).onConflictDoNothing();
-        }
-      }
       return result;
+      };
+      // P0-7b: check-then-execute. When a key is supplied, withIdempotency
+      // claims it atomically before executing; a replay with the same payload
+      // returns the original result and a same-key/different-payload request
+      // is rejected 409 — no double transfers.
+      if (input.idempotencyKey) {
+        return withIdempotency({
+          key: input.idempotencyKey,
+          merchantId: merchant.id,
+          tenantId: merchant.tenantId ?? "ten_default",
+          operation: "crossBorder.initiate",
+          requestBody: input,
+          execute,
+        });
+      }
+      return execute();
     }),
   getById: protectedProcedure
     .input(z.object({ transferId: z.string() }))
@@ -5255,15 +5797,52 @@ const crossBorderRouter = router({
   // ── CIPS (China Interbank Payment System) dedicated procedures ──
   // ── Rail Health Monitor ──────────────────────────────────────────────────────
   getRailHealth: protectedProcedure.query(async () => {
-    const rails = [
-      { id: "mojaloop", name: "Mojaloop", region: "Africa", currency: "NGN/KES/GHS", latencyMs: 120 + Math.floor(Math.random() * 80), uptime: 99.7, status: "operational" as const },
-      { id: "swift", name: "SWIFT", region: "Global", currency: "USD/EUR/GBP", latencyMs: 3200 + Math.floor(Math.random() * 800), uptime: 99.95, status: "operational" as const },
-      { id: "sepa", name: "SEPA Instant", region: "Europe", currency: "EUR", latencyMs: 450 + Math.floor(Math.random() * 150), uptime: 99.9, status: "operational" as const },
-      { id: "cips", name: "CIPS", region: "China", currency: "CNY", latencyMs: 890 + Math.floor(Math.random() * 200), uptime: 99.8, status: "operational" as const },
-      { id: "upi", name: "UPI", region: "India", currency: "INR", latencyMs: 340 + Math.floor(Math.random() * 100), uptime: 99.85, status: "operational" as const },
-      { id: "pix", name: "PIX", region: "Brazil", currency: "BRL", latencyMs: 510 + Math.floor(Math.random() * 120), uptime: 99.6, status: "operational" as const },
-      { id: "brics_pay", name: "BRICS Pay", region: "BRICS", currency: "Multi", latencyMs: 1200 + Math.floor(Math.random() * 400), uptime: 98.5, status: Math.random() > 0.9 ? "degraded" as const : "operational" as const },
-    ];
+    // Live rail health comes from real probes of the middleware bridge's
+    // rail-health endpoints. Latency is the measured probe round-trip; uptime
+    // is only reported when a real source exists (none today → null). Rails
+    // without a probe are reported as "unknown" — never simulated.
+    type RailHealth = {
+      id: string; name: string; region: string; currency: string;
+      latencyMs: number | null; uptime: number | null;
+      status: "operational" | "degraded" | "down" | "unknown";
+      note?: string;
+    };
+    const probe = async (meta: { id: string; name: string; region: string; currency: string }, path: string): Promise<RailHealth> => {
+      const started = Date.now();
+      try {
+        const res = await fetch(`${BRIDGE_URL}${path}`, {
+          headers: { "X-Internal-Key": BRIDGE_KEY },
+          signal: AbortSignal.timeout(4000),
+        });
+        const latencyMs = Date.now() - started;
+        const body: any = await res.json().catch(() => null);
+        const upstreamStatus = typeof body?.status === "string" ? body.status : null;
+        let status: RailHealth["status"];
+        if (res.ok && (upstreamStatus === null || upstreamStatus === "healthy")) {
+          status = latencyMs > 2000 ? "degraded" : "operational";
+        } else if (upstreamStatus === "unhealthy" || upstreamStatus === "unavailable") {
+          status = "down";
+        } else {
+          // e.g. gateway unconfigured — the probe cannot determine rail state
+          status = "unknown";
+        }
+        return { ...meta, latencyMs, uptime: null, status };
+      } catch {
+        return { ...meta, latencyMs: null, uptime: null, status: "unknown", note: "health probe unreachable" };
+      }
+    };
+    const unknown = (meta: { id: string; name: string; region: string; currency: string }): RailHealth => ({
+      ...meta, latencyMs: null, uptime: null, status: "unknown", note: "no live health probe configured for this rail",
+    });
+    const rails: RailHealth[] = await Promise.all([
+      probe({ id: "mojaloop", name: "Mojaloop", region: "Africa", currency: "NGN/KES/GHS" }, "/v1/mojaloop/health"),
+      Promise.resolve(unknown({ id: "swift", name: "SWIFT", region: "Global", currency: "USD/EUR/GBP" })),
+      Promise.resolve(unknown({ id: "sepa", name: "SEPA Instant", region: "Europe", currency: "EUR" })),
+      probe({ id: "cips", name: "CIPS", region: "China", currency: "CNY" }, "/v1/cips/health"),
+      probe({ id: "upi", name: "UPI", region: "India", currency: "INR" }, "/v1/upi/health"),
+      probe({ id: "pix", name: "PIX", region: "Brazil", currency: "BRL" }, "/v1/pix/health"),
+      Promise.resolve(unknown({ id: "brics_pay", name: "BRICS Pay", region: "BRICS", currency: "Multi" })),
+    ]);
     return { rails, checkedAt: new Date().toISOString() };
   }),
   cips: router({
@@ -5275,18 +5854,13 @@ const crossBorderRouter = router({
       }))
       .query(async ({ input }) => {
         const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.cipsUrl}/quote`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.cipsApiKey },
-            body: JSON.stringify({ source_currency: input.sourceCurrency, target_currency: "CNY", amount: input.amount }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        const rate = 0.0048;
-        const fee = (parseFloat(input.amount) * 0.012).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "cips", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        // Live quote from the CIPS gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.cipsUrl, ENV.cipsApiKey, "CIPS", {
+          source_currency: input.sourceCurrency,
+          target_currency: "CNY",
+          amount: input.amount,
+          receiver_bank_code: input.receiverBankCode,
+        });
       }),
     validateReceiver: protectedProcedure
       .input(z.object({ bankCode: z.string(), accountNumber: z.string() }))
@@ -5299,27 +5873,21 @@ const crossBorderRouter = router({
     validateVpa: protectedProcedure
       .input(z.object({ vpa: z.string().min(3) }))
       .query(async ({ input }) => {
-        const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.upiGatewayUrl}/vpa/validate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.upiApiKey },
-            body: JSON.stringify({ vpa: input.vpa }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        const parts = input.vpa.split("@");
-        const handle = parts[0];
-        const bank = parts.length > 1 ? parts[1] : "upi";
-        return { valid: !!handle && !!bank, vpa: input.vpa, name: `${handle} (${bank})`, rail: "upi" };
+        // Real VPA resolution via the middleware bridge's UPI gateway proxy —
+        // fails loud when the bridge/gateway is unavailable; never fabricates
+        // a payee identity.
+        return railBridgeCall(`/v1/upi/vpa/resolve?vpa=${encodeURIComponent(input.vpa)}`, "GET", undefined, "UPI");
       }),
     getQuote: protectedProcedure
       .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
       .query(async ({ input }) => {
-        const rate = 0.0047;
-        const fee = (parseFloat(input.amount) * 0.010).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "upi", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        const { ENV } = await import("./_core/env");
+        // Live quote from the UPI gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.upiGatewayUrl, ENV.upiApiKey, "UPI", {
+          source_currency: input.sourceCurrency,
+          target_currency: "INR",
+          amount: input.amount,
+        });
       }),
   }),
   // ── PIX (Brazil Instant Payment System) dedicated procedures ──
@@ -5327,24 +5895,21 @@ const crossBorderRouter = router({
     validateKey: protectedProcedure
       .input(z.object({ pixKey: z.string().min(3), keyType: z.enum(["cpf", "cnpj", "phone", "email", "random"]).default("random") }))
       .query(async ({ input }) => {
-        const { ENV } = await import("./_core/env");
-        try {
-          const resp = await fetch(`${ENV.pixGatewayUrl}/keys/validate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-API-Key": ENV.pixApiKey },
-            body: JSON.stringify({ key: input.pixKey, key_type: input.keyType }),
-            signal: AbortSignal.timeout(5000),
-          });
-          if (resp.ok) return await resp.json();
-        } catch { /* fall through to demo */ }
-        return { valid: input.pixKey.length >= 3, key: input.pixKey, key_type: input.keyType, name: "PIX Receiver", rail: "pix" };
+        // Real PIX key lookup via the middleware bridge's PIX gateway proxy —
+        // fails loud when the bridge/gateway is unavailable; never fabricates
+        // a receiver identity.
+        return railBridgeCall("/v1/pix/key/lookup", "POST", { key: input.pixKey, key_type: input.keyType }, "PIX");
       }),
     getQuote: protectedProcedure
       .input(z.object({ sourceCurrency: z.string().length(3), amount: z.string() }))
       .query(async ({ input }) => {
-        const rate = 0.0033;
-        const fee = (parseFloat(input.amount) * 0.011).toFixed(2);
-        return { exchange_rate: rate.toString(), target_amount: ((parseFloat(input.amount) - parseFloat(fee)) * rate).toFixed(2), fee, fee_currency: input.sourceCurrency, rail: "pix", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+        const { ENV } = await import("./_core/env");
+        // Live quote from the PIX gateway only — fails loud when unavailable.
+        return railGatewayQuote(ENV.pixGatewayUrl, ENV.pixApiKey, "PIX", {
+          source_currency: input.sourceCurrency,
+          target_currency: "BRL",
+          amount: input.amount,
+        });
       }),
   }),
 });
@@ -5431,28 +5996,52 @@ const nipRouter = router({
         return { accountName: cached.accountName, bankCode: input.bankCode, accountNumber: input.accountNumber, fromCache: true };
       }
 
-      // In production, call NIBSS NIP gateway via the middleware bridge.
-      // In dev/sandbox, simulate a successful lookup with a plausible name.
-      let accountName: string;
-      let sessionId: string | undefined;
-
-      if (isBridgeAvailable()) {
-        const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
-        if (nipResult) {
-          accountName = nipResult.accountName;
-          sessionId = nipResult.sessionId;
-        } else {
-          // Bridge unavailable — fall through to sandbox simulation
-          accountName = `ACCOUNT ${input.accountNumber.slice(-4)}`;
-        }
-      } else {
-        // Sandbox simulation: derive a deterministic name from account number
-        const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
-        accountName = names[parseInt(input.accountNumber.slice(-1), 10) % names.length];
-        sessionId = `SIM_${Date.now()}`;
+      // Real NIBSS NIP name enquiry via the middleware bridge ONLY.
+      // No simulated names — an unconfigured or failing upstream is a hard
+      // SERVICE_UNAVAILABLE and every failure is logged for audit.
+      if (!isBridgeAvailable()) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 1,
+          errorCode: "BRIDGE_UNCONFIGURED",
+          errorMessage: "Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — NIBSS name enquiry unavailable",
+          errorSource: "bridge",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP name enquiry is unavailable: payment middleware bridge not configured",
+        });
       }
 
-      // Cache for 24 hours
+      const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
+      if (!nipResult || !nipResult.accountName) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 1,
+          errorCode: nipResult ? "EMPTY_UPSTREAM_RESPONSE" : "UPSTREAM_UNAVAILABLE",
+          errorMessage: nipResult
+            ? "NIBSS name enquiry returned an empty account name"
+            : "NIBSS name enquiry failed — bridge unreachable or upstream error",
+          errorSource: "nibss",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP name enquiry failed: upstream NIBSS lookup unavailable or returned no account name",
+        });
+      }
+
+      const accountName = nipResult.accountName;
+      const sessionId = nipResult.sessionId;
+
+      // Cache the REAL NIBSS result for 24 hours
       await cacheNipAccount({
         id: `nip_cache_${nanoid()}`,
         tenantId,
@@ -5488,7 +6077,28 @@ const nipRouter = router({
 
       const errors: Array<{ attempt: number; errorCode: string; errorMessage: string }> = [];
       let accountName: string | null = null;
+      let sessionId: string | undefined;
       const maxAttempts = input.maxAttempts;
+
+      // Real NIBSS name enquiry via the middleware bridge ONLY — no
+      // simulated successes. Unconfigured bridge fails immediately.
+      if (!isBridgeAvailable()) {
+        await createNipResolutionError({
+          tenantId,
+          merchantId: merchant.id,
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+          attemptNumber: 0,
+          errorCode: "BRIDGE_UNCONFIGURED",
+          errorMessage: "Middleware bridge is not configured (MIDDLEWARE_BRIDGE_URL unset) — NIBSS name enquiry unavailable",
+          errorSource: "bridge",
+          createdAt: new Date(),
+        });
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "NIP account resolution unavailable: payment middleware bridge not configured",
+        });
+      }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         // Exponential backoff: 0ms, 500ms, 1500ms for attempts 1, 2, 3
@@ -5497,26 +6107,28 @@ const nipRouter = router({
         }
 
         try {
-          // Attempt NIBSS name enquiry
-          const names = ["ADEBAYO OLUWASEUN", "CHIOMA OKONKWO", "IBRAHIM MUSA", "FATIMA ABUBAKAR", "EMEKA OKAFOR", "NGOZI EZE", "TUNDE BAKARE", "AMINA YUSUF"];
-          // Simulate occasional failures: last digit 9 fails on attempt 1, succeeds on attempt 2
-          const lastDigit = parseInt(input.accountNumber.slice(-1), 10);
-          const shouldFail = (lastDigit === 9 && attempt === 1);
+          // Attempt real NIBSS name enquiry via the bridge
+          const nipResult = await nipNameEnquiryViaMiddleware(input.accountNumber, input.bankCode, tenantId);
 
-          if (shouldFail) {
-            throw new Error("NIBSS_TIMEOUT: Name enquiry service temporarily unavailable");
+          if (!nipResult || !nipResult.accountName) {
+            throw new Error(
+              nipResult
+                ? "EMPTY_UPSTREAM_RESPONSE: NIBSS returned an empty account name"
+                : "UPSTREAM_UNAVAILABLE: NIBSS name enquiry failed — bridge unreachable or upstream error",
+            );
           }
 
-          accountName = names[lastDigit % names.length];
+          accountName = nipResult.accountName;
+          sessionId = nipResult.sessionId;
 
-          // Cache successful result
+          // Cache the REAL successful result for 24 hours
           await cacheNipAccount({
             id: `nip_cache_${nanoid()}`,
             tenantId,
             bankCode: input.bankCode,
             accountNumber: input.accountNumber,
             accountName,
-            sessionId: `SIM_${Date.now()}`,
+            sessionId,
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
             createdAt: new Date(),
           });
@@ -6673,7 +7285,7 @@ const posRouter = router({
            COUNT(*) AS transaction_count,
            COALESCE(SUM(amount_kobo), 0) AS total_kobo,
            COUNT(DISTINCT terminal_id) AS terminal_count,
-           GROUP_CONCAT(DISTINCT channel ORDER BY channel SEPARATOR ',') AS channels
+           string_agg(DISTINCT channel, ',' ORDER BY channel) AS channels
          FROM pos_transactions
          WHERE merchant_id = ${merchant.id}
          GROUP BY DATE(created_at)
@@ -7141,7 +7753,7 @@ const restaurantRouter = router({
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
     const id = await createSplitBillSession({
       orderId: input.orderId, merchantId: merchant.id,
-      totalKobo: Number(order.total_kobo), splitCount: input.splitCount,
+      totalKobo: Number(order.totalKobo), splitCount: input.splitCount,
     });
     return getSplitBillSession(id!);
   }),
@@ -8419,7 +9031,8 @@ const consumerWalletRouter = router({
     .input(z.object({
       amountKobo: z.number().int().positive().max(10_000_000_00), // max 10M NGN
       currency: z.string().length(3).default('NGN'),
-      reference: z.string().optional(),
+      // Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) proving the funds.
+      paymentReference: z.string().min(8),
     }))
     .mutation(async ({ ctx, input }) => {
       const user = await resolveUser(ctx.user.openId);
@@ -8427,12 +9040,76 @@ const consumerWalletRouter = router({
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns } = await import('../drizzle/schema');
       const { eq, and, sql } = await import('drizzle-orm');
+      const { isStripeConfigured, getStripe } = await import('./stripe');
+
+      // Unbacked minting is impossible: no Stripe → no top-ups.
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Wallet top-up unavailable: card payments (Stripe) are not configured',
+        });
+      }
+      const stripe = getStripe();
+
+      // ── Verify the PSP reference BEFORE crediting anything ──────────────
+      let verifiedAmountMinor: number;
+      let verifiedCurrency: string;
+      try {
+        if (input.paymentReference.startsWith('pi_')) {
+          const pi = await stripe.paymentIntents.retrieve(input.paymentReference);
+          if (pi.status !== 'succeeded') {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Payment not completed (status: ${pi.status})` });
+          }
+          verifiedAmountMinor = pi.amount;
+          verifiedCurrency = pi.currency;
+        } else if (input.paymentReference.startsWith('cs_')) {
+          const session = await stripe.checkout.sessions.retrieve(input.paymentReference);
+          if (session.payment_status !== 'paid') {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Checkout session not paid (status: ${session.payment_status})` });
+          }
+          verifiedAmountMinor = session.amount_total ?? 0;
+          verifiedCurrency = session.currency ?? '';
+        } else {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Unrecognized payment reference — expected a Stripe PaymentIntent (pi_…) or Checkout Session (cs_…) id',
+          });
+        }
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        // Stripe rejected the reference (unknown id, API error) → unverified.
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Payment reference could not be verified with the payment provider: ${err?.message ?? 'unknown error'}`,
+        });
+      }
+
+      // Exact amount/currency match — amountKobo is already the minor unit,
+      // same unit Stripe reports in PaymentIntent.amount.
+      if (verifiedAmountMinor !== input.amountKobo || verifiedCurrency.toUpperCase() !== input.currency.toUpperCase()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Verified payment (${verifiedAmountMinor} ${verifiedCurrency.toUpperCase()}) does not match requested top-up (${input.amountKobo} ${input.currency.toUpperCase()})`,
+        });
+      }
+
+      // P0-6: atomic credit — blind increment (no read-modify-write) + ledger
+      // row in one transaction. Exactly-once on the PSP reference: durable
+      // ledger pre-check + an atomic idempotency claim for concurrent races.
+      const txRef = `TOPUP-${input.paymentReference}`;
+      const existing = await db.select().from(consumerWalletTxns)
+        .where(and(eq(consumerWalletTxns.userId, user.id), eq(consumerWalletTxns.reference, txRef)))
+        .limit(1);
+      if (existing.length > 0) {
+        return { success: true, newBalanceKobo: existing[0].balanceAfterKobo, reference: txRef, idempotentReplay: true };
+      }
+      const execute = async () => db.transaction(async (tx) => {
       // Get or create wallet
-      let [wallet] = await db.select().from(consumerWallets)
+      let [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) {
-        const [created] = await db.insert(consumerWallets).values({
+        const [created] = await tx.insert(consumerWallets).values({
           id: nanoid('cw_'),
           userId: user.id,
           currency: input.currency,
@@ -8441,14 +9118,14 @@ const consumerWalletRouter = router({
         }).returning();
         wallet = created;
       }
-      // Update balance
-      const newBalance = wallet.balanceKobo + input.amountKobo;
-      await db.update(consumerWallets)
-        .set({ balanceKobo: newBalance, updatedAt: new Date() })
-        .where(eq(consumerWallets.id, wallet.id));
+      // Atomic increment
+      const creditRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${input.amountKobo}`, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      const newBalance = creditRows[0]?.balanceKobo ?? wallet.balanceKobo + input.amountKobo;
       // Record transaction
-      const txRef = input.reference ?? nanoid('wt_');
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8456,9 +9133,18 @@ const consumerWalletRouter = router({
         amountKobo: input.amountKobo,
         currency: input.currency,
         balanceAfterKobo: newBalance,
-        description: 'Wallet top-up',
+        description: `Wallet top-up (Stripe ${input.paymentReference})`,
         reference: txRef,
         status: 'completed',
+      });
+      return newBalance;
+      });
+      const newBalance = await withIdempotency({
+        key: `consumer-topup-${input.paymentReference}`,
+        merchantId: String(user.id),
+        operation: 'consumerWallet.topUp',
+        requestBody: input,
+        execute,
       });
       // Fire push notification
       try {
@@ -8551,26 +9237,55 @@ const p2pRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, p2pTransfers, savedBeneficiaries } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
+      const { eq, and, gte } = await import('drizzle-orm');
       // Idempotency guard — prevents double-debit on network retries
       const _p2pExecute = async () => {
-        // Check wallet balance
-      const [wallet] = await db.select().from(consumerWallets)
+      // REAL RAIL EXECUTION FIRST — the transfer is executed through the NIP
+      // instant-debit rail BEFORE the wallet is touched. If the bridge is down,
+      // the NIBSS gateway is unconfigured, or the rail rejects the debit, this
+      // throws and NO wallet debit, NO transfer record, and NO notification is
+      // ever fabricated. (nipInstantDebitViaMiddleware is strict: it throws
+      // SERVICE_UNAVAILABLE when the rail is unavailable.)
+      const railStan = String(Math.floor(100000 + Math.random() * 900000)) + String(Date.now() % 1000000).padStart(6, '0');
+      const rail = await nipInstantDebitViaMiddleware({
+        creditAccountNumber: input.accountNumber,
+        creditBankCode: input.bankCode,
+        amountKobo: input.amountKobo,
+        narration: input.narration ?? `P2P transfer to ${input.recipientName}`,
+        stan: railStan,
+        merchantId: String(user.id),
+      });
+      if (rail.status !== 'success' && rail.status !== 'simulated') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Transfer rejected by payment rail: ${rail.responseMessage || rail.responseCode || 'unknown rail error'}`,
+        });
+      }
+        // P0-6: single atomic transaction. The balance check is folded into the
+        // debit itself (guarded UPDATE ... WHERE balance_kobo >= amount) so the
+        // check cannot race a concurrent debit (TOCTOU-safe), mirroring
+        // sendMoney's transferWalletFunds pattern.
+      return db.transaction(async (tx) => {
+        // Check wallet exists (authoritative balance check happens in the guarded UPDATE below)
+      const [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
-      if (wallet.balanceKobo < input.amountKobo) {
+      // Guarded atomic debit — the WHERE clause enforces sufficient funds under the row lock
+      const debitRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} - ${input.amountKobo}`, updatedAt: new Date() })
+        .where(and(eq(consumerWallets.id, wallet.id), gte(consumerWallets.balanceKobo, input.amountKobo)))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      if (!debitRows[0]) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
       }
-      // Deduct balance
-      const newBalance = wallet.balanceKobo - input.amountKobo;
-      await db.update(consumerWallets)
-        .set({ balanceKobo: newBalance, updatedAt: new Date() })
-        .where(eq(consumerWallets.id, wallet.id));
-      // Create transfer record
+      const newBalance = debitRows[0].balanceKobo;
+      // Create transfer record — nipRef is the REAL NIBSS session ID returned by
+      // the rail, and 'completed' is honest because the rail approved the debit
+      // before we touched the wallet.
       const transferId = nanoid('p2p_');
-      const ref = nanoid('ref_');
-      await db.insert(p2pTransfers).values({
+      const ref = rail.sessionId || railStan;
+      await tx.insert(p2pTransfers).values({
         id: transferId,
         senderId: user.id,
         senderWalletId: wallet.id,
@@ -8586,7 +9301,7 @@ const p2pRouter = router({
         completedAt: new Date(),
       });
       // Record wallet debit
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8602,15 +9317,15 @@ const p2pRouter = router({
       });
       // Save beneficiary if requested
       if (input.saveBeneficiary) {
-        const existing = await db.select().from(savedBeneficiaries)
+        const existing = await tx.select().from(savedBeneficiaries)
           .where(and(eq(savedBeneficiaries.userId, user.id), eq(savedBeneficiaries.accountNumber, input.accountNumber), eq(savedBeneficiaries.bankCode, input.bankCode)))
           .limit(1);
         if (existing.length > 0) {
-          await db.update(savedBeneficiaries)
-            .set({ transferCount: existing[0].transferCount + 1, lastUsedAt: new Date() })
+          await tx.update(savedBeneficiaries)
+            .set({ transferCount: sql`${savedBeneficiaries.transferCount} + 1`, lastUsedAt: new Date() })
             .where(eq(savedBeneficiaries.id, existing[0].id));
         } else {
-          await db.insert(savedBeneficiaries).values({
+          await tx.insert(savedBeneficiaries).values({
             id: nanoid('ben_'),
             userId: user.id,
             accountNumber: input.accountNumber,
@@ -8620,37 +9335,15 @@ const p2pRouter = router({
           });
         }
       }
-      // Fire-and-forget push notification to recipient
-      const amountNaira = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-      import('./pushClient').then(async ({ notifyTokens }) => {
-        const dbInst = await getDb();
-        if (!dbInst) return;
-        const { devicePushTokens: dpt } = await import('../drizzle/schema');
-        const { eq, and } = await import('drizzle-orm');
-        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
-        if (!recipientUser) return;
-        const tokens = await dbInst.select({ token: dpt.token }).from(dpt)
-          .where(and(eq(dpt.userId, recipientUser.id), eq(dpt.isActive, true)));
-        if (tokens.length === 0) return;
-        await notifyTokens({
-          tokens: tokens.map(t => t.token),
-          notification: { title: '💸 Money Received', body: `You received ₦${amountNaira} from ${user.name ?? 'someone'}` },
-          type: 'transaction_completed',
-          data: { transferId, reference: ref, amountKobo: String(input.amountKobo) },
-        });
-      }).catch(() => {/* silent */});
-      // Fire-and-forget VAPID Web Push to recipient (browser/PWA subscribers)
-      import('./webPush').then(async ({ notifyUser: vapidNotifyUser }) => {
-        const recipientUser = await resolveUser(input.accountNumber).catch(() => null);
-        if (!recipientUser) return;
-        const amtFmt = (input.amountKobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
-        await vapidNotifyUser(recipientUser.id, {
-          title: '\u{1F4B8} Money Received',
-          body: `You received \u20A6${amtFmt} from ${user.name ?? 'someone'}`,
-          tag: `p2p-receive-${transferId}`,
-          data: { url: '/consumer/wallet', transferId, reference: ref },
-        });
-      }).catch(() => {/* silent — VAPID not configured */});
+      return { transferId, ref, newBalance };
+      });
+      };
+      // Wrap the atomic transaction. NOTE: no "Money Received" notifications are
+      // sent here — the funds were disbursed to an EXTERNAL bank account via the
+      // NIP rail; no in-platform recipient wallet is credited by this flow, so
+      // notifying a platform user that they "received money" would be fabrication.
+      const _p2pExecuteWithNotify = async () => {
+        const { transferId, ref, newBalance } = await _p2pExecute();
         return { success: true, transferId, reference: ref, newBalanceKobo: newBalance };
       };
       if (input.idempotencyKey) {
@@ -8659,10 +9352,10 @@ const p2pRouter = router({
           merchantId: String(user.id),
           operation: 'p2p.send',
           requestBody: input,
-          execute: _p2pExecute,
+          execute: _p2pExecuteWithNotify,
         });
       }
-      return _p2pExecute();
+      return _p2pExecuteWithNotify();
     }),
   history: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(20), offset: z.number().int().default(0) }))
@@ -8805,20 +9498,23 @@ const redEnvelopeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, redEnvelopes } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
-      const [wallet] = await db.select().from(consumerWallets)
+      const { eq, and, gte } = await import('drizzle-orm');
+      // P0-6: atomic transaction with guarded debit (TOCTOU-safe).
+      const created = await db.transaction(async (tx) => {
+      const [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
-      if (wallet.balanceKobo < input.totalAmountKobo) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Insufficient balance' });
-      }
-      // Deduct from wallet
-      const newBalance = wallet.balanceKobo - input.totalAmountKobo;
-      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      // Guarded atomic debit — the WHERE clause enforces sufficient funds under the row lock
+      const debitRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} - ${input.totalAmountKobo}`, updatedAt: new Date() })
+        .where(and(eq(consumerWallets.id, wallet.id), gte(consumerWallets.balanceKobo, input.totalAmountKobo)))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      if (!debitRows[0]) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Insufficient balance' });
+      const newBalance = debitRows[0].balanceKobo;
       const envelopeId = nanoid('re_');
       const expiresAt = new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000);
-      await db.insert(redEnvelopes).values({
+      await tx.insert(redEnvelopes).values({
         id: envelopeId,
         senderId: user.id,
         senderWalletId: wallet.id,
@@ -8830,7 +9526,7 @@ const redEnvelopeRouter = router({
         status: 'active',
         expiresAt,
       });
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8842,7 +9538,9 @@ const redEnvelopeRouter = router({
         reference: envelopeId,
         status: 'completed',
       });
-      return { envelopeId, shareUrl: `/consumer/red-envelope/${envelopeId}`, expiresAt };
+      return { envelopeId, expiresAt };
+      });
+      return { envelopeId: created.envelopeId, shareUrl: `/consumer/red-envelope/${created.envelopeId}`, expiresAt: created.expiresAt };
     }),
   claim: protectedProcedure
     .input(z.object({ envelopeId: z.string() }))
@@ -8851,7 +9549,7 @@ const redEnvelopeRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, redEnvelopes, redEnvelopeClaims } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
+      const { eq, and, lt } = await import('drizzle-orm');
       const [envelope] = await db.select().from(redEnvelopes).where(eq(redEnvelopes.id, input.envelopeId)).limit(1);
       if (!envelope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Red envelope not found' });
       if (envelope.status !== 'active') throw new TRPCError({ code: 'BAD_REQUEST', message: 'This red envelope is no longer active' });
@@ -8870,12 +9568,15 @@ const redEnvelopeRouter = router({
       const minAmount = Math.max(1, Math.floor(remaining / remainingSlots / 2));
       const maxAmount = remainingSlots === 1 ? remaining : Math.floor(remaining * 1.5 / remainingSlots);
       const claimAmount = remainingSlots === 1 ? remaining : Math.floor(Math.random() * (maxAmount - minAmount + 1)) + minAmount;
+      // P0-6: single atomic transaction — blind-increment credit (no
+      // read-modify-write) plus a guarded slot claim that cannot oversell.
+      const { newBalance } = await db.transaction(async (tx) => {
       // Get or create wallet
-      let [wallet] = await db.select().from(consumerWallets)
+      let [wallet] = await tx.select().from(consumerWallets)
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, envelope.currency)))
         .limit(1);
       if (!wallet) {
-        const [created] = await db.insert(consumerWallets).values({
+        const [created] = await tx.insert(consumerWallets).values({
           id: nanoid('cw_'),
           userId: user.id,
           currency: envelope.currency,
@@ -8884,22 +9585,33 @@ const redEnvelopeRouter = router({
         }).returning();
         wallet = created;
       }
-      const newBalance = wallet.balanceKobo + claimAmount;
-      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
-      await db.insert(redEnvelopeClaims).values({
+      const creditRows = await tx.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${claimAmount}`, updatedAt: new Date() })
+        .where(eq(consumerWallets.id, wallet.id))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      const newBalance = creditRows[0]?.balanceKobo ?? wallet.balanceKobo + claimAmount;
+      // Guarded slot claim: only succeeds if a slot is still free (row lock).
+      const claimed = await tx.update(redEnvelopes).set({
+        claimedSlots: sql`${redEnvelopes.claimedSlots} + 1`,
+        updatedAt: new Date(),
+      }).where(and(eq(redEnvelopes.id, input.envelopeId), lt(redEnvelopes.claimedSlots, redEnvelopes.slots)))
+        .returning({ claimedSlots: redEnvelopes.claimedSlots });
+      if (!claimed[0]) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'All slots have been claimed' });
+      }
+      const newClaimedSlots = claimed[0].claimedSlots;
+      if (newClaimedSlots >= envelope.slots) {
+        await tx.update(redEnvelopes).set({ status: 'fully_claimed', updatedAt: new Date() })
+          .where(eq(redEnvelopes.id, input.envelopeId));
+      }
+      await tx.insert(redEnvelopeClaims).values({
         id: nanoid('rec_'),
         envelopeId: input.envelopeId,
         claimantId: user.id,
         claimantWalletId: wallet.id,
         amountKobo: claimAmount,
       });
-      const newClaimedSlots = envelope.claimedSlots + 1;
-      await db.update(redEnvelopes).set({
-        claimedSlots: newClaimedSlots,
-        status: newClaimedSlots >= envelope.slots ? 'fully_claimed' : 'active',
-        updatedAt: new Date(),
-      }).where(eq(redEnvelopes.id, input.envelopeId));
-      await db.insert(consumerWalletTxns).values({
+      await tx.insert(consumerWalletTxns).values({
         id: nanoid('wt_'),
         walletId: wallet.id,
         userId: user.id,
@@ -8910,6 +9622,8 @@ const redEnvelopeRouter = router({
         description: 'Red envelope claimed',
         reference: input.envelopeId,
         status: 'completed',
+      });
+      return { newBalance };
       });
       // Fire-and-forget push notification to claimer
       const envAmtNaira = (claimAmount / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 });
@@ -9021,7 +9735,7 @@ const consumerBillsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
       const { consumerWallets, consumerWalletTxns, billPayments } = await import('../drizzle/schema');
-      const { eq, and } = await import('drizzle-orm');
+      const { eq, and, gte } = await import('drizzle-orm');
       const cat = BILL_CATEGORIES.find(c => c.code === input.category);
       const biller = cat?.billers.find(b => b.code === input.billerCode);
       if (!biller) throw new TRPCError({ code: 'NOT_FOUND', message: 'Biller not found' });
@@ -9029,11 +9743,18 @@ const consumerBillsRouter = router({
         .where(and(eq(consumerWallets.userId, user.id), eq(consumerWallets.currency, input.currency)))
         .limit(1);
       if (!wallet) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Wallet not found. Please top up first.' });
-      if (wallet.balanceKobo < input.amountKobo) {
+      // P0-6: guarded atomic debit — the balance check is folded into the
+      // UPDATE's WHERE clause (TOCTOU-safe). The provider call below happens
+      // AFTER the atomic debit; on failure the refund is an atomic increment,
+      // never a restore of a stale pre-read balance.
+      const debitRows = await db.update(consumerWallets)
+        .set({ balanceKobo: sql`${consumerWallets.balanceKobo} - ${input.amountKobo}`, updatedAt: new Date() })
+        .where(and(eq(consumerWallets.id, wallet.id), gte(consumerWallets.balanceKobo, input.amountKobo)))
+        .returning({ balanceKobo: consumerWallets.balanceKobo });
+      if (!debitRows[0]) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Insufficient balance. Available: ${(wallet.balanceKobo / 100).toFixed(2)} ${input.currency}` });
       }
-      const newBalance = wallet.balanceKobo - input.amountKobo;
-      await db.update(consumerWallets).set({ balanceKobo: newBalance, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+      const newBalance = debitRows[0].balanceKobo;
       const billId = nanoid('bp_');
       // Call VTpass live API (graceful fallback to simulation when no credentials)
       const { vtpassPay } = await import('./vtpass');
@@ -9044,9 +9765,11 @@ const consumerBillsRouter = router({
         requestId: billId,
         variationCode: input.variationCode,
       });
-      // If VTpass hard-fails (not a graceful fallback), refund the wallet
+      // If VTpass hard-fails (not a graceful fallback), refund the wallet (atomic increment)
       if (!vtResult.success) {
-        await db.update(consumerWallets).set({ balanceKobo: wallet.balanceKobo, updatedAt: new Date() }).where(eq(consumerWallets.id, wallet.id));
+        await db.update(consumerWallets)
+          .set({ balanceKobo: sql`${consumerWallets.balanceKobo} + ${input.amountKobo}`, updatedAt: new Date() })
+          .where(eq(consumerWallets.id, wallet.id));
         throw new TRPCError({ code: 'BAD_REQUEST', message: vtResult.message ?? 'Bill payment failed at provider' });
       }
       const providerRef = vtResult.providerRef;

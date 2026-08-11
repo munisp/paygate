@@ -22,7 +22,7 @@ import { env } from "../_core/env";
 const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL || "http://localhost:8080";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY || "";
 
-async function bridgeRequest(path: string, body: object) {
+async function bridgeRequest<T = Record<string, unknown>>(path: string, body: object): Promise<T> {
   const res = await fetch(`${BRIDGE_URL}${path}`, {
     method: "POST",
     headers: {
@@ -35,7 +35,7 @@ async function bridgeRequest(path: string, body: object) {
     const text = await res.text();
     throw new Error(`Bridge error ${res.status}: ${text}`);
   }
-  return res.json();
+  return (await res.json()) as T;
 }
 
 export const mojaloopRouter = router({
@@ -49,7 +49,7 @@ export const mojaloopRouter = router({
       idValue: z.string().min(1),
     }))
     .mutation(async ({ input, ctx }) => {
-      const result = await bridgeRequest("/mojaloop/parties/lookup", {
+      const result = await bridgeRequest<{ fspId: string; partyName?: string | null }>("/mojaloop/parties/lookup", {
         merchantId: String(ctx.user.id),
         idType: input.idType,
         idValue: input.idValue,
@@ -64,17 +64,17 @@ export const mojaloopRouter = router({
         displayName: result.partyName ?? null,
         lookupStatus: "found",
         rawResponse: JSON.stringify(result),
-      } as any).onConflictDoUpdate({
+      }).onConflictDoUpdate({
         target: [mojaloopParties.merchantId, mojaloopParties.partyIdentifier],
         set: {
           fspId: result.fspId,
           displayName: result.partyName ?? null,
         },
-      }) as any as any;
+      });
 
       return {
-        fspId: result.fspId as string,
-        partyName: result.partyName as string | null,
+        fspId: result.fspId,
+        partyName: result.partyName ?? null,
         idType: input.idType,
         idValue: input.idValue,
       };
@@ -97,7 +97,15 @@ export const mojaloopRouter = router({
       note: z.string().max(200).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const result = await bridgeRequest("/mojaloop/transfers/initiate", {
+      const result = await bridgeRequest<{
+        transferId: string;
+        quoteId: string;
+        payerFspId?: string | null;
+        payeeFspId?: string | null;
+        ilpPacket?: string | null;
+        condition?: string | null;
+        expiration?: string | null;
+      }>("/mojaloop/transfers/initiate", {
         merchantId: String(ctx.user.id),
         ...input,
       });
@@ -108,20 +116,22 @@ export const mojaloopRouter = router({
         merchantId: String(ctx.user.id),
         transferId: result.transferId,
         quoteId: result.quoteId,
-        payerFspId: result.payerFspId,
-        payeeFspId: result.payeeFspId,
+        payerFspId: result.payerFspId ?? null,
+        payeeFspId: result.payeeFspId ?? null,
         amount: amountMinor,
-        amountCurrency: input.currency,
+        currency: input.currency,
         transferState: "RESERVED",
         ilpPacket: result.ilpPacket ?? null,
         condition: result.condition ?? null,
-      }) as any as any as any;
+        expiration: result.expiration ? new Date(result.expiration) : null,
+        note: input.note ?? null,
+      });
 
       return {
-        transferId: result.transferId as string,
-        quoteId: result.quoteId as string,
-        transferState: "RESERVED" as string,
-        expiration: result.expiration as string | null,
+        transferId: result.transferId,
+        quoteId: result.quoteId,
+        transferState: "RESERVED",
+        expiration: result.expiration ?? null,
       };
     }),
 

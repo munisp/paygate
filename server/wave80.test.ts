@@ -414,25 +414,31 @@ describe("wave80.qrMerchantAnalytics", () => {
     expect(result.heatmap[0]).toHaveProperty("scans");
   });
 
-  it("getTopQrCodes returns codes with revenue data", async () => {
+  it("getTopQrCodes returns real codes (honest empty state when no QR payments)", async () => {
     const caller = wave80Router.createCaller(createCtx());
     const result = await caller.qrMerchantAnalytics.getTopQrCodes();
+    // Mock DB has no QR payments — the router must return an empty array
+    // rather than fabricated top codes.
     expect(Array.isArray(result.codes)).toBe(true);
-    expect(result.codes.length).toBeGreaterThan(0);
-    expect(result.codes[0]).toHaveProperty("revenue");
+    expect(result.codes).toHaveLength(0);
   });
 
-  it("getCustomerInsights returns new vs returning breakdown", async () => {
+  it("getCustomerInsights returns real breakdown (zeros/nulls when no claims)", async () => {
     const caller = wave80Router.createCaller(createCtx());
     const result = await caller.qrMerchantAnalytics.getCustomerInsights();
-    expect(result.newVsReturning.new + result.newVsReturning.returning).toBe(100);
+    expect(result.newVsReturning.new + result.newVsReturning.returning).toBe(0);
+    // No session-duration or location data source exists — reported honestly.
+    expect(result.avgSessionDuration).toBeNull();
+    expect(result.topLocations).toEqual([]);
   });
 
-  it("exportReport returns a downloadUrl", async () => {
+  it("exportReport returns inline CSV content (no fabricated downloadUrl)", async () => {
     const caller = wave80Router.createCaller(createCtx());
     const result = await caller.qrMerchantAnalytics.exportReport({ period: "7d" });
-    expect(result.downloadUrl).toContain("qr-analytics");
-    expect(result.expiresAt).toBeInstanceOf(Date);
+    expect(result).not.toHaveProperty("downloadUrl");
+    expect(result.csv).toContain("id,created_at,amount_kobo");
+    expect(result.rowCount).toBe(0);
+    expect(result.generatedAt).toBeInstanceOf(Date);
   });
 });
 
@@ -597,10 +603,14 @@ describe("wave80.usdcV2", () => {
     expect(result).toHaveProperty("total");
   });
 
-  it("initiateTransfer returns a transaction", async () => {
+  it("initiateTransfer fails loud (no on-chain broadcast configured, nothing persisted)", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.usdcV2.initiateTransfer({ toAddress: "0xabc123def456", amountUsdc: "100.00" });
-    expect(result).toHaveProperty("transaction");
+    await expect(
+      caller.usdcV2.initiateTransfer({ toAddress: "0xabc123def456", amountUsdc: "100.00" })
+    ).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: expect.stringContaining("on-chain broadcast not configured"),
+    });
   });
 
   it("getStats returns balance and transaction counts", async () => {
@@ -729,12 +739,15 @@ describe("wave80.grpcHealthCheck", () => {
     expect(result.services[0]).toHaveProperty("proto");
   });
 
-  it("getHealthHistory returns 24 hourly data points", async () => {
+  it("getHealthHistory returns empty history with explicit note (no simulated past data)", async () => {
     const caller = wave80Router.createCaller(createCtx());
     const result = await caller.grpcHealthCheck.getHealthHistory({ serviceName: "PaymentService" });
-    expect(result.history).toHaveLength(24);
-    expect(result.history[0]).toHaveProperty("status");
-    expect(result.history[0]).toHaveProperty("latencyMs");
+    // No persistent health-history store exists — history must be empty and
+    // only the live probe reported; never simulated.
+    expect(result.history).toEqual([]);
+    expect(result.note).toContain("health-history");
+    expect(result.current).toHaveProperty("status");
+    expect(result.current).toHaveProperty("latencyMs");
   });
 
   it("checkService returns a status and latency", async () => {

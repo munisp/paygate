@@ -32,33 +32,36 @@ describe("Round 48 — Geo Anomaly, CSV Geo Columns, tRPC Path Fix", () => {
       expect(dbSrc).toContain("event_type = 'LOGIN'");
     });
 
-    it("excludes the most recent N rows to avoid self-comparison", () => {
-      expect(dbSrc).toContain("excludeLastN");
-      expect(dbSrc).toContain("LIMIT ${excludeLastN}");
+    it("restricts the lookback window with a days parameter", () => {
+      // Real contract: recency is bounded by `received_at >= now() - interval`
+      // (the excludeLastN self-comparison variant was removed).
+      expect(dbSrc).toContain("make_interval(days => ${days})");
     });
   });
 
-  describe("server/_core/oauth.ts — geo-based anomaly detection", () => {
-    const oauthSrc = readFileSync(resolve(root, "server/_core/oauth.ts"), "utf-8");
+  describe("geo-anomaly detection building blocks", () => {
+    // Real contract: the inline anomaly detector in server/_core/oauth.ts was
+    // removed with the keycloak-events ingest webhook. What remains are the
+    // detection data source (getKnownCountriesForUser in db.ts) and the alert
+    // template (geoAnomalyEmail in emailService.ts).
+    const dbSrc = readFileSync(resolve(root, "server/db.ts"), "utf-8");
+    const emailSrc = readFileSync(resolve(root, "server/emailService.ts"), "utf-8");
 
-    it("calls getKnownCountriesForUser on LOGIN events", () => {
-      expect(oauthSrc).toContain("getKnownCountriesForUser");
+    it("getKnownCountriesForUser only considers LOGIN events", () => {
+      expect(dbSrc).toContain("event_type = 'LOGIN'");
     });
 
-    it("only fires on LOGIN event type", () => {
-      expect(oauthSrc).toContain('eventType === "LOGIN"');
+    it("getKnownCountriesForUser ignores rows without geo data", () => {
+      expect(dbSrc).toContain("geo_country IS NOT NULL");
     });
 
-    it("sends notifyOwner when new country detected", () => {
-      expect(oauthSrc).toContain("New Country Login Detected");
+    it("emailService exposes a geoAnomalyEmail alert template", () => {
+      expect(emailSrc).toContain("export function geoAnomalyEmail");
+      expect(emailSrc).toContain("New Country Login Detected");
     });
 
-    it("checks that new country is not in known countries list", () => {
-      expect(oauthSrc).toContain("!knownCountries.includes(latestCountry)");
-    });
-
-    it("only alerts if user has prior logins (not first-ever login)", () => {
-      expect(oauthSrc).toContain("knownCountries.length > 0");
+    it("geoAnomalyEmail lists the user's known countries", () => {
+      expect(emailSrc).toContain("knownCountries");
     });
   });
 

@@ -9,7 +9,14 @@ const BRIDGE_URL = process.env.MIDDLEWARE_BRIDGE_URL ?? "http://localhost:8080";
 const BRIDGE_KEY = process.env.MIDDLEWARE_INTERNAL_KEY ?? "";
 const UEBA_URL = process.env.UEBA_SERVICE_URL ?? "http://localhost:8301";
 
-async function bridgePost(path: string, body: unknown) {
+interface UebaResult {
+  risk_score?: number;
+  risk_level?: string;
+  risk_factors?: string[];
+  policy_verdict?: string;
+}
+
+async function bridgePost<T = Record<string, unknown>>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BRIDGE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Internal-Key": BRIDGE_KEY },
@@ -17,7 +24,7 @@ async function bridgePost(path: string, body: unknown) {
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Bridge error ${res.status}` });
-  return res.json();
+  return (await res.json()) as T;
 }
 
 async function bridgeGet(path: string) {
@@ -40,7 +47,7 @@ async function uebaPost(path: string, body: unknown) {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
-    return res.json().catch(() => null);
+    return (await res.json().catch(() => null)) as UebaResult | null;
   } catch { return null; }
 }
 
