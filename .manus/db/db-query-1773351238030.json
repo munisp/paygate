@@ -1,0 +1,9 @@
+{
+  "query": "\nALTER TABLE merchants ADD COLUMN IF NOT EXISTS merchant_code VARCHAR(20);\nALTER TABLE merchants ADD COLUMN IF NOT EXISTS ussd_pin VARCHAR(255);\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2t5rixfHAYLQmtB.7eb00fb93a2d --database cmub7FPkYZGWin9HgyNbPk --execute \nALTER TABLE merchants ADD COLUMN IF NOT EXISTS merchant_code VARCHAR(20);\nALTER TABLE merchants ADD COLUMN IF NOT EXISTS ussd_pin VARCHAR(255);\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 520
+}

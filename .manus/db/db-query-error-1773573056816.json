@@ -1,0 +1,16 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS \"fraud_alert_comments\" (\n  \"id\" text PRIMARY KEY NOT NULL,\n  \"alert_id\" text NOT NULL,\n  \"merchant_id\" text NOT NULL,\n  \"author_name\" text NOT NULL,\n  \"body\" text NOT NULL,\n  \"created_at\" timestamp DEFAULT now() NOT NULL,\n  CONSTRAINT \"fraud_alert_comments_alert_id_fraud_alerts_id_fk\" FOREIGN KEY (\"alert_id\") REFERENCES \"fraud_alerts\"(\"id\") ON DELETE CASCADE,\n  CONSTRAINT \"fraud_alert_comments_merchant_id_merchants_id_fk\" FOREIGN KEY (\"merchant_id\") REFERENCES \"merchants\"(\"id\")\n);\nCREATE INDEX IF NOT EXISTS \"fac_alert_idx\" ON \"fraud_alert_comments\" (\"alert_id\");\nCREATE INDEX IF NOT EXISTS \"fac_merchant_idx\" ON \"fraud_alert_comments\" (\"merchant_id\");",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2t5rixfHAYLQmtB.7eb00fb93a2d --database cmub7FPkYZGWin9HgyNbPk --execute CREATE TABLE IF NOT EXISTS \"fraud_alert_comments\" (\n  \"id\" text PRIMARY KEY NOT NULL,\n  \"alert_id\" text NOT NULL,\n  \"merchant_id\" text NOT NULL,\n  \"author_name\" text NOT NULL,\n  \"body\" text NOT NULL,\n  \"created_at\" timestamp DEFAULT now() NOT NULL,\n  CONSTRAINT \"fraud_alert_comments_alert_id_fraud_alerts_id_fk\" FOREIGN KEY (\"alert_id\") REFERENCES \"fraud_alerts\"(\"id\") ON DELETE CASCADE,\n  CONSTRAINT \"fraud_alert_comments_merchant_id_merchants_id_fk\" FOREIGN KEY (\"merchant_id\") REFERENCES \"merchants\"(\"id\")\n);\nCREATE INDEX IF NOT EXISTS \"fac_alert_idx\" ON \"fraud_alert_comments\" (\"alert_id\");\nCREATE INDEX IF NOT EXISTS \"fac_merchant_idx\" ON \"fraud_alert_comments\" (\"merchant_id\");",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 1 column 49 near \"\"fraud_alert_comments\" (",
+    "  \"id\" text PRIMARY KEY NOT NULL,",
+    "  \"alert_id\" text NOT NULL,",
+    "  \"merchant_id\" text NOT NULL,",
+    "  \"author_name\" text NOT NULL,",
+    "  \"body\" text NOT NULL,",
+    "  \"created_at\" timestamp DEFAULT now() NOT NULL,",
+    "  CONSTRAINT \"fraud_alert_comments_alert_id_fraud_alerts_id_fk\" FOREIGN KEY (\"alert_id\") REFERENCES \"fraud_alerts\"(\"id\") ON DELETE CASCADE,",
+    "  CON"
+  ]
+}

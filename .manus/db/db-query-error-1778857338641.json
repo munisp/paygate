@@ -1,0 +1,10 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS keycloak_events (\n  id SERIAL PRIMARY KEY,\n  event_type VARCHAR(64) NOT NULL,\n  user_id VARCHAR(128),\n  realm_id VARCHAR(128),\n  client_id VARCHAR(128),\n  ip_address VARCHAR(64),\n  session_id VARCHAR(128),\n  error VARCHAR(256),\n  details JSONB,\n  received_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000\n);\n\nCREATE INDEX IF NOT EXISTS keycloak_events_type_idx ON keycloak_events (event_type);\nCREATE INDEX IF NOT EXISTS keycloak_events_user_idx ON keycloak_events (user_id);\nCREATE INDEX IF NOT EXISTS keycloak_events_received_idx ON keycloak_events (received_at);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2t5rixfHAYLQmtB.7eb00fb93a2d --database cmub7FPkYZGWin9HgyNbPk --execute CREATE TABLE IF NOT EXISTS keycloak_events (\n  id SERIAL PRIMARY KEY,\n  event_type VARCHAR(64) NOT NULL,\n  user_id VARCHAR(128),\n  realm_id VARCHAR(128),\n  client_id VARCHAR(128),\n  ip_address VARCHAR(64),\n  session_id VARCHAR(128),\n  error VARCHAR(256),\n  details JSONB,\n  received_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000\n);\n\nCREATE INDEX IF NOT EXISTS keycloak_events_type_idx ON keycloak_events (event_type);\nCREATE INDEX IF NOT EXISTS keycloak_events_user_idx ON keycloak_events (user_id);\nCREATE INDEX IF NOT EXISTS keycloak_events_received_idx ON keycloak_events (received_at);",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 10 column 16 near \"JSONB,",
+    "  received_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000",
+    ")\""
+  ]
+}
