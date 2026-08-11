@@ -636,9 +636,11 @@ func main() {
 	mux.HandleFunc("/v1/wallet-ffi/balance", handlers.ProxyToService("WALLET_FFI_URL", "http://localhost:8216", "/v1/balance"))
 	mux.HandleFunc("/v1/cross-border-fraud/health", handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/health"))
 	mux.HandleFunc("/v1/cross-border-fraud/score", handlers.ProxyToService("CROSS_BORDER_FRAUD_URL", "http://localhost:8217", "/v1/score"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/health", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8218", "/health"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8218", "/v1/accounts"))
-	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8218", "/v1/transfers"))
+	// tigerbeetle-ledger (Rust) listens on 8200 and serves /v1/ledger/* — see
+	// rust-services/tigerbeetle-ledger/src/main.rs and k8s/middleware-stack.yaml.
+	mux.HandleFunc("/v1/tigerbeetle-ledger/health", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/health"))
+	mux.HandleFunc("/v1/tigerbeetle-ledger/accounts", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/accounts"))
+	mux.HandleFunc("/v1/tigerbeetle-ledger/transfers", handlers.ProxyToService("TIGERBEETLE_LEDGER_URL", "http://localhost:8200", "/v1/ledger/transfers"))
 
 	// ─── Python Microservices ─────────────────────────────────────────────────────
 	mux.HandleFunc("/v1/ai-insights/health", handlers.ProxyToService("AI_INSIGHTS_URL", "http://localhost:8220", "/health"))

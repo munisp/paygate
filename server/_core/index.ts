@@ -22,6 +22,8 @@ import { wafMiddleware } from "../wafMiddleware";
 import { metricsMiddleware, metricsHandler } from "../metrics";
 import { stripeWebhookHandler } from "../stripe";
 import { getBridgeHealth } from "../middlewareBridge";
+import { expressRateLimit, trpcApiRateLimit } from "../rateLimit";
+import { csrfOriginGuard } from "./csrf";
 
 // ─── Real infrastructure probes (raw RESP — no new dependencies) ─────────────
 
@@ -136,6 +138,22 @@ async function startServer() {
   app.use(securityHeaders);
   app.use(corsMiddleware);
   app.use(metricsMiddleware);
+
+  // ── Rate limiting (fail-closed: Redis sliding window when REDIS_URL is set,
+  //    in-process store with a loud WARN otherwise) ───────────────────────────
+  // Inbound webhooks: signature verification already bounds abuse, but cap
+  // anonymous delivery bursts (50/min/IP, clamped to 20/min for anonymous).
+  app.use("/api/webhooks", expressRateLimit({ max: 50, windowMs: 60_000, keyPrefix: "webhook:deliver" }));
+  // OAuth login/callback/logout: brute-force guard (10/min/IP).
+  app.use("/api/oauth", expressRateLimit({ max: 10, windowMs: 60_000, keyPrefix: "auth:oauth" }));
+  // Cron heartbeat: cron-token guarded, still throttled against token leaks.
+  app.use("/api/scheduled", expressRateLimit({ max: 10, windowMs: 60_000, keyPrefix: "auth:scheduled" }));
+
+  // ── CSRF origin guard: cookie-authenticated mutating requests must present
+  //    a same-origin/allowlisted Origin (or Referer) header. Bearer-token
+  //    requests are CSRF-immune and pass through. ─────────────────────────────
+  app.use("/api/trpc", csrfOriginGuard);
+  app.use("/api/scheduled", csrfOriginGuard);
 
   // ── Stripe inbound webhook ─────────────────────────────────────────────────
   // MUST be mounted with the raw body parser BEFORE express.json — Stripe
@@ -269,7 +287,9 @@ async function startServer() {
     }
   });
 
-  // tRPC API
+  // tRPC API — every procedure throttled by the classifier (read / mutation /
+  // financial / payout / export buckets; see server/rateLimit.ts).
+  app.use("/api/trpc", trpcApiRateLimit());
   app.use(
     "/api/trpc",
     createExpressMiddleware({

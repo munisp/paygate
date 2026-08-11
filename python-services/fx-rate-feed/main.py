@@ -4,6 +4,7 @@ Streams live FX rates from external providers into Fluvio and Redis.
 Supports DCC (Dynamic Currency Conversion) rate locking.
 """
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from typing import Dict, Optional
 
 import aiohttp
 import redis.asyncio as aioredis
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("fx-rate-feed")
@@ -176,11 +178,37 @@ class FXRateFeed:
             await self.redis.close()
 
 
+# ─── Mandatory internal service-to-service auth (fail closed) ────────────────
+# Matches the pattern used by sibling python-services (see e.g. ai-insights):
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks. When the key is NOT configured the
+# service answers 503 on all non-exempt routes (never silently open).
+
+_INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@web.middleware
+async def _require_internal_api_key(request: web.Request, handler):
+    if request.path in _AUTH_EXEMPT_PATHS:
+        return await handler(request)
+    if not _INTERNAL_API_KEY:
+        return web.json_response(
+            {"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+            status=503,
+        )
+    if not hmac.compare_digest(
+        request.headers.get("X-Internal-Key", ""), _INTERNAL_API_KEY
+    ):
+        return web.json_response({"detail": "Unauthorized"}, status=401)
+    return await handler(request)
+
+
 # ─── Health endpoint ───────────────────────────────────────────────────────────
 
 async def health_handler(request):
     """Simple health check endpoint."""
-    from aiohttp import web
     return web.json_response({
         "status": "ok",
         "service": "fx-rate-feed",
@@ -194,9 +222,7 @@ feed = FXRateFeed()
 
 
 async def main():
-    from aiohttp import web
-
-    app = web.Application()
+    app = web.Application(middlewares=[_require_internal_api_key])
     app.router.add_get("/health", health_handler)
 
     runner = web.AppRunner(app)

@@ -62,6 +62,12 @@ const PBAC_PERMISSION_MAP = {
   export_transactions: { resource: "transaction", action: "export" },
   manage_virtual_cards: { resource: "virtual_card", action: "create" },
   trigger_settlement: { resource: "settlement", action: "trigger" },
+  // Billing engine (tenant fee configs, DFSP fee tiers, invoices) — admin/finance.
+  view_billing: { resource: "billing", action: "view" },
+  manage_billing: { resource: "billing", action: "manage" },
+  // Chargeback lifecycle (evidence, escalation, timeline) — admin/finance.
+  view_chargebacks: { resource: "chargeback", action: "view" },
+  manage_chargebacks: { resource: "chargeback", action: "manage" },
 } as const;
 
 export type PbacPermission = keyof typeof PBAC_PERMISSION_MAP;
