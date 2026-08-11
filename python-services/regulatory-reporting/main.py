@@ -14,6 +14,7 @@ NFIU: Money Laundering (Prevention and Prohibition) Act 2022, Section 6(1).
 """
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -51,8 +52,10 @@ PORT = int(os.getenv("REGULATORY_REPORTING_PORT", "9053"))
 
 
 def verify_internal_key(x_internal_key: str = Header(default="")) -> None:
-    """Verify the internal service-to-service API key."""
-    if INTERNAL_KEY and x_internal_key != INTERNAL_KEY:
+    """Verify the internal service-to-service API key (fail closed)."""
+    if not INTERNAL_KEY:
+        raise HTTPException(status_code=503, detail="Service misconfigured: REGULATORY_REPORTING_API_KEY not set")
+    if not x_internal_key or not hmac.compare_digest(x_internal_key, INTERNAL_KEY):
         raise HTTPException(status_code=401, detail="Invalid internal key")
 
 
@@ -307,6 +310,34 @@ async def startup_event() -> None:
     logger.info("Regulatory reporting service starting")
     # Start scheduled report generation
     asyncio.create_task(start_scheduler())
+
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
  * Three fee tier models: flat rate, tiered-by-amount, volume-based monthly discount.
  */
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   nexthubInvoices,
@@ -22,7 +22,7 @@ export const nexthubBillingRouter = router({
   // ─── Fee Tiers ──────────────────────────────────────────────────────────────
 
   /** List fee tiers for a DFSP */
-  listFeeTiers: protectedProcedure
+  listFeeTiers: adminProcedure
     .input(z.object({ dfspId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -32,7 +32,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Create or update a fee tier for a DFSP */
-  upsertFeeTier: protectedProcedure
+  upsertFeeTier: adminProcedure
     .input(z.object({
       dfspId: z.string(),
       feeType: z.enum(["SCHEME_FEE", "INTERCHANGE", "FX_MARKUP", "PENALTY"]),
@@ -63,7 +63,7 @@ export const nexthubBillingRouter = router({
   // ─── Fee Postings ────────────────────────────────────────────────────────────
 
   /** List fee postings for a DFSP with date range */
-  listFeePostings: protectedProcedure
+  listFeePostings: adminProcedure
     .input(z.object({
       dfspId: z.string(),
       limit: z.number().int().min(1).max(100).default(20),
@@ -98,7 +98,7 @@ export const nexthubBillingRouter = router({
   // ─── Invoices ────────────────────────────────────────────────────────────────
 
   /** List invoices with filters */
-  listInvoices: protectedProcedure
+  listInvoices: adminProcedure
     .input(z.object({
       limit: z.number().int().min(1).max(100).default(20),
       offset: z.number().int().min(0).default(0),
@@ -130,7 +130,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Get a single invoice */
-  getInvoice: protectedProcedure
+  getInvoice: adminProcedure
     .input(z.object({ invoiceId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -144,7 +144,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Generate a monthly invoice for a DFSP */
-  generateMonthlyInvoice: protectedProcedure
+  generateMonthlyInvoice: adminProcedure
     .input(z.object({
       dfspId: z.string(),
       billingYear: z.number().int().min(2024).max(2099),
@@ -218,7 +218,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Issue (finalise) a draft invoice */
-  issueInvoice: protectedProcedure
+  issueInvoice: adminProcedure
     .input(z.object({ invoiceId: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -232,7 +232,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Mark an invoice as paid */
-  markInvoicePaid: protectedProcedure
+  markInvoicePaid: adminProcedure
     .input(z.object({
       invoiceId: z.string(),
       tigerBeetleTransferId: z.string().optional(),
@@ -254,7 +254,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Get billing dashboard statistics */
-  getStats: protectedProcedure
+  getStats: adminProcedure
     .query(async () => {
       const db = await getDb();
 
@@ -272,7 +272,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** Get merchant billing statement (fee summary for a period) */
-  getMerchantStatement: protectedProcedure
+  getMerchantStatement: adminProcedure
     .input(z.object({
       dfspId: z.string(),
       from: z.date(),
@@ -300,7 +300,7 @@ export const nexthubBillingRouter = router({
     }),
 
   /** getBillingSummary — aggregate billing stats for a DFSP over a period */
-  getBillingSummary: protectedProcedure
+  getBillingSummary: adminProcedure
     .input(z.object({
       dfspId: z.string().optional(),
       periodStart: z.number().optional(),

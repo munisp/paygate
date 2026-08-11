@@ -26,8 +26,7 @@ const tenantBillingRouter = router({
   getAllPlans: publicProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT * FROM tenant_plan_limits ORDER BY max_api_calls_per_month ASC`))) as any;
-    return rows;
+    return await execRaw(db, `SELECT * FROM tenant_plan_limits ORDER BY max_api_calls_per_month ASC`);
   }),
 
   getUsage: protectedProcedure
@@ -529,7 +528,7 @@ const loyaltyRouter = router({
       const acct = acctRows[0];
 
       // Get tier thresholds
-      const { rows: tiers } = (await db.execute(sql.raw(`SELECT * FROM loyalty_programs ORDER BY min_points DESC`))) as any;
+      const tiers = await execRaw(db, `SELECT * FROM loyalty_programs ORDER BY min_points DESC`);
 
       let newTier = "bronze";
       for (const tier of tiers) {
@@ -555,8 +554,8 @@ const loyaltyRouter = router({
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
     // Get all accounts that might need tier change
-    const { rows: accounts } = (await db.execute(sql.raw(`SELECT la.user_id, la.total_points, la.current_tier FROM loyalty_accounts la`))) as any;
-    const { rows: tiers } = (await db.execute(sql.raw(`SELECT * FROM loyalty_programs ORDER BY min_points DESC`))) as any;
+    const accounts = await execRaw(db, `SELECT la.user_id, la.total_points, la.current_tier FROM loyalty_accounts la`);
+    const tiers = await execRaw(db, `SELECT * FROM loyalty_programs ORDER BY min_points DESC`);
 
     let promoted = 0;
     for (const acct of accounts) {
@@ -616,12 +615,11 @@ const bnplRepaymentRouter = router({
   getOverdue: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT r.*, a.user_id, a.principal_amount
+    return await execRaw(db, `SELECT r.*, a.user_id, a.principal_amount
        FROM bnpl_repayment_schedules r
        JOIN bnpl_applications a ON a.id = r.application_id
        WHERE r.due_date < CURRENT_DATE AND r.status = 'pending'
-       ORDER BY r.due_date ASC`))) as any;
-    return rows;
+       ORDER BY r.due_date ASC`);
   }),
 
   generateSchedule: protectedProcedure
@@ -722,8 +720,7 @@ const disputeEscalationRouter = router({
   getEscalated: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT * FROM consumer_disputes WHERE status = 'escalated' ORDER BY escalated_at ASC`))) as any;
-    return rows;
+    return await execRaw(db, `SELECT * FROM consumer_disputes WHERE status = 'escalated' ORDER BY escalated_at ASC`);
   }),
 
   getTimeline: protectedProcedure
@@ -762,8 +759,8 @@ const chargebackRouter = router({
       if (input.tenantId) { conditions.push(`tenant_id = $${i++}`); params.push(input.tenantId); }
       if (input.status) { conditions.push(`status = $${i++}`); params.push(input.status); }
       params.push(input.limit, input.offset);
-      const { rows } = (await db.execute(sql.raw(`SELECT * FROM chargebacks WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i+1}`))) as any;
-      return rows;
+      // Column names in conditions are hardcoded literals; values are bound params.
+      return await execRaw(db, `SELECT * FROM chargebacks WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i+1}`, params);
     }),
 
   submitEvidence: protectedProcedure
@@ -794,14 +791,14 @@ const chargebackRouter = router({
   getStats: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT
+    const rows = await execRaw(db, `SELECT
          COUNT(*) as total,
          COUNT(*) FILTER (WHERE status = 'open') as open_count,
          COUNT(*) FILTER (WHERE status = 'won') as won_count,
          COUNT(*) FILTER (WHERE status = 'lost') as lost_count,
          SUM(amount) as total_amount,
          SUM(amount) FILTER (WHERE status = 'won') as recovered_amount
-       FROM chargebacks`))) as any;
+       FROM chargebacks`);
     return rows[0];
   }),
 });
@@ -849,7 +846,7 @@ const slaRouter = router({
   getSummary: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`SELECT
+    return await execRaw(db, `SELECT
          service_name,
          AVG(uptime_pct) as avg_uptime,
          AVG(avg_latency_ms) as avg_latency,
@@ -859,8 +856,7 @@ const slaRouter = router({
        FROM sla_metrics
        WHERE metric_date >= CURRENT_DATE - 30
        GROUP BY service_name
-       ORDER BY service_name`))) as any;
-    return rows;
+       ORDER BY service_name`);
   }),
 });
 
@@ -895,7 +891,7 @@ const jwtRevocationRouter = router({
   cleanup: protectedProcedure.mutation(async () => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
-    const { rows } = (await db.execute(sql.raw(`DELETE FROM jwt_revocation_list WHERE expires_at < NOW() RETURNING id`))) as any;
+    const rows = await execRaw(db, `DELETE FROM jwt_revocation_list WHERE expires_at < NOW() RETURNING id`);
     return { cleaned: rows.length };
   }),
 
@@ -920,15 +916,15 @@ const metricsRouter = router({
     if (!db) throw new Error("Database unavailable");
 
     // Tenant API call totals
-    const { rows: usageRows } = (await db.execute(sql.raw(`SELECT tenant_id, SUM(api_calls) as total_calls, SUM(tx_count) as total_tx
-       FROM tenant_usage_metrics GROUP BY tenant_id`))) as any;
+    const usageRows = await execRaw(db, `SELECT tenant_id, SUM(api_calls) as total_calls, SUM(tx_count) as total_tx
+       FROM tenant_usage_metrics GROUP BY tenant_id`);
 
     // Chargeback stats
-    const { rows: cbRows } = (await db.execute(sql.raw(`SELECT status, COUNT(*) as count FROM chargebacks GROUP BY status`))) as any;
+    const cbRows = await execRaw(db, `SELECT status, COUNT(*) as count FROM chargebacks GROUP BY status`);
 
     // SLA metrics
-    const { rows: slaRows } = (await db.execute(sql.raw(`SELECT service_name, AVG(uptime_pct) as uptime, AVG(avg_latency_ms) as latency
-       FROM sla_metrics WHERE metric_date = CURRENT_DATE GROUP BY service_name`))) as any;
+    const slaRows = await execRaw(db, `SELECT service_name, AVG(uptime_pct) as uptime, AVG(avg_latency_ms) as latency
+       FROM sla_metrics WHERE metric_date = CURRENT_DATE GROUP BY service_name`);
 
     let text = `# HELP paygate_tenant_api_calls_total Total API calls per tenant\n`;
     text += `# TYPE paygate_tenant_api_calls_total counter\n`;
@@ -972,8 +968,14 @@ const rateLimitDashboardRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      // Simulate rate limit stats from usage metrics
-      const { rows } = (await db.execute(sql.raw(`SELECT 
+      // Rate limit stats from usage metrics; tenantId is a bound parameter.
+      const params: any[] = [];
+      let tenantFilter = "";
+      if (input.tenantId) {
+        params.push(input.tenantId);
+        tenantFilter = "AND m.tenant_id = $1";
+      }
+      return await execRaw(db, `SELECT
            m.tenant_id,
            t.name as tenant_name,
            t.plan,
@@ -985,9 +987,8 @@ const rateLimitDashboardRouter = router({
          JOIN tenant_plan_limits p ON p.plan = t.plan
          WHERE m.period_year = EXTRACT(YEAR FROM NOW())::int
            AND m.period_month = EXTRACT(MONTH FROM NOW())::int
-           ${input.tenantId ? "AND m.tenant_id = '" + input.tenantId + "'" : ""}
-         ORDER BY usage_pct DESC`))) as any;
-      return rows;
+           ${tenantFilter}
+         ORDER BY usage_pct DESC`, params);
     }),
 
   setOverride: protectedProcedure
@@ -1166,7 +1167,7 @@ const securityHardeningRouter = router({
 // ─── Export wave29Router ─────────────────────────────────────────────────────
 
 // ─── SLA Monitoring Alias Router (for AdminSlaMonitoring page) ───────────────
-import { desc, eq, count, sql, sql as drizzleSql } from "drizzle-orm";
+import { desc, eq, count } from "drizzle-orm";
 
 const slaMonitoringAliasRouter = router({
   getStats: protectedProcedure.query(async () => {
@@ -1174,7 +1175,7 @@ const slaMonitoringAliasRouter = router({
     if (!db) throw new Error("Database unavailable");
     // Use sla_metrics table if it exists, else return empty stats
     try {
-      const result = await db.execute(sql.raw(`
+      const rows = await execRaw(db, `
         SELECT
           COUNT(*) FILTER (WHERE status = 'ok') as healthy,
           COUNT(*) FILTER (WHERE status = 'degraded') as degraded,
@@ -1183,8 +1184,8 @@ const slaMonitoringAliasRouter = router({
           ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'ok') / NULLIF(COUNT(*), 0), 2) as uptime_pct
         FROM sla_metrics
         WHERE recorded_at > NOW() - INTERVAL '24 hours'
-      `));
-      return (result as any).rows[0] ?? { healthy: 0, degraded: 0, down: 0, avg_response_ms: 0, uptime_pct: 100 };
+      `);
+      return rows[0] ?? { healthy: 0, degraded: 0, down: 0, avg_response_ms: 0, uptime_pct: 100 };
     } catch {
       return { healthy: 0, degraded: 0, down: 0, avg_response_ms: 0, uptime_pct: 100 };
     }

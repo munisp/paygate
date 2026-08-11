@@ -24,7 +24,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       PG_DATABASE_URL: postgresql://paygate:${POSTGRES_PASSWORD:-paygate_secure_2026}@postgres:5432/paygate_prod
-      JWT_SECRET: ${JWT_SECRET:-change_me_in_production_32chars_min}
+      JWT_SECRET: ${JWT_SECRET:?must be set — min 32 chars of random entropy (openssl rand -base64 48)}
       VITE_APP_ID: ${VITE_APP_ID:-paygate-merchant-portal}
       OAUTH_SERVER_URL: ${OAUTH_SERVER_URL:-https://oauth.manus.im}
       VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL:-https://auth.manus.im}

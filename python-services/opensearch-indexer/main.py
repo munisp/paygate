@@ -170,10 +170,11 @@ app = FastAPI(title="PayGate OpenSearch Indexer", version="1.0.0", lifespan=life
 
 # ─── Auth dependency ──────────────────────────────────────────────────────────
 async def require_api_key(request: Request) -> None:
+    # Fail closed: key must be configured and presented; constant-time compare.
     if not INTERNAL_API_KEY:
-        return  # auth disabled in dev
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service misconfigured: INTERNAL_API_KEY not set")
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != INTERNAL_API_KEY:
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], INTERNAL_API_KEY):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 
 
@@ -254,3 +255,30 @@ async def list_indices():
         return r.json() if r.status_code == 200 else []
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+# ─── Mandatory internal service-to-service auth (fail closed) ───────────────
+# INTERNAL_API_KEY must be configured; every request other than /health and
+# /metrics must present it via the X-Internal-Key header. Constant-time
+# comparison to resist timing attacks.
+import hmac as _hmac_mod
+from fastapi import Request as _AuthRequest
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_INTERNAL_AUTH_KEY = os.getenv("INTERNAL_API_KEY", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health", "/healthz", "/metrics"})
+
+
+@app.middleware("http")
+async def _require_internal_api_key(request: _AuthRequest, call_next):
+    if request.url.path in _AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+    if not _INTERNAL_AUTH_KEY:
+        return _AuthJSONResponse(
+            status_code=503,
+            content={"detail": "Service misconfigured: INTERNAL_API_KEY not set"},
+        )
+    if not _hmac_mod.compare_digest(
+        request.headers.get("x-internal-key", ""), _INTERNAL_AUTH_KEY
+    ):
+        return _AuthJSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)

@@ -11,7 +11,7 @@ x-python-defaults: &python-defaults
   networks: [paygate]
   environment:
     LOG_LEVEL: ${LOG_LEVEL:-info}
-    INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
   healthcheck:
     test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
     interval: 30s
@@ -29,7 +29,7 @@ x-python-defaults: &python-defaults
       - PORT=8115
       - PG_DATABASE_URL=${PG_DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-paygate-internal-dev-key-2026}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://ollama:11434
@@ -84,7 +84,7 @@ services:
       NODE_ENV: production
       PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
       REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379}
-      JWT_SECRET: ${JWT_SECRET:-paygate_jwt_secret_change_in_production_2026_min32chars}
+      JWT_SECRET: ${JWT_SECRET:?must be set — min 32 chars random (openssl rand -base64 48)}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       QDRANT_URL: http://qdrant:6333
       FALKORDB_URL: redis://falkordb:6379
@@ -100,7 +100,7 @@ services:
       AML_MONITOR_URL: http://aml-monitor:8000
       SETTLEMENT_FORECAST_URL: http://settlement-forecast:8000
       GNN_FRAUD_URL: http://gnn-fraud:8000
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-PayGate Merchant Portal}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
@@ -125,10 +125,10 @@ services:
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-paygate}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-merchant-portal}
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change_me_run_bootstrap_script}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?must be set — run scripts/keycloak-bootstrap.sh}
       # Keycloak Admin credentials for the nightly realm backup job
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?must be set — no default admin credentials allowed}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?must be set — no default admin credentials allowed}
       KEYCLOAK_WEBHOOK_SECRET: ${KEYCLOAK_WEBHOOK_SECRET:-}
       # Comma-separated list of allowed redirect origins (e.g. https://portal.acme.com)
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
@@ -148,7 +148,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-paygate_prod}
       POSTGRES_USER: ${POSTGRES_USER:-paygate}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -174,7 +174,7 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-paygate}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}
       DB_NAME: ${POSTGRES_DB:-paygate_prod}
       POOL_MODE: transaction
       MAX_CLIENT_CONN: "1000"
@@ -203,13 +203,13 @@ services:
     image: redis:7-alpine
     container_name: paygate_redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_dev_2026} --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1
+    command: redis-server --requirepass ${REDIS_PASSWORD:?must be set — no default redis password allowed in production} --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_dev_2026}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?must be set — no default redis password allowed in production}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -308,7 +308,7 @@ services:
       DB: postgresql
       DB_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-paygate}
-      POSTGRES_PWD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}
       POSTGRES_SEEDS: postgres
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-paygate-prod}
     networks: [paygate]
@@ -338,8 +338,8 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-paygate_prod}
       KC_DB_USERNAME: ${POSTGRES_USER:-paygate}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?must be set — no default admin credentials allowed}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-keycloak_admin_2026}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
@@ -433,7 +433,7 @@ services:
       - "${FRAUD_SCORING_PORT:-8100}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       QDRANT_URL: http://qdrant:6333
       FALKORDB_URL: redis://falkordb:6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -449,7 +449,7 @@ services:
       - "${GNN_FRAUD_PORT:-8102}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       FRAUD_SCORING_URL: http://fraud-scoring:8000
       FALKORDB_URL: redis://falkordb:6379
@@ -474,7 +474,7 @@ services:
       - "${VECTOR_STORE_PORT:-8101}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       QDRANT_URL: http://qdrant:6333
 
   # ─── Python: Knowledge Graph (FalkorDB + EPR-KGQA) ───────────────
@@ -488,7 +488,7 @@ services:
       - "${KNOWLEDGE_GRAPH_PORT:-8102}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       FALKORDB_URL: redis://falkordb:6379
 
   # ─── Python: ART Reasoning Engine ────────────────────────────────
@@ -502,7 +502,7 @@ services:
       - "${ART_REASONING_PORT:-8103}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       FRAUD_SCORING_URL: http://fraud-scoring:8000
       VECTOR_STORE_URL: http://vector-store:8000
       KNOWLEDGE_GRAPH_URL: http://knowledge-graph:8000
@@ -518,7 +518,7 @@ services:
       - "${COCOINDEX_PORT:-8104}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       QDRANT_URL: http://qdrant:6333
       PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -534,7 +534,7 @@ services:
       - "${LAKEHOUSE_AI_PORT:-8105}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       FRAUD_SCORING_URL: http://fraud-scoring:8000
       VECTOR_STORE_URL: http://vector-store:8000
       KNOWLEDGE_GRAPH_URL: http://knowledge-graph:8000
@@ -566,7 +566,7 @@ services:
       - "${AML_MONITOR_PORT:-8107}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://paygate:paygate_dev_2026@postgres:5432/paygate_prod}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
@@ -591,7 +591,7 @@ services:
       - "${LAKEHOUSE_AUDIT_PORT:-8109}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── DB Migration (one-shot) ──────────────────────────────────────
@@ -655,7 +655,7 @@ services:
       - "${CASHBACK_REWARDS_PORT:-8112}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Python: Cohort Analytics ─────────────────────────────────────
@@ -779,7 +779,7 @@ services:
       - "${LAKEHOUSE_V2_PORT:-8124}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_key_2026}
       S3_ENDPOINT_URL: http://minio:9000
@@ -826,7 +826,7 @@ services:
       - "${PAYROLL_PORT:-8128}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Python: Pension NPS ──────────────────────────────────────────
@@ -850,7 +850,7 @@ services:
       - "${PUSH_SERVICE_PORT:-8130}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-vapid_public_key_placeholder}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-vapid_private_key_placeholder}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@paygate.ng}
@@ -866,7 +866,7 @@ services:
       - "${RECONCILIATION_ENGINE_PORT:-8131}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Python: Salary Accounts ──────────────────────────────────────
@@ -900,7 +900,7 @@ services:
       - "${SPARK_COMPACTION_PORT:-8134}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       S3_ENDPOINT_URL: http://minio:9000
       LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-paygate-lakehouse}
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_access_key}
@@ -927,7 +927,7 @@ services:
       - "${USDC_LAKEHOUSE_PORT:-8136}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
   # ─── Python: USSD Gateway ─────────────────────────────────────────
@@ -941,7 +941,7 @@ services:
       - "${USSD_GATEWAY_PORT:-8137}:8000"
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       USSD_GATEWAY_URL: ${USSD_GATEWAY_URL:-https://ussd.paygate.ng}
 
   # ─── Python: Wealth Management ────────────────────────────────────
@@ -964,7 +964,7 @@ services:
     ports:
       - "${GO_BRIDGE_PORT:-8200}:8080"
     environment:
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       FRAUD_SCORING_URL: http://fraud-scoring:8000
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -1010,9 +1010,9 @@ services:
       - "${AIRFLOW_PORT:-8090}:8080"
     environment:
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
-      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
-      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:?must be set — no default redis password allowed in production}@redis:6379/1
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-paygate_airflow_secret_2026}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -1040,9 +1040,9 @@ services:
     depends_on: [airflow-webserver]
     environment:
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
-      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
-      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:?must be set — no default redis password allowed in production}@redis:6379/1
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
@@ -1059,9 +1059,9 @@ services:
     depends_on: [airflow-scheduler]
     environment:
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
-      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:-paygate_dev_2026}@postgres:5432/airflow
-      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_dev_2026}@redis:6379/1
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-paygate}:${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:?must be set — no default redis password allowed in production}@redis:6379/1
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
     volumes:
       - ./infra/airflow/dags:/opt/airflow/dags
@@ -1081,7 +1081,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: ${POSTGRES_USER:-paygate}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paygate_dev_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?must be set — no default database password allowed in production}
       POSTGRES_DB: ${POSTGRES_DB:-paygate_prod}
     volumes:
       - ./infra/dbt:/usr/app/dbt
@@ -1116,7 +1116,7 @@ services:
     ports:
       - "${THREAT_INTEL_PORT:-8095}:8095"
     environment:
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
       GEOIP_DB_PATH: /data/GeoLite2-City.mmdb
       THREAT_INTEL_PORT: "8095"
@@ -1144,7 +1144,7 @@ services:
     ports:
       - "${CIPS_UPI_PIX_FX_PORT:-8102}:8102"
     environment:
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [paygate]
@@ -1168,7 +1168,7 @@ services:
     ports:
       - "${OPENSEARCH_SERVICE_PORT:-8300}:8300"
     environment:
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [paygate]
@@ -1189,7 +1189,7 @@ services:
     ports:
       - "${WEALTH_ADVISOR_PORT:-8020}:8020"
     environment:
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-paygate_internal_dev_key_2026}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?must be set — no default internal key allowed in production}
       REDIS_URL: ${REDIS_URL:-redis://:redis_dev_2026@redis:6379/0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     networks: [paygate]
@@ -1286,7 +1286,9 @@ services:
     networks:
       - paygate
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" || exit 1"]
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" || exit 1
       interval: 30s
       timeout: 10s
       retries: 3

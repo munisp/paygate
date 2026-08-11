@@ -12,7 +12,6 @@
  */
 
 import { z } from "zod";
-import { sql } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
 import { getDb, execRaw } from "./db";
 import crypto from "crypto";
@@ -61,21 +60,21 @@ const webhookRetryEnhancedRouter = router({
         FROM webhook_deliveries wd
         ${whereClause}
         ORDER BY wd.created_at DESC
-        LIMIT ${input.limit}
-      `);
+        LIMIT $${paramIdx}
+      `, [...params, input.limit]);
 
-      const statsResult = await db.execute(sql.raw(`
+      const statsRows = await execRaw(db, `
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
           COUNT(*) FILTER (WHERE status = 'failed') as failed_count,
           COUNT(*) FILTER (WHERE status = 'abandoned' OR status = 'dead_letter') as abandoned_count,
           COUNT(*) FILTER (WHERE status = 'success' AND delivered_at > NOW() - INTERVAL '24 hours') as succeeded_today
         FROM webhook_deliveries
-      `));
+      `);
 
-      const stats = (statsResult as any).rows[0];
+      const stats = statsRows[0];
       return {
-        deliveries: (result as any).rows,
+        deliveries: result,
         stats: {
           pendingCount: Number(stats?.pending_count ?? 0),
           failedCount: Number(stats?.failed_count ?? 0),
@@ -663,10 +662,9 @@ const inviteCodeRouter = router({
         where += " AND is_active = $2";
         params.push(input.isActive);
       }
-      const result = await db.execute(sql.raw(`
+      return await execRaw(db, `
         SELECT * FROM invite_codes ${where} ORDER BY created_at DESC LIMIT $1
-      `));
-      return (result as any).rows;
+      `, params);
     }),
 
   // Revoke an invite code
@@ -1125,7 +1123,8 @@ const tenantAdminRouter = router({
       updates.push(`updated_at = NOW()`);
       params.push(input.tenantId);
 
-      await db.execute(sql.raw(`UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`));
+      // Column names above are hardcoded literals; values are bound params.
+      await execRaw(db, `UPDATE tenants SET ${updates.join(", ")} WHERE id = $${idx}`, params);
       return { success: true };
     }),
 
@@ -1178,7 +1177,7 @@ const tenantIsolationRouter = router({
       if (input.status) { where += ` AND status = $${idx++}`; params.push(input.status); }
       if (input.plan) { where += ` AND plan = $${idx++}`; params.push(input.plan); }
 
-      const result = await db.execute(sql.raw(`
+      return await execRaw(db, `
         SELECT
           t.*,
           COUNT(DISTINCT tu.id) as user_count,
@@ -1190,8 +1189,7 @@ const tenantIsolationRouter = router({
         GROUP BY t.id
         ORDER BY t.created_at DESC
         LIMIT $1
-      `));
-      return (result as any).rows;
+      `, params);
     }),
 
   // Suspend a tenant
