@@ -524,7 +524,7 @@ spec:
     spec:
       containers:
         - name: tigerbeetle-ledger
-          image: paygate/tigerbeetle-ledger:latest
+          image: paygate/tigerbeetle-ledger:1.0.0
           ports:
             - containerPort: 8200
           env:
@@ -570,7 +570,7 @@ spec:
     spec:
       containers:
         - name: lakehouse
-          image: paygate/lakehouse-v2:latest
+          image: paygate/lakehouse-v2:1.0.0
           ports:
             - containerPort: 8125
           envFrom:
@@ -618,7 +618,7 @@ spec:
     spec:
       containers:
         - name: go-bridge
-          image: paygate/go-bridge:latest
+          image: paygate/go-bridge:1.0.0
           ports:
             - containerPort: 8080
           envFrom:

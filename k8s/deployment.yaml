@@ -33,8 +33,8 @@ spec:
         fsGroup: 1001
       containers:
         - name: paygate-merchant-portal
-          image: paygate/merchant-portal:latest
-          imagePullPolicy: Always
+          image: paygate/merchant-portal:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000

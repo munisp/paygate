@@ -24,8 +24,8 @@
 # Set it to the ClusterIP service name + port of the portal deployment.
 #
 # Build & push the image before applying:
-#   docker build -t your-registry/paygate-go-bridge:latest ./go-bridge
-#   docker push your-registry/paygate-go-bridge:latest
+#   docker build -t your-registry/paygate-go-bridge:1.0.0 ./go-bridge
+#   docker push your-registry/paygate-go-bridge:1.0.0
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,8 +55,8 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: go-bridge
-          image: your-registry/paygate-go-bridge:latest
-          imagePullPolicy: Always
+          image: your-registry/paygate-go-bridge:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080

@@ -15,9 +15,9 @@
 #   - The `reconciliation_alerts` table must exist (run `pnpm db:push` first).
 #
 # Build & push the image before applying:
-#   docker build -t your-registry/paygate-reconciler:latest \
+#   docker build -t your-registry/paygate-reconciler:1.0.0 \
 #     --build-arg CMD=reconciler ./go-bridge
-#   docker push your-registry/paygate-reconciler:latest
+#   docker push your-registry/paygate-reconciler:1.0.0
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -52,8 +52,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 # ── Database ──────────────────────────────────────────────────
                 - name: DATABASE_URL
@@ -147,8 +147,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -232,8 +232,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -318,8 +318,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -404,8 +404,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -490,8 +490,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -576,8 +576,8 @@ spec:
           terminationGracePeriodSeconds: 60
           containers:
             - name: reconciler
-              image: your-registry/paygate-reconciler:latest
-              imagePullPolicy: Always
+              image: your-registry/paygate-reconciler:1.0.0
+              imagePullPolicy: IfNotPresent
               env:
                 - name: DATABASE_URL
                   valueFrom:
