@@ -9,6 +9,7 @@ import { z } from "zod";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { ENV } from "../_core/env";
 import { logger } from "../logger";
+import { demoOrFail } from "../_core/demoData";
 
 // ─── Bridge Fetch Helper ──────────────────────────────────────────────────────
 
@@ -216,7 +217,7 @@ export const middlewareDashboardRouter = router({
   kafka: router({
     topics: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/kafka/topics");
-      return live ?? { topics: generateDemoKafkaTopics(), source: "demo" };
+      return live ?? demoOrFail({ topics: generateDemoKafkaTopics() }, "middlewareDashboard.kafka.topics");
     }),
     events: protectedProcedure
       .input(z.object({
@@ -237,7 +238,7 @@ export const middlewareDashboardRouter = router({
           value: JSON.stringify({ event_id: `evt_${Date.now() - i * 1000}`, merchant_id: "merchant_demo_001", amount: (i + 1) * 5000 }),
           timestamp: new Date(Date.now() - i * 30000).toISOString(),
         }));
-        return { events, source: "demo" };
+        return demoOrFail({ events }, "middlewareDashboard.kafka.events");
       }),
     publish: protectedProcedure
       .input(z.object({
@@ -247,7 +248,7 @@ export const middlewareDashboardRouter = router({
       }))
       .mutation(async ({ input }) => {
         const result = await bridgePost("/v1/middleware/kafka/publish", input);
-        return result ?? { published: true, topic: input.topic, source: "demo" };
+        return result ?? demoOrFail({ published: true, topic: input.topic, message: "SIMULATED — no real action taken" }, "middlewareDashboard.kafka.publish");
       }),
   }),
 
@@ -255,13 +256,13 @@ export const middlewareDashboardRouter = router({
   fluvio: router({
     streams: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/fluvio/streams");
-      return live ?? { streams: generateDemoFluvioStreams(), source: "demo" };
+      return live ?? demoOrFail({ streams: generateDemoFluvioStreams() }, "middlewareDashboard.fluvio.streams");
     }),
     consume: protectedProcedure
       .input(z.object({ topic: z.string(), limit: z.number().default(10) }))
       .query(async ({ input }) => {
         const live = await bridgePost("/v1/fluvio/consume", input);
-        return live ?? { messages: [], source: "demo" };
+        return live ?? demoOrFail({ messages: [] }, "middlewareDashboard.fluvio.consume");
       }),
   }),
 
@@ -274,7 +275,7 @@ export const middlewareDashboardRouter = router({
       }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/middleware/temporal/workflows?limit=${input.limit}`);
-        return live ?? { workflows: generateDemoTemporalWorkflows(), source: "demo" };
+        return live ?? demoOrFail({ workflows: generateDemoTemporalWorkflows() }, "middlewareDashboard.temporal.workflows");
       }),
     startCIPSWorkflow: protectedProcedure
       .input(z.object({
@@ -296,7 +297,7 @@ export const middlewareDashboardRouter = router({
           beneficiary_id: input.beneficiaryId,
           purpose_code: input.purposeCode,
         });
-        return result ?? { workflow_id: `wf_cips_${Date.now()}`, status: "started", source: "demo" };
+        return result ?? demoOrFail({ workflow_id: `wf_cips_${Date.now()}`, status: "started", message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.startCIPSWorkflow");
       }),
     startUPIWorkflow: protectedProcedure
       .input(z.object({
@@ -318,7 +319,7 @@ export const middlewareDashboardRouter = router({
           psp_name: input.pspName,
           remarks: input.remarks ?? "",
         });
-        return result ?? { workflow_id: `wf_upi_${Date.now()}`, status: "started", source: "demo" };
+        return result ?? demoOrFail({ workflow_id: `wf_upi_${Date.now()}`, status: "started", message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.startUPIWorkflow");
       }),
     startPIXWorkflow: protectedProcedure
       .input(z.object({
@@ -338,13 +339,13 @@ export const middlewareDashboardRouter = router({
           amount: input.amount,
           description: input.description ?? "",
         });
-        return result ?? { workflow_id: `wf_pix_${Date.now()}`, status: "started", source: "demo" };
+        return result ?? demoOrFail({ workflow_id: `wf_pix_${Date.now()}`, status: "started", message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.startPIXWorkflow");
       }),
     workflowStatus: protectedProcedure
       .input(z.object({ workflowId: z.string() }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/workflows/status/${input.workflowId}`);
-        return live ?? { workflow_id: input.workflowId, status: "Running", source: "demo" };
+        return live ?? demoOrFail({ workflow_id: input.workflowId, status: "Running" }, "middlewareDashboard.temporal.workflowStatus");
       }),
     /** List all active Temporal workflows for a merchant */
     listWorkflows: protectedProcedure
@@ -359,7 +360,7 @@ export const middlewareDashboardRouter = router({
         if (input.status) qs.set("status", input.status);
         qs.set("limit", String(input.limit));
         const live = await bridgeGet(`/v1/temporal/workflows?${qs.toString()}`);
-        return live ?? { workflows: [], total: 0, source: "demo" };
+        return live ?? demoOrFail({ workflows: [], total: 0 }, "middlewareDashboard.temporal.listWorkflows");
       }),
     /** Force-terminate a stuck or runaway Temporal workflow (admin escape hatch) */
     forceTerminate: protectedProcedure
@@ -371,7 +372,7 @@ export const middlewareDashboardRouter = router({
         const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/terminate`, {
           reason: input.reason,
         });
-        if (!result) return { terminated: false, workflowId: input.workflowId, source: "demo" };
+        if (!result) return demoOrFail({ terminated: false, workflowId: input.workflowId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.forceTerminate");
         return { terminated: true, workflowId: input.workflowId, ...result };
       }),
     /** Signal a Temporal workflow (e.g., approve/reject a pending step) */
@@ -386,7 +387,7 @@ export const middlewareDashboardRouter = router({
           signal_name: input.signalName,
           input: input.payload ?? {},
         });
-        if (!result) return { signaled: false, workflowId: input.workflowId, source: "demo" };
+        if (!result) return demoOrFail({ signaled: false, workflowId: input.workflowId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.signal");
         return { signaled: true, workflowId: input.workflowId, ...result };
       }),
     /** Cancel a Temporal workflow gracefully */
@@ -394,7 +395,7 @@ export const middlewareDashboardRouter = router({
       .input(z.object({ workflowId: z.string() }))
       .mutation(async ({ input }) => {
         const result = await bridgePost(`/v1/temporal/workflows/${input.workflowId}/cancel`, {});
-        if (!result) return { cancelled: false, workflowId: input.workflowId, source: "demo" };
+        if (!result) return demoOrFail({ cancelled: false, workflowId: input.workflowId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.temporal.cancel");
         return { cancelled: true, workflowId: input.workflowId, ...result };
       }),
   }),
@@ -403,14 +404,14 @@ export const middlewareDashboardRouter = router({
   ledger: router({
     stats: protectedProcedure.query(async () => {
       const live = await serviceGet(TIGERBEETLE_URL, "/v1/ledger/stats");
-      return live ?? generateDemoLedgerStats();
+      return live ?? demoOrFail(generateDemoLedgerStats(), "middlewareDashboard.ledger.stats");
     }),
     accounts: protectedProcedure
       .input(z.object({ merchantId: z.string().optional() }))
       .query(async ({ input }) => {
         const path = `/v1/ledger/accounts${input.merchantId ? `?merchant_id=${input.merchantId}` : ""}`;
         const live = await serviceGet(TIGERBEETLE_URL, path);
-        return live ?? { accounts: [], count: 0, source: "demo" };
+        return live ?? demoOrFail({ accounts: [], count: 0 }, "middlewareDashboard.ledger.accounts");
       }),
     createAccount: protectedProcedure
       .input(z.object({
@@ -425,7 +426,7 @@ export const middlewareDashboardRouter = router({
           account_type: input.accountType,
           currency: input.currency,
         });
-        return result ?? { id: `acct_${Date.now()}`, source: "demo" };
+        return result ?? demoOrFail({ id: `acct_${Date.now()}`, message: "SIMULATED — no real action taken" }, "middlewareDashboard.ledger.createAccount");
       }),
     transfers: protectedProcedure
       .input(z.object({
@@ -439,7 +440,7 @@ export const middlewareDashboardRouter = router({
         if (input.rail) params.set("rail", input.rail);
         params.set("limit", String(input.limit));
         const live = await serviceGet(TIGERBEETLE_URL, `/v1/ledger/transfers?${params}`);
-        return live ?? { transfers: [], count: 0, source: "demo" };
+        return live ?? demoOrFail({ transfers: [], count: 0 }, "middlewareDashboard.ledger.transfers");
       }),
     crossBorderTransfer: protectedProcedure
       .input(z.object({
@@ -465,19 +466,18 @@ export const middlewareDashboardRouter = router({
           rail: input.rail,
           reference: input.reference,
         });
-        return result ?? { success: true, transfer_id: input.transferId, source: "demo" };
+        return result ?? demoOrFail({ success: true, transfer_id: input.transferId, message: "SIMULATED — no real action taken" }, "middlewareDashboard.ledger.crossBorderTransfer");
       }),
     balance: protectedProcedure
       .input(z.object({ accountId: z.string() }))
       .query(async ({ input }) => {
         const live = await serviceGet(TIGERBEETLE_URL, `/v1/ledger/accounts/${input.accountId}/balance`);
-        return live ?? {
+        return live ?? demoOrFail({
           account_id: input.accountId,
           balance: 10000000,
           available_balance: 9500000,
           currency: "NGN",
-          source: "demo",
-        };
+        }, "middlewareDashboard.ledger.balance");
       }),
   }),
 
@@ -485,7 +485,7 @@ export const middlewareDashboardRouter = router({
   search: router({
     indices: protectedProcedure.query(async () => {
       const live = await serviceGet(LAKEHOUSE_URL.replace(":8125", ":8300"), "/v1/search/indices");
-      return live ?? {
+      return live ?? demoOrFail({
         indices: {
           "paygate-transactions": { doc_count: 142857 },
           "paygate-customers": { doc_count: 8432 },
@@ -494,8 +494,7 @@ export const middlewareDashboardRouter = router({
           "paygate-audit-events": { doc_count: 89432 },
           "paygate-merchants": { doc_count: 234 },
         },
-        source: "demo",
-      };
+      }, "middlewareDashboard.search.indices");
     }),
     query: protectedProcedure
       .input(z.object({
@@ -514,7 +513,7 @@ export const middlewareDashboardRouter = router({
           from: input.from,
           size: input.size,
         });
-        return live ?? { total: 0, hits: [], source: "demo" };
+        return live ?? demoOrFail({ total: 0, hits: [] }, "middlewareDashboard.search.query");
       }),
     aggregate: protectedProcedure
       .input(z.object({
@@ -533,7 +532,7 @@ export const middlewareDashboardRouter = router({
           size: input.size,
           filters: input.filters,
         });
-        return live ?? { aggregation: {}, source: "demo" };
+        return live ?? demoOrFail({ aggregation: {} }, "middlewareDashboard.search.aggregate");
       }),
   }),
 
@@ -541,7 +540,7 @@ export const middlewareDashboardRouter = router({
   lakehouse: router({
     tables: protectedProcedure.query(async () => {
       const live = await serviceGet(LAKEHOUSE_URL, "/v1/lakehouse/tables");
-      return live ?? {
+      return live ?? demoOrFail({
         tables: {
           crossborder_transfers: { record_count: 1247 },
           cips_settlements: { record_count: 312 },
@@ -551,8 +550,7 @@ export const middlewareDashboardRouter = router({
           fx_rates_history: { record_count: 4320 },
           corridor_analytics: { record_count: 168 },
         },
-        source: "demo",
-      };
+      }, "middlewareDashboard.lakehouse.tables");
     }),
     query: protectedProcedure
       .input(z.object({
@@ -562,7 +560,7 @@ export const middlewareDashboardRouter = router({
       }))
       .query(async ({ input }) => {
         const live = await servicePost(LAKEHOUSE_URL, "/v1/lakehouse/query", input);
-        return live ?? { records: [], count: 0, source: "demo" };
+        return live ?? demoOrFail({ records: [], count: 0 }, "middlewareDashboard.lakehouse.query");
       }),
     corridorAnalytics: protectedProcedure
       .input(z.object({
@@ -572,15 +570,14 @@ export const middlewareDashboardRouter = router({
       }))
       .query(async ({ input }) => {
         const live = await servicePost(LAKEHOUSE_URL, "/v1/lakehouse/analytics/corridors", input);
-        return live ?? {
+        return live ?? demoOrFail({
           corridors: [
             { corridor: "NGN-CNY", rail: "cips", count: 312, total_source_amount: 31200000, avg_exchange_rate: 0.0052 },
             { corridor: "USD-INR", rail: "upi", count: 489, total_source_amount: 48900000, avg_exchange_rate: 83.5 },
             { corridor: "NGN-BRL", rail: "pix", count: 234, total_source_amount: 23400000, avg_exchange_rate: 0.028 },
             { corridor: "NGN-KES", rail: "mojaloop", count: 212, total_source_amount: 21200000, avg_exchange_rate: 13.2 },
           ],
-          source: "demo",
-        };
+        }, "middlewareDashboard.lakehouse.corridorAnalytics");
       }),
     fxRates: protectedProcedure
       .input(z.object({
@@ -592,15 +589,14 @@ export const middlewareDashboardRouter = router({
         if (input.corridor) params.set("corridor", input.corridor);
         if (input.rail) params.set("rail", input.rail);
         const live = await serviceGet(LAKEHOUSE_URL, `/v1/lakehouse/fx-rates?${params}`);
-        return live ?? {
+        return live ?? demoOrFail({
           rates: [
             { corridor: "NGN-CNY", rate: 0.0052, rail: "cips", provider: "cips-fx" },
             { corridor: "USD-INR", rate: 83.5, rail: "upi", provider: "npci-fx" },
             { corridor: "NGN-BRL", rate: 0.028, rail: "pix", provider: "bacen-fx" },
             { corridor: "NGN-KES", rate: 13.2, rail: "mojaloop", provider: "mojaloop-fx" },
           ],
-          source: "demo",
-        };
+        }, "middlewareDashboard.lakehouse.fxRates");
       }),
   }),
 
@@ -608,7 +604,7 @@ export const middlewareDashboardRouter = router({
   redis: router({
     stats: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/redis/stats");
-      return live ?? generateDemoRedisStats();
+      return live ?? demoOrFail(generateDemoRedisStats(), "middlewareDashboard.redis.stats");
     }),
     events: protectedProcedure
       .input(z.object({
@@ -617,7 +613,7 @@ export const middlewareDashboardRouter = router({
       }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/middleware/redis/events?channel=${input.channel}&limit=${input.limit}`);
-        return live ?? { messages: [], source: "demo" };
+        return live ?? demoOrFail({ messages: [] }, "middlewareDashboard.redis.events");
       }),
   }),
 
@@ -625,13 +621,13 @@ export const middlewareDashboardRouter = router({
   keycloak: router({
     health: publicProcedure.query(async () => {
       const live = await bridgeGet("/v1/keycloak/health");
-      return live ?? { status: "unknown", source: "demo" };
+      return live ?? demoOrFail({ status: "unknown" }, "middlewareDashboard.keycloak.health");
     }),
     introspect: protectedProcedure
       .input(z.object({ token: z.string() }))
       .mutation(async ({ input }) => {
         const live = await bridgePost("/v1/keycloak/introspect", { token: input.token });
-        return live ?? { active: false, source: "demo" };
+        return live ?? demoOrFail({ active: false }, "middlewareDashboard.keycloak.introspect");
       }),
   }),
 
@@ -639,7 +635,7 @@ export const middlewareDashboardRouter = router({
   permify: router({
     health: publicProcedure.query(async () => {
       const live = await bridgeGet("/v1/permify/health");
-      return live ?? { status: "unknown", source: "demo" };
+      return live ?? demoOrFail({ status: "unknown" }, "middlewareDashboard.permify.health");
     }),
     check: protectedProcedure
       .input(z.object({
@@ -659,7 +655,7 @@ export const middlewareDashboardRouter = router({
           subject_type: input.subjectType,
           subject_id: input.subjectId,
         });
-        return live ?? { allowed: true, source: "demo" };
+        return live ?? demoOrFail({ allowed: true, message: "SIMULATED — no real authorization check performed" }, "middlewareDashboard.permify.check");
       }),
   }),
 
@@ -743,7 +739,7 @@ export const middlewareDashboardRouter = router({
         .map(([name, count]) => ({ name, count }))
         .sort((a, b) => b.count - a.count);
       if (plugins.length === 0) {
-        return {
+        return demoOrFail({
           plugins: [
             { name: "key-auth", count: 9 },
             { name: "rate-limiting", count: 9 },
@@ -752,8 +748,7 @@ export const middlewareDashboardRouter = router({
             { name: "ip-restriction", count: 3 },
             { name: "request-id", count: 9 },
           ],
-          source: "demo",
-        };
+        }, "middlewareDashboard.apisix.pluginStats");
       }
       return { plugins, source: "live" };
     }),
@@ -761,8 +756,7 @@ export const middlewareDashboardRouter = router({
     metrics: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/apisix/metrics");
       if (live) return { ...live, source: "live" };
-      return {
-        source: "demo",
+      return demoOrFail({
         requestsPerSecond: parseFloat((Math.random() * 120 + 40).toFixed(1)),
         p50LatencyMs: parseFloat((Math.random() * 8 + 4).toFixed(1)),
         p95LatencyMs: parseFloat((Math.random() * 30 + 15).toFixed(1)),
@@ -772,7 +766,7 @@ export const middlewareDashboardRouter = router({
         activeConnections: Math.floor(Math.random() * 200 + 50),
         upstreamLatencyMs: parseFloat((Math.random() * 12 + 3).toFixed(1)),
         timestamp: Date.now(),
-      };
+      }, "middlewareDashboard.apisix.metrics");
     }),
   }),
 
@@ -783,15 +777,13 @@ export const middlewareDashboardRouter = router({
       const pgBouncerUrl = process.env.PGBOUNCER_URL;
       if (!pgBouncerUrl) {
         return {
-          source: "demo",
+          source: "unconfigured",
           configured: false,
-          pools: [
-            { database: "paygate_prod", user: "paygate", clActive: 12, clWaiting: 0, svActive: 12, svIdle: 13, svUsed: 0, maxWait: 0 },
-          ],
-          totalClActive: 12,
+          pools: [],
+          totalClActive: 0,
           totalClWaiting: 0,
-          totalSvActive: 12,
-          totalSvIdle: 13,
+          totalSvActive: 0,
+          totalSvIdle: 0,
           poolMode: "transaction",
           maxClientConn: 1000,
           defaultPoolSize: 25,
@@ -848,8 +840,8 @@ export const middlewareDashboardRouter = router({
       services_healthy: okCount,
       services_total: totalServices,
       health_pct: Math.round((okCount / totalServices) * 100),
-      ledger: ledgerStats.status === "fulfilled" ? ledgerStats.value : generateDemoLedgerStats(),
-      kafka: kafkaTopics.status === "fulfilled" ? kafkaTopics.value : { topics: generateDemoKafkaTopics() },
+      ledger: ledgerStats.status === "fulfilled" ? ledgerStats.value : demoOrFail(generateDemoLedgerStats(), "middlewareDashboard.summary.ledger"),
+      kafka: kafkaTopics.status === "fulfilled" ? kafkaTopics.value : demoOrFail({ topics: generateDemoKafkaTopics() }, "middlewareDashboard.summary.kafka"),
       rails_active: ["cips", "upi", "pix", "mojaloop", "brics"],
       corridors_active: 11,
       checked_at: new Date().toISOString(),

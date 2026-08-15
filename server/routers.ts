@@ -69,6 +69,7 @@ import { wave90Routers } from './wave90Router';
 import { wave99Router } from './wave99Router';
 import { adminDataPipelineRouter } from './wave104Router';
 import { middlewareDashboardRouter } from './routers/middlewareDashboard';
+import { proxyRouter } from './routers/proxy';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -10106,6 +10107,8 @@ export const appRouter = router({
   subscriptionsMwCore: wave90Routers.subscriptionsMwCore,
   // v97 — Full Middleware Dashboard (Kafka, Dapr, Fluvio, Temporal, Keycloak, Permify, Redis, OpenSearch, APISIX, TigerBeetle, Lakehouse)
   middlewareDashboard: middlewareDashboardRouter,
+  // PayGate API proxy (gateway/kafka/redis/pool/PSP monitoring + alert rules)
+  paygate: proxyRouter,
   wave99: wave99Router,
   // Wave 104 — Admin Data Pipeline
   adminDataPipeline: adminDataPipelineRouter,

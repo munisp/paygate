@@ -115,7 +115,7 @@ import {
   webhookSimulatorLogs,
 } from "../../drizzle/schema";
 import { eq, desc, and, or, gte, lte, like, sql, isNull } from "drizzle-orm";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 
 const paginationInput = z.object({
@@ -1247,7 +1247,7 @@ const invoicesRouter = router({
     const db = (await getDb())!;
     const subtotal = input.lineItems.reduce((s, i) => s + i.quantity * i.unitPriceKobo, 0);
     const tax = Math.round(subtotal * input.taxRateBps / 10000);
-    const invoiceId = `INV-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const invoiceId = `INV-${Date.now()}-${randomBytes(2).toString("hex").toUpperCase()}`;
     const [row] = await db.insert(invoices).values({
       invoiceId,
       merchantId: ctx.user.tenantId ?? "",

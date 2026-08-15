@@ -7,6 +7,7 @@ import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { publishAuditEvent } from "../kafkaClient";
 import { getDb } from "../db";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import {
   splitBillSessions,
   splitBillShares,
@@ -697,7 +698,7 @@ export const transactionReceiptsRouter = router({
     pdfUrl: z.string().url().optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const receiptNumber = `RCT-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const receiptNumber = `RCT-${Date.now()}-${randomBytes(2).toString("hex").toUpperCase()}`;
     const [row] = await db.insert(transactionReceipts).values({
       merchantId: ctx.user.tenantId ?? "",
       transactionId: input.transactionId,
@@ -845,7 +846,7 @@ export const insuranceClaimsRouter = router({
     documents: z.array(z.string()).optional(),
   })).mutation(async ({ ctx, input }) => {
     const db = (await getDb())!;
-    const claimNumber = `CLM-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const claimNumber = `CLM-${Date.now()}-${randomBytes(2).toString("hex").toUpperCase()}`;
     const [row] = await db.insert(userInsuranceClaims).values({
       id: claimNumber,
       userId: ctx.user.id,
