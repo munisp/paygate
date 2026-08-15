@@ -6,6 +6,7 @@
 //          Temporal workflow start, webhook delivery, receipt email.
 
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { eq, and, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
@@ -15,7 +16,7 @@ import { hostedPaymentSessions, checkoutThemes, paymentLinks } from "../../drizz
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function nanoid(len = 12): string {
-  return Math.random().toString(36).substring(2, 2 + len).toUpperCase();
+  return randomBytes(Math.ceil(len / 2)).toString("hex").toUpperCase().slice(0, len);
 }
 
 function generateReference(prefix = "PG"): string {

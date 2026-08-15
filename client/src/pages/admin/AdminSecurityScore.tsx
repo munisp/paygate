@@ -75,7 +75,7 @@ export default function AdminSecurityScore() {
               <div className="flex items-center gap-2 text-green-600 mb-2"><CheckCircle className="w-4 h-4" /><span className="font-medium text-sm">Passing Checks</span></div>
               <div className="text-3xl font-bold text-green-600">{data ? passed.length : "—"}</div>
               <div className="text-xs text-gray-500 mt-1">Out of {checks.length} computed checks</div>
-            </div>
+            </CardContent>
           </Card>
 
           <Card>
@@ -83,7 +83,7 @@ export default function AdminSecurityScore() {
               <div className="flex items-center gap-2 text-blue-600 mb-2"><Eye className="w-4 h-4" /><span className="font-medium text-sm">Coverage</span></div>
               <div className="text-3xl font-bold text-gray-800">{data ? checks.length : "—"}</div>
               <div className="text-xs text-gray-500 mt-1">Security checks evaluated server-side</div>
-            </div>
+            </CardContent>
           </Card>
         </div>
 

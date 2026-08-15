@@ -6,10 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-import { toast } from "sonner";
   Coins, PieChart, Shield, CreditCard, Globe, Umbrella,
   RefreshCw, TrendingUp, TrendingDown, Minus, ArrowUpRight, Wifi, WifiOff,
 } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useResilientSSE } from "@/lib/resilientSSE";
 

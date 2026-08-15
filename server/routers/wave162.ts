@@ -19,6 +19,7 @@ import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { ENV } from "../_core/env";
 import { logger } from "../logger";
+import { demoOrFail } from "../_core/demoData";
 
 // ─── Bridge helpers ───────────────────────────────────────────────────────────
 const BRIDGE_URL = ENV.middlewareBridgeUrl ?? "http://go-bridge:8080";
@@ -131,12 +132,12 @@ export const wave162Router = router({
   dapr: router({
     health: protectedProcedure.query(async () => {
       const live = await safeFetch(`${DAPR_URL}/v1.0/healthz`);
-      return live ?? demoDaprHealth();
+      return live ?? demoOrFail(demoDaprHealth(), "wave162.dapr.health");
     }),
 
     pubsub: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/dapr/pubsub/topics");
-      return live ?? demoDaprPubSub();
+      return live ?? demoOrFail(demoDaprPubSub(), "wave162.dapr.pubsub");
     }),
 
     stateStore: protectedProcedure
@@ -160,14 +161,14 @@ export const wave162Router = router({
   nibss: router({
     health: protectedProcedure.query(async () => {
       const live = await safeFetch(`${NIBSS_URL}/health`);
-      return live ?? demoNibssHealth();
+      return live ?? demoOrFail(demoNibssHealth(), "wave162.nibss.health");
     }),
 
     nipStats: protectedProcedure
       .input(z.object({ date: z.string().optional() }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/nibss/nip/stats${input.date ? `?date=${input.date}` : ""}`);
-        return live ?? demoNipStats();
+        return live ?? demoOrFail(demoNipStats(), "wave162.nibss.nipStats");
       }),
 
     bankList: protectedProcedure.query(async () => {
@@ -180,12 +181,11 @@ export const wave162Router = router({
           source: "live",
         };
       }
-      return {
+      return demoOrFail({
         count: 31,
         lastRefreshedAt: new Date(Date.now() - 3_600_000).toISOString(),
-        stale: false,
-        source: "cache",
-      };
+        stale: true,
+      }, "wave162.nibss.bankList");
     }),
 
     nameEnquiry: protectedProcedure
@@ -196,13 +196,13 @@ export const wave162Router = router({
       .mutation(async ({ input }) => {
         const live = await bridgePost("/v1/nibss/nip/name-enquiry", input);
         if (live) return live;
-        return {
-          accountName: "DEMO ACCOUNT NAME",
+        return demoOrFail({
+          accountName: "SIMULATED ACCOUNT NAME",
           accountNumber: input.accountNumber,
           bankCode: input.bankCode,
-          sessionId: `demo_${Date.now()}`,
-          source: "demo",
-        };
+          sessionId: `sim_${Date.now()}`,
+          message: "SIMULATED — no real name enquiry performed",
+        }, "wave162.nibss.nameEnquiry");
       }),
   }),
 
@@ -210,7 +210,7 @@ export const wave162Router = router({
   fluvio: router({
     consumerLag: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/fluvio/consumer-lag");
-      return live ?? demoFluvioLag();
+      return live ?? demoOrFail(demoFluvioLag(), "wave162.fluvio.consumerLag");
     }),
 
     partitionStats: protectedProcedure
@@ -218,13 +218,13 @@ export const wave162Router = router({
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/fluvio/partitions/${input.topic}`);
         if (live) return live;
-        return {
+        return demoOrFail({
           topic: input.topic,
           partitions: [
             { id: 0, leader: "broker-1", replicas: 2, highWatermark: 10_432, logEndOffset: 10_432 },
             { id: 1, leader: "broker-2", replicas: 2, highWatermark: 10_289, logEndOffset: 10_289 },
           ],
-        };
+        }, "wave162.fluvio.partitionStats");
       }),
   }),
 
@@ -240,13 +240,13 @@ export const wave162Router = router({
 
     realmStats: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/keycloak/realm/stats");
-      return live ?? {
+      return live ?? demoOrFail({
         realm: ENV.keycloakRealm ?? "paygate",
         activeUsers: 142,
         sessions: 38,
         clients: 5,
         lastEventAt: new Date().toISOString(),
-      };
+      }, "wave162.keycloak.realmStats");
     }),
   }),
 
@@ -263,13 +263,13 @@ export const wave162Router = router({
       .mutation(async ({ input }) => {
         const live = await bridgePost("/v1/permify/bulk-check", { checks: input.checks });
         if (live) return live;
-        // Deterministic demo: admin gets everything, viewer gets read-only
+        // Deterministic SIMULATION ONLY: admin gets everything, viewer gets read-only.
+        // Never fabricate allow/deny decisions outside PAYGATE_SIMULATION_MODE.
         const results = input.checks.map(c => ({
           ...c,
           allowed: c.subject === "admin" || (c.permission === "read" && c.subject !== "banned"),
-          source: "demo",
         }));
-        return { results, checkedAt: new Date().toISOString() };
+        return demoOrFail({ results, checkedAt: new Date().toISOString() }, "wave162.permify.bulkCheck");
       }),
 
     health: publicProcedure.query(async () => {
@@ -282,7 +282,7 @@ export const wave162Router = router({
   redis: router({
     pipeline: protectedProcedure.query(async () => {
       const live = await bridgeGet("/v1/middleware/redis/pipeline");
-      return live ?? {
+      return live ?? demoOrFail({
         connected: true,
         usedMemoryMb: 128,
         keyCount: 4_821,
@@ -292,19 +292,19 @@ export const wave162Router = router({
         latencyMicros: 120,
         version: "7.2.4",
         mode: "standalone",
-      };
+      }, "wave162.redis.pipeline");
     }),
 
     keyStats: protectedProcedure
       .input(z.object({ pattern: z.string().default("*") }))
       .query(async ({ input }) => {
         const live = await bridgeGet(`/v1/middleware/redis/keys?pattern=${encodeURIComponent(input.pattern)}`);
-        return live ?? {
+        return live ?? demoOrFail({
           pattern: input.pattern,
           count: 4_821,
           sample: ["session:abc123", "rate_limit:merchant_001", "cache:fx_rates", "lock:payout_123"],
           ttlDistribution: { no_ttl: 120, lt_1h: 3200, lt_24h: 1400, gt_24h: 101 },
-        };
+        }, "wave162.redis.keyStats");
       }),
   }),
 
@@ -312,14 +312,14 @@ export const wave162Router = router({
   tigerbeetle: router({
     balanceAudit: protectedProcedure.query(async () => {
       const live = await safeFetch(`${TIGERBEETLE_URL}/v1/ledger/audit`);
-      return live ?? demoTigerBeetleAudit();
+      return live ?? demoOrFail(demoTigerBeetleAudit(), "wave162.tigerbeetle.balanceAudit");
     }),
 
     accountLookup: protectedProcedure
       .input(z.object({ accountId: z.string() }))
       .query(async ({ input }) => {
         const live = await safeFetch(`${TIGERBEETLE_URL}/v1/accounts/${input.accountId}`);
-        return live ?? {
+        return live ?? demoOrFail({
           id: input.accountId,
           debits_posted: 0,
           credits_posted: 0,
@@ -328,7 +328,7 @@ export const wave162Router = router({
           balance: 0,
           currency: "NGN",
           status: "unknown",
-        };
+        }, "wave162.tigerbeetle.accountLookup");
       }),
   }),
 

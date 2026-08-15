@@ -12,6 +12,7 @@
  */
 
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { eq, and, desc, gte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
@@ -22,7 +23,7 @@ import { mobileMoneyTransactions, mobileMoneyProviders } from "../../drizzle/sch
 const db = (await getDb())!;
 
 function genRef(prefix = "MMT"): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  return `${prefix}_${Date.now()}_${randomBytes(3).toString("hex").toUpperCase()}`;
 }
 
 async function publishKafka(topic: string, payload: Record<string, unknown>) {

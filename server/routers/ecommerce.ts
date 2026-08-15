@@ -4,6 +4,7 @@
 //           Kafka (order events), Temporal (fulfilment workflows).
 
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { eq, and, desc, asc, inArray, sql, like, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
@@ -17,7 +18,7 @@ import {
 
 function generateOrderNumber(): string {
   const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const rand = randomBytes(2).toString("hex").toUpperCase();
   return `ORD-${ts}-${rand}`;
 }
 

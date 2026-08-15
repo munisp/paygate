@@ -14,8 +14,6 @@ interface RefreshContextValue {
   tick: number;
   secondsUntilRefresh: number;
   triggerRefresh: () => void;
-  forceMock: boolean;
-  setForceMock: (v: boolean) => void;
 }
 
 const RefreshContext = createContext<RefreshContextValue>({
@@ -24,15 +22,12 @@ const RefreshContext = createContext<RefreshContextValue>({
   tick: 0,
   secondsUntilRefresh: 30,
   triggerRefresh: () => {},
-  forceMock: false,
-  setForceMock: () => {},
 });
 
 export function RefreshProvider({ children }: { children: React.ReactNode }) {
   const [interval, setIntervalValue] = useState<RefreshInterval>(30);
   const [tick, setTick] = useState(0);
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(30);
-  const [forceMock, setForceMock] = useState(false);
   const countdownRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null);
   const tickRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null);
 
@@ -80,8 +75,6 @@ export function RefreshProvider({ children }: { children: React.ReactNode }) {
         tick,
         secondsUntilRefresh,
         triggerRefresh,
-        forceMock,
-        setForceMock,
       }}
     >
       {children}
