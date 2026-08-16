@@ -125,3 +125,7 @@ venv/
 *.pem
 infra/certs/*.key
 infra/certs/*.csr
+
+# compiled Go service binaries (built by Dockerfiles)
+go-services/*/gateway
+go-services/*/adapter
