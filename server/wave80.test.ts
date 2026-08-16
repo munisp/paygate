@@ -332,10 +332,13 @@ describe("wave80.cryptoOfframpV2", () => {
     expect(result).toHaveProperty("total");
   });
 
-  it("initiateOfframp returns a transaction with fiatAmount", async () => {
+  // STALE CONTRACT: simulated off-ramp was replaced by fail-loud behavior —
+  // without a reachable ramp provider the procedure must throw, never fabricate.
+  it("initiateOfframp fails loud when the ramp provider is unreachable", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.cryptoOfframpV2.initiateOfframp({ cryptoAsset: "USDT", cryptoAmount: "100", bankCode: "GTB", accountNumber: "0123456789", walletAddress: "0xabc123" });
-    expect(result).toHaveProperty("transaction");
+    await expect(
+      caller.cryptoOfframpV2.initiateOfframp({ cryptoAsset: "USDT", cryptoAmount: "100", bankCode: "GTB", accountNumber: "0123456789", walletAddress: "0xabc123" })
+    ).rejects.toThrow(/ramp provider unreachable|unavailable/i);
   });
 
   it("getStats returns numeric stats", async () => {
@@ -345,14 +348,11 @@ describe("wave80.cryptoOfframpV2", () => {
     expect(typeof result.totalFiatOut).toBe("number");
   });
 
-  it("getRates returns rates for major crypto assets", async () => {
+  // STALE CONTRACT: the hardcoded 1650 USDT/NGN mock rate was removed —
+  // rates come from a live ramp provider and fail loud when unreachable.
+  it("getRates fails loud when the ramp provider is unreachable", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.cryptoOfframpV2.getRates();
-    expect(Array.isArray(result.rates)).toBe(true);
-    expect(result.rates.length).toBeGreaterThan(0);
-    const usdtRate = result.rates.find(r => r.asset === "USDT");
-    expect(usdtRate).toBeDefined();
-    expect(usdtRate?.rate).toBe(1650);
+    await expect(caller.cryptoOfframpV2.getRates()).rejects.toThrow(/ramp provider unreachable|unavailable/i);
   });
 
   it("cancelTransaction returns success", async () => {
@@ -470,12 +470,12 @@ describe("wave80.invoiceFinancingV2", () => {
     expect(result.success).toBe(true);
   });
 
-  it("getEligibility returns eligibility info", async () => {
+  // STALE CONTRACT: the hardcoded eligibility mock (eligible:true, 3.5%) was
+  // removed — eligibility requires an underwriting service and fails loud
+  // when none is integrated.
+  it("getEligibility fails loud when no underwriting service is integrated", async () => {
     const caller = wave80Router.createCaller(createCtx());
-    const result = await caller.invoiceFinancingV2.getEligibility();
-    expect(result.eligible).toBe(true);
-    expect(result.maxAmount).toBeGreaterThan(0);
-    expect(result.interestRate).toBe("3.5%");
+    await expect(caller.invoiceFinancingV2.getEligibility()).rejects.toThrow(/underwriting service not integrated|unavailable/i);
   });
 });
 

@@ -97,15 +97,19 @@ describe("Wave 125 — FraudRisk rules wired to real tRPC data", () => {
     expect(content).toContain("trpc.fraudRuleEngine.toggleStatus.useMutation");
   });
 
-  it("falls back to static RULES when no DB rules", () => {
+  // STALE CONTRACT: the static RULES fallback was removed in the mockware
+  // purge — FraudRisk.tsx uses DB rules only and renders an explicit empty
+  // state when none are configured.
+  it("uses DB rules only, with an explicit empty state", () => {
     const content = getContent();
-    // Accepts old pattern (dbRulesData?.rules?.length) or new type-safe pattern
     const hasRulesCheck =
       content.includes("dbRulesData?.rules?.length") ||
       content.includes("(dbRulesData as any[])?.length") ||
+      content.includes("(dbRulesData as any[]) ?? []") ||
       content.includes("dbRulesData?.length");
     expect(hasRulesCheck).toBe(true);
-    expect(content).toContain(": RULES");
+    expect(content).not.toContain(": RULES");
+    expect(content).toContain("No fraud rules configured yet");
   });
 
   it("calls toggleRuleMutation.mutate when DB rules are present", () => {

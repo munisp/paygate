@@ -19,7 +19,7 @@ const tenantBillingCronRouter = router({
     const rows = await db.execute(sql`
       SELECT bcr.*, pt.name as tenant_name
       FROM billing_cron_runs bcr
-      LEFT JOIN partner_tenants pt ON pt.id = bcr.tenant_id
+      LEFT JOIN partner_tenants pt ON pt.id = bcr.tenant_id::text
       ORDER BY bcr.created_at DESC
       LIMIT 50
     `);

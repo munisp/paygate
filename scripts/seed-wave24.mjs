@@ -153,7 +153,7 @@ for (let i = 0; i < merchantIds.length; i++) {
     await client.query(
       `INSERT INTO merchant_risk_scores (id, merchant_id, overall_score, risk_level, fraud_score, chargeback_score, kyc_score, transaction_score, velocity_score, factors, recommendation, calculated_at, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
-       ON CONFLICT (merchant_id) DO UPDATE SET overall_score=EXCLUDED.overall_score, risk_level=EXCLUDED.risk_level, calculated_at=NOW()`,
+       ON CONFLICT (id) DO NOTHING`,
       [
         randomUUID(), merchantId, overallScore, riskLevel,
         Math.floor(overallScore * 0.3), Math.floor(overallScore * 0.25),

@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   pgTable, pgEnum, serial, text, integer, bigint, varchar,
   boolean, timestamp, jsonb, real, doublePrecision, unique, index, uniqueIndex,
-  foreignKey,
+  foreignKey, numeric, date,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -3876,7 +3876,7 @@ export const inviteCodeTypeEnum = pgEnum("invite_code_type", [
   "merchant", "partner", "admin", "consumer", "team_member",
 ]);
 export const inviteCodes = pgTable("invite_codes", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`).$defaultFn(() => crypto.randomUUID()),
   code: text("code").notNull().unique(),
   type: inviteCodeTypeEnum("type").notNull().default("merchant"),
   usesRemaining: integer("uses_remaining").notNull().default(1),
@@ -3962,6 +3962,67 @@ export const tenantFeeOverrides = pgTable("tenant_fee_overrides", {
   index("tenant_fee_type_idx").on(t.transactionType),
 ]);
 export type TenantFeeOverride = typeof tenantFeeOverrides.$inferSelect;
+
+// ── Partner Tenants (white-label tenant registry used by wave28/29/31 routers) ──
+export const partnerTenants = pgTable("partner_tenants", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  email: text("email"),
+  country: text("country").default("NG"),
+  plan: text("plan").notNull().default("starter"),
+  status: text("status").notNull().default("active"),
+  logoUrl: text("logo_url"),
+  faviconUrl: text("favicon_url"),
+  primaryColor: text("primary_color").default("#6366f1"),
+  secondaryColor: text("secondary_color").default("#a78bfa"),
+  accentColor: text("accent_color").default("#8b5cf6"),
+  fontFamily: text("font_family").default("Inter"),
+  customDomain: text("custom_domain"),
+  inviteCode: text("invite_code"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("partner_tenants_status_idx").on(t.status),
+  index("partner_tenants_slug_idx").on(t.slug),
+  index("partner_tenants_custom_domain_idx").on(t.customDomain),
+]);
+export type PartnerTenant = typeof partnerTenants.$inferSelect;
+
+// ── Tenant Users (sub-users of a partner tenant) ─────────────────────────────
+export const tenantUsers = pgTable("tenant_users", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull().references(() => partnerTenants.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email").notNull(),
+  name: text("name"),
+  role: text("role").notNull().default("member"),
+  isActive: boolean("is_active").notNull().default(true),
+  invitedBy: text("invited_by"),
+  invitedAt: timestamp("invited_at"),
+  joinedAt: timestamp("joined_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("tenant_users_tenant_email_unique").on(t.tenantId, t.email),
+  index("tenant_users_tenant_idx").on(t.tenantId),
+  index("tenant_users_email_idx").on(t.email),
+]);
+export type TenantUser = typeof tenantUsers.$inferSelect;
+
+// ── Tenant Audit Logs ─────────────────────────────────────────────────────────
+export const tenantAuditLogs = pgTable("tenant_audit_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: text("tenant_id").notNull().references(() => partnerTenants.id, { onDelete: "cascade" }),
+  action: text("action").notNull(),
+  actorEmail: text("actor_email"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_audit_logs_tenant_idx").on(t.tenantId),
+]);
+export type TenantAuditLog = typeof tenantAuditLogs.$inferSelect;
 
 // ── Tenant Usage Metrics ──────────────────────────────────────────────────────
 export const tenantUsageMetrics = pgTable("tenant_usage_metrics", {
@@ -6513,3 +6574,328 @@ export const terminalTransactions = pgTable("terminal_transactions", {
   index("terminal_txn_terminal_idx").on(t.terminalId),
   index("terminal_txn_merchant_idx").on(t.merchantId),
 ]);
+
+// ─── Wave 27–31 Feature Tables (0084_missing_feature_tables) ─────────────────
+// Column sets derived from actual production usage in server/wave27Router.ts,
+// wave28Router.ts, wave29Router.ts, wave30Router.ts, wave31Router.ts,
+// routers.ts, wave34Router.ts and subdomainMiddleware.ts.
+
+// ── KYB state machine transitions (wave30Router.kybStateMachine) ─────────────
+export const kybStateTransitions = pgTable("kyb_state_transitions", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  merchantId: integer("merchant_id"),
+  fromState: text("from_state"),
+  toState: text("to_state"),
+  triggerEvent: text("trigger_event"),
+  actorId: integer("actor_id"),
+  actor: text("actor"),
+  reason: text("reason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type KybStateTransition = typeof kybStateTransitions.$inferSelect;
+
+// ── SLA metrics (wave29Router.sla, subdomainMiddleware) ───────────────────────
+export const slaMetrics = pgTable("sla_metrics", {
+  id: serial("id").primaryKey(),
+  tenantId: text("tenant_id"),
+  serviceName: text("service_name").notNull(),
+  metricDate: date("metric_date"),
+  uptimePct: numeric("uptime_pct"),
+  avgLatencyMs: integer("avg_latency_ms"),
+  p99LatencyMs: integer("p99_latency_ms"),
+  errorRatePct: numeric("error_rate_pct"),
+  incidentCount: integer("incident_count").default(0),
+  status: text("status"),
+  responseTimeMs: integer("response_time_ms"),
+  message: text("message"),
+  recordedAt: timestamp("recorded_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  unique("sla_metrics_tenant_service_date_unique").on(t.tenantId, t.serviceName, t.metricDate),
+]);
+export type SlaMetric = typeof slaMetrics.$inferSelect;
+
+// ── Payout batches (wave27Router.payoutApproval) ─────────────────────────────
+export const payoutBatches = pgTable("payout_batches", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id"),
+  totalAmountKobo: bigint("total_amount_kobo", { mode: "number" }),
+  totalAmount: numeric("total_amount"),
+  payoutCount: integer("payout_count"),
+  count: integer("count"),
+  currency: text("currency").default("NGN"),
+  status: text("status").notNull().default("pending_approval"),
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  approverNote: text("approver_note"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PayoutBatch = typeof payoutBatches.$inferSelect;
+
+// ── FX hedge positions (wave27Router.fxHedging, wave31Router.fxAutoHedge) ─────
+export const fxHedgePositions = pgTable("fx_hedge_positions", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  reference: text("reference"),
+  positionId: text("position_id"),
+  merchantId: text("merchant_id"),
+  baseCurrency: text("base_currency"),
+  quoteCurrency: text("quote_currency"),
+  currencyPair: text("currency_pair"),
+  notionalAmount: numeric("notional_amount"),
+  hedgeAmount: numeric("hedge_amount"),
+  hedgeRate: numeric("hedge_rate"),
+  expiryDate: text("expiry_date"),
+  hedgeType: text("hedge_type"),
+  direction: text("direction").default("buy"),
+  status: text("status").default("active"),
+  openedBy: integer("opened_by"),
+  openedAt: timestamp("opened_at").defaultNow(),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type FxHedgePosition = typeof fxHedgePositions.$inferSelect;
+
+// ── BNPL applications (wave27Router.bnplUnderwriting, wave28/29) ──────────────
+export const bnplApplications = pgTable("bnpl_applications", {
+  id: serial("id").primaryKey(),
+  consumerId: text("consumer_id").notNull(),
+  userId: text("user_id"),
+  planId: text("plan_id"),
+  requestedLimit: numeric("requested_limit"),
+  approvedLimit: numeric("approved_limit"),
+  requestedAmount: numeric("requested_amount"),
+  purpose: text("purpose"),
+  currency: text("currency").default("NGN"),
+  monthlyIncome: numeric("monthly_income"),
+  employmentStatus: text("employment_status"),
+  bvn: text("bvn"),
+  score: numeric("score"),
+  creditScore: numeric("credit_score"),
+  status: text("status").default("pending"),
+  decisionReason: text("decision_reason"),
+  repaymentMonths: integer("repayment_months"),
+  interestRate: numeric("interest_rate"),
+  principalAmount: numeric("principal_amount"),
+  termMonths: integer("term_months"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("bnpl_applications_consumer_id_unique").on(t.consumerId),
+]);
+export type BnplApplication = typeof bnplApplications.$inferSelect;
+
+// ── Feature-flag exposure events (wave27Router.flagExposure) ──────────────────
+export const flagExposureEvents = pgTable("flag_exposure_events", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  flagKey: text("flag_key").notNull(),
+  userId: text("user_id"),
+  tenantId: text("tenant_id"),
+  variant: text("variant").default("control"),
+  converted: boolean("converted").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type FlagExposureEvent = typeof flagExposureEvents.$inferSelect;
+
+// ── USSD menu builder (wave31Router.ussdMenuBuilder) ──────────────────────────
+export const ussdMenus = pgTable("ussd_menus", {
+  id: serial("id").primaryKey(),
+  menuCode: text("menu_code").notNull(),
+  title: text("title").notNull(),
+  parentId: integer("parent_id"),
+  actionType: text("action_type"),
+  actionPayload: jsonb("action_payload"),
+  options: jsonb("options"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type UssdMenu = typeof ussdMenus.$inferSelect;
+
+// ── Tenant API keys (wave29Router.tenantApiKey) ───────────────────────────────
+export const tenantApiKeys = pgTable("tenant_api_keys", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  tenantId: text("tenant_id").notNull(),
+  name: text("name"),
+  keyPrefix: text("key_prefix"),
+  keyHash: text("key_hash"),
+  permissions: integer("permissions").notNull().default(1),
+  scopes: text("scopes").array(),
+  environment: text("environment").default("production"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type TenantApiKey = typeof tenantApiKeys.$inferSelect;
+
+// ── Payout approval workflows (wave30/31 payoutApproval routers) ──────────────
+export const payoutApprovalWorkflows = pgTable("payout_approval_workflows", {
+  id: serial("id").primaryKey(),
+  payoutId: text("payout_id"),
+  merchantId: text("merchant_id"),
+  workflowStep: text("workflow_step"),
+  approverEmail: text("approver_email"),
+  approverId: integer("approver_id"),
+  requestedBy: text("requested_by"),
+  amount: numeric("amount"),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  currency: text("currency").default("NGN"),
+  riskScore: numeric("risk_score"),
+  status: text("status").notNull().default("pending_approval"),
+  notes: text("notes"),
+  approvalNotes: text("approval_notes"),
+  rejectionReason: text("rejection_reason"),
+  approvedBy: integer("approved_by"),
+  rejectedBy: integer("rejected_by"),
+  autoApproved: boolean("auto_approved").notNull().default(false),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type PayoutApprovalWorkflow = typeof payoutApprovalWorkflows.$inferSelect;
+
+// ── Middleware health alerts (wave31Router.middlewareHealthAlerts) ────────────
+export const middlewareHealthAlerts = pgTable("middleware_health_alerts", {
+  id: serial("id").primaryKey(),
+  service: text("service"),
+  serviceName: text("service_name"),
+  alertType: text("alert_type"),
+  severity: text("severity").notNull().default("info"),
+  message: text("message"),
+  errorRate: numeric("error_rate"),
+  latencyP99Ms: integer("latency_p99_ms"),
+  status: text("status").notNull().default("open"),
+  resolved: boolean("resolved").notNull().default(false),
+  acknowledgedBy: integer("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type MiddlewareHealthAlert = typeof middlewareHealthAlerts.$inferSelect;
+
+// ── Loyalty tier configs (wave28Router.loyaltyTiers) ──────────────────────────
+export const loyaltyTierConfigs = pgTable("loyalty_tier_configs", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  tierName: text("tier_name").notNull(),
+  minPoints: integer("min_points").notNull().default(0),
+  maxPoints: integer("max_points"),
+  cashbackRate: numeric("cashback_rate").notNull().default("0.5"),
+  bonusMultiplier: numeric("bonus_multiplier").notNull().default("1.0"),
+  perksDescription: text("perks_description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("loyalty_tier_configs_tier_name_unique").on(t.tierName),
+]);
+export type LoyaltyTierConfig = typeof loyaltyTierConfigs.$inferSelect;
+
+// ── Dispute SLA tracking (wave31Router.disputeSla) ────────────────────────────
+export const disputeSlaTracking = pgTable("dispute_sla_tracking", {
+  id: serial("id").primaryKey(),
+  disputeId: text("dispute_id"),
+  slaType: text("sla_type"),
+  targetHours: integer("target_hours").default(72),
+  startedAt: timestamp("started_at").defaultNow(),
+  deadlineAt: timestamp("deadline_at"),
+  completedAt: timestamp("completed_at"),
+  breached: boolean("breached").notNull().default(false),
+  breachReason: text("breach_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type DisputeSlaTracking = typeof disputeSlaTracking.$inferSelect;
+
+// ── Billing cron runs (wave31Router.billingCron) ──────────────────────────────
+export const billingCronRuns = pgTable("billing_cron_runs", {
+  id: serial("id").primaryKey(),
+  runType: text("run_type"),
+  tenantId: integer("tenant_id"),
+  status: text("status").notNull().default("running"),
+  tenantsProcessed: integer("tenants_processed").default(0),
+  invoicesGenerated: integer("invoices_generated").default(0),
+  totalAmount: numeric("total_amount").default("0"),
+  errors: integer("errors").default(0),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BillingCronRun = typeof billingCronRuns.$inferSelect;
+
+// ── Plan limits (routers.ts GNN threshold, wave34Router, seed-wave32) ─────────
+export const planLimits = pgTable("plan_limits", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  plan: text("plan").notNull(),
+  planId: text("plan_id"),
+  name: text("name"),
+  maxApiCallsPerMonth: integer("max_api_calls_per_month").notNull().default(0),
+  maxTxVolumeUsdPerMonth: bigint("max_tx_volume_usd_per_month", { mode: "number" }).notNull().default(0),
+  maxUsers: integer("max_users").notNull().default(0),
+  maxCorridors: integer("max_corridors").notNull().default(0),
+  maxWebhooks: integer("max_webhooks").notNull().default(0),
+  maxApiKeys: integer("max_api_keys").notNull().default(0),
+  priceUsdPerMonth: numeric("price_usd_per_month").notNull().default("0"),
+  priceKobo: bigint("price_kobo", { mode: "number" }),
+  gnnThresholdKobo: bigint("gnn_threshold_kobo", { mode: "number" }),
+  features: jsonb("features"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  unique("plan_limits_plan_unique").on(t.plan),
+]);
+export type PlanLimit = typeof planLimits.$inferSelect;
+
+// ── Webhook failure alerts (wave25 tests, drizzle/seed-extension.ts) ──────────
+export const webhookFailureAlerts = pgTable("webhook_failure_alerts", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  merchantId: text("merchant_id"),
+  webhookId: text("webhook_id"),
+  failureCount: integer("failure_count").default(0),
+  lastError: text("last_error"),
+  lastAttemptedAt: timestamp("last_attempted_at"),
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type WebhookFailureAlert = typeof webhookFailureAlerts.$inferSelect;
+
+// ── Middleware health logs (middleware health monitoring fixtures) ────────────
+export const middlewareHealthLogs = pgTable("middleware_health_logs", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  service: text("service").notNull(),
+  status: text("status").notNull().default("up"),
+  latencyMs: integer("latency_ms").default(0),
+  checkedAt: timestamp("checked_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type MiddlewareHealthLog = typeof middlewareHealthLogs.$inferSelect;
+
+// ── FX live rates (FX hedging dashboard fixtures) ─────────────────────────────
+export const fxLiveRates = pgTable("fx_live_rates", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  pair: text("pair").notNull(),
+  rate: numeric("rate").notNull(),
+  source: text("source"),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type FxLiveRate = typeof fxLiveRates.$inferSelect;
+
+// ── BNPL delinquency cases (wave31 delinquency tracking) ──────────────────────
+export const bnplDelinquencyCases = pgTable("bnpl_delinquency_cases", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  loanId: text("loan_id"),
+  userId: text("user_id"),
+  overdueAmount: numeric("overdue_amount").default("0"),
+  daysOverdue: integer("days_overdue").default(0),
+  collectionStatus: text("collection_status").default("active"),
+  severity: text("severity"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type BnplDelinquencyCase = typeof bnplDelinquencyCases.$inferSelect;

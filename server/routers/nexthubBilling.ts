@@ -330,6 +330,14 @@ export const nexthubBillingRouter = router({
         netKobo: sql<number>`coalesce(sum(case when fee_category = 'DEBIT' then -amount_kobo else amount_kobo end), 0)::bigint`,
       }).from(feePostings)
         .where(and(...conditions));
-      return summary;
+      // pg returns bigint aggregates as strings — coerce to numbers for the API contract
+      return {
+        totalSchemeFeeMinor: Number(summary.totalSchemeFeeMinor),
+        totalInterchangeMinor: Number(summary.totalInterchangeMinor),
+        totalFxMarkupMinor: Number(summary.totalFxMarkupMinor),
+        totalPenaltyMinor: Number(summary.totalPenaltyMinor),
+        totalFeesKobo: Number(summary.totalFeesKobo),
+        netKobo: Number(summary.netKobo),
+      };
     }),
 });

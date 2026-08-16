@@ -4,7 +4,7 @@
  * NOTE: tRPC v11 stores procedures in _def.procedures as flat dot-notation keys.
  * Procedure type (mutation vs query) is not exposed as a boolean flag.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ─── VTpass Client Tests ──────────────────────────────────────────────────────
 
@@ -13,6 +13,15 @@ describe("vtpass client", () => {
     vi.resetModules();
     delete process.env.VTPASS_API_KEY;
     delete process.env.VTPASS_SECRET_KEY;
+    // STALE CONTRACT: silent simulation fallback was replaced by fail-loud
+    // behavior (see vtpass.failLoud.test.ts); simulation results are only
+    // produced when PAYGATE_SIMULATION_MODE=true, so these simulation-mode
+    // tests opt in explicitly.
+    process.env.PAYGATE_SIMULATION_MODE = "true";
+  });
+
+  afterEach(() => {
+    delete process.env.PAYGATE_SIMULATION_MODE;
   });
 
   it("returns simulation result when no credentials are set", async () => {
@@ -26,7 +35,7 @@ describe("vtpass client", () => {
     expect(result.success).toBe(true);
     expect(result.status).toBe("completed");
     expect(result.providerRef).toContain("sim_");
-    expect(result.message).toMatch(/[Ss]imulat/);
+    expect(result.message).toMatch(/simulat/i);
   });
 
   it("returns simulation result for unknown biller code", async () => {
@@ -48,7 +57,7 @@ describe("vtpass client", () => {
       customerReference: "1234567890",
     });
     expect(result.valid).toBe(true);
-    expect(result.message).toMatch(/[Ss]imulat/);
+    expect(result.message).toMatch(/simulat/i);
   });
 
   it("maps all known airtime biller codes in simulation mode", async () => {
@@ -163,7 +172,9 @@ describe("consumerBills router", () => {
     expect(router["consumerBills.pay"]).toBeDefined();
     expect(router["consumerBills.verify"]).toBeDefined();
     expect(router["consumerBills.history"]).toBeDefined();
-  });
+    // Generous timeout: importing the full appRouter on a slow (FUSE)
+    // filesystem can exceed the 15s default.
+  }, 90000);
 
   it("all five consumerBills procedures are registered", async () => {
     const { appRouter } = await import("./routers");

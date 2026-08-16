@@ -39,7 +39,7 @@ export default function Remittance() {
   });
 
   const { data: corridors, isLoading } = trpc.remittance.listCorridors.useQuery();
-  const { data: transfers, refetch, isLoading } = trpc.remittance.listTransfers.useQuery({ page: 1, pageSize: 200 });
+  const { data: transfers, refetch } = trpc.remittance.listTransfers.useQuery({ page: 1, pageSize: 200 });
 
   const allTransfers = transfers?.transfers ?? [];
   const {

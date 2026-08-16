@@ -342,18 +342,17 @@ describe.skipIf(!PG_AVAILABLE)("Tenant billing invoices DB", () => {
     const cols = rows.map((r: any) => r.column_name);
     expect(cols).toContain("id");
     expect(cols).toContain("tenant_id");
-    expect(cols).toContain("total_amount");
+    expect(cols).toContain("amount_usd");
     expect(cols).toContain("status");
-    expect(cols).toContain("period_year");
-    expect(cols).toContain("period_month");
+    expect(cols).toContain("period");
   });
 
   it("can insert and retrieve a billing invoice", async () => {
     const tenantId = "test-billing-" + Date.now();
     const invId = "inv-" + Date.now();
     await query(
-      `INSERT INTO tenant_billing_invoices (id, tenant_id, period_year, period_month, plan, base_amount, total_amount, status)
-       VALUES ($1, $2, 2026, 4, 'growth', 199.00, 299.00, 'draft')`,
+      `INSERT INTO tenant_billing_invoices (id, tenant_id, period, amount_usd, status)
+       VALUES ($1, $2, '2026-04', 299.00, 'draft')`,
       [invId, tenantId]
     );
     const rows = await query(
@@ -361,7 +360,7 @@ describe.skipIf(!PG_AVAILABLE)("Tenant billing invoices DB", () => {
       [invId]
     );
     expect(rows).toHaveLength(1);
-    expect(parseFloat(rows[0].total_amount)).toBe(299);
+    expect(parseFloat(rows[0].amount_usd)).toBe(299);
     expect(rows[0].status).toBe("draft");
     await query("DELETE FROM tenant_billing_invoices WHERE id = $1", [invId]);
   });
@@ -377,19 +376,27 @@ describe.skipIf(!PG_AVAILABLE)("Tenant usage metrics DB", () => {
     expect(cols).toContain("api_calls");
     expect(cols).toContain("tx_count");
     expect(cols).toContain("tx_volume");
-    expect(cols).toContain("period_year");
-    expect(cols).toContain("period_month");
+    expect(cols).toContain("period");
   });
 
   it("can upsert usage metrics", async () => {
     const tenantId = "test-usage-" + Date.now();
-    await query(
-      `INSERT INTO tenant_usage_metrics (tenant_id, period_year, period_month, api_calls, tx_count, tx_volume)
-       VALUES ($1, 2026, 4, 1500, 45, 2500000)
-       ON CONFLICT (tenant_id, period_year, period_month) DO UPDATE
-       SET api_calls = tenant_usage_metrics.api_calls + EXCLUDED.api_calls`,
+    // Current schema has no unique constraint on (tenant_id, period), so the
+    // upsert is expressed as update-or-insert against the `period` text column.
+    const updated = await query(
+      `UPDATE tenant_usage_metrics
+       SET api_calls = api_calls + 1500, tx_count = tx_count + 45, tx_volume = tx_volume + 2500000
+       WHERE tenant_id = $1 AND period = '2026-04'
+       RETURNING id`,
       [tenantId]
     );
+    if (updated.length === 0) {
+      await query(
+        `INSERT INTO tenant_usage_metrics (id, tenant_id, period, api_calls, tx_count, tx_volume)
+         VALUES ($1, $2, '2026-04', 1500, 45, 2500000)`,
+        ["usage-" + Date.now(), tenantId]
+      );
+    }
     const rows = await query(
       "SELECT * FROM tenant_usage_metrics WHERE tenant_id = $1",
       [tenantId]
@@ -432,7 +439,7 @@ describe.skipIf(!PG_AVAILABLE)("Tenant SSO configs DB", () => {
     );
     const cols = rows.map((r: any) => r.column_name);
     expect(cols).toContain("tenant_id");
-    expect(cols).toContain("provider");
+    expect(cols).toContain("protocol");
     expect(cols).toContain("is_enabled");
     expect(cols).toContain("discovery_url");
     expect(cols).toContain("client_id");
@@ -441,16 +448,16 @@ describe.skipIf(!PG_AVAILABLE)("Tenant SSO configs DB", () => {
   it("can insert an SSO config", async () => {
     const tenantId = "test-sso-" + Date.now();
     await query(
-      `INSERT INTO tenant_sso_configs (tenant_id, provider, client_id, client_secret, discovery_url, is_enabled)
-       VALUES ($1, 'oidc', 'client-123', 'secret-abc', 'https://accounts.google.com/.well-known/openid-configuration', false)`,
-      [tenantId]
+      `INSERT INTO tenant_sso_configs (id, tenant_id, protocol, client_id, client_secret, discovery_url, is_enabled)
+       VALUES ($1, $2, 'oidc', 'client-123', 'secret-abc', 'https://accounts.google.com/.well-known/openid-configuration', false)`,
+      ["sso-" + Date.now(), tenantId]
     );
     const rows = await query(
       "SELECT * FROM tenant_sso_configs WHERE tenant_id = $1",
       [tenantId]
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].provider).toBe("oidc");
+    expect(rows[0].protocol).toBe("oidc");
     expect(rows[0].is_enabled).toBe(false);
     await query("DELETE FROM tenant_sso_configs WHERE tenant_id = $1", [tenantId]);
   });
@@ -580,17 +587,17 @@ describe.skipIf(!PG_AVAILABLE)("Corridor daily stats DB", () => {
     const cols = rows.map((r: any) => r.column_name);
     expect(cols).toContain("tenant_id");
     expect(cols).toContain("corridor_id");
-    expect(cols).toContain("stat_date");
+    expect(cols).toContain("date");
     expect(cols).toContain("tx_count");
-    expect(cols).toContain("tx_volume");
+    expect(cols).toContain("volume_usd");
   });
 
   it("can insert corridor daily stats", async () => {
     const tenantId = "test-corridor-" + Date.now();
     await query(
-      `INSERT INTO tenant_corridor_daily_stats (tenant_id, corridor_id, stat_date, tx_count, tx_volume, fee_collected)
-       VALUES ($1, 1, CURRENT_DATE, 25, 1250000, 6250)`,
-      [tenantId]
+      `INSERT INTO tenant_corridor_daily_stats (id, tenant_id, corridor_id, date, tx_count, volume_usd, fees_collected_usd)
+       VALUES ($1, $2, 'corridor-1', TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD'), 25, 1250000, 6250)`,
+      ["cds-" + Date.now(), tenantId]
     );
     const rows = await query(
       "SELECT * FROM tenant_corridor_daily_stats WHERE tenant_id = $1",

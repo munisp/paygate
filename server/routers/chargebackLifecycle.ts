@@ -11,6 +11,8 @@ import { router, pbacProcedure } from '../_core/trpc';
 const viewChargebacks = pbacProcedure('view_chargebacks');
 const manageChargebacks = pbacProcedure('manage_chargebacks');
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
+import { storagePut } from '../storage';
 import { getUserByOpenId, getMerchantByOwnerId, getDb } from '../db';
 import * as schema from '../../drizzle/schema';
 import { eq, and, desc, count } from 'drizzle-orm';
@@ -103,6 +105,56 @@ export const chargebackLifecycleRouter = router({
           fileUrl: input.fileUrl,
           mimeType: input.mimeType,
           fileSizeBytes: input.fileSizeBytes,
+          uploadedBy: ctx.user!.openId,
+        }).returning(),
+        db.update(schema.chargebacks)
+          .set({ evidenceSubmitted: true, updatedAt: new Date() })
+          .where(eq(schema.chargebacks.id, input.chargebackId)),
+        db.insert(schema.chargebackTimeline).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          event: 'evidence_submitted',
+          previousState: chargeback.status,
+          newState: chargeback.status,
+          actorId: ctx.user!.openId,
+          actorType: 'user',
+          notes: `Evidence submitted: ${input.evidenceType} (${input.fileName})`,
+        }),
+      ]);
+      return evidence;
+    }),
+
+  /** Upload an evidence file (base64) to storage and attach it to a chargeback */
+  uploadEvidence: manageChargebacks
+    .input(z.object({
+      chargebackId: z.string(),
+      evidenceType: z.string(),
+      fileName: z.string(),
+      mimeType: z.string(),
+      fileContentBase64: z.string().max(14_000_000, 'File must be under ~10MB'),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const merchantId = await resolveMerchantId(ctx.user!.openId);
+      const [chargeback] = await (await getDbInstance()).select().from(schema.chargebacks)
+        .where(and(eq(schema.chargebacks.id, input.chargebackId), eq(schema.chargebacks.merchantId, merchantId)))
+        .limit(1);
+      if (!chargeback) throw new Error('Chargeback not found');
+      const buffer = Buffer.from(input.fileContentBase64, 'base64');
+      const suffix = randomUUID().slice(0, 8);
+      const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const fileKey = `chargeback-evidence/${merchantId}/${input.chargebackId}/${suffix}-${safeName}`;
+      const { url: fileUrl } = await storagePut(fileKey, buffer, input.mimeType);
+      const db = await getDbInstance();
+      const [[evidence]] = await Promise.all([
+        db.insert(schema.chargebackEvidencePackages).values({
+          chargebackId: input.chargebackId,
+          merchantId,
+          evidenceType: input.evidenceType,
+          fileName: input.fileName,
+          fileKey,
+          fileUrl,
+          mimeType: input.mimeType,
+          fileSizeBytes: buffer.length,
           uploadedBy: ctx.user!.openId,
         }).returning(),
         db.update(schema.chargebacks)

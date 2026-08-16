@@ -69,16 +69,21 @@ describe("FraudRisk.tsx auto-seed integration", () => {
     expect(content).toContain("seedDemoAlerts");
   });
 
-  it("auto-seeds when dbAlerts rows are empty", () => {
+  // STALE CONTRACT: automatic seeding was intentionally removed — demo
+  // seeding is now honestly-labeled and operator-initiated only (manual
+  // button click), never automatic on empty data.
+  it("seeds only via explicit operator action (never automatic)", () => {
     const content = fs.readFileSync(fraudRiskPath, "utf-8");
-    expect(content).toContain("dbAlerts.rows?.length ?? 0) === 0");
     expect(content).toContain("seedDemoAlerts.mutate()");
+    expect(content).toContain("operator-initiated only");
+    // No auto-seed on empty DB rows
+    expect(content).not.toContain("dbAlerts.rows?.length ?? 0) === 0");
   });
 
-  it("guards against double-seeding with isPending and isSuccess checks", () => {
+  it("guards against double-submission with isPending (button disabled while seeding)", () => {
     const content = fs.readFileSync(fraudRiskPath, "utf-8");
     expect(content).toContain("seedDemoAlerts.isPending");
-    expect(content).toContain("seedDemoAlerts.isSuccess");
+    expect(content).toMatch(/disabled=\{seedDemoAlerts\.isPending\}/);
   });
 
   it("invalidates fraudRisk.list cache after seeding", () => {

@@ -339,17 +339,18 @@ describe.skipIf(!PG_AVAILABLE)("DB: Tenant Billing Invoices", () => {
     if (tenantRes.rows.length === 0) return;
     const tenantId = tenantRes.rows[0].id;
     const now = new Date();
+    const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     await pool.query(`
-      INSERT INTO tenant_billing_invoices (tenant_id, period_year, period_month, plan, base_amount, overage_amount, total_amount, currency, status)
-      VALUES ($1, $2, $3, 'starter', 99.00, 0, 99.00, 'USD', 'draft')
+      INSERT INTO tenant_billing_invoices (id, tenant_id, period, amount_usd, status)
+      VALUES ($1, $2, $3, 99.00, 'draft')
       ON CONFLICT DO NOTHING
-    `, [tenantId, now.getFullYear(), now.getMonth() + 1]);
+    `, [`inv-w30-${Date.now()}`, tenantId, period]);
     const check = await pool.query(
-      "SELECT * FROM tenant_billing_invoices WHERE tenant_id = $1 AND plan = 'starter' LIMIT 1",
+      "SELECT * FROM tenant_billing_invoices WHERE tenant_id = $1 AND status = 'draft' LIMIT 1",
       [tenantId]
     );
     expect(check.rows.length).toBeGreaterThanOrEqual(1);
-    expect(check.rows[0].currency).toBe("USD");
+    expect(parseFloat(check.rows[0].amount_usd)).toBe(99);
   });
 });
 

@@ -39,6 +39,21 @@ let pool: Pool;
 beforeAll(async () => {
   if (!PG_AVAILABLE) return;
   pool = new Pool({ connectionString: PG_URL, max: 5 });
+  // Scratch fixtures referenced by the CRUD tests below (tenant/merchant id '1').
+  // Idempotent so re-runs and shared databases stay clean.
+  await pool.query(
+    `INSERT INTO users (id, open_id) VALUES (1, 'owner_001') ON CONFLICT (id) DO NOTHING`
+  );
+  await pool.query(
+    `INSERT INTO tenants (id, name, slug, email)
+     VALUES ('1', 'Test Tenant', 'test-tenant-1', 'test-tenant-1@example.com')
+     ON CONFLICT (id) DO NOTHING`
+  );
+  await pool.query(
+    `INSERT INTO merchants (id, owner_id, business_name, tenant_id)
+     VALUES ('1', 1, 'Test Merchant', '1')
+     ON CONFLICT (id) DO NOTHING`
+  );
 });
 
 afterAll(async () => {
@@ -87,9 +102,9 @@ describe.skipIf(!PG_AVAILABLE)('Transactions CRUD', () => {
   it('should INSERT a new transaction and retrieve it', async () => {
     const ref = `TEST_TXN_${Date.now()}`;
     await pool.query(
-      `INSERT INTO transactions (tenant_id, merchant_id, amount, currency, status, reference)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [1, 1, 500000, 'NGN', 'success', ref]
+      `INSERT INTO transactions (id, tenant_id, merchant_id, amount, currency, status, reference)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [`txn_${ref}`, '1', '1', 500000, 'NGN', 'completed', ref]
     );
     const result = await pool.query(
       `SELECT * FROM transactions WHERE reference = $1`,
@@ -98,33 +113,33 @@ describe.skipIf(!PG_AVAILABLE)('Transactions CRUD', () => {
     expect(result.rows.length).toBe(1);
     expect(result.rows[0].reference).toBe(ref);
     expect(parseInt(result.rows[0].amount)).toBe(500000);
-    expect(result.rows[0].status).toBe('success');
+    expect(result.rows[0].status).toBe('completed');
   });
 
   it('should UPDATE a transaction status', async () => {
     const ref = `TEST_TXN_UPD_${Date.now()}`;
     await pool.query(
-      `INSERT INTO transactions (tenant_id, merchant_id, amount, currency, status, reference)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [1, 1, 100000, 'NGN', 'pending', ref]
+      `INSERT INTO transactions (id, tenant_id, merchant_id, amount, currency, status, reference)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [`txn_${ref}`, '1', '1', 100000, 'NGN', 'pending', ref]
     );
     await pool.query(
       `UPDATE transactions SET status = $1 WHERE reference = $2`,
-      ['success', ref]
+      ['completed', ref]
     );
     const result = await pool.query(
       `SELECT status FROM transactions WHERE reference = $1`,
       [ref]
     );
-    expect(result.rows[0].status).toBe('success');
+    expect(result.rows[0].status).toBe('completed');
   });
 
   it('should DELETE a transaction', async () => {
     const ref = `TEST_TXN_DEL_${Date.now()}`;
     await pool.query(
-      `INSERT INTO transactions (tenant_id, merchant_id, amount, currency, status, reference)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [1, 1, 200000, 'NGN', 'failed', ref]
+      `INSERT INTO transactions (id, tenant_id, merchant_id, amount, currency, status, reference)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [`txn_${ref}`, '1', '1', 200000, 'NGN', 'failed', ref]
     );
     await pool.query(`DELETE FROM transactions WHERE reference = $1`, [ref]);
     const result = await pool.query(
@@ -137,7 +152,7 @@ describe.skipIf(!PG_AVAILABLE)('Transactions CRUD', () => {
   it('should SELECT transactions with filtering by status', async () => {
     const result = await pool.query(
       `SELECT count(*) as cnt FROM transactions WHERE status = $1`,
-      ['success']
+      ['completed']
     );
     expect(parseInt(result.rows[0].cnt)).toBeGreaterThanOrEqual(0);
   });
@@ -153,7 +168,7 @@ describe.skipIf(!PG_AVAILABLE)('Transactions CRUD', () => {
   it('should aggregate transaction amounts with SUM', async () => {
     const result = await pool.query(
       `SELECT SUM(amount) as total FROM transactions WHERE status = $1`,
-      ['success']
+      ['completed']
     );
     expect(result.rows[0].total).not.toBeNull();
   });
@@ -163,9 +178,9 @@ describe.skipIf(!PG_AVAILABLE)('Transactions CRUD', () => {
 describe.skipIf(!PG_AVAILABLE)('Wallets CRUD', () => {
   it('should INSERT a new wallet', async () => {
     const result = await pool.query(
-      `INSERT INTO wallets (merchant_id, tenant_id, balance, currency)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [999, 1, 1000000, 'NGN']
+      `INSERT INTO wallets (user_id, merchant_id, tenant_id, balance, currency)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      ['1', '1', '1', 1000000, 'NGN']
     );
     expect(result.rows[0].id).toBeDefined();
   });
@@ -173,13 +188,14 @@ describe.skipIf(!PG_AVAILABLE)('Wallets CRUD', () => {
   it('should UPDATE wallet balance', async () => {
     // Insert a wallet to update
     const ins = await pool.query(
-      `INSERT INTO wallets (merchant_id, tenant_id, balance, currency)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [998, 1, 500000, 'NGN']
+      `INSERT INTO wallets (user_id, merchant_id, tenant_id, balance, currency)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      ['1', '1', '1', 500000, 'NGN']
     );
     const walletId = ins.rows[0].id;
+    // balance is stored as TEXT in the current schema — cast for arithmetic
     await pool.query(
-      `UPDATE wallets SET balance = balance + $1 WHERE id = $2`,
+      `UPDATE wallets SET balance = (balance::numeric + $1)::text WHERE id = $2`,
       [250000, walletId]
     );
     const result = await pool.query(
@@ -203,8 +219,8 @@ describe.skipIf(!PG_AVAILABLE)('Customers CRUD', () => {
   it('should INSERT a new customer', async () => {
     const email = `test_crud_${Date.now()}@example.com`;
     const result = await pool.query(
-      `INSERT INTO customers (merchant_id, email, name) VALUES ($1, $2, $3) RETURNING id`,
-      [1, email, 'Test CRUD Customer']
+      `INSERT INTO customers (id, merchant_id, tenant_id, email, name) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [`cust_${Date.now()}_crud`, '1', '1', email, 'Test CRUD Customer']
     );
     expect(result.rows[0].id).toBeDefined();
   });
@@ -220,8 +236,8 @@ describe.skipIf(!PG_AVAILABLE)('Customers CRUD', () => {
   it('should UPDATE customer name', async () => {
     const email = `test_update_${Date.now()}@example.com`;
     const ins = await pool.query(
-      `INSERT INTO customers (merchant_id, email, name) VALUES ($1, $2, $3) RETURNING id`,
-      [1, email, 'Original Name']
+      `INSERT INTO customers (id, merchant_id, tenant_id, email, name) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [`cust_${Date.now()}_upd`, '1', '1', email, 'Original Name']
     );
     const customerId = ins.rows[0].id;
     await pool.query(
@@ -238,8 +254,8 @@ describe.skipIf(!PG_AVAILABLE)('Customers CRUD', () => {
   it('should DELETE a customer', async () => {
     const email = `test_delete_${Date.now()}@example.com`;
     const ins = await pool.query(
-      `INSERT INTO customers (merchant_id, email, name) VALUES ($1, $2, $3) RETURNING id`,
-      [1, email, 'To Delete']
+      `INSERT INTO customers (id, merchant_id, tenant_id, email, name) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [`cust_${Date.now()}_del`, '1', '1', email, 'To Delete']
     );
     const customerId = ins.rows[0].id;
     await pool.query(`DELETE FROM customers WHERE id = $1`, [customerId]);
@@ -255,9 +271,9 @@ describe.skipIf(!PG_AVAILABLE)('Customers CRUD', () => {
 describe.skipIf(!PG_AVAILABLE)('Webhooks CRUD', () => {
   it('should INSERT a new webhook', async () => {
     const result = await pool.query(
-      `INSERT INTO webhooks (merchant_id, endpoint_url, secret_key, is_active)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [1, 'https://test-webhook.example.com/events', 'secret_test_123', true]
+      `INSERT INTO webhooks (id, merchant_id, tenant_id, url, secret, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [`wh_${Date.now()}_ins`, '1', '1', 'https://test-webhook.example.com/events', 'secret_test_123', true]
     );
     expect(result.rows[0].id).toBeDefined();
   });
@@ -271,9 +287,9 @@ describe.skipIf(!PG_AVAILABLE)('Webhooks CRUD', () => {
 
   it('should UPDATE webhook to inactive', async () => {
     const ins = await pool.query(
-      `INSERT INTO webhooks (merchant_id, endpoint_url, secret_key, is_active)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [1, 'https://deactivate-test.example.com/events', 'secret_deact', true]
+      `INSERT INTO webhooks (id, merchant_id, tenant_id, url, secret, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [`wh_${Date.now()}_deact`, '1', '1', 'https://deactivate-test.example.com/events', 'secret_deact', true]
     );
     const webhookId = ins.rows[0].id;
     await pool.query(
@@ -292,26 +308,26 @@ describe.skipIf(!PG_AVAILABLE)('Webhooks CRUD', () => {
 describe.skipIf(!PG_AVAILABLE)('Fraud Alerts CRUD', () => {
   it('should INSERT a new fraud alert', async () => {
     const result = await pool.query(
-      `INSERT INTO fraud_alerts (merchant_id, alert_type, severity, status)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [1, 'velocity_check', 'high', 'open']
+      `INSERT INTO fraud_alerts (id, merchant_id, tenant_id, alert_type, risk_score, status)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [`fa_${Date.now()}_ins`, '1', '1', 'velocity_breach', 90, 'open']
     );
     expect(result.rows[0].id).toBeDefined();
   });
 
   it('should SELECT fraud alerts by severity', async () => {
     const result = await pool.query(
-      `SELECT * FROM fraud_alerts WHERE severity = $1`,
-      ['high']
+      `SELECT * FROM fraud_alerts WHERE risk_score >= $1`,
+      [80]
     );
     expect(result.rows.length).toBeGreaterThanOrEqual(0);
   });
 
   it('should UPDATE fraud alert status to resolved', async () => {
     const ins = await pool.query(
-      `INSERT INTO fraud_alerts (merchant_id, alert_type, severity, status)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [1, 'ip_blacklist', 'medium', 'open']
+      `INSERT INTO fraud_alerts (id, merchant_id, tenant_id, alert_type, risk_score, status)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [`fa_${Date.now()}_res`, '1', '1', 'ip_blacklist', 50, 'open']
     );
     const alertId = ins.rows[0].id;
     await pool.query(
@@ -338,9 +354,9 @@ describe.skipIf(!PG_AVAILABLE)('Fraud Alerts CRUD', () => {
 describe.skipIf(!PG_AVAILABLE)('Payouts CRUD', () => {
   it('should INSERT a new payout', async () => {
     const result = await pool.query(
-      `INSERT INTO payouts (merchant_id, total_amount, status)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [1, 2500000, 'pending']
+      `INSERT INTO payouts (id, merchant_id, tenant_id, reference, amount, status)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [`po_${Date.now()}_ins`, '1', '1', `PO-REF-${Date.now()}`, 2500000, 'pending']
     );
     expect(result.rows[0].id).toBeDefined();
   });
@@ -355,9 +371,9 @@ describe.skipIf(!PG_AVAILABLE)('Payouts CRUD', () => {
 
   it('should UPDATE payout status to completed', async () => {
     const ins = await pool.query(
-      `INSERT INTO payouts (merchant_id, total_amount, status)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [2, 1500000, 'pending']
+      `INSERT INTO payouts (id, merchant_id, tenant_id, reference, amount, status)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [`po_${Date.now()}_upd`, '1', '1', `PO-REF-UPD-${Date.now()}`, 1500000, 'pending']
     );
     const payoutId = ins.rows[0].id;
     await pool.query(
@@ -373,7 +389,7 @@ describe.skipIf(!PG_AVAILABLE)('Payouts CRUD', () => {
 
   it('should aggregate payout totals', async () => {
     const result = await pool.query(
-      `SELECT SUM(total_amount) as total, count(*) as cnt FROM payouts`
+      `SELECT SUM(amount) as total, count(*) as cnt FROM payouts`
     );
     expect(parseInt(result.rows[0].cnt)).toBeGreaterThanOrEqual(0);
   });
@@ -383,16 +399,16 @@ describe.skipIf(!PG_AVAILABLE)('Payouts CRUD', () => {
 describe.skipIf(!PG_AVAILABLE)('Audit Logs CRUD', () => {
   it('should INSERT an audit log entry', async () => {
     const result = await pool.query(
-      `INSERT INTO audit_logs (actor_id, action, resource_type, resource_id)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      ['user_test_1', 'UPDATE', 'merchant', '42']
+      `INSERT INTO audit_logs (id, user_id, action, resource, resource_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [`alog_${Date.now()}`, 'user_test_1', 'UPDATE', 'merchant', '42']
     );
     expect(result.rows[0].id).toBeDefined();
   });
 
   it('should SELECT audit logs by actor', async () => {
     const result = await pool.query(
-      `SELECT * FROM audit_logs WHERE actor_id = $1 LIMIT 10`,
+      `SELECT * FROM audit_logs WHERE user_id = $1 LIMIT 10`,
       ['user_test_1']
     );
     expect(result.rows.length).toBeGreaterThanOrEqual(1);
@@ -400,7 +416,7 @@ describe.skipIf(!PG_AVAILABLE)('Audit Logs CRUD', () => {
 
   it('should SELECT audit logs by resource type', async () => {
     const result = await pool.query(
-      `SELECT count(*) as cnt FROM audit_logs WHERE resource_type = $1`,
+      `SELECT count(*) as cnt FROM audit_logs WHERE resource = $1`,
       ['merchant']
     );
     expect(parseInt(result.rows[0].cnt)).toBeGreaterThanOrEqual(0);
@@ -408,36 +424,37 @@ describe.skipIf(!PG_AVAILABLE)('Audit Logs CRUD', () => {
 });
 
 // ─── Notifications CRUD ───────────────────────────────────────────────────────
+// The canonical notifications table in the current schema is merchant_notifications.
 describe.skipIf(!PG_AVAILABLE)('Notifications CRUD', () => {
   it('should INSERT a notification', async () => {
     const result = await pool.query(
-      `INSERT INTO notifications (user_id, title, body, is_read)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [1, 'Test Notification', 'This is a test notification body.', false]
+      `INSERT INTO merchant_notifications (merchant_id, type, title, body, is_read)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      ['1', 'test', 'Test Notification', 'This is a test notification body.', false]
     );
     expect(result.rows[0].id).toBeDefined();
   });
 
   it('should SELECT unread notifications', async () => {
     const result = await pool.query(
-      `SELECT * FROM notifications WHERE is_read = false LIMIT 10`
+      `SELECT * FROM merchant_notifications WHERE is_read = false LIMIT 10`
     );
     expect(result.rows.length).toBeGreaterThanOrEqual(0);
   });
 
   it('should UPDATE notification to read', async () => {
     const ins = await pool.query(
-      `INSERT INTO notifications (user_id, title, body, is_read)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [1, 'Mark Read Test', 'Body text', false]
+      `INSERT INTO merchant_notifications (merchant_id, type, title, body, is_read)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      ['1', 'test', 'Mark Read Test', 'Body text', false]
     );
     const notifId = ins.rows[0].id;
     await pool.query(
-      `UPDATE notifications SET is_read = true WHERE id = $1`,
+      `UPDATE merchant_notifications SET is_read = true WHERE id = $1`,
       [notifId]
     );
     const result = await pool.query(
-      `SELECT is_read FROM notifications WHERE id = $1`,
+      `SELECT is_read FROM merchant_notifications WHERE id = $1`,
       [notifId]
     );
     expect(result.rows[0].is_read).toBe(true);
@@ -447,10 +464,11 @@ describe.skipIf(!PG_AVAILABLE)('Notifications CRUD', () => {
 // ─── API Keys CRUD ────────────────────────────────────────────────────────────
 describe.skipIf(!PG_AVAILABLE)('API Keys CRUD', () => {
   it('should INSERT a new API key', async () => {
+    const suffix = Date.now();
     const result = await pool.query(
-      `INSERT INTO api_keys (merchant_id, key_hash, label, scopes, permissions, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      ['merchant_test', `hash_new_${Date.now()}`, 'Test Key', ['read'], ['read'], true]
+      `INSERT INTO api_keys (id, merchant_id, tenant_id, key_hash, key_prefix, name, permissions, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id`,
+      [`ak_${suffix}_ins`, '1', '1', `hash_new_${suffix}`, `pk_test_${suffix}`, 'Test Key', JSON.stringify(['read']), true]
     );
     expect(result.rows[0].id).toBeDefined();
   });
@@ -464,9 +482,9 @@ describe.skipIf(!PG_AVAILABLE)('API Keys CRUD', () => {
 
   it('should UPDATE API key to inactive (revoke)', async () => {
     const ins = await pool.query(
-      `INSERT INTO api_keys (merchant_id, key_hash, label, scopes, permissions, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      ['merchant_test', `hash_revoke_${Date.now()}`, 'Revoke Test Key', ['read'], ['read'], true]
+      `INSERT INTO api_keys (id, merchant_id, tenant_id, key_hash, key_prefix, name, permissions, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id`,
+      [`ak_${Date.now()}_rev`, '1', '1', `hash_revoke_${Date.now()}`, `pk_rev_${Date.now()}`, 'Revoke Test Key', JSON.stringify(['read']), true]
     );
     const keyId = ins.rows[0].id;
     await pool.query(
@@ -485,7 +503,7 @@ describe.skipIf(!PG_AVAILABLE)('API Keys CRUD', () => {
 describe.skipIf(!PG_AVAILABLE)('Complex SQL Queries', () => {
   it('should JOIN transactions with merchants', async () => {
     const result = await pool.query(
-      `SELECT t.id, t.amount, m.name as merchant_name
+      `SELECT t.id, t.amount, m.business_name as merchant_name
        FROM transactions t
        JOIN merchants m ON t.merchant_id = m.id
        LIMIT 5`
@@ -517,7 +535,7 @@ describe.skipIf(!PG_AVAILABLE)('Complex SQL Queries', () => {
   it('should use CASE expression for status categorization', async () => {
     const result = await pool.query(
       `SELECT
-         CASE WHEN status = 'success' THEN 'completed'
+         CASE WHEN status = 'completed' THEN 'completed'
               WHEN status = 'failed' THEN 'error'
               ELSE 'other'
          END as category,
@@ -569,7 +587,7 @@ describe.skipIf(!PG_AVAILABLE)('Complex SQL Queries', () => {
   it('should use IN clause for multi-value filter', async () => {
     const result = await pool.query(
       `SELECT count(*) as cnt FROM transactions WHERE status IN ($1, $2)`,
-      ['success', 'failed']
+      ['completed', 'failed']
     );
     expect(parseInt(result.rows[0].cnt)).toBeGreaterThanOrEqual(0);
   });
@@ -599,9 +617,9 @@ describe.skipIf(!PG_AVAILABLE)('JSONB Operations', () => {
   it('should INSERT and SELECT JSONB data', async () => {
     const metadata = { source: 'test', amount_usd: 100, tags: ['test', 'crud'] };
     await pool.query(
-      `INSERT INTO transactions (tenant_id, merchant_id, amount, currency, status, reference, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [1, 1, 100000, 'NGN', 'success', `TXN_JSONB_${Date.now()}`, JSON.stringify(metadata)]
+      `INSERT INTO transactions (id, tenant_id, merchant_id, amount, currency, status, reference, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+      [`txn_jsonb_${Date.now()}`, '1', '1', 100000, 'NGN', 'completed', `TXN_JSONB_${Date.now()}`, JSON.stringify(metadata)]
     );
     const result = await pool.query(
       `SELECT metadata FROM transactions WHERE reference LIKE $1 LIMIT 1`,
@@ -651,7 +669,7 @@ describe.skipIf(!PG_AVAILABLE)('Timestamp & Aggregate Functions', () => {
 
   it('should use EXTRACT(EPOCH) to get Unix timestamp', async () => {
     const result = await pool.query(
-      `SELECT EXTRACT(EPOCH FROM created_at) as epoch_sec
+      `SELECT EXTRACT(EPOCH FROM created_at)::float8 as epoch_sec
        FROM transactions
        LIMIT 1`
     );
@@ -676,7 +694,7 @@ describe.skipIf(!PG_AVAILABLE)('Timestamp & Aggregate Functions', () => {
   it('should use array_agg to collect values into an array', async () => {
     // array_agg is supported natively in pg-mem
     const result = await pool.query(
-      `SELECT array_agg(DISTINCT status) as statuses FROM transactions`
+      `SELECT array_agg(DISTINCT status::text) as statuses FROM transactions`
     );
     expect(result.rows.length).toBe(1);
     expect(Array.isArray(result.rows[0].statuses)).toBe(true);

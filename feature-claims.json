@@ -1,0 +1,116 @@
+{
+  "$schema": "Feature-claim manifest (protocol §2A). CI gate: scripts/check-feature-claims.mjs. A claim may only be status=verified when its evidence files exist and (for test evidence) the referenced test currently passes in CI. Claims affecting money movement, auth, or secrets may never be marked verified without test evidence.",
+  "version": 1,
+  "claims": [
+    {
+      "id": "FC-MONEY-001",
+      "claim": "Wallet transfer is atomic: guarded debit (balance >= amount) and credit commit in one DB transaction with distinct per-leg references",
+      "critical": true,
+      "owner": "platform",
+      "implementation": ["server/routers.ts"],
+      "evidence": { "tests": ["server/moneyPaths.real.test.ts", "server/money-correctness.test.ts"] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "PG-backed concurrency soak pending in CI"
+    },
+    {
+      "id": "FC-MONEY-002",
+      "claim": "Retryable financial mutations are idempotent via claim-then-execute (INSERT ON CONFLICT DO NOTHING + 102 placeholder + payload-hash binding)",
+      "critical": true,
+      "owner": "platform",
+      "implementation": ["server/idempotency.ts"],
+      "evidence": { "tests": ["server/money-correctness.test.ts"] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Crash-mid-execution recovery test pending"
+    },
+    {
+      "id": "FC-MONEY-003",
+      "claim": "Stripe top-ups credit wallets only on webhook-signature-verified events, idempotent per stripe event id",
+      "critical": true,
+      "owner": "payments",
+      "implementation": ["server/stripe.ts"],
+      "evidence": { "tests": ["server/stripeWebhook.real.test.ts"] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Stripe sandbox E2E pending credentials"
+    },
+    {
+      "id": "FC-MONEY-004",
+      "claim": "Payouts enforce maker-checker (approver != initiator) with FOR UPDATE fund reservation",
+      "critical": true,
+      "owner": "platform",
+      "implementation": ["server/routers.ts"],
+      "evidence": { "tests": ["server/moneyPaths.real.test.ts"] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": ""
+    },
+    {
+      "id": "FC-MOCK-001",
+      "claim": "No production path returns fabricated data: simulation only behind PAYGATE_SIMULATION_MODE=true with simulation:true labeled payloads",
+      "critical": true,
+      "owner": "platform",
+      "implementation": ["server/_core/demoData.ts", "server/vtpass.ts"],
+      "evidence": { "tests": ["server/vtpass.failLoud.test.ts", "server/proxy.test.ts"] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": ""
+    },
+    {
+      "id": "FC-SEC-001",
+      "claim": "Authorization is deny-by-default (pbacProcedure permission map, fail-closed) and cookie mutations pass CSRF origin guard",
+      "critical": true,
+      "owner": "security",
+      "implementation": ["server/_core/trpc.ts", "server/_core/csrf.ts", "server/pbac.ts"],
+      "evidence": { "tests": ["server/sqlInjection.regression.test.ts"] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Live cross-tenant negative tests pending staging env"
+    },
+    {
+      "id": "FC-SEC-002",
+      "claim": "All Python microservices require INTERNAL_API_KEY with constant-time comparison and fail closed when unset",
+      "critical": true,
+      "owner": "security",
+      "implementation": ["python-services/shared/config.py"],
+      "evidence": { "tests": [] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Verified by code sweep (113 files reference key, compare_digest in all auth paths); live negative tests pending"
+    },
+    {
+      "id": "FC-DATA-001",
+      "claim": "Database schema is migration-managed end to end: 83 migrations apply cleanly to a fresh PostgreSQL (308 tables)",
+      "critical": true,
+      "owner": "platform",
+      "implementation": ["drizzle/"],
+      "evidence": { "tests": [] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Verified against embedded PG 17 in assurance sandbox; CI migrate-check job recommended"
+    },
+    {
+      "id": "FC-OPS-001",
+      "claim": "Nightly security audit job runs real posture checks and persists snapshots; dashboard reads only real snapshots",
+      "critical": false,
+      "owner": "security",
+      "implementation": ["server/jobs/securityAuditJob.ts", "server/_core/systemRouter.ts"],
+      "evidence": { "tests": [] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Cron schedule (02:00 UTC) must be registered in the heartbeat scheduler at deploy time"
+    },
+    {
+      "id": "FC-INFRA-001",
+      "claim": "InfraPage detail views (Kafka topic history, consumer group detail, Redis node history) serve real kafkajs-admin/ioredis observations",
+      "critical": false,
+      "owner": "platform",
+      "implementation": ["server/infraHistory.ts", "server/routers/proxy.ts"],
+      "evidence": { "tests": [] },
+      "status": "verified",
+      "lastVerified": "2026-08-16",
+      "limitations": "Kafka admin path not exercised against a live broker in sandbox"
+    }
+  ]
+}

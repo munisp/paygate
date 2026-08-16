@@ -164,7 +164,9 @@ describe("Wave 55 — Fraud Alert Comment Thread", () => {
     const hasGetComments = keys.some(k => k.includes("fraudRisk") && k.includes("getComments"));
     expect(hasAddComment).toBe(true);
     expect(hasGetComments).toBe(true);
-  });
+    // Generous timeout: importing the full appRouter on a slow (FUSE)
+    // filesystem can exceed the 15s default.
+  }, 90000);
 });
 
 // ─── Transaction Retry Flow ───────────────────────────────────────────────────

@@ -62,27 +62,30 @@ describe("Wave 146: List procedures have pagination", () => {
 
   it("db.ts: listApiKeys accepts opts with limit/offset", () => {
     const content = readFile("db.ts");
-    expect(content).toMatch(/listApiKeys\(merchantId: string, opts.*limit.*offset/);
+    // STALE CONTRACT: pagination options were unified into the shared
+    // `ListOpts` interface (limit/offset/status/channel/search/…).
+    expect(content).toMatch(/listApiKeys\(merchantId: string, opts: ListOpts/);
+    expect(content).toMatch(/interface ListOpts \{[\s\S]*limit\?: number[\s\S]*offset\?: number/);
   });
 
   it("db.ts: listWebhooks accepts opts with limit/offset", () => {
     const content = readFile("db.ts");
-    expect(content).toMatch(/listWebhooks\(merchantId: string, opts.*limit.*offset/);
+    expect(content).toMatch(/listWebhooks\(merchantId: string, opts: ListOpts/);
   });
 
   it("db.ts: listVirtualCards accepts opts with limit/offset", () => {
     const content = readFile("db.ts");
-    expect(content).toMatch(/listVirtualCards\(merchantId: string, opts.*limit.*offset/);
+    expect(content).toMatch(/listVirtualCards\(merchantId: string, opts: ListOpts/);
   });
 
   it("db.ts: listPaymentLinks accepts opts with limit/offset", () => {
     const content = readFile("db.ts");
-    expect(content).toMatch(/listPaymentLinks\(merchantId: string, opts.*limit.*offset/);
+    expect(content).toMatch(/listPaymentLinks\(merchantId: string, opts: ListOpts/);
   });
 
   it("db.ts: listTeamMembers accepts opts with limit/offset", () => {
     const content = readFile("db.ts");
-    expect(content).toMatch(/listTeamMembers\(merchantId: string, opts.*limit.*offset/);
+    expect(content).toMatch(/listTeamMembers\(merchantId: string, opts: ListOpts/);
   });
 
   it("wave24Router.ts: budgetsRouter.list has pagination", () => {

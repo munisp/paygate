@@ -8,7 +8,34 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 
-const queryClient = new QueryClient();
+// Adaptive retry policy (Wave 127 resilience):
+// - Queries (idempotent reads): up to 2 retries with exponential backoff,
+//   but NEVER retry client errors (4xx HTTP / UNAUTHORIZED / FORBIDDEN /
+//   NOT_FOUND tRPC codes) — those cannot succeed on retry.
+// - Mutations: no retries (non-idempotent money paths must not be replayed).
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        if (error instanceof TRPCClientError) {
+          const code = error.data?.code as string | undefined;
+          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND" || code === "BAD_REQUEST") {
+            return false;
+          }
+          const httpStatus = error.data?.httpStatus as number | undefined;
+          if (typeof httpStatus === "number" && httpStatus >= 400 && httpStatus < 500) {
+            return false;
+          }
+        }
+        return failureCount < 2;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10_000),
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;

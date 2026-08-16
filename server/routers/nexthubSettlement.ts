@@ -80,7 +80,7 @@ export const nexthubSettlementRouter = router({
         .where(eq(settlementNetPositions.windowId, input.windowId))
         .orderBy(desc(settlementNetPositions.netPositionKobo));
 
-      return window;
+      return { ...window, positions };
     }),
 
   /** Open a new settlement window */

@@ -122,5 +122,6 @@ venv/
 
 # mTLS private keys — NEVER commit (generate via scripts/gen-certs.sh)
 *.key
+*.pem
 infra/certs/*.key
 infra/certs/*.csr

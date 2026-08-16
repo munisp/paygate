@@ -411,24 +411,23 @@ export default function MerchantAnalyticsDashboard() {
     if (!cur) return null;
     const curVol = Number(cur.totalVolume ?? 0);
     const prevVol = Number(prev?.totalVolume ?? 0);
-    const curCount = Number(cur.totalCount ?? 0);
-    const prevCount = Number(prev?.totalCount ?? 0);
-    const curCompleted = Number(cur.completedCount ?? 0);
+    const curCount = Number(cur.totalTransactions ?? 0);
+    const prevCount = Number(prev?.totalTransactions ?? 0);
+    const curCompleted = Number(cur.successCount ?? 0);
     const successRate = curCount > 0 ? (curCompleted / curCount) * 100 : 0;
-    const prevCompleted = Number(prev?.completedCount ?? 0);
-    const prevTotal = Number(prev?.totalCount ?? 0);
+    const prevCompleted = Number(prev?.successCount ?? 0);
+    const prevTotal = Number(prev?.totalTransactions ?? 0);
     const prevSuccessRate = prevTotal > 0 ? (prevCompleted / prevTotal) * 100 : 0;
     const curFees = Number(cur.totalFees ?? 0);
     const prevFees = Number(prev?.totalFees ?? 0);
-    const curCustomers = Number(cur.newCustomers ?? 0);
-    const prevCustomers = Number(prev?.newCustomers ?? 0);
+    const curAvgTx = curCompleted > 0 ? curVol / curCompleted : 0;
+    const prevAvgTx = prevCompleted > 0 ? prevVol / prevCompleted : 0;
     return {
       volume: { value: curVol, change: pctChange(curVol, prevVol) },
       count: { value: curCount, change: pctChange(curCount, prevCount) },
       successRate: { value: successRate, change: pctChange(successRate, prevSuccessRate) },
       fees: { value: curFees, change: pctChange(curFees, prevFees) },
-      newCustomers: { value: curCustomers, change: pctChange(curCustomers, prevCustomers) },
-      avgTx: { value: Number(cur.avgTxAmount ?? 0), change: pctChange(Number(cur.avgTxAmount ?? 0), Number(prev?.avgTxAmount ?? 0)) },
+      avgTx: { value: curAvgTx, change: pctChange(curAvgTx, prevAvgTx) },
     };
   }, [bundle]);
 
@@ -467,10 +466,10 @@ export default function MerchantAnalyticsDashboard() {
   const heatmapGrid = useMemo(() => {
     const grid: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
     for (const cell of bundle?.heatmap ?? []) {
-      const dow = Number(cell.dow ?? 0);
+      const dow = Number(cell.dayOfWeek ?? 0);
       const hour = Number(cell.hour ?? 0);
       if (dow >= 0 && dow < 7 && hour >= 0 && hour < 24) {
-        grid[dow][hour] = Number(cell.txCount ?? 0);
+        grid[dow][hour] = Number(cell.count ?? 0);
       }
     }
     return grid;
@@ -615,14 +614,6 @@ export default function MerchantAnalyticsDashboard() {
             icon={TrendingUp}
             loading={isLoading}
             accent="#f59e0b"
-          />
-          <KpiCard
-            title="New Customers"
-            value={(kpis?.newCustomers.value ?? 0).toLocaleString()}
-            change={kpis?.newCustomers.change ?? 0}
-            icon={Users}
-            loading={isLoading}
-            accent="#8b5cf6"
           />
           <KpiCard
             title="Avg Transaction"
@@ -834,8 +825,8 @@ export default function MerchantAnalyticsDashboard() {
               ) : (
                 <div className="space-y-2">
                   {(bundle?.topCustomers ?? []).slice(0, 8).map((c: any, i: number) => {
-                    const maxSpend = Number((bundle?.topCustomers ?? [])[0]?.totalSpend ?? 1);
-                    const pct = maxSpend > 0 ? (Number(c.totalSpend ?? 0) / maxSpend) * 100 : 0;
+                    const maxSpend = Number((bundle?.topCustomers ?? [])[0]?.volume ?? 1);
+                    const pct = maxSpend > 0 ? (Number(c.volume ?? 0) / maxSpend) * 100 : 0;
                     return (
                       <div key={i} className="flex items-center gap-3">
                         <span className="text-xs font-bold text-muted-foreground w-4 flex-shrink-0">{i + 1}</span>
@@ -844,7 +835,7 @@ export default function MerchantAnalyticsDashboard() {
                             <span className="text-xs font-medium text-foreground truncate">
                               {c.customerEmail ?? (c as any).customerId ?? "Anonymous"}
                             </span>
-                            <span className="text-xs font-bold text-foreground ml-2 flex-shrink-0">{fmtNGN(c.totalSpend)}</span>
+                            <span className="text-xs font-bold text-foreground ml-2 flex-shrink-0">{fmtNGN(c.volume)}</span>
                           </div>
                           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                             <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />

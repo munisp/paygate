@@ -174,10 +174,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
     };
     checkHealth();
-    const id = setInterval(checkHealth, 30_000);
+    // NB: `setInterval` is shadowed in this component by useRefresh()'s state
+    // setter, so the global timer functions must be qualified with `window.`
+    const id = window.setInterval(checkHealth, 30_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      window.clearInterval(id);
     };
   }, []);
 

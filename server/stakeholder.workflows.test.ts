@@ -302,8 +302,10 @@ describe("Admin Workflows", () => {
         const result = await caller.fraudRisk.seedDemoAlerts();
         expect(result).toBeDefined();
       } catch (e: any) {
-        // DB unavailable in test env is acceptable
-        expect(e.message).toMatch(/DB unavailable|Failed query|not iterable/i);
+        // STALE CONTRACT: seedDemoAlerts is now fail-closed behind
+        // ALLOW_DEMO_SEED=true (FORBIDDEN otherwise) — that guard executes
+        // before any DB access, so it is also an acceptable outcome here.
+        expect(e.message).toMatch(/DB unavailable|Failed query|not iterable|Demo alert seeding is disabled/i);
       }
     });
   });

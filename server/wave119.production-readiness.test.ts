@@ -160,20 +160,23 @@ describe("Wave 119: Redis-backed rate limit stats", () => {
 
 // ── 4. Deterministic credit score ─────────────────────────────────────────────
 
-describe("Wave 119: Deterministic credit score in db.ts", () => {
-  it("db.ts credit score is a fixed baseline, not random", () => {
+// STALE CONTRACT: the fixed `creditScore: 650` baseline in db.ts was removed
+// with the mockware purge; credit scoring is now a deterministic validation
+// gate (BNPL_MIN_CREDIT_SCORE in server/security29.ts) and no server code may
+// fabricate a score with Math.random.
+describe("Wave 119: Deterministic credit score", () => {
+  it("credit score gating is a fixed threshold, not random", () => {
+    const sec = fs.readFileSync(
+      path.resolve(ROOT, "server/security29.ts"),
+      "utf8"
+    );
+    expect(sec).toContain("BNPL_MIN_CREDIT_SCORE");
+    expect(sec).not.toMatch(/creditScore[^\n]*Math\.random/);
     const dbTs = fs.readFileSync(
       path.resolve(ROOT, "server/db.ts"),
       "utf8"
     );
-    // Should have a static baseline credit score
-    expect(dbTs).toContain("creditScore: 650");
-    // Should NOT use Math.random for credit score
-    const creditScoreContext = dbTs.substring(
-      Math.max(0, dbTs.indexOf("creditScore") - 200),
-      dbTs.indexOf("creditScore") + 200
-    );
-    expect(creditScoreContext).not.toContain("Math.random");
+    expect(dbTs).not.toMatch(/creditScore[^\n]*Math\.random/);
   });
 });
 
@@ -192,11 +195,15 @@ describe("Wave 119: Real gold price fetch in sipProcessor.ts", () => {
     expect(sip).toContain("gold-price-ngn");
   });
 
-  it("sipProcessor.ts has a static fallback price", () => {
+  // STALE CONTRACT: the static 98_500 fallback price was removed — an
+  // execution price must be a real quote. The processor now fails closed:
+  // it returns the last real cached price or 0 ("no price available"),
+  // never a seed/random value.
+  it("sipProcessor.ts fails closed instead of using a static fallback price", () => {
     const sip = fs.readFileSync(sipPath, "utf8");
-    // Should have a fallback price constant (not Math.random)
-    expect(sip).toContain("98_500");
+    expect(sip).not.toContain("98_500");
     expect(sip).not.toMatch(/goldPrice.*Math\.random/);
+    expect(sip).toContain("no real price fetched yet");
   });
 });
 

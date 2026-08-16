@@ -29,7 +29,7 @@ export default function ConsumerSavingsGoals() {
   });
 
   const utils = trpc.useUtils();
-  const { data: goals, isLoading } = trpc.wave24.savingsGoals.list.useQuery();
+  const { data: goals, isLoading } = trpc.wave24.savingsGoals.list.useQuery({});
 
   const createMutation = trpc.wave24.savingsGoals.create.useMutation({
     onSuccess: () => {

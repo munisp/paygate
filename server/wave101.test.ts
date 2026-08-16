@@ -71,20 +71,26 @@ describe("Stub and placeholder fixes", () => {
 });
 
 // 4. Market Data Real API
+// STALE CONTRACT: the broadcastMarketData/fetchMarketRates loop in
+// _core/index.ts was replaced by server/marketDataRouter.ts — real feeds with
+// caching, fail-loud (no Math.random, no hardcoded fallbacks).
 describe("Market data real API implementation", () => {
-  it("broadcastMarketData uses fetchMarketRates instead of Math.random", () => {
-    const content = readFileSync(join(BASE, "server/_core/index.ts"), "utf-8");
-    expect(content).toContain("fetchMarketRates");
-    expect(content).toContain("_marketCache");
+  it("marketDataRouter uses cached real fetches instead of Math.random", () => {
+    const content = readFileSync(join(BASE, "server/marketDataRouter.ts"), "utf-8");
+    expect(content).toContain("getCached");
+    expect(content).toContain("setCached");
+    expect(content).not.toMatch(/Math\.random/);
   });
 
-  it("market data fetches from metals.live API", () => {
-    const content = readFileSync(join(BASE, "server/_core/index.ts"), "utf-8");
+  it("market data fetches from a metals spot API", () => {
+    const content =
+      readFileSync(join(BASE, "server/marketDataRouter.ts"), "utf-8") +
+      readFileSync(join(BASE, "server/wave34Router.ts"), "utf-8");
     expect(content).toContain("metals.live");
   });
 
   it("market data fetches NGN rate from exchangerate API", () => {
-    const content = readFileSync(join(BASE, "server/_core/index.ts"), "utf-8");
+    const content = readFileSync(join(BASE, "server/marketDataRouter.ts"), "utf-8");
     expect(content).toContain("open.er-api.com");
   });
 
@@ -453,7 +459,11 @@ describe("Seed data completeness", () => {
     expect(existsSync(join(BASE, "scripts/seed-all.mjs"))).toBe(true);
   });
 
-  it("seed-wave90.mjs exists", () => {
-    expect(existsSync(join(BASE, "seed-wave90.mjs"))).toBe(true);
+  // STALE CONTRACT: legacy root seed-wave90.mjs was intentionally removed in
+  // 4cb50bd (legacy MySQL-era seed purge); wave90 tables are covered by the
+  // consolidated PG seed scripts.
+  it("consolidated PG seed scripts exist", () => {
+    expect(existsSync(join(BASE, "scripts/seed-pg-production.mjs"))).toBe(true);
+    expect(existsSync(join(BASE, "scripts/seed-complete-all-tables.mjs"))).toBe(true);
   });
 });

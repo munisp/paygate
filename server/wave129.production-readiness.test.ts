@@ -28,9 +28,14 @@ function fileExists(filePath: string): boolean {
 describe("Wave 129 — CSP ALLOWED_ORIGINS", () => {
   const indexTs = path.join(SERVER, "_core", "index.ts");
 
-  it("index.ts CSP connect-src uses ALLOWED_ORIGINS env var", () => {
-    const content = readFile(indexTs);
+  // STALE CONTRACT: CSP/CORS moved out of _core/index.ts into
+  // server/securityHeaders.ts (ALLOWED_ORIGINS env drives CORS origins; CSP
+  // directives live in the same module).
+  it("securityHeaders.ts CSP present and ALLOWED_ORIGINS env-driven", () => {
+    const content = readFile(path.join(SERVER, "securityHeaders.ts"));
     expect(content).toMatch(/ALLOWED_ORIGINS/);
+    expect(content).toContain("process.env.ALLOWED_ORIGINS");
+    expect(content).toMatch(/connect-src 'self'/);
   });
 
   it("index.ts CSP does not hardcode manus.space wildcard", () => {
@@ -261,11 +266,12 @@ describe("Wave 129 — WAFAlertDashboard DB Sync", () => {
     expect(fileExists(wafPage)).toBe(true);
   });
 
-  it("WAFAlertDashboard.tsx has useEffect that syncs DB events to state", () => {
+  // STALE CONTRACT: the manual useEffect/setEvents DB-sync was replaced by a
+  // declarative trpc.wafAlerts.list.useQuery (React Query owns the sync).
+  it("WAFAlertDashboard.tsx syncs DB events via the wafAlerts tRPC query", () => {
     const content = readFile(wafPage);
-    // Should have a useEffect that updates events when dbEvents changes
-    expect(content).toMatch(/useEffect/);
-    expect(content).toMatch(/dbEvents|wafAlerts/);
+    expect(content).toMatch(/trpc\.wafAlerts\.list\.useQuery/);
+    expect(content).toMatch(/wafAlertsData/);
   });
 
   it("WAFAlertDashboard.tsx uses tRPC wafAlerts query", () => {
@@ -311,20 +317,23 @@ describe("Wave 129 — No Hardcoded Secrets in Client", () => {
 });
 
 // ─── 10. SKILL.md ────────────────────────────────────────────────────────────
-describe("Wave 129 — SKILL.md", () => {
-  const skillMd = path.join("/home/ubuntu/skills/paygate-merchant-portal", "SKILL.md");
+// STALE CONTRACT: the out-of-repo /home/ubuntu/skills/paygate-merchant-portal/SKILL.md
+// artifact no longer exists; platform docs now live in docs/ inside the
+// repository (same contract as wave131.production-hardening.test.ts).
+describe("Wave 129 — Platform documentation", () => {
+  const archDoc = path.join(ROOT, "docs", "ARCHITECTURE.md");
 
-  it("SKILL.md exists at /home/ubuntu/skills/paygate-merchant-portal/SKILL.md", () => {
-    expect(fileExists(skillMd)).toBe(true);
+  it("docs/ARCHITECTURE.md exists", () => {
+    expect(fileExists(archDoc)).toBe(true);
   });
 
-  it("SKILL.md has meaningful content (>500 chars)", () => {
-    const content = readFile(skillMd);
+  it("docs/ARCHITECTURE.md has meaningful content (>500 chars)", () => {
+    const content = readFile(archDoc);
     expect(content.length).toBeGreaterThan(500);
   });
 
-  it("SKILL.md describes the PayGate platform", () => {
-    const content = readFile(skillMd);
+  it("docs/ARCHITECTURE.md describes the PayGate platform", () => {
+    const content = readFile(archDoc);
     expect(content.toLowerCase()).toMatch(/paygate|merchant|portal/);
   });
 });

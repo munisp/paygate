@@ -2,9 +2,8 @@
 /**
  * Wave 32 Seed Script (PostgreSQL) — uses actual DB column names
  */
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const { Pool } = require("/home/ubuntu/paygate-merchant-portal/node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js");
+import pg from "pg";
+const { Pool } = pg;
 import { randomUUID } from "crypto";
 
 const DB_URL = process.env.PG_DATABASE_URL || process.env.DATABASE_URL;

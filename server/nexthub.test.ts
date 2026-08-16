@@ -13,13 +13,15 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createCallerFactory } from "./_core/trpc";
 import { appRouter } from "./routers";
 import { getDb } from "./db";
 
 // ── Test caller setup ─────────────────────────────────────────────────────────
 
-const createCaller = createCallerFactory(appRouter);
+// STALE CONTRACT: _core/trpc never exported createCallerFactory; the
+// supported API is appRouter.createCaller(ctx) (same pattern as
+// auth.logout.test.ts).
+const createCaller = (ctx: any) => appRouter.createCaller(ctx);
 
 // Admin context for protected procedures
 const adminCtx = {

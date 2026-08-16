@@ -124,22 +124,33 @@ describe("Go bridge — cross-border handler stubs", () => {
     expect(existsSync(handlerFile)).toBe(true);
   });
 
+  // STALE CONTRACT: the stub handlers (ProxyCIPSTransfer/ProxyUPIPay/…) were
+  // replaced by real implementations in crossborder_proxy.go
+  // (ProxyCIPSTransferReal, ProxyUPIPayReal, ResolveUPIVPAReal,
+  // ProxyPIXPaymentReal) during the mockware purge.
+  const proxyFile = join(
+    BASE,
+    "go-bridge/internal/handlers/crossborder_proxy.go"
+  );
+
   it("CIPS handlers implemented", () => {
-    const content = readFileSync(handlerFile, "utf-8");
-    expect(content).toContain("func ProxyCIPSTransfer");
-    expect(content).toContain("func GetCIPSHealth");
+    const content = readFileSync(proxyFile, "utf-8");
+    const stubs = readFileSync(handlerFile, "utf-8");
+    expect(content).toContain("func ProxyCIPSTransferReal");
+    expect(stubs).toContain("func GetCIPSHealth");
   });
 
   it("UPI handlers implemented", () => {
-    const content = readFileSync(handlerFile, "utf-8");
-    expect(content).toContain("func ProxyUPIPay");
-    expect(content).toContain("func ResolveUPIVPA");
+    const content = readFileSync(proxyFile, "utf-8");
+    expect(content).toContain("func ProxyUPIPayReal");
+    expect(content).toContain("func ResolveUPIVPAReal");
   });
 
   it("PIX handlers implemented", () => {
-    const content = readFileSync(handlerFile, "utf-8");
-    expect(content).toContain("func ProxyPIXPayment");
-    expect(content).toContain("func LookupPIXKey");
+    const content = readFileSync(proxyFile, "utf-8");
+    const stubs = readFileSync(handlerFile, "utf-8");
+    expect(content).toContain("func ProxyPIXPaymentReal");
+    expect(stubs).toContain("func LookupPIXKey");
   });
 
   it("Mojaloop handlers implemented", () => {
@@ -219,20 +230,25 @@ describe("Mobile parity — React Native screens", () => {
 
 // ── Security Checks ───────────────────────────────────────────────────────────
 describe("Security — production hardening", () => {
-  it("helmet is imported and used in server", () => {
+  // STALE CONTRACT: the helmet/cors npm packages were replaced by first-party
+  // middleware in server/securityHeaders.ts (securityHeaders + corsMiddleware
+  // with ALLOWED_ORIGINS), wired in server/_core/index.ts.
+  it("security headers middleware is imported and used in server", () => {
     const content = readFileSync(
       join(BASE, "server/_core/index.ts"),
       "utf-8"
     );
-    expect(content).toContain("helmet");
+    expect(content).toContain("securityHeaders");
+    expect(content).toContain("app.use(securityHeaders)");
   });
 
   it("CORS is configured with ALLOWED_ORIGINS", () => {
     const content = readFileSync(
-      join(BASE, "server/_core/index.ts"),
+      join(BASE, "server/securityHeaders.ts"),
       "utf-8"
     );
     expect(content).toContain("ALLOWED_ORIGINS");
+    expect(content).toContain("process.env.ALLOWED_ORIGINS");
   });
 
   it("rate limiting is applied globally", () => {

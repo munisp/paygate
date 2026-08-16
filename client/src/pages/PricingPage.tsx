@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Check, Zap, Building2, Rocket } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
+import { startLogin } from "@/const";
 
 const PLANS = [
   {
@@ -106,7 +106,7 @@ export default function PricingPage() {
 
   const handleSelectPlan = (plan: typeof PLANS[0]) => {
     if (!isAuthenticated) {
-      window.location.href = getLoginUrl("/pricing");
+      startLogin();
       return;
     }
     if (!plan.priceId) {

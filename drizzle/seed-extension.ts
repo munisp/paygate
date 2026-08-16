@@ -711,9 +711,9 @@ async function seedMiddlewareHealthAlerts() {
     { id: uid("mha-"), service: "mojaloop", severity: "info", message: "Mojaloop scheduled maintenance", resolved: false, resolved_at: null },
   ];
   for (const a of alerts) {
-    await q(`INSERT INTO middleware_health_alerts (id, service, severity, message, resolved, resolved_at, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
-      [a.id, a.service, a.severity, a.message, a.resolved, a.resolved_at, past(Math.floor(Math.random() * 7))]);
+    await q(`INSERT INTO middleware_health_alerts (service, severity, message, resolved, resolved_at, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6)`,
+      [a.service, a.severity, a.message, a.resolved, a.resolved_at, past(Math.floor(Math.random() * 7))]);
   }
   console.log("✓ middleware_health_alerts");
 }
@@ -802,9 +802,9 @@ async function seedWebhookFailureAlerts() {
 // ─── Billing Cron Runs ────────────────────────────────────────────────────────
 async function seedBillingCronRuns() {
   for (let i = 0; i < 5; i++) {
-    await q(`INSERT INTO billing_cron_runs (id, run_type, status, tenants_processed, invoices_generated, errors, started_at, completed_at)
-      VALUES ($1,'monthly_billing','completed',$2,$3,0,$4,$5) ON CONFLICT (id) DO NOTHING`,
-      [uid("bcr-"), Math.floor(Math.random() * 10) + 5, Math.floor(Math.random() * 8) + 3, past(30 * (i + 1)), past(30 * (i + 1))]);
+    await q(`INSERT INTO billing_cron_runs (run_type, status, tenants_processed, invoices_generated, errors, started_at, completed_at)
+      VALUES ('monthly_billing','completed',$1,$2,0,$3,$4)`,
+      [Math.floor(Math.random() * 10) + 5, Math.floor(Math.random() * 8) + 3, past(30 * (i + 1)), past(30 * (i + 1))]);
   }
   console.log("✓ billing_cron_runs");
 }
@@ -864,9 +864,9 @@ async function seedPayoutBatches() {
 async function seedPayoutApprovalWorkflows() {
   const { rows: payouts } = await pool.query("SELECT id, merchant_id FROM payouts LIMIT 3");
   for (const payout of payouts) {
-    await q(`INSERT INTO payout_approval_workflows (id, payout_id, merchant_id, status, approver_email, requested_by, amount_kobo, notes, created_at)
-      VALUES ($1,$2,$3,'approved',$4,'system',500000,'Auto-approved under threshold',$5) ON CONFLICT (id) DO NOTHING`,
-      [uid("paw-"), payout.id, payout.merchant_id, process.env.PAYOUT_APPROVER_EMAIL ?? "approver@paygate.ng", past(3)]);
+    await q(`INSERT INTO payout_approval_workflows (payout_id, merchant_id, status, approver_email, requested_by, amount_kobo, notes, created_at)
+      VALUES ($1,$2,'approved',$3,'system',500000,'Auto-approved under threshold',$4)`,
+      [payout.id, payout.merchant_id, process.env.PAYOUT_APPROVER_EMAIL ?? "approver@paygate.ng", past(3)]);
   }
   console.log("✓ payout_approval_workflows");
 }
@@ -1445,14 +1445,14 @@ async function seedKybStateTransitions() {
   const { rows: existing } = await pool.query("SELECT COUNT(*) as cnt FROM kyb_state_transitions");
   if (Number(existing[0].cnt) >= 5) { console.log("✓ kyb_state_transitions (already seeded)"); return; }
   const transitions = [
-    { merchant_id: M1, from_state: "not_started", to_state: "documents_submitted", reason: "Merchant submitted CAC documents", actor: "merchant" },
-    { merchant_id: M1, from_state: "documents_submitted", to_state: "under_review", reason: "Compliance team started review", actor: "compliance" },
-    { merchant_id: M1, from_state: "under_review", to_state: "approved", reason: "All documents verified", actor: "compliance" },
-    { merchant_id: M2, from_state: "not_started", to_state: "documents_submitted", reason: "Merchant submitted documents", actor: "merchant" },
-    { merchant_id: M2, from_state: "documents_submitted", to_state: "under_review", reason: "Review started", actor: "compliance" },
-    { merchant_id: M2, from_state: "under_review", to_state: "approved", reason: "Documents verified", actor: "compliance" },
-    { merchant_id: M3, from_state: "not_started", to_state: "documents_submitted", reason: "Documents submitted", actor: "merchant" },
-    { merchant_id: M3, from_state: "documents_submitted", to_state: "under_review", reason: "Review in progress", actor: "compliance" },
+    { merchant_id: 9001, from_state: "not_started", to_state: "documents_submitted", reason: "Merchant submitted CAC documents", actor: "merchant" },
+    { merchant_id: 9001, from_state: "documents_submitted", to_state: "under_review", reason: "Compliance team started review", actor: "compliance" },
+    { merchant_id: 9001, from_state: "under_review", to_state: "approved", reason: "All documents verified", actor: "compliance" },
+    { merchant_id: 9002, from_state: "not_started", to_state: "documents_submitted", reason: "Merchant submitted documents", actor: "merchant" },
+    { merchant_id: 9002, from_state: "documents_submitted", to_state: "under_review", reason: "Review started", actor: "compliance" },
+    { merchant_id: 9002, from_state: "under_review", to_state: "approved", reason: "Documents verified", actor: "compliance" },
+    { merchant_id: 9003, from_state: "not_started", to_state: "documents_submitted", reason: "Documents submitted", actor: "merchant" },
+    { merchant_id: 9003, from_state: "documents_submitted", to_state: "under_review", reason: "Review in progress", actor: "compliance" },
   ];
   for (const t of transitions) {
     await q(`INSERT INTO kyb_state_transitions (id, merchant_id, from_state, to_state, reason, actor, created_at)
@@ -1781,6 +1781,150 @@ async function seedConsumerSavingsContributions() {
   console.log("✓ consumer_savings_contributions");
 }
 
+// ─── Wave 27–31 Feature Tables (0084 migration) ──────────────────────────────
+async function seedWave84FeatureTables() {
+  // BNPL applications (wave27 tests expect >= 10 rows, scores 0–850)
+  const { rows: bnplCnt } = await pool.query("SELECT COUNT(*) as cnt FROM bnpl_applications");
+  if (Number(bnplCnt[0].cnt) < 10) {
+    for (let i = 1; i <= 12; i++) {
+      await q(
+        `INSERT INTO bnpl_applications (consumer_id, requested_limit, approved_limit, score, status, monthly_income, employment_status, currency)
+         VALUES ($1,$2,$3,$4,$5,$6,'employed','NGN') ON CONFLICT (consumer_id) DO NOTHING`,
+        [`bnpl-consumer-${i}`, i * 50000, i * 30000, 600 + i * 10, i % 3 === 0 ? "approved" : "pending", i * 100000]
+      );
+    }
+  }
+
+  // Loyalty tier configs (lowercase tier names, strictly ascending cashback rates)
+  const tiers = [
+    { name: "bronze", min: 0, max: 999, rate: 0.5, mult: 1.0 },
+    { name: "silver", min: 1000, max: 4999, rate: 1.0, mult: 1.2 },
+    { name: "gold", min: 5000, max: 19999, rate: 1.5, mult: 1.5 },
+    { name: "platinum", min: 20000, max: null, rate: 2.0, mult: 2.0 },
+  ];
+  for (const t of tiers) {
+    await q(
+      `INSERT INTO loyalty_tier_configs (tier_name, min_points, max_points, cashback_rate, bonus_multiplier)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tier_name) DO NOTHING`,
+      [t.name, t.min, t.max, t.rate, t.mult]
+    );
+  }
+
+  // Feature-flag exposure events (wave27 tests expect >= 50 rows)
+  const { rows: flagCnt } = await pool.query("SELECT COUNT(*) as cnt FROM flag_exposure_events");
+  if (Number(flagCnt[0].cnt) < 50) {
+    const flags = ["new_checkout_ui", "instant_settlement", "dark_mode"];
+    for (let i = 0; i < 60; i++) {
+      await q(
+        `INSERT INTO flag_exposure_events (flag_key, user_id, tenant_id, variant, converted)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [flags[i % flags.length], `user-${(i % 20) + 1}`, i % 2 === 0 ? T1 : T2,
+         i % 2 === 0 ? "control" : "treatment", i % 5 === 0]
+      );
+    }
+  }
+
+  // SLA metrics (wave83 tests expect >= 3 services, uptime 99.0–100.0)
+  const { rows: slaCnt } = await pool.query("SELECT COUNT(*) as cnt FROM sla_metrics");
+  if (Number(slaCnt[0].cnt) < 3) {
+    const services = [
+      { name: "api-gateway", uptime: 99.95, avg: 120, p99: 480, err: 0.05 },
+      { name: "payment-core", uptime: 99.99, avg: 85, p99: 350, err: 0.01 },
+      { name: "webhook-delivery", uptime: 99.9, avg: 210, p99: 890, err: 0.1 },
+    ];
+    for (const s of services) {
+      await q(
+        `INSERT INTO sla_metrics (tenant_id, service_name, metric_date, uptime_pct, avg_latency_ms, p99_latency_ms, error_rate_pct, incident_count)
+         VALUES (NULL,$1,CURRENT_DATE,$2,$3,$4,$5,0)`,
+        [s.name, s.uptime, s.avg, s.p99, s.err]
+      );
+    }
+  }
+
+  // Middleware health logs (wave83 tests expect >= 3 rows, all status 'up')
+  const { rows: mhlCnt } = await pool.query("SELECT COUNT(*) as cnt FROM middleware_health_logs");
+  if (Number(mhlCnt[0].cnt) < 3) {
+    const svcs = [
+      { name: "NIBSS", lat: 145 },
+      { name: "Mojaloop", lat: 230 },
+      { name: "VTPass", lat: 180 },
+      { name: "Termii", lat: 95 },
+    ];
+    for (const s of svcs) {
+      await q(`INSERT INTO middleware_health_logs (service, status, latency_ms) VALUES ($1,'up',$2)`, [s.name, s.lat]);
+    }
+  }
+
+  // FX hedge positions (wave83 tests expect >= 3 'active' rows, notional > 0)
+  const { rows: fxCnt } = await pool.query("SELECT COUNT(*) as cnt FROM fx_hedge_positions WHERE status = 'active'");
+  if (Number(fxCnt[0].cnt) < 3) {
+    const positions = [
+      { ref: "FXH-SEED-1", pair: "NGN/USD", base: "NGN", quote: "USD", notional: 5000000, rate: 1531.25 },
+      { ref: "FXH-SEED-2", pair: "NGN/EUR", base: "NGN", quote: "EUR", notional: 2500000, rate: 1662.4 },
+      { ref: "FXH-SEED-3", pair: "NGN/GBP", base: "NGN", quote: "GBP", notional: 1200000, rate: 1943.7 },
+    ];
+    for (const p of positions) {
+      await q(
+        `INSERT INTO fx_hedge_positions (reference, merchant_id, base_currency, quote_currency, currency_pair, notional_amount, hedge_amount, hedge_rate, hedge_type, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$6,$7,'forward','active')`,
+        [p.ref, M1, p.base, p.quote, p.pair, p.notional, p.rate]
+      );
+    }
+  }
+
+  // FX live rates (wave83 tests expect >= 5 rows; USD/NGN within 1000–2500)
+  const { rows: rateCnt } = await pool.query("SELECT COUNT(*) as cnt FROM fx_live_rates");
+  if (Number(rateCnt[0].cnt) < 5) {
+    const rates = [
+      { pair: "USD/NGN", rate: 1531.25 }, { pair: "EUR/NGN", rate: 1662.4 },
+      { pair: "GBP/NGN", rate: 1943.7 }, { pair: "GHS/NGN", rate: 104.2 },
+      { pair: "KES/NGN", rate: 11.85 }, { pair: "ZAR/NGN", rate: 84.6 },
+    ];
+    for (const r of rates) {
+      await q(`INSERT INTO fx_live_rates (pair, rate, source) VALUES ($1,$2,'cbn')`, [r.pair, r.rate]);
+    }
+  }
+
+  // Tenant plan limits (wave82 tests expect starter/growth/scale/enterprise)
+  const planLimits = [
+    { plan: "starter", api: 10000, vol: 10000, users: 5, corridors: 3, webhooks: 5, keys: 3, price: 49 },
+    { plan: "growth", api: 100000, vol: 100000, users: 20, corridors: 10, webhooks: 20, keys: 10, price: 199 },
+    { plan: "scale", api: 500000, vol: 500000, users: 50, corridors: 25, webhooks: 50, keys: 25, price: 499 },
+    { plan: "enterprise", api: 999999999, vol: 999999999, users: 999, corridors: 999, webhooks: 999, keys: 999, price: 0 },
+  ];
+  for (const p of planLimits) {
+    await q(
+      `INSERT INTO tenant_plan_limits (id, plan, max_api_calls_per_month, max_tx_volume_usd_per_month, max_users, max_corridors, max_webhooks, max_api_keys, price_usd_per_month)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (plan) DO NOTHING`,
+      [uid("tpl-"), p.plan, p.api, p.vol, p.users, p.corridors, p.webhooks, p.keys, p.price]
+    );
+  }
+
+  // Tenant billing invoices (wave83 tests expect >= 1 row)
+  const { rows: invCnt } = await pool.query("SELECT COUNT(*) as cnt FROM tenant_billing_invoices");
+  if (Number(invCnt[0].cnt) < 1) {
+    await q(
+      `INSERT INTO tenant_billing_invoices (id, tenant_id, period, amount_usd, status)
+       VALUES ($1,$2,$3,$4,'draft')`,
+      [uid("inv-"), T1, "2026-08", 199.0]
+    );
+  }
+
+  // Payout batches pending approval (wave27 approval-path tests)
+  const { rows: pbCnt } = await pool.query("SELECT COUNT(*) as cnt FROM payout_batches WHERE status = 'pending_approval'");
+  if (Number(pbCnt[0].cnt) < 3) {
+    for (let i = 0; i < 3; i++) {
+      await q(
+        `INSERT INTO payout_batches (id, merchant_id, total_amount, total_amount_kobo, payout_count, count, status)
+         VALUES ($1,$2,$3,$4,$5,$5,'pending_approval') ON CONFLICT (id) DO NOTHING`,
+        [uid("pb-pending-"), i % 2 === 0 ? M1 : M2, 1500000 + i * 250000, (1500000 + i * 250000) * 100, 10 + i]
+      );
+    }
+  }
+
+  console.log("✓ wave84 feature tables (bnpl, loyalty tiers, flag exposure, sla, health logs, fx, plan limits, billing invoices, payout batches)");
+}
+
 // ─── Main orchestrator ────────────────────────────────────────────────────────
 async function main() {
   console.log("🌱 Starting seed extension...\n");
@@ -1835,6 +1979,7 @@ async function main() {
     seedMerchantRiskScores, seedSubscriptionPlansV2,
     seedFeatureFlags, seedConsumerBudgets,
     seedConsumerSavingsGoals, seedConsumerSavingsContributions,
+    seedWave84FeatureTables,
   ];
 
   let passed = 0;
