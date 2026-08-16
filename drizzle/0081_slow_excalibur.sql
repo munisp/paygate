@@ -507,7 +507,8 @@ ALTER TABLE "velocity_limit_configs" ALTER COLUMN "channel" SET DATA TYPE text;-
 ALTER TABLE "velocity_limit_configs" ALTER COLUMN "channel" SET DEFAULT 'all';--> statement-breakpoint
 ALTER TABLE "velocity_limit_configs" ALTER COLUMN "limit_type" SET DATA TYPE text;--> statement-breakpoint
 ALTER TABLE "velocity_limit_configs" ALTER COLUMN "limit_type" DROP DEFAULT;--> statement-breakpoint
-ALTER TABLE "velocity_limit_configs" ALTER COLUMN "is_active" SET DATA TYPE boolean;--> statement-breakpoint
+ALTER TABLE "velocity_limit_configs" ALTER COLUMN "is_active" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "velocity_limit_configs" ALTER COLUMN "is_active" SET DATA TYPE boolean USING ("is_active"::boolean);--> statement-breakpoint
 ALTER TABLE "velocity_limit_configs" ALTER COLUMN "is_active" SET DEFAULT true;--> statement-breakpoint
 ALTER TABLE "velocity_limit_configs" ALTER COLUMN "created_at" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "velocity_limit_configs" ALTER COLUMN "updated_at" SET NOT NULL;--> statement-breakpoint

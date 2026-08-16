@@ -1,15 +1,35 @@
 /**
  * WebAuthn / Biometric Authentication Service
  * Adapted from the PayGate PWA archive for the merchant portal.
- * Uses @simplewebauthn/browser for cross-browser compatibility.
+ * Implemented directly on the native Web Authentication API
+ * (navigator.credentials / PublicKeyCredential).
  */
 
-import {
-  startRegistration,
-  startAuthentication,
-  browserSupportsWebAuthn,
-  platformAuthenticatorIsAvailable,
-} from "@simplewebauthn/browser";
+function base64UrlToBuffer(base64url: string): ArrayBuffer {
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function browserSupportsWebAuthn(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.PublicKeyCredential !== "undefined" &&
+    !!navigator.credentials
+  );
+}
+
+async function platformAuthenticatorIsAvailable(): Promise<boolean> {
+  if (!browserSupportsWebAuthn()) return false;
+  try {
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
+}
 
 export interface WebAuthnSupportResult {
   supported: boolean;
@@ -63,11 +83,11 @@ export const webAuthnService = {
   async register(username: string): Promise<WebAuthnRegistrationResult> {
     try {
       // Generate a challenge locally (in production this comes from the server)
-      const challenge = btoa(crypto.getRandomValues(new Uint8Array(32)).join(","));
-      const userId = btoa(username);
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const userId = new TextEncoder().encode(username);
 
-      const registrationResponse = await startRegistration({
-        optionsJSON: {
+      const credential = (await navigator.credentials.create({
+        publicKey: {
           challenge,
           rp: { name: "PayGate", id: window.location.hostname },
           user: { id: userId, name: username, displayName: username },
@@ -83,9 +103,12 @@ export const webAuthnService = {
           timeout: 60000,
           attestation: "none",
         },
-      });
+      })) as PublicKeyCredential | null;
 
-      const credentialId = registrationResponse.id;
+      if (!credential) {
+        return { success: false, error: "Registration was cancelled" };
+      }
+      const credentialId = credential.id;
       storeCredential(credentialId);
       return { success: true, credentialId };
     } catch (err: unknown) {
@@ -101,19 +124,25 @@ export const webAuthnService = {
         return { success: false, error: "No registered credentials found" };
       }
 
-      const challenge = btoa(crypto.getRandomValues(new Uint8Array(32)).join(","));
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
 
-      const authResponse = await startAuthentication({
-        optionsJSON: {
+      const credential = (await navigator.credentials.get({
+        publicKey: {
           challenge,
           rpId: window.location.hostname,
-          allowCredentials: stored.map((id) => ({ id, type: "public-key" as const })),
+          allowCredentials: stored.map((id) => ({
+            id: base64UrlToBuffer(id),
+            type: "public-key" as const,
+          })),
           userVerification: "required",
           timeout: 60000,
         },
-      });
+      })) as PublicKeyCredential | null;
 
-      return { success: true, credentialId: authResponse.id };
+      if (!credential) {
+        return { success: false, error: "Authentication was cancelled" };
+      }
+      return { success: true, credentialId: credential.id };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Authentication failed";
       return { success: false, error: msg };

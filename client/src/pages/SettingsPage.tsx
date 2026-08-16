@@ -247,7 +247,11 @@ type AlertRuleRow = { id: number; name: string; metric: string; target: string; 
 function NamedAlertRulesSection() {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.paygate.listAlertRules.useQuery();
-  const rules = data?.rules ?? [];
+  // The API returns severity as a plain string; normalize to the known set.
+  const rules: AlertRuleRow[] = (data?.rules ?? []).map(r => ({
+    ...r,
+    severity: r.severity === "critical" ? "critical" : "warn",
+  }));
 
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState<RuleFormState | null>(null);

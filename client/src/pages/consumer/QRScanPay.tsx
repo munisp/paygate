@@ -12,14 +12,21 @@ import { toast } from "sonner";
 import { QrCode, CheckCircle, Loader2, ArrowLeft, Camera, Keyboard } from "lucide-react";
 import { useLocation } from "wouter";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
-import jsQR from "jsqr";
+// Native BarcodeDetector is not yet in TypeScript's DOM lib; declare the
+// minimal surface we use. Browsers without it fall back to manual entry.
+declare global {
+  interface Window {
+    BarcodeDetector?: new (options?: { formats?: string[] }) => {
+      detect(source: CanvasImageSource): Promise<{ rawValue: string }[]>;
+    };
+  }
+}
 
 function PinDialog({ open, onClose, onConfirm, isPending, amount, merchantName }: {
   open: boolean; onClose: () => void; onConfirm: (pin: string) => void;
   isPending: boolean; amount: number; merchantName: string;
 }) {
   const [pin, setPin] = useState("");
-  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <Dialog open={open} onOpenChange={(o: any) => { if (!o) { onClose(); setPin(""); } }}>
       <DialogContent className="sm:max-w-xs">
@@ -46,7 +53,7 @@ function PinDialog({ open, onClose, onConfirm, isPending, amount, merchantName }
 }
 
 export default function QRScanPay() {
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   useOnboardingGate();
   const [, navigate] = useLocation();
   const [mode, setMode] = useState<"scan" | "manual">("scan");
@@ -100,24 +107,29 @@ export default function QRScanPay() {
     setScanning(false);
   };
 
-  const scanFrame = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const scanFrame = async () => {
+    if (!videoRef.current) return;
     const video = videoRef.current;
-    const canvas = canvasRef.current;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code) {
-        handleQRData(code.data);
+      const Detector = window.BarcodeDetector;
+      if (!Detector) {
+        stopCamera();
+        setCameraError("QR scanning is not supported in this browser. Use manual code entry instead.");
+        setMode("manual");
         return;
       }
+      try {
+        const codes = await new Detector({ formats: ["qr_code"] }).detect(video);
+        const code = codes[0];
+        if (code?.rawValue) {
+          handleQRData(code.rawValue);
+          return;
+        }
+      } catch {
+        // Detection can fail on individual frames; keep scanning.
+      }
     }
-    rafRef.current = requestAnimationFrame(scanFrame);
+    rafRef.current = requestAnimationFrame(() => { void scanFrame(); });
   };
 
   const handleQRData = (raw: string) => {

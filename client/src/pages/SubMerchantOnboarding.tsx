@@ -116,7 +116,7 @@ export default function SubMerchantOnboarding() {
 
   const createTenantMutation = trpc.tenantMgmt.create.useMutation();
   const initiateKybMutation = trpc.kybMgmt.initiate.useMutation();
-  const uploadKybDocMutation = trpc.kybDocUpload.upload.useMutation();
+  const uploadKybDocMutation = trpc.kybDocUpload.getUploadUrl.useMutation();
   const verifyBvnMutation = trpc.nibss.verifyBvn.useMutation();
   const setVelocityLimitMutation = trpc.velocityLimits.setLimit.useMutation();
 
@@ -128,11 +128,12 @@ export default function SubMerchantOnboarding() {
     verifyBvnMutation.isPending ||
     setVelocityLimitMutation.isPending;
 
-  const goLiveChecklistQuery = trpc.goLive?.getChecklist?.useQuery(
-    { merchantId: merchantId ?? "" },
+  const goLiveChecklistQuery = trpc.portalHealth.getGoLiveChecklist.useQuery(
+    undefined,
     { enabled: !!merchantId && currentStep === 5 }
   );
-  const approveGoLiveMutation = trpc.goLive?.approve?.useMutation?.();
+  // Go-live approval = activating the tenant record
+  const activateTenantMutation = trpc.tenantMgmt.update.useMutation();
 
   // ─── Step 1: Create tenant + initiate KYB ────────────────────────────────────
 
@@ -144,15 +145,11 @@ export default function SubMerchantOnboarding() {
     try {
       // Create tenant record
       const tenant = await createTenantMutation.mutateAsync({
-        businessName: businessForm.businessName,
-        rcNumber: businessForm.rcNumber,
-        taxId: businessForm.taxId || undefined,
-        businessType: businessForm.businessType,
+        id: `ten_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
+        name: businessForm.businessName,
+        slug: businessForm.businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
         email: businessForm.businessEmail,
-        phone: businessForm.businessPhone,
-        address: businessForm.businessAddress,
-        settlementAccountNumber: businessForm.settlementAccountNumber || undefined,
-        settlementBankCode: businessForm.settlementBankCode || undefined,
+        phone: businessForm.businessPhone || undefined,
       });
       setMerchantId(tenant.id);
 
@@ -175,14 +172,15 @@ export default function SubMerchantOnboarding() {
 
   // ─── Step 2: Document upload ─────────────────────────────────────────────────
 
+  // Keys must match the server's kybDocUpload ALLOWED_DOC_TYPES enum.
   const REQUIRED_DOCS = [
-    { key: "cac_cert", label: "CAC Certificate of Incorporation" },
-    { key: "memart", label: "Memorandum & Articles of Association" },
+    { key: "cac_certificate", label: "CAC Certificate of Incorporation" },
+    { key: "memorandum", label: "Memorandum & Articles of Association" },
     { key: "utility_bill", label: "Utility Bill (≤ 3 months old)" },
     { key: "board_resolution", label: "Board Resolution" },
-  ];
+  ] as const;
 
-  const handleDocUpload = useCallback(async (docKey: string, file: File) => {
+  const handleDocUpload = useCallback(async (docKey: (typeof REQUIRED_DOCS)[number]["key"], file: File) => {
     if (!kybVerificationId) return;
     setUploadingDoc(docKey);
     try {
@@ -194,12 +192,15 @@ export default function SubMerchantOnboarding() {
       });
       const result = await uploadKybDocMutation.mutateAsync({
         verificationId: kybVerificationId,
+        merchantId: merchantId ?? "",
         documentType: docKey,
         fileName: file.name,
         mimeType: file.type,
-        base64Content: base64,
+        fileSizeBytes: file.size,
+        uploadedBy: "merchant",
+        fileContent: base64.includes(",") ? base64.split(",")[1] : base64,
       });
-      setUploadedDocs(prev => ({ ...prev, [docKey]: { url: result.url, name: file.name } }));
+      setUploadedDocs(prev => ({ ...prev, [docKey]: { url: result.fileUrl, name: file.name } }));
       toast.success(`${file.name} uploaded`);
     } catch (err: any) {
       toast.error(`Upload failed: ${err.message}`);
@@ -272,15 +273,13 @@ export default function SubMerchantOnboarding() {
   const handleGoLive = useCallback(async () => {
     if (!merchantId) return;
     try {
-      if (approveGoLiveMutation) {
-        await approveGoLiveMutation.mutateAsync({ merchantId, notes: goLiveNotes });
-      }
+      await activateTenantMutation.mutateAsync({ id: merchantId, status: "active" });
       toast.success("Sub-merchant is now live! Redirecting to tenant management.");
       setTimeout(() => navigate("/partner-admin"), 2000);
     } catch (err: any) {
       toast.error(`Go-live failed: ${err.message}`);
     }
-  }, [merchantId, goLiveNotes, approveGoLiveMutation, navigate]);
+  }, [merchantId, activateTenantMutation, navigate]);
 
   // ─── Render ───────────────────────────────────────────────────────────────────
 
@@ -791,9 +790,9 @@ export default function SubMerchantOnboarding() {
               {goLiveChecklistQuery?.data && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Platform Readiness Checklist</p>
-                  {goLiveChecklistQuery.data.map((item: any) => (
+                  {goLiveChecklistQuery.data.goLive.map((item: any) => (
                     <div key={item.id} className="flex items-center gap-2 text-sm">
-                      {item.completed ? (
+                      {item.status === "ok" ? (
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
                       ) : (
                         <AlertCircle className="w-4 h-4 text-amber-500" />

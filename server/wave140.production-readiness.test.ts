@@ -39,33 +39,42 @@ describe("Wave 140: PWA Loading States", () => {
   }
 });
 
+// STALE CONTRACT: helmet/cors/express-rate-limit packages and the named
+// limiters (authLimiter/globalLimiter/uploadLimiter/…) were replaced by
+// first-party middleware — server/securityHeaders.ts (securityHeaders +
+// corsMiddleware with ALLOWED_ORIGINS) and server/rateLimit.ts
+// (expressRateLimit / trpcApiRateLimit buckets).
 describe("Wave 140: Security Infrastructure", () => {
   it("server has CORS configuration", () => {
     const content = read("server/_core/index.ts");
-    expect(content).toContain("cors");
-    expect(content).toContain("allowedOrigins");
+    const headers = read("server/securityHeaders.ts");
+    expect(content).toContain("corsMiddleware");
+    expect(headers).toContain("ALLOWED_ORIGINS");
   });
 
-  it("server has helmet security headers", () => {
+  it("server has security headers middleware", () => {
     const content = read("server/_core/index.ts");
-    expect(content).toContain("helmet");
+    expect(content).toContain("securityHeaders");
+    expect(content).toContain("app.use(securityHeaders)");
   });
 
   it("server has rate limiting", () => {
     const content = read("server/_core/index.ts");
-    expect(content).toContain("rateLimit");
-    expect(content).toContain("authLimiter");
-    expect(content).toContain("payoutLimiter");
+    const rl = read("server/rateLimit.ts");
+    expect(content).toContain("expressRateLimit");
+    expect(rl).toContain("authLimit");
+    expect(rl).toContain("payoutLimit");
   });
 
-  it("server has global rate limiter", () => {
+  it("server has global tRPC rate limiter", () => {
     const content = read("server/_core/index.ts");
-    expect(content).toContain("globalLimiter");
+    expect(content).toContain("trpcApiRateLimit");
+    expect(content).toContain('app.use("/api/trpc", trpcApiRateLimit())');
   });
 
-  it("server has upload rate limiter", () => {
+  it("server has webhook/upload rate limiter", () => {
     const content = read("server/_core/index.ts");
-    expect(content).toContain("uploadLimiter");
+    expect(content).toContain('app.use("/api/webhooks", expressRateLimit(');
   });
 });
 

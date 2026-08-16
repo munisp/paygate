@@ -1,6 +1,7 @@
+import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
+import { startLogin } from "@/const";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -122,6 +123,12 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const { user, isAuthenticated, loading, logout } = useAuth();
   const kpiQuery = trpc.admin.overview.getKPIs.useQuery(undefined, { enabled: isAuthenticated });
 
+  // startLogin() has side effects (mints a one-time OAuth nonce cookie), so it
+  // must run in an effect, never during render.
+  useEffect(() => {
+    if (!loading && !isAuthenticated) startLogin();
+  }, [loading, isAuthenticated]);
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-950">
@@ -131,8 +138,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   }
 
   if (!isAuthenticated) {
-    window.location.href = getLoginUrl("/admin/overview");
-    return null;
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-950">
+        <div className="text-slate-400 text-sm animate-pulse">Redirecting to login...</div>
+      </div>
+    );
   }
 
   return (

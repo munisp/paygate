@@ -14,7 +14,7 @@ export default function PaymentLinks() {
   const [form, setForm] = useState({ title: "", description: "", amount: "", currency: "NGN", usageLimit: "", redirectUrl: "" });
   const utils = trpc.useUtils();
 
-  const { data, isLoading } = trpc.paymentLinks.list.useQuery(undefined, { staleTime: 60_000 });
+  const { data, isLoading } = trpc.paymentLinks.list.useQuery({}, { staleTime: 60_000 });
   const { data: analytics, isLoading: analyticsLoading } = trpc.paymentLinks.analytics.useQuery({ id: undefined }, { staleTime: 120_000, enabled: tab === "analytics" });
 
   const createLink = trpc.paymentLinks.create.useMutation({
@@ -32,7 +32,7 @@ export default function PaymentLinks() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const links = (data ?? []).filter((l: any) =>
+  const links = (data?.rows ?? []).filter((l: any) =>
     !search || l.title?.toLowerCase().includes(search.toLowerCase()) || l.slug?.includes(search.toLowerCase())
   );
 

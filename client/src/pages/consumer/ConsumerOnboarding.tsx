@@ -3,7 +3,7 @@
  * 3-step flow: Phone Verification → PIN Setup → Selfie KYC
  * Gates access to the wallet and send screens.
  */
-import { useState, useRef } from "react";
+import { useState, useRef, type ChangeEvent } from "react";
 import { Phone, KeyRound, Camera, CheckCircle2, ChevronRight, ArrowLeft, Shield, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -20,7 +20,6 @@ const STEPS = [
 
 function StepIndicator({ current }: { current: Step }) {
   const stepIndex = current === "otp" ? 0 : current === "pin" ? 1 : current === "kyc" ? 2 : current === "done" ? 3 : 0;
-  if (isLoading) return <div className="flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   return (
     <div className="flex items-center gap-2 justify-center mb-8">
       {STEPS.map((s: any, i: any) => {
@@ -47,7 +46,7 @@ function StepIndicator({ current }: { current: Step }) {
 }
 
 export default function ConsumerOnboarding() {
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [, navigate] = useLocation();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
@@ -131,7 +130,7 @@ export default function ConsumerOnboarding() {
   };
 
   // ── KYC Step ───────────────────────────────────────────────────────────────
-  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoCapture = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();

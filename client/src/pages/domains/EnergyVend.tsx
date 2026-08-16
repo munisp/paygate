@@ -49,7 +49,7 @@ export default function EnergyVend() {
     { key: "amount", label: "Amount" }, { key: "units_kwh", label: "kWh" },
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
-  const { data: stats, isLoading } = trpc.energy.getVendStats.useQuery();
+  const { data: stats } = trpc.energy.getVendStats.useQuery();
   const vendMut = trpc.energy.initiateVend.useMutation({
     onSuccess: (d) => {
       if (d.token) {
@@ -62,7 +62,7 @@ export default function EnergyVend() {
     },
     onError: (e) => toast.error(e.message),
   });
-  const { data: meterInfo, refetch: lookupMeter, isLoading } = trpc.energy.lookupMeter.useQuery(
+  const { data: meterInfo, refetch: lookupMeter } = trpc.energy.lookupMeter.useQuery(
     { meterNumber: meterInput, disco: meterDisco },
     { enabled: false }
   );

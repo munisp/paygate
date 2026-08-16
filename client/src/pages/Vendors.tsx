@@ -5,7 +5,7 @@
  */
 import { useState, useMemo } from "react";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
-import { QRCodeSVG } from "qrcode.react";
+
 import {
   Building2, Plus, Search, Edit2, Trash2, Phone, Mail, MapPin,
   Clock, CheckCircle2, XCircle, Loader2, Users, Package, FileText,
@@ -236,16 +236,15 @@ function VendorQRDialog({ vendor, onClose }: { vendor: Vendor | null; onClose: (
     "END:VCARD",
   ].filter(Boolean).join("\n");
 
-  const handleDownload = () => {
-    const svg = document.getElementById(`vendor-qr-${vendor.id}`);
-    if (!svg) return;
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svg);
-    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+  const handleDownload = async () => {
+    const img = document.getElementById(`vendor-qr-${vendor.id}`) as HTMLImageElement | null;
+    if (!img) return;
+    const res = await fetch(img.src);
+    const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${vendor.name.replace(/\s+/g, "-").toLowerCase()}-contact-qr.svg`;
+    a.download = `${vendor.name.replace(/\s+/g, "-").toLowerCase()}-contact-qr.png`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -261,12 +260,12 @@ function VendorQRDialog({ vendor, onClose }: { vendor: Vendor | null; onClose: (
         </DialogHeader>
         <div className="flex flex-col items-center gap-4 py-2">
           <div className="p-3 bg-white rounded-xl border border-border shadow-sm">
-            <QRCodeSVG
+            <img
               id={`vendor-qr-${vendor.id}`}
-              value={vcard}
-              size={200}
-              level="M"
-              includeMargin={false}
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(vcard)}&format=png&margin=0`}
+              alt={`${vendor.name} contact QR code`}
+              width={200}
+              height={200}
             />
           </div>
           <p className="text-xs text-center text-muted-foreground px-2">
@@ -274,7 +273,7 @@ function VendorQRDialog({ vendor, onClose }: { vendor: Vendor | null; onClose: (
           </p>
           <Button variant="outline" size="sm" onClick={handleDownload} className="w-full">
             <Download className="h-3.5 w-3.5 mr-1.5" />
-            Download QR (SVG)
+            Download QR (PNG)
           </Button>
         </div>
       </DialogContent>
@@ -340,7 +339,7 @@ export default function Vendors() {
   const [deleteVendor, setDeleteVendor] = useState<Vendor | null>(null);
   const [qrVendor, setQrVendor] = useState<Vendor | null>(null);
 
-  const { data, isLoading, refetch } = trpc.vendors.list.useQuery(undefined, {
+  const { data, isLoading, refetch } = trpc.vendors.list.useQuery({}, {
     staleTime: 30_000,
   });
   const { data: statsData } = trpc.vendors.stats.useQuery(undefined, {

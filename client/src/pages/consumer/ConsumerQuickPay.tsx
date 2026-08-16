@@ -7,7 +7,6 @@ import { useState } from "react";
 import { QrCode, Send, Phone, Zap, ShoppingCart, Repeat, Users, Copy, Check, ArrowRight, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { QRCodeSVG as QRCode } from "qrcode.react";
 import { useOnboardingGate } from "@/hooks/useOnboardingGate";
 
 const SHORTCUTS = [
@@ -233,7 +232,12 @@ export default function ConsumerQuickPay() {
                   <div className="absolute top-1 right-1 w-5 h-5 border-t-2 border-r-2 border-primary rounded-tr-sm" />
                   <div className="absolute bottom-1 left-1 w-5 h-5 border-b-2 border-l-2 border-primary rounded-bl-sm" />
                   <div className="absolute bottom-1 right-1 w-5 h-5 border-b-2 border-r-2 border-primary rounded-br-sm" />
-                  <QRCode value={paymentUrl} size={180} level="M" />
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(paymentUrl)}&format=png&margin=0`}
+                    alt="Payment QR code"
+                    width={180}
+                    height={180}
+                  />
                 </div>
                 <div className="text-center">
                   <p className="font-semibold text-foreground">

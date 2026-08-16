@@ -70,6 +70,23 @@ import { wave99Router } from './wave99Router';
 import { adminDataPipelineRouter } from './wave104Router';
 import { middlewareDashboardRouter } from './routers/middlewareDashboard';
 import { proxyRouter } from './routers/proxy';
+import { insiderThreatRouter } from './routers/insiderThreat';
+import { nexthubBillingRouter } from './routers/nexthubBilling';
+import { nexthubDfspsRouter } from './routers/nexthubDfsps';
+import { nexthubDisputesRouter } from './routers/nexthubDisputes';
+import { nexthubReconciliationRouter } from './routers/nexthubReconciliation';
+import { nexthubSecurityRouter } from './routers/nexthubSecurity';
+import { nexthubSettlementRouter } from './routers/nexthubSettlement';
+import { scfRouter, g2pRouter, energyRouter, remittanceRouter } from './routers/wave211_217';
+import { wave221Router } from './routers/wave221_developer';
+import { wave223Router } from './routers/wave223_onboarding';
+import { wave223ExtRouter } from './routers/wave223_extensions';
+import { wave218Router } from './routers/wave218_enhancements';
+import { sagaWiringRouter } from './routers/wave225_saga';
+import { nipBanksRouter } from './routers/nipBanks';
+import { regulatorAuthRouter } from './routers/regulatorAuth';
+import { regulatorPortalRouter } from './routers/regulatorPortal';
+import { nibssRouter } from './routers/nibss';
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import { z } from "zod";
@@ -196,13 +213,19 @@ import { wave165Router } from './routers/wave165';
 import { uboMgmtRouter, adverseMediaRouter, temporalCheckRouter, kybRiskScoreRouter } from './routers/wave174';
 import { scumlRouter, accessibilityRouter, localeRouter } from './routers/wave175';
 import {
-  strRouter,
-  velocityLimitsRouter,
-  interchangeRouter,
-  schemeMembershipRouter,
-  chargebackLifecycleRouter,
-  regulatoryReportsRouter,
+  strRouter as pspStrRouter,
+  velocityLimitsRouter as pspVelocityLimitsRouter,
+  interchangeRouter as pspInterchangeRouter,
+  schemeMembershipRouter as pspSchemeMembershipRouter,
+  chargebackLifecycleRouter as pspChargebackLifecycleRouter,
+  regulatoryReportsRouter as pspRegulatoryReportsRouter,
 } from './routers/psp-production';
+import { strRouter as strOpsRouter } from './routers/str';
+import { velocityLimitsRouter as velocityLimitsOpsRouter } from './routers/velocityLimits';
+import { interchangeRouter as interchangeOpsRouter } from './routers/interchange';
+import { schemeMembershipRouter as schemeMembershipOpsRouter } from './routers/schemeMembership';
+import { regulatoryReportsRouter as regulatoryReportsOpsRouter } from './routers/regulatoryReports';
+import { chargebackLifecycleRouter as chargebackLifecycleOpsRouter } from './routers/chargebackLifecycle';
 import { ecommerceRouter } from './routers/ecommerce';
 import { hostedCheckoutRouter } from './routers/hostedCheckout';
 import { pdfExportRouter, cashbackRewardsRouter, apiDocsRouter } from './routers/wave228';
@@ -9942,6 +9965,45 @@ const tenantsRouter = router({
     }),
 });
 // tier6to8Router now imported at top
+// Wave 223 combined namespace: onboarding (dfsp/pisp/psp/posOperator onboarding,
+// settlement banks) merged with extensions (audit logs, revenue analytics, fx rates,
+// api rate limits, notification preferences, pos terminals, kyc documents,
+// merchant verification, bulk transfers). Both halves define `settlementBanks`;
+// the onboarding variant (richer create/update) takes precedence here.
+const wave223CombinedRouter = router({
+  ...wave223ExtRouter._def.record,
+  ...wave223Router._def.record,
+});
+
+// PSP Licence Holder namespaces merge the psp-production admin routers with the
+// newer per-domain operations routers (server/routers/{str,velocityLimits,
+// interchange,schemeMembership,regulatoryReports}.ts) that the client consoles
+// are wired against. On overlapping keys the operations variant wins.
+const strMergedRouter = router({
+  ...pspStrRouter._def.record,
+  ...strOpsRouter._def.record,
+});
+const velocityLimitsMergedRouter = router({
+  ...pspVelocityLimitsRouter._def.record,
+  ...velocityLimitsOpsRouter._def.record,
+});
+const interchangeMergedRouter = router({
+  ...pspInterchangeRouter._def.record,
+  ...interchangeOpsRouter._def.record,
+});
+const schemeMembershipMergedRouter = router({
+  ...pspSchemeMembershipRouter._def.record,
+  ...schemeMembershipOpsRouter._def.record,
+});
+const regulatoryReportsMergedRouter = router({
+  ...pspRegulatoryReportsRouter._def.record,
+  ...regulatoryReportsOpsRouter._def.record,
+});
+const chargebackLifecycleMergedRouter = router({
+  ...pspChargebackLifecycleRouter._def.record,
+  ...chargebackLifecycleOpsRouter._def.record,
+});
+
 export const appRouter = router({
   auth: authRouter,
   system: systemRouter,
@@ -10186,13 +10248,13 @@ export const appRouter = router({
   accessibility: accessibilityRouter,
   locale: localeRouter,
   // Wave 120b — additional CRUD routers
-  // PSP Licence Holder — production routers
-  str: strRouter,
-  velocityLimits: velocityLimitsRouter,
-  interchange: interchangeRouter,
-  schemeMembership: schemeMembershipRouter,
-  chargebackLifecycle: chargebackLifecycleRouter,
-  regulatoryReports: regulatoryReportsRouter,
+  // PSP Licence Holder — production routers merged with operations routers
+  str: strMergedRouter,
+  velocityLimits: velocityLimitsMergedRouter,
+  interchange: interchangeMergedRouter,
+  schemeMembership: schemeMembershipMergedRouter,
+  chargebackLifecycle: chargebackLifecycleMergedRouter,
+  regulatoryReports: regulatoryReportsMergedRouter,
   // E-Commerce
   ecommerce: ecommerceRouter,
   // Hosted Checkout Payment Page
@@ -10201,6 +10263,37 @@ export const appRouter = router({
   pdfExport: pdfExportRouter,
   cashbackRewards: cashbackRewardsRouter,
   apiDocs: apiDocsRouter,
+  // Insider Threat detection
+  insiderThreat: insiderThreatRouter,
+  // Nexthub operations consoles
+  nexthubBilling: nexthubBillingRouter,
+  nexthubDfsps: nexthubDfspsRouter,
+  nexthubDisputes: nexthubDisputesRouter,
+  nexthubReconciliation: nexthubReconciliationRouter,
+  nexthubSecurity: nexthubSecurityRouter,
+  nexthubSettlement: nexthubSettlementRouter,
+  // Wave 211-217 domain routers (supply chain finance, G2P, energy vending)
+  scf: scfRouter,
+  g2p: g2pRouter,
+  energy: energyRouter,
+  remittance: remittanceRouter,
+  // Wave 221 — developer platform
+  wave221: wave221Router,
+  // Wave 223 — onboarding + extensions (combined namespace)
+  wave223: wave223CombinedRouter,
+  // Wave 218 — platform enhancements (previously orphaned, never mounted)
+  wave218: wave218Router,
+  // Wave 225 — Temporal saga wiring (previously orphaned, never mounted)
+  wave225: sagaWiringRouter,
+  // NIP banks — virtual account generation / status (standalone router;
+  // crud.nipBanks only covers list + resolveAccount)
+  nipBanks: nipBanksRouter,
+  // Regulator auth (previously orphaned, never mounted)
+  regulatorAuth: regulatorAuthRouter,
+  // Regulator portal — read-only oversight views (implemented for RegulatorDashboard)
+  regulatorPortal: regulatorPortalRouter,
+  // NIBSS — BVN verification (fail-loud live path via bridge)
+  nibss: nibssRouter,
 });
 export type AppRouter = typeof appRouter;
 export { tier1to5Router };

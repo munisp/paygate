@@ -34,25 +34,35 @@ describe("Wave 33 — Microservice client helpers", () => {
   });
 });
 
+// STALE CONTRACT: the db.ts helper layer for these tables was replaced by
+// dedicated wave124 tRPC routers (idempotencyRequestsRouter,
+// devicePushTokensRouter, subscriptionsRouter — all registered in
+// server/routers.ts) plus the withIdempotency wrapper in server/idempotency.ts.
 describe("Wave 33 — DB helpers for orphan tables", () => {
-  it("getIdempotencyRequest is exported from db.ts", async () => {
-    const mod = await import("./db");
-    expect(typeof mod.getIdempotencyRequest).toBe("function");
-    expect(typeof mod.insertIdempotencyRequest).toBe("function");
+  it("idempotency requests are covered by idempotencyRequestsRouter + withIdempotency", async () => {
+    const mod = await import("./routers/wave124");
+    expect(mod.idempotencyRequestsRouter).toBeDefined();
+    const idem = await import("./idempotency");
+    expect(typeof idem.withIdempotency).toBe("function");
   });
 
-  it("upsertDevicePushToken is exported from db.ts", async () => {
-    const mod = await import("./db");
-    expect(typeof mod.upsertDevicePushToken).toBe("function");
-    expect(typeof mod.listDevicePushTokens).toBe("function");
-    expect(typeof mod.deleteDevicePushToken).toBe("function");
+  it("device push tokens are covered by devicePushTokensRouter", async () => {
+    const mod = await import("./routers/wave124");
+    const r = mod.devicePushTokensRouter;
+    expect(r).toBeDefined();
+    const procs = Object.keys(r._def.procedures);
+    expect(procs).toContain("list");
+    expect(procs).toContain("register");
+    expect(procs).toContain("deregister");
   });
 
-  it("listSubscriptions is exported from db.ts", async () => {
-    const mod = await import("./db");
-    expect(typeof mod.listSubscriptions).toBe("function");
-    expect(typeof mod.upsertSubscription).toBe("function");
-    expect(typeof mod.cancelSubscription).toBe("function");
+  it("subscriptions are covered by subscriptionsRouter", async () => {
+    const mod = await import("./routers/wave124");
+    const r = mod.subscriptionsRouter;
+    expect(r).toBeDefined();
+    const procs = Object.keys(r._def.procedures);
+    expect(procs).toContain("list");
+    expect(procs).toContain("create");
   });
 
   it("disburseAgentCommissions is exported from db.ts", async () => {

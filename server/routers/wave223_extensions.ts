@@ -19,6 +19,7 @@ import {
   realtimeNotificationPreferences,
   apiRateLimitRules,
   fxRates,
+  nexthubDfsps,
 } from "../../drizzle/schema";
 import { storagePut } from "../storage";
 import { notifyOwner } from "../_core/notification";
@@ -573,6 +574,91 @@ const bulkTransfersRouter = router({
     }),
 });
 
+// ─── 11. DFSP Topology ────────────────────────────────────────────────────
+// Backing client: client/src/pages/nexthub/DFSPTopologyMap.tsx
+//   topology.nodes → { id, name, type, status, latencyMs?, transferCount? }
+//   topology.edges → { from, to, volume }[]
+// Nodes come from nexthub_dfsps (plus the NextHub switch itself as the hub).
+// Edges and transfer counts are aggregated from real nexthub_transfers rows —
+// when no transfers exist, edges is truthfully empty (never fabricated links).
+const dfspTopologyRouter = router({
+  get: protectedProcedure.query(async () => {
+    const db = (await getDb())!;
+
+    const dfsps = await db
+      .select({
+        dfspId: nexthubDfsps.dfspId,
+        dfspName: nexthubDfsps.dfspName,
+        dfspType: nexthubDfsps.dfspType,
+        status: nexthubDfsps.status,
+      })
+      .from(nexthubDfsps)
+      .orderBy(nexthubDfsps.dfspName)
+      .limit(500);
+
+    // Real per-DFSP transfer counts (payer + payee legs).
+    const countRows = await db.execute(sql`
+      SELECT fsp, COUNT(*)::int AS c FROM (
+        SELECT payer_fsp_id AS fsp FROM nexthub_transfers
+        UNION ALL
+        SELECT payee_fsp_id AS fsp FROM nexthub_transfers
+      ) legs
+      GROUP BY fsp
+    `);
+    const countByFsp = new Map<string, number>(
+      (countRows.rows as any[]).map((r) => [String(r.fsp), Number(r.c)])
+    );
+
+    // Real DFSP↔DFSP edges from observed transfers.
+    const edgeRows = await db.execute(sql`
+      SELECT payer_fsp_id AS "from", payee_fsp_id AS "to", COUNT(*)::int AS volume
+      FROM nexthub_transfers
+      GROUP BY payer_fsp_id, payee_fsp_id
+      ORDER BY volume DESC
+      LIMIT 1000
+    `);
+    const dfspIds = new Set(dfsps.map((d) => d.dfspId));
+    const edges = (edgeRows.rows as any[]).map((r) => ({
+      from: String(r.from),
+      to: String(r.to),
+      volume: Number(r.volume),
+    }));
+
+    const nodes = [
+      {
+        id: "nexthub-hub",
+        name: "NextHub Switch",
+        type: "hub",
+        status: "active",
+        transferCount: [...countByFsp.values()].reduce((a, b) => a + b, 0),
+      },
+      ...dfsps.map((d) => ({
+        id: d.dfspId,
+        name: d.dfspName,
+        type: d.dfspType,
+        // Table stores uppercase status; the map renders lowercase statuses.
+        status: d.status.toLowerCase(),
+        transferCount: countByFsp.get(d.dfspId) ?? 0,
+      })),
+    ];
+
+    // Every edge endpoint must resolve to a rendered node: the hub node stands
+    // in for any transfer counterparty that is not a registered DFSP.
+    const normalisedEdges = edges.map((e) => ({
+      from: dfspIds.has(e.from) ? e.from : "nexthub-hub",
+      to: dfspIds.has(e.to) ? e.to : "nexthub-hub",
+      volume: e.volume,
+    }));
+
+    return {
+      nodes,
+      edges: normalisedEdges,
+      source: "nexthub_dfsps+nexthub_transfers",
+      generatedAt: new Date().toISOString(),
+    };
+  }),
+});
+
 // ─── Main Wave 223 Extensions Router ──────────────────────────────────────
 export const wave223ExtRouter = router({
   auditLogs: auditLogsRouter,
@@ -585,4 +671,5 @@ export const wave223ExtRouter = router({
   kycDocuments: kycDocumentsRouter,
   merchantVerification: merchantVerificationRouter,
   bulkTransfers: bulkTransfersRouter,
+  dfspTopology: dfspTopologyRouter,
 });

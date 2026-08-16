@@ -1,7 +1,11 @@
 /**
  * PayGate API Proxy Router
  *
- * All procedures proxy to the configured PAYGATE_API_URL backend.
+ * Most procedures proxy to the configured PAYGATE_API_URL backend.
+ * The infra detail procedures (topicHistory, redisNodeHistory,
+ * consumerGroupDetail) query their REAL sources directly — the Kafka admin
+ * API (kafkajs) and the configured Redis instance (ioredis INFO/CONFIG) —
+ * via server/infraHistory.ts ring buffers of genuinely observed samples.
  * When the backend is unreachable, handlers FAIL LOUD (SERVICE_UNAVAILABLE)
  * unless PAYGATE_SIMULATION_MODE=true, in which case loudly labeled demo
  * data ({ source: "simulation", simulation: true }) is returned.
@@ -14,6 +18,7 @@ import { alertThresholds, breachEvents, namedAlertRules } from "../../drizzle/sc
 import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
 import { notifyOwner } from "../_core/notification";
 import { demoOrFail, demoArrayOrFail, isSimulationMode } from "../_core/demoData";
+import { getLiveTopicHistory, getLiveRedisNodeHistory, getLiveConsumerGroupDetail } from "../infraHistory";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -369,9 +374,13 @@ export const proxyRouter = router({
       from: z.string().optional(),
       to: z.string().optional(),
     }))
-    .query(({ input }) => {
-      // NOTE: no live backend exists for per-node history — the synthetic
-      // series below is served ONLY under PAYGATE_SIMULATION_MODE.
+    .query(async ({ input }) => {
+      // LIVE FIRST: real Redis INFO / CONFIG observation of the configured
+      // instance with a ring buffer of genuinely observed memory + hit/miss
+      // samples (deltas between consecutive polls).
+      const live = await getLiveRedisNodeHistory(input.nodeId, input.from, input.to);
+      if (live) return live;
+      // Synthetic series below is served ONLY under PAYGATE_SIMULATION_MODE.
       const isPrimary = input.nodeId === "redis-primary";
       const baseUsedMb = isPrimary ? 842 : 840;
       const maxMb = 4096;
@@ -427,9 +436,13 @@ export const proxyRouter = router({
   // Consumer group detail: per-partition lag + member assignments
   consumerGroupDetail: publicProcedure
     .input(z.object({ groupName: z.string() }))
-    .query(({ input }) => {
-      // NOTE: no live backend exists for consumer-group detail — the synthetic
-      // data below is served ONLY under PAYGATE_SIMULATION_MODE.
+    .query(async ({ input }) => {
+      // LIVE FIRST: real Kafka admin observation (describeGroups, decoded
+      // member assignments, committed offsets vs log-end offsets) plus a ring
+      // buffer of genuinely observed total-lag samples.
+      const live = await getLiveConsumerGroupDetail(input.groupName);
+      if (live) return live;
+      // Synthetic data below is served ONLY under PAYGATE_SIMULATION_MODE.
       const groupConfigs: Record<string, {
         topic: string;
         partitionCount: number;

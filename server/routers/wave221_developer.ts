@@ -5,6 +5,7 @@
  * beneficiary registry, domain quotas, compliance scorecard, protocol validator.
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
 import { db } from "../db";
 import {
@@ -578,6 +579,51 @@ const beneficiaryRegistryRouter = router({
         status: "active",
       });
       return { id };
+    }),
+
+  // Verify a registered beneficiary: guarded status transition to "verified".
+  // The table has no dedicated verifiedAt/isVerified columns, so verification
+  // is recorded via the status column (any non-"verified" status → "verified").
+  verify: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const merchantId = ctx.user.id.toString();
+      const [row] = await db
+        .select()
+        .from(nexthubBeneficiaryRegistry)
+        .where(
+          and(
+            eq(nexthubBeneficiaryRegistry.id, input.id),
+            eq(nexthubBeneficiaryRegistry.merchantId, merchantId)
+          )
+        )
+        .limit(1);
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Beneficiary not found" });
+      }
+      if (row.status === "verified") {
+        throw new TRPCError({ code: "CONFLICT", message: "Beneficiary is already verified" });
+      }
+      // Guarded UPDATE — only transitions rows still in their prior status, so
+      // a concurrent verify/delete cannot silently succeed twice.
+      const updated = await db
+        .update(nexthubBeneficiaryRegistry)
+        .set({ status: "verified", updatedAt: new Date() })
+        .where(
+          and(
+            eq(nexthubBeneficiaryRegistry.id, input.id),
+            eq(nexthubBeneficiaryRegistry.merchantId, merchantId),
+            eq(nexthubBeneficiaryRegistry.status, row.status)
+          )
+        )
+        .returning({ id: nexthubBeneficiaryRegistry.id });
+      if (updated.length === 0) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Beneficiary status changed concurrently — retry verification",
+        });
+      }
+      return { success: true, id: input.id, status: "verified" as const };
     }),
 
   delete: protectedProcedure

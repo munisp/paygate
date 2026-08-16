@@ -122,5 +122,10 @@ venv/
 
 # mTLS private keys — NEVER commit (generate via scripts/gen-certs.sh)
 *.key
+*.pem
 infra/certs/*.key
 infra/certs/*.csr
+
+# compiled Go service binaries (built by Dockerfiles)
+go-services/*/gateway
+go-services/*/adapter

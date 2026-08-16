@@ -159,7 +159,7 @@ export default function TeamRoles() {
   const [form, setForm] = useState({ email: "", name: "", role: "viewer" as RoleKey });
   const utils = trpc.useUtils();
 
-  const { data, isLoading } = trpc.team.list.useQuery(undefined, { staleTime: 60_000 });
+  const { data, isLoading } = trpc.team.list.useQuery({}, { staleTime: 60_000 });
 
   const invite = trpc.team.invite.useMutation({
     onSuccess: () => {
@@ -183,7 +183,7 @@ export default function TeamRoles() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const members = data ?? [];
+  const members = data?.rows ?? [];
   const MEMBERS_PAGE_SIZE = 10;
   const [membersPage, setMembersPage] = useState(1);
   const totalMembersPages = Math.max(1, Math.ceil(members.length / MEMBERS_PAGE_SIZE));

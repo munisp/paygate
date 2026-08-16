@@ -582,6 +582,20 @@
       "when": 1786466378661,
       "tag": "0082_rare_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1786836416216,
+      "tag": "0083_partner_tenancy",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1786836416217,
+      "tag": "0084_missing_feature_tables",
+      "breakpoints": true
     }
   ]
 }

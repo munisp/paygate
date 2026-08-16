@@ -1094,18 +1094,42 @@ export async function listFxAlerts(merchantId: string) {
   return database.select().from(fxAlerts).where(eq(fxAlerts.merchantId, merchantId)).orderBy(desc(fxAlerts.createdAt));
 }
 
-export async function upsertFxAlert(data: Record<string, any>) {
+export async function upsertFxAlert(data: {
+  id?: number;
+  merchantId: string;
+  pair: string;
+  direction: "above" | "below";
+  threshold: number;
+}) {
   const database = requireDbSync();
+  // Upsert semantics: when an id is supplied, update the existing alert row;
+  // otherwise insert a new one.
   if (data.id) {
-    const rows = await database
-      .update(fxAlerts)
-      .set({ ...data, updatedAt: new Date() } as any)
+    const existing = await database
+      .select()
+      .from(fxAlerts)
       .where(eq(fxAlerts.id, data.id))
-      .returning();
-    return rows[0];
+      .limit(1);
+    if (existing.length > 0) {
+      const rows = await database
+        .update(fxAlerts)
+        .set({ ...data, updatedAt: new Date() } as any)
+        .where(eq(fxAlerts.id, data.id))
+        .returning();
+      return rows[0];
+    }
   }
   const rows = await database.insert(fxAlerts).values(data as any).returning();
   return rows[0];
+}
+
+export async function deleteFxAlert(id: number, merchantId: string) {
+  const database = requireDbSync();
+  const rows = await database
+    .delete(fxAlerts)
+    .where(and(eq(fxAlerts.id, id), eq(fxAlerts.merchantId, merchantId)))
+    .returning();
+  return rows[0] ?? null;
 }
 
 // ─── Wallets ──────────────────────────────────────────────────────────────────

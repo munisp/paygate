@@ -33,8 +33,8 @@ export default function BillingHub() {
   const { data: stats, refetch: refetchStats } = trpc.nexthubBilling.getStats.useQuery();
 
   const { data, isLoading, refetch } = trpc.nexthubBilling.listInvoices.useQuery({
-    page,
-    pageSize: 20,
+    limit: 20,
+    offset: (page - 1) * 20,
     status: invoiceStatusFilter as any,
     dfspId: invoiceDfspFilter || undefined,
   });

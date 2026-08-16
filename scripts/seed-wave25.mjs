@@ -7,13 +7,17 @@ import crypto from "crypto";
 
 const { Pool } = pg;
 
-const pool = new Pool({
-  host: "localhost",
-  port: 5432,
-  database: "paygate_dev",
-  user: "paygate",
-  password: "paygate_dev_2026",
-});
+const pool = new Pool(
+  process.env.PG_DATABASE_URL || process.env.DATABASE_URL
+    ? { connectionString: process.env.PG_DATABASE_URL || process.env.DATABASE_URL }
+    : {
+        host: "localhost",
+        port: 5432,
+        database: "paygate_dev",
+        user: "paygate",
+        password: "paygate_dev_2026",
+      }
+);
 
 const randomId = () => crypto.randomUUID();
 const randomHex = (n = 32) => crypto.randomBytes(n).toString("hex");
@@ -71,7 +75,7 @@ async function seedHelpSearchAnalytics(client) {
   for (const q of queries) {
     const daysAgo = Math.floor(Math.random() * 30);
     await client.query(`
-      INSERT INTO help_search_analytics (id, query, source, results_count, clicked_result, created_at)
+      INSERT INTO help_search_analytics (id, query, user_type, result_count, clicked_section, created_at)
       VALUES ($1, $2, $3, $4, $5, NOW() - INTERVAL '${daysAgo} days')
       ON CONFLICT DO NOTHING
     `, [randomId(), q.query, q.source, q.results_count, q.clicked_result]);
@@ -86,12 +90,17 @@ async function seedRateLimitEvents(client) {
   if (!tableCheck.rows[0].exists) {
     await client.query(`
       CREATE TABLE IF NOT EXISTS rate_limit_events (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        ip TEXT,
-        user_id UUID,
-        endpoint TEXT NOT NULL,
-        limit_type TEXT NOT NULL DEFAULT 'api',
-        blocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        id TEXT PRIMARY KEY,
+        identifier TEXT NOT NULL,
+        identifier_type TEXT NOT NULL DEFAULT 'user',
+        procedure TEXT,
+        endpoint TEXT,
+        window_ms INTEGER NOT NULL,
+        limit_val INTEGER NOT NULL,
+        count INTEGER NOT NULL,
+        blocked BOOLEAN NOT NULL DEFAULT false,
+        ip_address TEXT,
+        user_agent TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
@@ -104,10 +113,10 @@ async function seedRateLimitEvents(client) {
   for (let i = 0; i < 25; i++) {
     const hoursAgo = Math.floor(Math.random() * 72);
     await client.query(`
-      INSERT INTO rate_limit_events (id, ip, endpoint, limit_type, blocked_at, created_at)
-      VALUES ($1, $2, $3, $4, NOW() - INTERVAL '${hoursAgo} hours', NOW() - INTERVAL '${hoursAgo} hours')
+      INSERT INTO rate_limit_events (id, identifier, identifier_type, endpoint, blocked, ip_address, window_ms, limit_val, count, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, 60000, 100, 101, NOW() - INTERVAL '${hoursAgo} hours')
       ON CONFLICT DO NOTHING
-    `, [randomId(), ips[i % ips.length], endpoints[i % endpoints.length], i % 3 === 0 ? "auth" : "api"]);
+    `, [randomId(), i % 2 === 0 ? ips[i % ips.length] : `user_${i}`, i % 2 === 0 ? "ip" : "user", endpoints[i % endpoints.length], i % 3 !== 0, ips[i % ips.length]]);
   }
   console.log("  Inserted 25 rate limit events");
 }
@@ -180,6 +189,58 @@ async function seedPayoutBatches(client) {
   console.log("  Inserted 10 payout batches");
 }
 
+async function seedConsumerBudgets(client) {
+  console.log("Seeding consumer_budgets...");
+  const budgets = [
+    { user_id: 3, category: "food", limit_kobo: 5000000, spent_kobo: 1200000, period: "monthly" },
+    { user_id: 4, category: "transport", limit_kobo: 2000000, spent_kobo: 450000, period: "monthly" },
+    { user_id: 5, category: "utilities", limit_kobo: 3000000, spent_kobo: 800000, period: "weekly" },
+    { user_id: 3, category: "entertainment", limit_kobo: 1500000, spent_kobo: 0, period: "monthly" },
+  ];
+  for (const b of budgets) {
+    await client.query(`
+      INSERT INTO consumer_budgets (id, user_id, category, limit_kobo, spent_kobo, period, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING
+    `, [randomId(), b.user_id, b.category, b.limit_kobo, b.spent_kobo, b.period]);
+  }
+  console.log(`  Inserted ${budgets.length} consumer budgets`);
+}
+
+async function seedConsumerSavingsGoals(client) {
+  console.log("Seeding consumer_savings_goals...");
+  const goals = [
+    { user_id: 3, name: "School fees", target_kobo: 50000000, saved_kobo: 12500000, status: "active" },
+    { user_id: 4, name: "New laptop", target_kobo: 80000000, saved_kobo: 30000000, status: "active" },
+    { user_id: 5, name: "Emergency fund", target_kobo: 100000000, saved_kobo: 100000000, status: "completed" },
+  ];
+  for (const g of goals) {
+    await client.query(`
+      INSERT INTO consumer_savings_goals (id, user_id, name, target_kobo, saved_kobo, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING
+    `, [randomId(), g.user_id, g.name, g.target_kobo, g.saved_kobo, g.status]);
+  }
+  console.log(`  Inserted ${goals.length} consumer savings goals`);
+}
+
+async function seedReferrals(client) {
+  console.log("Seeding referrals...");
+  const referrals = [
+    { referrer_id: 3, referee_id: 4, referral_code: "REF-SEED-001", status: "qualified" },
+    { referrer_id: 3, referee_id: 5, referral_code: "REF-SEED-002", status: "pending" },
+    { referrer_id: 4, referee_id: 5, referral_code: "REF-SEED-003", status: "rewarded" },
+  ];
+  for (const r of referrals) {
+    await client.query(`
+      INSERT INTO referrals (id, referrer_id, referee_id, referral_code, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING
+    `, [randomId(), r.referrer_id, r.referee_id, r.referral_code, r.status]);
+  }
+  console.log(`  Inserted ${referrals.length} referrals`);
+}
+
 async function main() {
   const client = await pool.connect();
   try {
@@ -189,6 +250,9 @@ async function main() {
     await seedRateLimitEvents(client);
     await seedRefunds(client);
     await seedPayoutBatches(client);
+    await seedConsumerBudgets(client);
+    await seedConsumerSavingsGoals(client);
+    await seedReferrals(client);
     console.log("\n✅ Wave 25 seed complete!");
   } catch (err) {
     console.error("Seed error:", err.message);

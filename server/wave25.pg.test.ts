@@ -36,11 +36,9 @@ let pool: pg.Pool;
 
 beforeAll(async () => {
   pool = new Pool({
-    host: "localhost",
-    port: 5432,
-    database: "paygate_db",
-    user: "paygate",
-    password: "paygate_dev_2026",
+    connectionString:
+      process.env.PG_DATABASE_URL ??
+      "postgresql://paygate:paygate_dev_2026@127.0.0.1:5432/paygate_db",
   });
 });
 

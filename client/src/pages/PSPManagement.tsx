@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,9 @@ export default function PSPManagement() {
   const [activeTab, setActiveTab] = useState("velocity");
   const [newLimitOpen, setNewLimitOpen] = useState(false);
   const [newLimitForm, setNewLimitForm] = useState({
-    merchantId: "", channel: "nip", limitType: "count", windowSeconds: 3600,
+    channel: "nip", limitType: "count", windowSeconds: 3600,
     maxCount: 100, maxAmountKobo: 10000000,
+    effectiveFrom: new Date().toISOString(),
   });
 
   // Velocity limits
@@ -34,7 +35,7 @@ export default function PSPManagement() {
   const { data: schemeData } = trpc.schemeMembership.list.useQuery({});
 
   // STR records
-  const { data: strData } = trpc.str.list.useQuery({ page: 1, pageSize: 20 });
+  const { data: strData } = trpc.str.list.useQuery({ page: 1, limit: 20 });
 
   // CBN reports
   const { data: reportsData } = trpc.regulatoryReports.list.useQuery({ page: 1, pageSize: 20 });
@@ -79,10 +80,6 @@ export default function PSPManagement() {
                   <DialogHeader><DialogTitle>Create Velocity Limit</DialogTitle></DialogHeader>
                   <div className="space-y-3">
                     <div>
-                      <Label>Merchant ID</Label>
-                      <Input value={newLimitForm.merchantId} onChange={e => setNewLimitForm(f => ({ ...f, merchantId: e.target.value }))} placeholder="merchant-uuid" />
-                    </div>
-                    <div>
                       <Label>Channel</Label>
                       <Select value={newLimitForm.channel} onValueChange={v => setNewLimitForm(f => ({ ...f, channel: v }))}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
@@ -114,7 +111,7 @@ export default function PSPManagement() {
               </Dialog>
             </div>
             <div className="space-y-2">
-              {limitsData?.limits?.map((limit: any) => (
+              {limitsData?.rows?.map((limit: any) => (
                 <Card key={limit.id}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div>
@@ -127,7 +124,7 @@ export default function PSPManagement() {
                   </CardContent>
                 </Card>
               ))}
-              {!limitsData?.limits?.length && (
+              {!limitsData?.rows?.length && (
                 <div className="text-center py-8 text-muted-foreground text-sm">No velocity limits configured. Add one to protect sub-merchants.</div>
               )}
             </div>
@@ -137,21 +134,21 @@ export default function PSPManagement() {
           <TabsContent value="interchange" className="space-y-4">
             <h2 className="text-lg font-semibold">Interchange Fee Schedule</h2>
             <div className="space-y-2">
-              {scheduleData?.schedules?.map((s: any) => (
+              {scheduleData?.rows?.map((s: any) => (
                 <Card key={s.id}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div>
-                      <p className="font-medium text-sm">{s.network} · {s.cardType} · {s.transactionType}</p>
+                      <p className="font-medium text-sm">{s.scheme} · {s.cardType} · {s.channel}</p>
                       <p className="text-xs text-muted-foreground">
-                        {s.feeType === "percentage" ? `${s.feeValue}%` : `₦${(s.feeValue / 100).toFixed(2)} flat`}
-                        {s.capKobo ? ` (cap ₦${(s.capKobo / 100).toLocaleString()})` : ""}
+                        {(s.basisPoints / 100).toFixed(2)}% + ₦{(s.fixedFeeKobo / 100).toFixed(2)} flat
+                        {s.maxFeeKobo != null ? ` (cap ₦${(s.maxFeeKobo / 100).toLocaleString()})` : ""}
                       </p>
                     </div>
-                    <Badge variant="outline">{s.rail}</Badge>
+                    <Badge variant="outline">{s.mcc ?? "all MCC"}</Badge>
                   </CardContent>
                 </Card>
               ))}
-              {!scheduleData?.schedules?.length && (
+              {!scheduleData?.rows?.length && (
                 <div className="text-center py-8 text-muted-foreground text-sm">No interchange schedules configured.</div>
               )}
             </div>
@@ -161,7 +158,7 @@ export default function PSPManagement() {
           <TabsContent value="scheme" className="space-y-4">
             <h2 className="text-lg font-semibold">Scheme Membership & BIN Sponsorship</h2>
             <div className="space-y-2">
-              {schemeData?.memberships?.map((m: any) => (
+              {schemeData?.rows?.map((m: any) => (
                 <Card key={m.id}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div>
@@ -174,7 +171,7 @@ export default function PSPManagement() {
                   </CardContent>
                 </Card>
               ))}
-              {!schemeData?.memberships?.length && (
+              {!schemeData?.rows?.length && (
                 <div className="text-center py-8 text-muted-foreground text-sm">No scheme memberships registered.</div>
               )}
             </div>
@@ -185,7 +182,7 @@ export default function PSPManagement() {
             <h2 className="text-lg font-semibold">Suspicious Transaction Reports (STR)</h2>
             <p className="text-xs text-muted-foreground">CBN/NFIU requires STR submission within 24 hours of detection.</p>
             <div className="space-y-2">
-              {strData?.reports?.map((r: any) => (
+              {strData?.rows?.map((r: any) => (
                 <Card key={r.id}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div>
@@ -200,7 +197,7 @@ export default function PSPManagement() {
                   </CardContent>
                 </Card>
               ))}
-              {!strData?.reports?.length && (
+              {!strData?.rows?.length && (
                 <div className="text-center py-8 text-muted-foreground text-sm">No STRs filed. All transactions appear compliant.</div>
               )}
             </div>
@@ -211,19 +208,19 @@ export default function PSPManagement() {
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-semibold">CBN Regulatory Reports</h2>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => generateReport.mutate({ reportType: "form_a", periodStart: new Date(Date.now() - 30*24*60*60*1000).toISOString(), periodEnd: new Date().toISOString() })}>
-                  Generate Form A
+                <Button size="sm" variant="outline" onClick={() => generateReport.mutate({ reportType: "CBN_MONTHLY", period: new Date().toISOString().slice(0, 7) })}>
+                  Generate Monthly
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => generateReport.mutate({ reportType: "form_b", periodStart: new Date(Date.now() - 30*24*60*60*1000).toISOString(), periodEnd: new Date().toISOString() })}>
-                  Generate Form B
+                <Button size="sm" variant="outline" onClick={() => generateReport.mutate({ reportType: "CBN_QUARTERLY", period: `${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}` })}>
+                  Generate Quarterly
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => generateReport.mutate({ reportType: "form_c", periodStart: new Date(Date.now() - 30*24*60*60*1000).toISOString(), periodEnd: new Date().toISOString() })}>
-                  Generate Form C
+                <Button size="sm" variant="outline" onClick={() => generateReport.mutate({ reportType: "NFIU_CTR", period: new Date().toISOString().slice(0, 7) })}>
+                  Generate NFIU CTR
                 </Button>
               </div>
             </div>
             <div className="space-y-2">
-              {reportsData?.reports?.map((r: any) => (
+              {reportsData?.rows?.map((r: any) => (
                 <Card key={r.id}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div>
@@ -243,7 +240,7 @@ export default function PSPManagement() {
                   </CardContent>
                 </Card>
               ))}
-              {!reportsData?.reports?.length && (
+              {!reportsData?.rows?.length && (
                 <div className="text-center py-8 text-muted-foreground text-sm">No reports generated yet. Use the buttons above to generate CBN Form A/B/C.</div>
               )}
             </div>

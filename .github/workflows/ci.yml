@@ -92,6 +92,8 @@ jobs:
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-store-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+      - name: Feature-claim manifest gate
+        run: node scripts/check-feature-claims.mjs
       - name: Apply database migrations
         run: pnpm exec drizzle-kit migrate
       # HARD GATE: the verified money-path / security regression suites must pass.

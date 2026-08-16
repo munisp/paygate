@@ -49,12 +49,12 @@ export default function G2PDisbursements() {
     { key: "total_amount", label: "Amount" }, { key: "currency", label: "Currency" },
     { key: "status", label: "Status" }, { key: "created_at", label: "Date" },
   ];
-  const { data: stats, isLoading } = trpc.g2p.getBatchStats.useQuery();
+  const { data: stats } = trpc.g2p.getBatchStats.useQuery();
   const createMut = trpc.g2p.createBatch.useMutation({
     onSuccess: (d) => { toast.success(`Batch created: ${d.id}`); setShowBatchDialog(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const { data: ninResult, refetch: lookupNin, isLoading } = trpc.g2p.resolveNIN.useQuery(
+  const { data: ninResult, refetch: lookupNin } = trpc.g2p.resolveNIN.useQuery(
     { nin: ninInput },
     { enabled: false }
   );

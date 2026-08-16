@@ -24,16 +24,19 @@ describe("Wave 138 — Auth & Security Audit", () => {
     expect(content).toContain('sameSite: "none"');
   });
 
+  // STALE CONTRACT: CSRF protection is now the csrfOriginGuard middleware
+  // (server/_core/csrf.ts) mounted on /api/trpc and /api/scheduled; the auth
+  // rate limiter is the expressRateLimit bucket with keyPrefix "auth:oauth".
   it("CSRF protection is implemented in server", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
-    expect(content).toContain("CSRF");
-    expect(content).toContain("csrf-token");
+    expect(content).toContain("csrfOriginGuard");
+    expect(content).toContain('app.use("/api/trpc", csrfOriginGuard)');
   });
 
   it("auth rate limiter is configured", () => {
     const content = readFileSync(join(ROOT, "server/_core/index.ts"), "utf-8");
-    expect(content).toContain("authLimiter");
-    expect(content).toContain("rateLimit");
+    expect(content).toContain('keyPrefix: "auth:oauth"');
+    expect(content).toContain("expressRateLimit");
   });
 
   it("App.tsx has AdminGuard on all admin routes", () => {

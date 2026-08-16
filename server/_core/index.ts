@@ -9,6 +9,8 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
+import { securityAuditJobHandler } from "../jobs/securityAuditJob";
+import { complianceScorecardJobHandler } from "../jobs/complianceScorecardJob";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -286,6 +288,10 @@ async function startServer() {
       return res.status(500).json({ error: message, timestamp: new Date().toISOString() });
     }
   });
+
+  // ── Heartbeat: nightly security audit (02:00 UTC) + compliance scorecard (01:00 UTC) ──
+  app.post("/api/scheduled/security-audit", securityAuditJobHandler);
+  app.post("/api/scheduled/compliance-scorecard", complianceScorecardJobHandler);
 
   // tRPC API — every procedure throttled by the classifier (read / mutation /
   // financial / payout / export buckets; see server/rateLimit.ts).

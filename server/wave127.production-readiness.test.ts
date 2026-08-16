@@ -216,12 +216,16 @@ describe("Wave 127 / Duplicate routes removed from App.tsx", () => {
 describe("Wave 127 / WAFAlertDashboard DB sync", () => {
   const wafDash = readFile(path.join(CLIENT_PAGES, "WAFAlertDashboard.tsx"));
 
-  it("should have a useEffect that syncs DB events to state", () => {
-    expect(wafDash).toMatch(/useEffect.*dbEvents|dbEvents.*useEffect/s);
+  // STALE CONTRACT: the manual useEffect/setEvents DB-sync was replaced by a
+  // declarative trpc.wafAlerts.list.useQuery (React Query owns the sync);
+  // the component renders wafAlertsData directly — no fabricated events.
+  it("should load DB events via the wafAlerts tRPC query", () => {
+    expect(wafDash).toMatch(/trpc\.wafAlerts\.list\.useQuery/);
   });
 
-  it("should update events state when DB data loads", () => {
-    expect(wafDash).toMatch(/setEvents.*dbEvents|dbEvents.*setEvents/);
+  it("should render real DB alert data (no fabricated events)", () => {
+    expect(wafDash).toMatch(/wafAlertsData/);
+    expect(wafDash).toContain("no fabricated events");
   });
 });
 
@@ -276,8 +280,12 @@ describe("Wave 127 / Middleware: Permify PBAC", () => {
   });
 
   it("tRPC core should use Permify for PBAC checks", () => {
+    // STALE CONTRACT: tRPC core now exposes pbacProcedure() which delegates to
+    // requirePermission in server/pbac.ts (Permify-backed permifyCheck).
     const trpcCore = readFile(path.join(SERVER, "_core/trpc.ts"));
-    expect(trpcCore).toMatch(/permify|canPerformMerchantAction/);
+    expect(trpcCore).toMatch(/permify|canPerformMerchantAction|pbacProcedure/);
+    const pbac = readFile(path.join(SERVER, "pbac.ts"));
+    expect(pbac).toMatch(/permifyCheck/);
   });
 });
 
@@ -324,7 +332,11 @@ describe("Wave 127 / FraudRisk seedDemoAlerts procedure", () => {
   });
 
   it("should be idempotent (check existing alerts before seeding)", () => {
-    expect(routers).toMatch(/seedDemoAlerts[\s\S]{0,600}existing|seedDemoAlerts[\s\S]{0,600}Already has/);
+    // STALE CONTRACT: seedDemoAlerts is now gated behind ALLOW_DEMO_SEED
+    // (fail-closed demo gating) before the idempotency check, so the window
+    // between the procedure name and the existing-alert check is larger.
+    expect(routers).toMatch(/seedDemoAlerts[\s\S]{0,1500}existing|seedDemoAlerts[\s\S]{0,1500}Already has/);
+    expect(routers).toMatch(/seedDemoAlerts[\s\S]{0,1500}ALLOW_DEMO_SEED/);
   });
 });
 

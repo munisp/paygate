@@ -27,7 +27,7 @@ export default function Webhooks() {
   const [editingEvents, setEditingEvents] = useState<string[]>([]);
   const utils = trpc.useUtils();
 
-  const { data, isLoading } = trpc.webhooks.list.useQuery(undefined, { staleTime: 30_000 });
+  const { data, isLoading } = trpc.webhooks.list.useQuery({}, { staleTime: 30_000 });
   const { data: deliveries, isLoading: deliveriesLoading } = trpc.webhookDeliveries.list.useQuery(
     { webhookId: expandedWebhook ?? undefined, limit: 20 },
     { enabled: !!expandedWebhook, staleTime: 15_000 }
